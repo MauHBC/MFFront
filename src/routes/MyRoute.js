@@ -14,13 +14,6 @@ export default function MyRoute({
   const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
   const userGroups = useSelector((state) => state.auth.user.group_ids);
 
-  // Log para verificar qual rota está sendo acessada
-  console.log("Acessando rota:", rest.path);
-  // Log para verificar se o usuário está logado
-  console.log("Usuário logado:", isLoggedIn);
-  // Log para verificar os grupos do usuário
-  console.log("Grupos do usuário:", userGroups);
-
   if (isClosed && !isLoggedIn) {
     return (
       <Redirect

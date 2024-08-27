@@ -18,8 +18,8 @@ export default function (state = initialState, action) {
       newState.user = action.payload.user;
       newState.isLoading = false;
 
-      console.log("State after LOGIN_SUCCESS:", newState.user);
-      console.log("User name in LOGIN_SUCCESS:", action.payload.user.name);
+      // console.log("State after LOGIN_SUCCESS:", newState.user);
+      // console.log("User name in LOGIN_SUCCESS:", action.payload.user.name);
 
       return newState;
     }

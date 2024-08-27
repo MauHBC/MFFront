@@ -37,7 +37,7 @@ export default function Agendamentos() {
 
   const handleAgendar = (property) => {
     dispatch(actionsRealEstateData.realEstateData({ data: property }));
-    console.log("realEstateData", property);
+    // console.log("realEstateData", property);
   };
 
   async function handleSubmit(e) {
