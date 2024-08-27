@@ -1,5 +1,5 @@
 #!/bin/bash
-# npm run build
+npm run build
 git add .
 
 echo "Mensagem do commit: "

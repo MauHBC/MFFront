@@ -14,10 +14,17 @@ import Menu from "../pages/Menu";
 import HomeIndex from "../pages/HomeIndex";
 import Laudos from "../pages/Laudos";
 import Agendar from "../pages/Agendar";
+import PoliticasDePrivacidade from "../pages/Privacy";
 
 export default function Routes() {
   return (
     <Switch>
+      <MyRoute
+        exact
+        path="/politicasdeprivacidade"
+        component={PoliticasDePrivacidade}
+        isClosed={false}
+      />
       <MyRoute exact path="/menu" component={Menu} isClosed={false} />
       <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed />
       <MyRoute exact path="/" component={HomeIndex} isClosed={false} />
