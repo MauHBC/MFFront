@@ -2,7 +2,7 @@
 import React from "react";
 import { PrivacyPolicySection } from "./styled";
 
-export default function PoliticasDePrivacidade() {
+export default function Politica() {
   return (
     <PrivacyPolicySection>
       <h2>Política de Privacidade</h2>
