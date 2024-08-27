@@ -14,7 +14,7 @@ import Menu from "../pages/Menu";
 import HomeIndex from "../pages/HomeIndex";
 import Laudos from "../pages/Laudos";
 import Agendar from "../pages/Agendar";
-import PoliticasDePrivacidade from "../pages/Privacy";
+import PoliticasDePrivacidade from "../pages/PoliticasDePrivacidade";
 
 export default function Routes() {
   return (
