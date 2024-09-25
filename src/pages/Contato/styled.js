@@ -1,5 +1,4 @@
 import styled from "styled-components";
-import { Link } from "react-router-dom";
 import * as colors from "../../config/colors";
 
 export const HeroSection = styled.section`
@@ -27,8 +26,9 @@ export const LeftColumn = styled.div`
 
   p {
     font-size: 1.2rem;
-    margin-bottom: 2rem;
+    margin-bottom: 0.8rem;
     color: #333;
+    text-align: justify;
   }
 
   @media (max-width: 768px) {
@@ -49,16 +49,24 @@ export const RightColumn = styled.div`
   }
 `;
 
-export const StyledLink = styled(Link)`
-  background-color: #C3073F;
+export const StyledButton = styled.a`
+  display: block; /* Coloca os botões em uma coluna (um embaixo do outro) */
+  align-items: center;
+  justify-content: center;
+  background-color: ${(props) =>
+    props.bgColor || "#25D366"}; /* Cor padrão para WhatsApp */
+  background-image: ${(props) => props.bgImage || "none"};
   color: white;
   padding: 10px 15px;
   border-radius: 5px;
   text-decoration: none;
-  transition: background-color 0.3s ease;
+  font-weight: bold;
+  margin-bottom: 10px;
+  transition: background-color 0.3s ease, background-image 0.3s ease;
+  width: fit-content;
 
   &:hover {
-    background-color: #9B1C31;
+    background-color: ${(props) => props.hoverColor || "#128C7E"};
+    background-image: ${(props) => props.hoverImage || "none"};
   }
-
 `;

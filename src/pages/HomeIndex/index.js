@@ -1,23 +1,21 @@
 import React from "react";
 import { HeroSection, LeftColumn, RightColumn, StyledLink } from "./styled";
-import maintenanceImage from "../../components/images/Anderson.jpeg";
+import maintenanceImage from "../../components/images/image1.jpg";
 
 export default function HomeIndex() {
   return (
     <HeroSection>
       <LeftColumn>
-        {/* <h1>
-          Soluções imobiliárias? Dê um Check <span>&#10004;</span>, CheckPoint
-        </h1> */}
         <h1>
-          Problemas imobiliários? Dê um Check <span>&#10004;</span>, CheckPoint.
+          A empresa parceira dos inquilinos <span>&#10004;</span>
         </h1>
         <p>
-          Alugou um apartamento e vai se mudar? Facilitamos essa nova fase com
-          mais segurança e conforto na locação, conte-nos sua história!
+          Focada em proteger seus interesses durante o processo de locação. Não
+          ajudamos a encontrar imóveis, mas sim, garantimos uma contra-vistoria
+          que resguarda você dos riscos da vistoria da imobiliária.
         </p>
-        <StyledLink to="/register">Contratar serviço</StyledLink>
-        {/* <StyledLink to="/register">Torne-se um Parceiro</StyledLink> */}
+
+        <StyledLink to="/contato">Fale conosco</StyledLink>
       </LeftColumn>
       <RightColumn>
         <img src={maintenanceImage} alt="Serviços de Manutenção" />

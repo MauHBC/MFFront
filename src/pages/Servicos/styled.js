@@ -24,6 +24,12 @@ export const LeftColumn = styled.div`
     color: #0B3E2D;
     margin-bottom: 1rem;
   }
+  h3 {
+    margin-top: 3rem;
+  }
+  h3:last-of-type {
+    margin-top: 1rem;
+  }
 
   p {
     font-size: 1.2rem;

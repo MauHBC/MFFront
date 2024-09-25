@@ -12,24 +12,24 @@ import Page404 from "../pages/Page404";
 import SemAcesso from "../pages/SemAcesso";
 import Menu from "../pages/Menu";
 import HomeIndex from "../pages/HomeIndex";
-import HomeIndexTeste from "../pages/HomeIndexTeste";
+import Servicos from "../pages/Servicos";
 import Laudos from "../pages/Laudos";
 import Agendar from "../pages/Agendar";
 import Politica from "../pages/Politica";
+import Contato from "../pages/Contato";
+import Prestador from "../pages/Prestador";
 
 export default function Routes() {
   return (
     <Switch>
       <MyRoute exact path="/politica" component={Politica} isClosed={false} />
       <MyRoute exact path="/menu" component={Menu} isClosed={false} />
-      <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed />
+      <MyRoute exact path="/contato" component={Contato} isClosed={false} />
+      <MyRoute exact path="/servicos" component={Servicos} isClosed={false} />
+      <MyRoute exact path="/prestador" component={Prestador} isClosed={false} />
       <MyRoute exact path="/" component={HomeIndex} isClosed={false} />
-      <MyRoute
-        exact
-        path="/homeindexteste"
-        component={HomeIndexTeste}
-        isClosed={false}
-      />
+
+      <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed />
       <MyRoute
         exact
         path="/imoveis"

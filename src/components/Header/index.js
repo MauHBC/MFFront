@@ -25,12 +25,12 @@ export default function Header() {
         <img className="logo" src={logo} alt="Logo" />
       </div>
 
-      {/* <button type="submit" className="hamburguer-menu" onClick={toggleMenu}>
-        ☰
-      </button> */}
-
       <div className="navigation">
         <Link to="/">Home</Link>
+        <Link to="/servicos">Serviços</Link>
+        <Link to="/politica">Política</Link>
+        <Link to="/contato">Contato</Link>
+        <Link to="/prestador">Prestador</Link>
         {isLoggedIn ? (
           <>
             <Link to="/menu">Menu</Link>
