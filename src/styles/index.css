@@ -42,7 +42,7 @@
     color: #0B093B;
   }
   a:hover {
-    color: #7620FF;
+    color: #143610;
   }
   input:-webkit-autofill {
     -webkit-box-shadow:0 0 0 50px #fff inset; /* Change the color to your own background color */
@@ -104,8 +104,8 @@
     width: 100%;
   }
   .active {
-    border-bottom: 2px solid #7620FF;
-    color: #7620FF;
+    border-bottom: 2px solid #af9b55;
+    color: #af9b55;
   }
   .tag {
     padding: 5px 10px;
@@ -246,7 +246,7 @@
   }
   /* BACKGROUNDS */
   .darkBg {
-    background-color: #0B093B;
+    background-color: #143610;
   }
   .purpleBg {
     background-color: #7620FF;

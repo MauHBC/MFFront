@@ -31,7 +31,7 @@ export default function Contact() {
             </Link>
             <StyleP className="whiteColor font13">
               © {getCurrentYear()} -{" "}
-              <span className="purpleColor font13">Checkpoint</span> All Right
+              <span className="font13" style={{color: "#af9b55", fontWeight: 'bold'}}>Checkpoint</span> All Right
               Reserved
             </StyleP>
 

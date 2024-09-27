@@ -1,7 +1,5 @@
 import React from "react";
 import styled from "styled-components";
-// Components
-import FullButton from "../Buttons/FullButton";
 // Assets
 import HeaderImage from "../../assets/img/header-img.jpg";
 import QuotesIcon from "../../assets/svg/Quotes";
@@ -21,9 +19,6 @@ export default function Header() {
             contra-vistoria que resguarda você dos riscos das vistorias
             imobiliárias.
           </HeaderP>
-          <BtnWrapper>
-            <FullButton title="Fale conosco" />
-          </BtnWrapper>
         </div>
       </LeftSide>
       <RightSide>
@@ -100,12 +95,6 @@ const HeaderP = styled.div`
     padding: 15px 0 50px 0;
     text-align: center;
     max-width: 100%;
-  }
-`;
-const BtnWrapper = styled.div`
-  max-width: 190px;
-  @media (max-width: 960px) {
-    margin: 0 auto;
   }
 `;
 const GreyDiv = styled.div`

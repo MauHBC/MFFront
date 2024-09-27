@@ -3,38 +3,22 @@ import styled from "styled-components";
 import { FaCheck, FaKey, FaClipboardCheck, FaDoorOpen } from "react-icons/fa";
 // Assets
 import PropTypes from "prop-types";
-import RollerIcon from "../../assets/svg/Services/RollerIcon";
-import MonitorIcon from "../../assets/svg/Services/MonitorIcon";
-import BrowserIcon from "../../assets/svg/Services/BrowserIcon";
-import PrinterIcon from "../../assets/svg/Services/PrinterIcon";
 
 export default function ServiceBox({ icon, title, subtitle }) {
   let getIcon;
 
   switch (icon) {
-    case "roller":
-      getIcon = <RollerIcon />;
-      break;
-    case "monitor":
-      getIcon = <MonitorIcon />;
-      break;
-    case "browser":
-      getIcon = <BrowserIcon />;
-      break;
-    case "printer":
-      getIcon = <PrinterIcon />;
-      break;
     case "check":
-      getIcon = <FaCheck size={24} color="#4cd5c5" />;
+      getIcon = <FaCheck size={40} color="#143610" />;
       break;
     case "stethoscope":
-      getIcon = <FaClipboardCheck size={24} color="#4cd5c5" />;
+      getIcon = <FaClipboardCheck size={40} color="#143610" />;
       break;
     case "door":
-      getIcon = <FaDoorOpen size={24} color="#4cd5c5" />;
+      getIcon = <FaDoorOpen size={40} color="#143610" />;
       break;
     default:
-      getIcon = <FaKey size={24} color="#4cd5c5" />;
+      getIcon = <FaKey size={40} color="#143610" />;
       break;
   }
 

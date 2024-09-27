@@ -33,7 +33,7 @@ function SvgComponent(props) {
           height={8}
           rx={4}
           transform="translate(382 37)"
-          fill="#7620ff"
+          fill="#143610"
         />
         <rect
           data-name="Rectangle 12"

@@ -2,16 +2,19 @@ import React from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import { Link } from "react-scroll";
-// Assets
 import CloseIcon from "../../assets/svg/CloseIcon";
-import LogoIcon from "../../assets/svg/Logo";
+import Logo from "../../assets/img/Logo.png";
 
 export default function Sidebar({ sidebarOpen, toggleSidebar }) {
   return (
     <Wrapper className="animate darkBg" sidebarOpen={sidebarOpen}>
       <SidebarHeader className="flexSpaceCenter">
         <div className="flexNullCenter">
-          <LogoIcon />
+          <img
+              src={Logo}
+              alt="Checkpoint Logo"
+              style={{ height: "40px", marginRight: "15px" }}
+          />
           <h1 className="whiteColor font20" style={{ marginLeft: "15px" }}>
             Checkpoint
           </h1>
@@ -23,7 +26,6 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
           <CloseIcon />
         </CloseBtn>
       </SidebarHeader>
-
       <UlStyle className="flexNullCenter flexColumn">
         <li className="semiBold font15 pointer">
           <Link
@@ -53,7 +55,7 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
             Serviços
           </Link>
         </li>
-        <li className="semiBold font15 pointer">
+        {/* <li className="semiBold font15 pointer">
           <Link
             onClick={() => toggleSidebar(!sidebarOpen)}
             activeClass="active"
@@ -94,7 +96,7 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
           >
             Pricing
           </Link>
-        </li>
+        </li> */}
         <li className="semiBold font15 pointer">
           <Link
             onClick={() => toggleSidebar(!sidebarOpen)}
@@ -106,11 +108,11 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
             smooth
             offset={-60}
           >
-            Contact
+            Contato
           </Link>
         </li>
       </UlStyle>
-      <UlStyle className="flexSpaceCenter">
+      {/* <UlStyle className="flexSpaceCenter">
         <li className="semiBold font15 pointer">
           <a
             href="http://localhost:3000/login"
@@ -129,7 +131,7 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
             Menu
           </a>
         </li>
-      </UlStyle>
+      </UlStyle> */}
     </Wrapper>
   );
 }

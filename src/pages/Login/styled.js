@@ -14,13 +14,13 @@ export const Form = styled.form`
     font-size: 16px;
     
     &:focus {
-      border-color: #7620ff;
+      border-color: #143610;
     }
   }
 
   button {
     height: 40px;
-    background-color: #7620ff;
+    background-color: #143610;
     border: none;
     border-radius: 8px;
     color: white;

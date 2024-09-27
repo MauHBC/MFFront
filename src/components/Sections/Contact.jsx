@@ -21,16 +21,16 @@ export default function Contact() {
                 <Button
                   href="https://wa.me/5527997448834?text=Olá%20Checkpoint%2C%20gostaria%20de%20mais%20informações."
                   target="_blank"
+                  style={{background: 'transparent'}}
                 >
-                  <FaWhatsapp size={24} color="#25D366" />{" "}
-                  {/* Ícone do WhatsApp */}
+                  <FaWhatsapp size={24} color="#25D366" />
                 </Button>
                 <Button
                   href="https://www.instagram.com/checkpoint.si/"
                   target="_blank"
+                  style={{background: 'transparent'}}
                 >
-                  <FaInstagram size={24} color="#E1306C" />{" "}
-                  {/* Ícone do Instagram */}
+                  <FaInstagram size={24} color="#E1306C" />
                 </Button>
               </ButtonRow>
             </div>
