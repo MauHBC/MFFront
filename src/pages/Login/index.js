@@ -13,12 +13,9 @@ import Loading from "../../components/Loading";
 
 export default function Login(props) {
   const dispatch = useDispatch();
-
   const isLoading = useSelector((state) => state.auth.isLoading);
-
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-
   const prevPatch = get(props, "location.state.prevPath", "/");
 
   async function handleSubmit(e) {
