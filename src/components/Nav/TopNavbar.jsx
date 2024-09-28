@@ -48,7 +48,7 @@ export default function TopNavbar() {
             <li className="semiBold font15 pointer">
               <Link
                 activeClass="active"
-                style={{ padding: "10px 15px", color: 'white' }}
+                style={{ padding: "10px 15px", color: '#143610' }}
                 to="home"
                 spy
                 smooth
@@ -60,7 +60,7 @@ export default function TopNavbar() {
             <li className="semiBold font15 pointer">
               <Link
                 activeClass="active"
-                style={{ padding: "10px 15px", color: 'white' }}
+                style={{ padding: "10px 15px", color: '#143610' }}
                 to="services"
                 spy
                 smooth
@@ -108,7 +108,7 @@ export default function TopNavbar() {
             <li className="semiBold font15 pointer">
               <Link
                 activeClass="active"
-                style={{ padding: "10px 15px", color: 'white' }}
+                style={{ padding: "10px 15px", color: '#143610' }}
                 to="contact"
                 spy
                 smooth

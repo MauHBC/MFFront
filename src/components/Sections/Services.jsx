@@ -22,7 +22,7 @@ export default function Services() {
         <div className="container">
           <HeaderInfo>
             <h1 className="font40 extraBold">Nossos serviços</h1>
-            <p className="font13">
+            <p className="font13" style={{ textAlign: "justify" }}>
               Todos os nossos serviços são realizados com nosso app, registrado
               com fotos e vídeos e enviado ao cliente.
               <br />
@@ -61,7 +61,7 @@ export default function Services() {
                 icon="printer"
                 title="Quem somos"
                 subtitle="Somos uma empresa que tem o objetivo de resguardar o inquilino no
-          inicio, durante e no final da sua locação."
+          início, durante e no final da sua locação."
               />
             </ServiceBoxWrapper> */}
           </ServiceBoxRow>
@@ -72,9 +72,11 @@ export default function Services() {
               <AddLeft>
                 {/* <h4 className="font15 semiBold">A few words about company</h4> */}
                 <h2 className="font40 extraBold">Sobre nós</h2>
-                <p className="font12">
+                <p className="font13" style={{ textAlign: "justify" }}>
                   Somos uma empresa que tem o objetivo de resguardar o inquilino
-                  no inicio, durante e no final da sua locação.
+                  no início, durante e no final da sua locação. Entendemeos que cada cliente é único, 
+                  por isso prezamos pelo atendimento personalizado pois cada cliente tem sua história
+                   e pautamos por transparência em todas as etapas dos nossos serviços.    
                 </p>
                 {/* <ButtonsRow
                   className="flexNullCenter"
