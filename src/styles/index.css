@@ -39,7 +39,7 @@
   }
   a {
     text-decoration: none!important;
-    color: #0B093B;
+    color: #143610;
   }
   a:hover {
     color: #143610;
@@ -51,7 +51,7 @@
   }
   body {
     background: #fff;
-    color: #0B093B;
+    color: #143610;
     font-family: 'Khula', sans-serif;
     overflow-x: hidden;
     font-size: 16px;
@@ -105,7 +105,7 @@
   }
   .active {
     border-bottom: 2px solid #af9b55;
-    color: #af9b55;
+    color: #af9b55 !important;
   }
   .tag {
     padding: 5px 10px;
@@ -221,7 +221,7 @@
   }
   /* COLORS */
   .darkColor {
-    color: #0B093B;
+    color: #143610;
   }
   .purpleColor {
     color: #7620FF;

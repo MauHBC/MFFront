@@ -15,7 +15,7 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
               alt="Checkpoint Logo"
               style={{ height: "40px", marginRight: "15px" }}
           />
-          <h1 className="whiteColor font20" style={{ marginLeft: "15px" }}>
+          <h1 className="whiteColor font20" style={{ marginLeft: "15px", color: '#af9b55' }}>
             Checkpoint
           </h1>
         </div>

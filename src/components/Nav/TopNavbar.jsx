@@ -34,7 +34,7 @@ export default function TopNavbar() {
               alt="Checkpoint Logo"
               style={{ height: "40px", marginRight: "15px" }}
             />{" "}
-            <h1 style={{ marginLeft: "15px" }} className="font20 extraBold">
+            <h1 style={{ marginLeft: "15px", color: '#af9b55'}} className="font20 extraBold">
               Checkpoint
             </h1>
           </Link>
@@ -48,7 +48,7 @@ export default function TopNavbar() {
             <li className="semiBold font15 pointer">
               <Link
                 activeClass="active"
-                style={{ padding: "10px 15px" }}
+                style={{ padding: "10px 15px", color: 'white' }}
                 to="home"
                 spy
                 smooth
@@ -60,7 +60,7 @@ export default function TopNavbar() {
             <li className="semiBold font15 pointer">
               <Link
                 activeClass="active"
-                style={{ padding: "10px 15px" }}
+                style={{ padding: "10px 15px", color: 'white' }}
                 to="services"
                 spy
                 smooth
@@ -108,7 +108,7 @@ export default function TopNavbar() {
             <li className="semiBold font15 pointer">
               <Link
                 activeClass="active"
-                style={{ padding: "10px 15px" }}
+                style={{ padding: "10px 15px", color: 'white' }}
                 to="contact"
                 spy
                 smooth
