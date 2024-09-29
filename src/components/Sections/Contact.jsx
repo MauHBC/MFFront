@@ -42,7 +42,7 @@ export default function Contact() {
             </ButtonRow>
               <p style={{ textAlign: 'center'}}>
                 <p>Espírito Santo</p> {/* Novo texto adicionado */}
-                Atendemos nas cidades de: Vitória, Vila Velha, Serra, Cariacica.
+                Atendemos nas cidades de: Vitória, Vila Velha, Serra e Cariacica.
               </p>
             </div>
             <div className="col-xs-12 col-sm-12 col-md-6 col-lg-6 flex">

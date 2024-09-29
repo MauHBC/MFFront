@@ -65,7 +65,7 @@ export default function Services() {
                 <h2 className="font40 extraBold">Sobre nós</h2>
                 <p className="font13" style={{ textAlign: "justify" }}>
                   Somos uma empresa que tem o objetivo de resguardar o inquilino
-                  no início, durante e no final da sua locação, entendemos que cada cliente tem sua história e é único. 
+                  no início, durante e no final da sua locação por entendermos que cada cliente tem sua história e é único. 
                   Prezamos pelo atendimento personalizado e pautamos por transparência em todas as etapas dos nossos serviços.    
                 </p>
                 {/* <ButtonsRow
