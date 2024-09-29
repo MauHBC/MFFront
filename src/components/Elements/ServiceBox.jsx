@@ -26,7 +26,7 @@ export default function ServiceBox({ icon, title, subtitle }) {
     <Wrapper className="flex flexColumn">
       <IconStyle>{getIcon}</IconStyle>
       <TitleStyle className="font20 extraBold">{title}</TitleStyle>
-      <SubtitleStyle className="font13">{subtitle}</SubtitleStyle>
+      <SubtitleStyle className="font13" style={{ textAlign: 'justify' }}>{subtitle}</SubtitleStyle>
     </Wrapper>
   );
 }

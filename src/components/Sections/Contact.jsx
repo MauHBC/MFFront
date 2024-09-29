@@ -17,7 +17,8 @@ export default function Contact() {
           </HeaderInfo>
           <div className="row" style={{ paddingBottom: "30px" }}>
             <div className="col-xs-12 col-sm-12 col-md-6 col-lg-6">
-              <ButtonRow>
+            <ButtonRow>
+              <div style={{ textAlign: "center" }}>
                 <Button
                   href="https://wa.me/5527997448834?text=Olá%20Checkpoint%2C%20gostaria%20de%20mais%20informações."
                   target="_blank"
@@ -25,6 +26,10 @@ export default function Contact() {
                 >
                   <FaWhatsapp size={24} color="#25D366" />
                 </Button>
+                <span>55 27 997448834</span> {/* Número abaixo do ícone do WhatsApp */}
+              </div>
+
+              <div style={{ textAlign: "center" }}>
                 <Button
                   href="https://www.instagram.com/checkpoint.si/"
                   target="_blank"
@@ -32,7 +37,13 @@ export default function Contact() {
                 >
                   <FaInstagram size={24} color="#E1306C" />
                 </Button>
-              </ButtonRow>
+                <span>Instagram</span> {/* Texto abaixo do ícone do Instagram */}
+              </div>
+            </ButtonRow>
+              <p style={{ textAlign: 'center'}}>
+                <p>Espírito Santo</p> {/* Novo texto adicionado */}
+                Atendemos nas cidades de: Vitória, Vila Velha, Serra, Cariacica.
+              </p>
             </div>
             <div className="col-xs-12 col-sm-12 col-md-6 col-lg-6 flex">
               {/* <div
@@ -49,8 +60,8 @@ export default function Contact() {
               <div style={{ width: "50%" }}>
                 <div style={{ marginTop: "100px" }}>
                   <img src={ContactImg3} alt="office" className="radius6" />
-                </div>
-              </div> */}
+                </div> */}
+              {/* </div> */}
             </div>
           </div>
         </div>
@@ -58,6 +69,8 @@ export default function Contact() {
     </Wrapper>
   );
 }
+
+// Estilização permanece a mesma
 
 const Wrapper = styled.section`
   width: 100%;

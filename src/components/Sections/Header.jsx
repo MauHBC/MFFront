@@ -13,7 +13,7 @@ export default function Header() {
           <h1 className="extraBold font60">
             A empresa parceira dos inquilinos <span>&#10004;</span>
           </h1>
-          <HeaderP className="font13 semiBold">
+          <HeaderP className="font13 semiBold" style={{ textAlign: "justify" }}>
             Focada em proteger seus interesses durante o processo de locação.
             Não ajudamos a encontrar imóveis, mas sim, garantimos uma
             contra-vistoria que resguarda você dos riscos das vistorias

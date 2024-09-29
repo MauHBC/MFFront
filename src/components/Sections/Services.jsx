@@ -6,7 +6,7 @@ import ServiceBox from "../Elements/ServiceBox";
 // import FullButton from "../Buttons/FullButton";
 // Assets
 import AddImage1 from "../../assets/img/add/1.jpg";
-import AddImage2 from "../../assets/img/add/2.jpeg";
+import AddImage2 from "../../assets/img/add/Anderson.jpeg";
 import AddImage3 from "../../assets/img/add/3.jpg";
 import AddImage4 from "../../assets/img/add/4.jpg";
 
@@ -56,14 +56,6 @@ export default function Services() {
           cobranças indevidas!"
               />
             </ServiceBoxWrapper>
-            {/* <ServiceBoxWrapper>
-              <ServiceBox
-                icon="printer"
-                title="Quem somos"
-                subtitle="Somos uma empresa que tem o objetivo de resguardar o inquilino no
-          início, durante e no final da sua locação."
-              />
-            </ServiceBoxWrapper> */}
           </ServiceBoxRow>
         </div>
         <div className="lightBg">
@@ -74,9 +66,8 @@ export default function Services() {
                 <h2 className="font40 extraBold">Sobre nós</h2>
                 <p className="font13" style={{ textAlign: "justify" }}>
                   Somos uma empresa que tem o objetivo de resguardar o inquilino
-                  no início, durante e no final da sua locação. Entendemeos que cada cliente é único, 
-                  por isso prezamos pelo atendimento personalizado pois cada cliente tem sua história
-                   e pautamos por transparência em todas as etapas dos nossos serviços.    
+                  no início, durante e no final da sua locação, entendemos que cada cliente tem sua história e é único. 
+                  Prezamos pelo atendimento personalizado e pautamos por transparência em todas as etapas dos nossos serviços.    
                 </p>
                 {/* <ButtonsRow
                   className="flexNullCenter"
