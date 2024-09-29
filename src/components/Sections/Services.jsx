@@ -26,8 +26,7 @@ export default function Services() {
               Todos os nossos serviços são realizados com nosso app, registrado
               com fotos e vídeos e enviado ao cliente.
               <br />
-              Realizamos manutenção no momento da verificação dependendo da
-              situação.
+              Em alguns casos realizamos manutenção no momento da verificação.
             </p>
           </HeaderInfo>
           <ServiceBoxRow className="flex">
