@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useLogout } from "../../hooks/useLogout";
 import { useAuth } from "../../hooks/useAuth";
 import { Nav } from "./styled";
-import logo from "../Images/CheckPoint.jpg";
+import logo from "../images/CheckPoint.jpg";
 
 export default function Header() {
   const { isLoggedIn, username } = useAuth();
