@@ -3,9 +3,11 @@ import React, { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { v4 as uuidv4 } from "uuid";
 
+
 import { get } from "lodash";
 import PropTypes from "prop-types";
 import { toast } from "react-toastify";
+import Header from "../../components/ImobNavbar/index";
 import * as actions from "../../store/modules/auth/actions";
 
 import axios from "../../services/axios";
@@ -101,89 +103,92 @@ export default function Agendar({ match }) {
   }
 
   return (
-    <HeroSection>
-      <LeftColumn>
-        <Loading isLoading={isLoading}>Carregando...</Loading>
-        <PropertyHeader>
-          <Title>Imobiliária</Title>
-          <p>
-            <strong>Imobiliária:</strong> {propertyData.real_estate}
-          </p>
-          <p>
-            <strong>Código interno:</strong>{" "}
-            {propertyData.real_estate_internal_code}
-          </p>
-          <p>
-            <strong>Código comercial:</strong>{" "}
-            {propertyData.real_estate_commercial_code}
-          </p>
-        </PropertyHeader>
-        <PropertyHeader>
-          <Title>Imóvel</Title>
-          <p>
-            <strong>Condomínio:</strong> {propertyData.condominium}
-          </p>
-          <p>
-            <strong>Endereço:</strong> {propertyData.adress},{" "}
-            {propertyData.number}
-          </p>
-          <p>
-            <strong>Complemento:</strong> {propertyData.complement}
-          </p>
-          <p>
-            <strong>Bairro:</strong> {propertyData.neighborhood}
-          </p>
-          <p>
-            <strong>Cidade:</strong> {propertyData.city}
-          </p>
-          <p>
-            <strong>Estado:</strong> {propertyData.state}
-          </p>
-          <p>
-            <strong>CEP:</strong> {propertyData.zipcode}
-          </p>
-        </PropertyHeader>{" "}
-      </LeftColumn>
-      <RightColumn>
-        <Title>Agendamento</Title>
-        <Form onSubmit={(e) => handleSubmit(e)}>
-          <div className="tittletext">Data do agendamento:</div>
-          <input
-            type="date"
-            value={dataAgendamento}
-            onChange={(e) => setDataAgendamento(e.target.value)}
-          />
-          <div className="tittletext">Tipo de serviço:</div>
-          <div className="serviceTypeButtons">
-            <ServiceButton
-              type="button"
-              selected={serviceType === 1}
-              onClick={() => handleServiceSelection(1)}
-            >
-              Checklist
-            </ServiceButton>
-            <ServiceButton
-              type="button"
-              selected={serviceType === 2}
-              onClick={() => handleServiceSelection(2)}
-            >
-              Solicitação Avulsa
-            </ServiceButton>
-          </div>
-          <div className="observationField">
-            <label htmlFor="observation">Observação Interna:</label>
-            <textarea
-              id="observation"
-              name="observation"
-              rows="4"
-              value={observation}
-              onChange={(e) => setObservation(e.target.value)}
+    <Header>
+
+      <HeroSection>
+        <LeftColumn>
+          <Loading isLoading={isLoading}>Carregando...</Loading>
+          <PropertyHeader>
+            <Title>Imobiliária</Title>
+            <p>
+              <strong>Imobiliária:</strong> {propertyData.real_estate}
+            </p>
+            <p>
+              <strong>Código interno:</strong>{" "}
+              {propertyData.real_estate_internal_code}
+            </p>
+            <p>
+              <strong>Código comercial:</strong>{" "}
+              {propertyData.real_estate_commercial_code}
+            </p>
+          </PropertyHeader>
+          <PropertyHeader>
+            <Title>Imóvel</Title>
+            <p>
+              <strong>Condomínio:</strong> {propertyData.condominium}
+            </p>
+            <p>
+              <strong>Endereço:</strong> {propertyData.adress},{" "}
+              {propertyData.number}
+            </p>
+            <p>
+              <strong>Complemento:</strong> {propertyData.complement}
+            </p>
+            <p>
+              <strong>Bairro:</strong> {propertyData.neighborhood}
+            </p>
+            <p>
+              <strong>Cidade:</strong> {propertyData.city}
+            </p>
+            <p>
+              <strong>Estado:</strong> {propertyData.state}
+            </p>
+            <p>
+              <strong>CEP:</strong> {propertyData.zipcode}
+            </p>
+          </PropertyHeader>{" "}
+        </LeftColumn>
+        <RightColumn>
+          <Title>Agendamento</Title>
+          <Form onSubmit={(e) => handleSubmit(e)}>
+            <div className="tittletext">Data do agendamento:</div>
+            <input
+              type="date"
+              value={dataAgendamento}
+              onChange={(e) => setDataAgendamento(e.target.value)}
             />
-          </div>{" "}
-          <button type="submit">Agendar</button>
-        </Form>
-      </RightColumn>
-    </HeroSection>
+            <div className="tittletext">Tipo de serviço:</div>
+            <div className="serviceTypeButtons">
+              <ServiceButton
+                type="button"
+                selected={serviceType === 1}
+                onClick={() => handleServiceSelection(1)}
+              >
+                Checklist
+              </ServiceButton>
+              <ServiceButton
+                type="button"
+                selected={serviceType === 2}
+                onClick={() => handleServiceSelection(2)}
+              >
+                Solicitação Avulsa
+              </ServiceButton>
+            </div>
+            <div className="observationField">
+              <label htmlFor="observation">Observação Interna:</label>
+              <textarea
+                id="observation"
+                name="observation"
+                rows="4"
+                value={observation}
+                onChange={(e) => setObservation(e.target.value)}
+              />
+            </div>{" "}
+            <button type="submit">Agendar</button>
+          </Form>
+        </RightColumn>
+      </HeroSection>
+    </Header>
   );
 }
 

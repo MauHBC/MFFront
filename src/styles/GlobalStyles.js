@@ -20,19 +20,28 @@ export default createGlobalStyle`
     height: 100%;
   }
 
-  button {
+  button, a { /* Agrupando estilos de botões e links */
     cursor: pointer;
     background: ${colors.primaryColor};
-    border: none;
-    color: #fff;
+    color: ${colors.textColor}; /* Mesma cor para ambos */
     padding: 10px 20px;
+    border: 2px solid ${colors.textColor}; /* Certifique-se de aplicar a borda */
     border-radius: 6px;
     font-weight: 700;
     transition: all 300ms;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    text-decoration: none; /* Para garantir que links fiquem consistentes */
+
+    &:hover {
+      filter: brightness(85%);
+    }
+  }
+  
+  ul {
+    list-style: none;
   }
 
   .img-button {
@@ -109,19 +118,6 @@ export default createGlobalStyle`
     margin-bottom: 10px;
   }
 
-
-  button:hover {
-    filter: brightness(85%);
-  }
-
-  a {
-    text-decoration: none;
-    color: ${colors.buttonColor};
-  }
-
-  ul {
-    list-style: none;
-  }
 `;
 
 /* body .Toastify .Toastify__toast-container .toastify__toats--success {

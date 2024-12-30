@@ -1,12 +1,15 @@
-/* eslint-disable no-alert */
 import React, { useState, useEffect } from "react";
-import { get } from "lodash";
 import PropTypes from "prop-types";
 import { toast } from "react-toastify";
-import { useDispatch, useSelector } from "react-redux";
-import { parse, compareDesc } from "date-fns";
-import * as actions from "../../store/modules/auth/actions";
+import { useDispatch } from "react-redux";
+import { parse, compareDesc, format } from "date-fns"; // Importado format
 import { HeroSection } from "../../styles/GlobalStyles";
+import { handleGenPdf } from "./pdfUtils";
+import { handleSubmit } from "./formUtils";
+import "react-datepicker/dist/react-datepicker.css";
+
+// hooks
+import { useRealEstate } from "../../hooks/useRealEstate";
 
 import {
   Title,
@@ -25,6 +28,7 @@ import Loading from "../../components/Loading";
 
 export default function Laudos() {
   const [isLoading, setIsLoading] = useState(false);
+  const userRealEstateName = useRealEstate();
   const dispatch = useDispatch();
 
   const [realEstateInternalCode, setRealEstateInternalCode] = useState("");
@@ -33,14 +37,11 @@ export default function Laudos() {
   const [adress, setAdress] = useState("");
   const [LaudosCompletos, setLaudosCompletos] = useState([]);
   const [selectedAppointments, setSelectedAppointments] = useState([]);
-  const userRealEstateName = useSelector(
-    (state) => state.auth.user.real_estate_names,
-  );
 
   useEffect(() => {
     async function fetchRealEstates() {
       setIsLoading(true);
-      const response = await axios.get("/appointments/filterByRealEstate", {
+      const response = await axios.get("/appointments/filterByRealEstateEnviados", {
         params: {
           real_estate: userRealEstateName.toString(),
         },
@@ -50,86 +51,6 @@ export default function Laudos() {
     }
     fetchRealEstates();
   }, [userRealEstateName]);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-
-    setIsLoading(true);
-
-    try {
-      console.log({
-        real_estate: userRealEstateName.toString(),
-        real_estate_internal_code: realEstateInternalCode,
-        real_estate_commercial_code: realEstateCommercialCode,
-        adress,
-        condominium,
-      });
-
-      const response = await axios.get("/appointments/filterByRealEstate", {
-        params: {
-          real_estate: userRealEstateName.toString(),
-          real_estate_internal_code: realEstateInternalCode,
-          real_estate_commercial_code: realEstateCommercialCode,
-          adress,
-          condominium,
-        },
-      });
-
-      if (Array.isArray(response.data)) {
-        toast.success("Laudos recebidos");
-        setLaudosCompletos(response.data);
-      } else {
-        toast.error("Erro desconhecido");
-      }
-    } catch (err) {
-      console.log(err);
-
-      const status = get(err, "response.status", 0);
-      const dataerr = get(err, "response.dataerr", {});
-      const errors = get(dataerr, "errors", []);
-
-      if (errors.length > 0) {
-        errors.map((error) => toast.error(error));
-      } else {
-        toast.error("Erro desconhecido");
-      }
-
-      if (status === 401) dispatch(actions.loginFailure());
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  async function handleGenPdf(id) {
-    try {
-      const response = await axios.get(`/appointments/generateReport/${id}`, {
-        responseType: "blob",
-      });
-
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `relatorio_${id}.pdf`); // Nome do arquivo
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (err) {
-      console.log(err);
-
-      const status = get(err, "response.status", 0);
-      const dataerr = get(err, "response.data", {});
-      const errors = get(dataerr, "errors", []);
-
-      if (errors.length > 0) {
-        errors.forEach((error) => toast.error(error));
-      } else {
-        toast.error("Erro desconhecido");
-      }
-      if (status === 401) dispatch(actions.loginFailure());
-    } finally {
-      setIsLoading(false);
-    }
-  }
 
   async function handleGenMultiplePdfs() {
     setIsLoading(true);
@@ -152,10 +73,32 @@ export default function Laudos() {
     );
   }
 
+  // Agrupar os laudos por data
+  const groupedLaudos = LaudosCompletos.reduce((acc, laudo) => {
+    const dateKey = laudo.appointment_date;
+    if (!acc[dateKey]) acc[dateKey] = [];
+    acc[dateKey].push(laudo);
+    return acc;
+  }, {});
+
   return (
     <HeroSection>
       <LeftColumn>
-        <Form onSubmit={(e) => handleSubmit(e)}>
+        <Form
+          onSubmit={(e) =>
+            handleSubmit(
+              e,
+              userRealEstateName,
+              realEstateInternalCode,
+              realEstateCommercialCode,
+              adress,
+              condominium,
+              setIsLoading,
+              setLaudosCompletos,
+              dispatch
+            )
+          }
+        >
           <Loading isLoading={isLoading} />
           <Title>Menu</Title>
           <div className="tittletext">Imobiliária</div>
@@ -200,48 +143,55 @@ export default function Laudos() {
               Gerar Relatórios Selecionados
             </button>
           </ButtonWrapper>
-        </TitleContainer>{" "}
-        {Array.isArray(LaudosCompletos) &&
-          LaudosCompletos.sort((a, b) =>
-            compareDesc(
-              parse(a.appointment_date, "dd/MM/yyyy", new Date()),
-              parse(b.appointment_date, "dd/MM/yyyy", new Date()),
-            ),
-          ).map((laudos) => (
-            <ListProp key={String(laudos.id)}>
-              <div className="propertylist">
-                <div className="propertyListResult">
-                  <span>CCP: {laudos.id}.&nbsp;</span>
-                  <span>Data: {laudos.appointment_date}.&nbsp;</span>
-                  <span className="spacing">
-                    Código Int Imobiliária:{" "}
-                    {laudos.Property.real_estate_internal_code}.&nbsp;
-                  </span>{" "}
-                  <span>
-                    Código Ext Imobiliária:{" "}
-                    {laudos.Property.real_estate_commercial_code}.&nbsp;
-                  </span>
-                  <span>service: {laudos.Service.service}.&nbsp;</span>
-                  <span>Endereço: {laudos.Property.adress}.&nbsp;</span>
-                  <span>Condomínio: {laudos.Property.condominium}.&nbsp;</span>
-                </div>
+        </TitleContainer>
 
-                <Actions>
-                  <StyledCheckbox
-                    type="checkbox"
-                    checked={selectedAppointments.includes(laudos.id)}
-                    onChange={() => handleCheckboxChange(laudos.id)}
-                  />
-                  <button
-                    type="button"
-                    className="schedule-btn"
-                    onClick={() => handleGenPdf(laudos.id)}
-                  >
-                    Relatório
-                  </button>
-                </Actions>
-              </div>
-            </ListProp>
+        {Object.keys(groupedLaudos)
+          .sort((a, b) =>
+            compareDesc(
+              parse(a, "dd/MM/yyyy", new Date()),
+              parse(b, "dd/MM/yyyy", new Date())
+            )
+          )
+          .map((date) => (
+            <div key={date}>
+              <h3 className="DateTitle">{format(parse(date, "dd/MM/yyyy", new Date()), "dd/MM/yyyy")}</h3>
+              {groupedLaudos[date].map((laudo) => (
+                <ListProp key={String(laudo.id)}>
+                  <div className="propertylist">
+                    <div className="propertyListResult">
+                      <span>CCP: {laudo.id}.&nbsp;</span>
+                      <span>Data: {laudo.appointment_date}.&nbsp;</span>
+                      <span className="spacing">
+                        Código Int Imobiliária:{" "}
+                        {laudo.Property.real_estate_internal_code}.&nbsp;
+                      </span>{" "}
+                      <span>
+                        Código Ext Imobiliária:{" "}
+                        {laudo.Property.real_estate_commercial_code}.&nbsp;
+                      </span>
+                      <span>service: {laudo.Service.service}.&nbsp;</span>
+                      <span>Endereço: {laudo.Property.adress}.&nbsp;</span>
+                      <span>Condomínio: {laudo.Property.condominium}.&nbsp;</span>
+                    </div>
+
+                    <Actions>
+                      <StyledCheckbox
+                        type="checkbox"
+                        checked={selectedAppointments.includes(laudo.id)}
+                        onChange={() => handleCheckboxChange(laudo.id)}
+                      />
+                      <button
+                        type="button"
+                        className="schedule-btn"
+                        onClick={() => handleGenPdf(laudo.id, dispatch, setIsLoading)}
+                      >
+                        Relatório
+                      </button>
+                    </Actions>
+                  </div>
+                </ListProp>
+              ))}
+            </div>
           ))}
       </RightColumn>
     </HeroSection>

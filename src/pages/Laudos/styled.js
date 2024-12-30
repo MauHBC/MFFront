@@ -53,6 +53,12 @@ export const RightColumn = styled.div`
     margin-top: 0;
     height: auto;
   }
+
+  .DateTitle {
+    padding-top: 40px;
+    font-weight: bold;
+    font-size: 18px;
+  }
 `;
 
 export const Title = styled.h2`
@@ -121,7 +127,7 @@ export const Form = styled.form`
 `;
 
 export const ListProp = styled.div`
-  margin-top: 20px;
+  margin-top: 10px;
   padding: 15px;
   border: 2px solid black;
   border-radius: 8px;

@@ -14,7 +14,8 @@ export const HomeContainer = styled.div`
     color: ${colors.primaryDarkColor};
   }
 
-  a {
+  a,
+  .logout-button { // Reutiliza os mesmos estilos para botões e links
     cursor: pointer;
     background: ${colors.primaryColor};
     border: none;
@@ -44,7 +45,8 @@ export const HomeContainer = styled.div`
   }
 
   @media (max-width: 768px) {
-    a {
+    a,
+    .logout-button {
       width: auto; // Torna os botões mais flexíveis em telas menores
     }
   }

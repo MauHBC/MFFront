@@ -12,9 +12,17 @@ export const Form = styled.form`
     border-radius: 8px;
     border: 1px solid #ddd;
     font-size: 16px;
-    
+    color: #333; /* Define a cor padrão do texto */
+
     &:focus {
       border-color: #143610;
+    }
+
+    /* Corrige o preenchimento automático do navegador */
+    &:-webkit-autofill {
+      -webkit-text-fill-color: #333; /* Define a cor do texto */
+      background-color: #fff !important; /* Garante fundo branco */
+      transition: background-color 5000s ease-in-out 0s; /* Previne alteração de cor */
     }
   }
 

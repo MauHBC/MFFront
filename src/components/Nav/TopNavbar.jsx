@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import styled from "styled-components";
-import { Link } from "react-scroll";
+import { Link as ScrollLink } from "react-scroll";
 // Components
 import Sidebar from "./Sidebar";
 import Backdrop from "../Elements/Backdrop";
@@ -28,16 +28,19 @@ export default function TopNavbar() {
         style={y > 100 ? { height: "60px" } : { height: "80px" }}
       >
         <NavInner className="container flexSpaceCenter">
-          <Link className="pointer flexNullCenter" to="home" smooth>
+          <ScrollLink className="pointer flexNullCenter" to="home" smooth>
             <img
               src={Logo}
               alt="Checkpoint Logo"
               style={{ height: "40px", marginRight: "15px" }}
-            />{" "}
-            <h1 style={{ marginLeft: "15px", color: '#af9b55'}} className="font20 extraBold">
+            />
+            <h1
+              style={{ marginLeft: "15px", color: "#af9b55" }}
+              className="font20 extraBold"
+            >
               Checkpoint
             </h1>
-          </Link>
+          </ScrollLink>
           <BurderWrapper
             className="pointer"
             onClick={() => toggleSidebar(!sidebarOpen)}
@@ -46,97 +49,54 @@ export default function TopNavbar() {
           </BurderWrapper>
           <UlWrapper className="flexNullCenter">
             <li className="semiBold font15 pointer">
-              <Link
+              <ScrollLink
                 activeClass="active"
-                style={{ padding: "10px 15px", color: '#143610' }}
+                style={{ padding: "10px 15px", color: "#143610" }}
                 to="home"
                 spy
                 smooth
                 offset={-80}
               >
                 Home
-              </Link>
+              </ScrollLink>
             </li>
             <li className="semiBold font15 pointer">
-              <Link
+              <ScrollLink
                 activeClass="active"
-                style={{ padding: "10px 15px", color: '#143610' }}
+                style={{ padding: "10px 15px", color: "#143610" }}
                 to="services"
                 spy
                 smooth
                 offset={-80}
               >
                 Serviços
-              </Link>
+              </ScrollLink>
             </li>
-            {/* <li className="semiBold font15 pointer">
-              <Link
-                activeClass="active"
-                style={{ padding: "10px 15px" }}
-                to="projects"
-                spy
-                smooth
-                offset={-80}
-              >
-                Projects
-              </Link>
-            </li> */}
-            {/* <li className="semiBold font15 pointer">
-              <Link
-                activeClass="active"
-                style={{ padding: "10px 15px" }}
-                to="blog"
-                spy
-                smooth
-                offset={-80}
-              >
-                Blog
-              </Link>
-            </li> */}
-            {/* <li className="semiBold font15 pointer">
-              <Link
-                activeClass="active"
-                style={{ padding: "10px 15px" }}
-                to="pricing"
-                spy
-                smooth
-                offset={-80}
-              >
-                Pricing
-              </Link>
-            </li> */}
             <li className="semiBold font15 pointer">
-              <Link
+              <ScrollLink
                 activeClass="active"
-                style={{ padding: "10px 15px", color: '#143610' }}
+                style={{ padding: "10px 15px", color: "#143610" }}
                 to="contact"
                 spy
                 smooth
                 offset={-80}
               >
                 Contato
-              </Link>
+              </ScrollLink>
             </li>
-          </UlWrapper>
-          <UlWrapperRight className="flexNullCenter">
             {/* <li className="semiBold font15 pointer">
-              <a
-                href="http://localhost:3000/login"
-                style={{ padding: "10px 30px 10px 0" }}
+              <RouterLink
+                to="/login"
+                style={{
+                  padding: "10px 15px",
+                  color: "#143610",
+                  textDecoration: "none",
+                }}
               >
-                Log in
-              </a>
-            </li>
-            <li className="semiBold font15 pointer flexCenter">
-              <a
-                href="http://localhost:3000/register"
-                className="radius8 lightBg"
-                style={{ padding: "10px 15px" }}
-              >
-                Menu
-              </a>
+                Imobiliárias
+              </RouterLink>
             </li> */}
-          </UlWrapperRight>
+          </UlWrapper>
         </NavInner>
       </Wrapper>
     </>
@@ -167,11 +127,6 @@ const BurderWrapper = styled.button`
 `;
 const UlWrapper = styled.ul`
   display: flex;
-  @media (max-width: 760px) {
-    display: none;
-  }
-`;
-const UlWrapperRight = styled.ul`
   @media (max-width: 760px) {
     display: none;
   }

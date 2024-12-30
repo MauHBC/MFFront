@@ -1,6 +1,6 @@
 import React from "react";
 import { Helmet } from "react-helmet";
-import { Router } from "react-router-dom/cjs/react-router-dom.min";
+import { Router } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 import { Provider } from "react-redux";
 import { PersistGate } from "redux-persist/integration/react";
@@ -16,11 +16,7 @@ function App() {
         <Router history={history}>
           <Helmet>
             <link rel="preconnect" href="https://fonts.googleapis.com" />
-            <link
-              rel="preconnect"
-              href="https://fonts.gstatic.com"
-              crossOrigin
-            />
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin />
             <link
               href="https://fonts.googleapis.com/css2?family=Khula:wght@400;600;800&display=swap"
               rel="stylesheet"

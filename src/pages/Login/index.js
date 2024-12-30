@@ -1,22 +1,28 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { toast } from "react-toastify";
 import { isEmail } from "validator";
 import { useDispatch, useSelector } from "react-redux";
-import { get } from "lodash";
-// import history from "../../services/history";
 
 import { Container } from "../../styles/GlobalStyles";
 import { Form } from "./styled";
 import * as actions from "../../store/modules/auth/actions";
 
 import Loading from "../../components/Loading";
+import { useIsLoggedIn } from "../../hooks/useIsLoggedIn";
+import history from "../../services/history";
 
-export default function Login(props) {
+export default function Login() {
   const dispatch = useDispatch();
+  const isLoggedIn = useIsLoggedIn();
   const isLoading = useSelector((state) => state.auth.isLoading);
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const prevPatch = get(props, "location.state.prevPath", "/");
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      history.push("/menu");
+    }
+  }, [isLoggedIn]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -34,12 +40,12 @@ export default function Login(props) {
     }
 
     if (!formErrors) {
-      dispatch(actions.loginRequest({ email, password, prevPatch }));
+      dispatch(actions.loginRequest({ email, password, redirectTo: "/menu" }));
     }
   }
 
   return (
-    <Container>
+    <Container style={{ marginTop: "180px" }}>
       <Loading isLoading={isLoading} />
 
       <h1>Login</h1>
