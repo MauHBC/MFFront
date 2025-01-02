@@ -2,7 +2,8 @@ import React, { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import { toast } from "react-toastify";
 import { useDispatch } from "react-redux";
-import { parse, compareDesc, format } from "date-fns"; // Importado format
+import { parse, compareDesc, format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { HeroSection } from "../../styles/GlobalStyles";
 import { handleGenPdf } from "./pdfUtils";
 import { handleSubmit } from "./formUtils";
@@ -41,7 +42,7 @@ export default function Laudos() {
   useEffect(() => {
     async function fetchRealEstates() {
       setIsLoading(true);
-      const response = await axios.get("/appointments/filterByRealEstateEnviados", {
+      const response = await axios.get("/appointments/filterByRealEstateEnviados7dias", {
         params: {
           real_estate: userRealEstateName.toString(),
         },
@@ -54,8 +55,10 @@ export default function Laudos() {
 
   async function handleGenMultiplePdfs() {
     setIsLoading(true);
+    console.log("IDs selecionados:", selectedAppointments);
+
     try {
-      await Promise.all(selectedAppointments.map((id) => handleGenPdf(id)));
+      await Promise.all(selectedAppointments.map((id) => handleGenPdf(id, dispatch, setIsLoading)));
       toast.success("Relatórios gerados com sucesso");
       setSelectedAppointments([]);
     } catch (error) {
@@ -152,47 +155,56 @@ export default function Laudos() {
               parse(b, "dd/MM/yyyy", new Date())
             )
           )
-          .map((date) => (
-            <div key={date}>
-              <h3 className="DateTitle">{format(parse(date, "dd/MM/yyyy", new Date()), "dd/MM/yyyy")}</h3>
-              {groupedLaudos[date].map((laudo) => (
-                <ListProp key={String(laudo.id)}>
-                  <div className="propertylist">
-                    <div className="propertyListResult">
-                      <span>CCP: {laudo.id}.&nbsp;</span>
-                      <span>Data: {laudo.appointment_date}.&nbsp;</span>
-                      <span className="spacing">
-                        Código Int Imobiliária:{" "}
-                        {laudo.Property.real_estate_internal_code}.&nbsp;
-                      </span>{" "}
-                      <span>
-                        Código Ext Imobiliária:{" "}
-                        {laudo.Property.real_estate_commercial_code}.&nbsp;
-                      </span>
-                      <span>service: {laudo.Service.service}.&nbsp;</span>
-                      <span>Endereço: {laudo.Property.adress}.&nbsp;</span>
-                      <span>Condomínio: {laudo.Property.condominium}.&nbsp;</span>
-                    </div>
+          .map((date) => {
+            const parsedDate = parse(date, "dd/MM/yyyy", new Date());
+            const formattedDate = format(parsedDate, "dd/MM/yyyy");
+            const weekDay = format(parsedDate, "EEEE", { locale: ptBR });
+            return (
+              <div key={date}>
+                <h3 className="DateTitle">
+                  {`${formattedDate}, ${weekDay.charAt(0).toUpperCase() + weekDay.slice(1)}`}
+                </h3>
+                {groupedLaudos[date].map((laudo) => (
+                  <ListProp key={String(laudo.id)}>
+                    <div className="propertylist">
+                      <div className="propertyListResult">
+                        <span>
+                          <strong>Cód CheckPoint:</strong> {laudo.id}, <strong>Serviço:</strong> {laudo.Service.service}.&nbsp;
+                        </span>
+                        <span>
+                          <strong>Cód Int Imobiliária:</strong> {laudo.Property.real_estate_internal_code}.&nbsp;
+                        </span>
+                        <span>
+                          <strong>Endereço:</strong> {laudo.Property.adress}, <strong>Nº:</strong> {laudo.Property.number}.&nbsp;
+                        </span>
+                        <span>
+                          <strong>Condomínio:</strong> {laudo.Property.condominium}, {laudo.Property.complement}&nbsp;
+                        </span>
+                        <span>
+                          <strong>Local:</strong> {laudo.Property.neighborhood}, {laudo.Property.city}&nbsp;&nbsp;
+                        </span>
+                      </div>
 
-                    <Actions>
-                      <StyledCheckbox
-                        type="checkbox"
-                        checked={selectedAppointments.includes(laudo.id)}
-                        onChange={() => handleCheckboxChange(laudo.id)}
-                      />
-                      <button
-                        type="button"
-                        className="schedule-btn"
-                        onClick={() => handleGenPdf(laudo.id, dispatch, setIsLoading)}
-                      >
-                        Relatório
-                      </button>
-                    </Actions>
-                  </div>
-                </ListProp>
-              ))}
-            </div>
-          ))}
+                      <Actions>
+                        <StyledCheckbox
+                          type="checkbox"
+                          checked={selectedAppointments.includes(laudo.id)}
+                          onChange={() => handleCheckboxChange(laudo.id)}
+                        />
+                        <button
+                          type="button"
+                          className="schedule-btn"
+                          onClick={() => handleGenPdf(laudo.id, dispatch, setIsLoading)}
+                        >
+                          Relatório
+                        </button>
+                      </Actions>
+                    </div>
+                  </ListProp>
+                ))}
+              </div>
+            );
+          })}
       </RightColumn>
     </HeroSection>
   );
