@@ -18,6 +18,7 @@ import {
   ListProp,
   RightColumn,
   LeftColumn,
+  PaginationContainer, PaginationButton, PaginationInfo
 } from "./styled";
 import axios from "../../services/axios";
 
@@ -35,39 +36,48 @@ export default function Imoveis() {
   const [condominium, setCondominium] = useState("");
   const [adress, setAdress] = useState("");
 
+  // Páginação
+  const [currentPage, setCurrentPage] = useState(1); // Página atual
+  const [totalPages, setTotalPages] = useState(1); // Total de páginas
+  const [totalCount, setTotalCount] = useState(0); // Total de registros
+
+
   useEffect(() => {
     async function fetchProperties() {
       try {
         setIsLoading(true);
 
-        // Realizar a requisição de busca de imóveis
         const response = await axios.get("/property/showproperty", {
           params: {
             real_estate: userRealEstateName,
+            page: currentPage, // Página atual
+            limit: 10, // Limite de imóveis por página
           },
         });
 
-        if (Array.isArray(response.data)) {
-          setProperties(response.data); // Atualiza o estado com os imóveis retornados
+        if (response.data && Array.isArray(response.data.properties)) {
+          setProperties(response.data.properties);
+          setTotalPages(response.data.totalPages);
+          setTotalCount(response.data.totalCount);
         } else {
           toast.error("Erro desconhecido na resposta do servidor");
         }
       } catch (err) {
         console.error(err);
-        const status = get(err, "response.status", 0);
-        if (status === 401) dispatch(actions.loginFailure());
-        toast.error("Imóveis encontrados");
+        toast.error("Erro ao buscar imóveis");
       } finally {
         setIsLoading(false);
       }
     }
 
     fetchProperties();
-  }, [userRealEstateName, dispatch]);
+  }, [userRealEstateName, currentPage]); // Reexecuta a cada mudança de página
 
-  // const handleAgendar = (property) => {
-  //   dispatch(actionsRealEstateData.realEstateData({ data: property }));
-  // };
+
+  const handlePageChange = (newPage) => {
+    setCurrentPage(newPage);
+  };
+
 
   async function handleDelete(e, id, index) {
     e.persist();
@@ -204,12 +214,35 @@ export default function Imoveis() {
           className="schedule-btn"
           to="/imovel/"
         >
-          Cadastrar novo imóvel{" "}
+          novo imóvel{" "}
         </Link>
 
       </LeftColumn>
       <RightColumn>
         <Title>Imóveis encontrados</Title>
+
+        <PaginationContainer>
+          <PaginationButton
+            onClick={() => handlePageChange(currentPage - 1)}
+            disabled={currentPage === 1}
+          >
+            Anterior
+          </PaginationButton>
+
+          <PaginationInfo>{`Página ${currentPage} de ${totalPages}`}</PaginationInfo>
+
+          <PaginationButton
+            onClick={() => handlePageChange(currentPage + 1)}
+            disabled={currentPage === totalPages}
+          >
+            Próxima
+          </PaginationButton>
+        </PaginationContainer>
+
+        <div>
+          <p>Total de imóveis encontrados: {totalCount}</p>
+        </div>
+
         {Array.isArray(properties) &&
           properties.map((property, index) => (
             <ListProp key={String(property.id)}>

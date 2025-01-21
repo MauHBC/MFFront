@@ -160,3 +160,36 @@ export const ListProp = styled.div`
     }
   }
 `;
+
+export const PaginationContainer = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px; /* Espaçamento entre os itens */
+  margin-top: 20px; /* Espaço acima da paginação */
+`;
+
+export const PaginationButton = styled.button`
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+
+  &:hover {
+    background-color: #0056b3;
+  }
+
+  &:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+  }
+`;
+
+export const PaginationInfo = styled.span`
+  font-size: 16px;
+  color: #333;
+`;
