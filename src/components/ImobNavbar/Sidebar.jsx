@@ -1,9 +1,10 @@
 import React from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
-import { Link } from "react-scroll";
+import { Link } from "react-router-dom";
 import CloseIcon from "../../assets/svg/CloseIcon";
 import Logo from "../../assets/img/Logo.png";
+
 
 export default function Sidebar({ sidebarOpen, toggleSidebar }) {
   return (
@@ -26,112 +27,48 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
           <CloseIcon />
         </CloseBtn>
       </SidebarHeader>
-      <UlStyle className="flexNullCenter flexColumn">
-        <li className="semiBold font15 pointer">
-          <Link
-            onClick={() => toggleSidebar(!sidebarOpen)}
-            activeClass="active"
-            className="whiteColor"
-            style={{ padding: "10px 15px" }}
-            to="home"
-            spy
-            smooth
-            offset={-60}
-          >
-            Home
-          </Link>
-        </li>
-        <li className="semiBold font15 pointer">
-          <Link
-            onClick={() => toggleSidebar(!sidebarOpen)}
-            activeClass="active"
-            className="whiteColor"
-            style={{ padding: "10px 15px" }}
-            to="services"
-            spy
-            smooth
-            offset={-60}
-          >
-            Serviços
-          </Link>
-        </li>
-        {/* <li className="semiBold font15 pointer">
-          <Link
-            onClick={() => toggleSidebar(!sidebarOpen)}
-            activeClass="active"
-            className="whiteColor"
-            style={{ padding: "10px 15px" }}
-            to="projects"
-            spy
-            smooth
-            offset={-60}
-          >
-            Projects
-          </Link>
-        </li>
-        <li className="semiBold font15 pointer">
-          <Link
-            onClick={() => toggleSidebar(!sidebarOpen)}
-            activeClass="active"
-            className="whiteColor"
-            style={{ padding: "10px 15px" }}
-            to="blog"
-            spy
-            smooth
-            offset={-60}
-          >
-            Blog
-          </Link>
-        </li>
-        <li className="semiBold font15 pointer">
-          <Link
-            onClick={() => toggleSidebar(!sidebarOpen)}
-            activeClass="active"
-            className="whiteColor"
-            style={{ padding: "10px 15px" }}
-            to="pricing"
-            spy
-            smooth
-            offset={-60}
-          >
-            Pricing
-          </Link>
-        </li> */}
-        <li className="semiBold font15 pointer">
-          <Link
-            onClick={() => toggleSidebar(!sidebarOpen)}
-            activeClass="active"
-            className="whiteColor"
-            style={{ padding: "10px 15px" }}
-            to="contact"
-            spy
-            smooth
-            offset={-60}
-          >
-            Contato
-          </Link>
-        </li>
-      </UlStyle>
-      {/* <UlStyle className="flexSpaceCenter">
-        <li className="semiBold font15 pointer">
-          <a
-            href="http://localhost:3000/login"
-            style={{ padding: "10px 30px 10px 0" }}
-            className="whiteColor"
-          >
-            Log in
-          </a>
-        </li>
+      <UlStyle className="flexSpaceCenter">
         <li className="semiBold font15 pointer flexCenter">
-          <a
-            href="http://localhost:3000/register"
+          <Link
+            to="/menu"
+            style={{ padding: "10px 15px", textDecoration: "none" }}
             className="radius8 lightBg"
-            style={{ padding: "10px 15px" }}
           >
             Menu
-          </a>
+          </Link>
         </li>
-      </UlStyle> */}
+
+        <li className="semiBold font15 pointer flexCenter">
+          <Link
+            to="/agendamentos"
+            style={{ padding: "10px 15px", textDecoration: "none" }}
+            className="radius8 lightBg"
+          >
+            Agenda
+          </Link>
+        </li>
+
+        <li className="semiBold font15 pointer flexCenter">
+          <Link
+            to="/imoveis"
+            style={{ padding: "10px 15px", textDecoration: "none" }}
+            className="radius8 lightBg"
+          >
+            Imóveis
+          </Link>
+        </li>
+
+        <li className="semiBold font15 pointer flexCenter">
+          <Link
+            to="/laudos"
+            style={{ padding: "10px 15px", textDecoration: "none" }}
+            className="radius8 lightBg"
+          >
+            Laudos
+          </Link>
+        </li>
+
+      </UlStyle>
     </Wrapper>
   );
 }
@@ -156,15 +93,29 @@ const Wrapper = styled.nav`
 const SidebarHeader = styled.div`
   padding: 20px 0;
 `;
+
 const CloseBtn = styled.button`
   border: 0px;
   outline: none;
   background-color: transparent;
   padding: 10px;
 `;
+
 const UlStyle = styled.ul`
-  padding: 40px;
+  display: flex;
+  flex-direction: column; /* Organiza os itens verticalmente */
+  align-items: flex-start; /* Alinha os itens à esquerda */
+  padding: 40px 0; /* Espaço no topo e embaixo */
+  list-style: none; /* Remove os marcadores da lista */
+
   li {
-    margin: 20px 0;
+    width: 100%; /* Para os links ocuparem toda a largura */
+    margin-bottom: 20px; /* Espaço entre os itens */
+    
+    a {
+      display: block; /* Garante que o link seja tratado como bloco */
+      width: 100%; /* Ocupa toda a largura disponível */
+      text-align: left; /* Alinha o texto à esquerda */
+    }
   }
 `;

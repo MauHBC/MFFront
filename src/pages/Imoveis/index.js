@@ -112,10 +112,11 @@ export default function Imoveis() {
   }
 
   async function handleSubmit(e) {
-    e.preventDefault();
+    e.preventDefault(); // Previne o comportamento padrão do formulário.
 
     let formErrors = false;
 
+    // Valida se pelo menos um campo foi preenchido.
     if (
       !realEstate.length &&
       !realEstateInternalCode.length &&
@@ -127,12 +128,12 @@ export default function Imoveis() {
       toast.error("Pelo menos um campo deve ser preenchido");
     }
 
-    setIsLoading(false);
-    if (formErrors) return;
+    if (formErrors) return; // Para a execução se houver erros.
 
-    setIsLoading(true);
+    setIsLoading(true); // Exibe o loader.
 
     try {
+      // Realiza a requisição ao backend com os parâmetros do formulário e paginação.
       const response = await axios.get("/property/showproperty", {
         params: {
           real_estate: userRealEstateName,
@@ -140,39 +141,33 @@ export default function Imoveis() {
           real_estate_commercial_code: realEstateCommercialCode,
           condominium,
           adress,
+          page: 1, // Sempre inicia na primeira página ao realizar uma nova busca.
+          limit: 10, // Define o número de itens por página.
         },
       });
 
-      if (Array.isArray(response.data)) {
-        setProperties(response.data);
-        toast.success("Imóveis recebidos");
+      if (response.data && response.data.properties) {
+        setProperties(response.data.properties); // Atualiza a lista de propriedades.
+        setTotalPages(Math.ceil(response.data.totalCount / 10)); // Atualiza o número total de páginas.
+        setCurrentPage(1); // Reinicia na página 1.
       } else {
-        toast.error("Erro desconhecido na resposta do servidor");
+        toast.error("Nenhum imóvel encontrado.");
       }
     } catch (err) {
-      console.log(err);
-
+      console.error(err);
       const status = get(err, "response.status", 0);
-      const dataerr = get(err, "response.dataerr", {});
-      const errors = get(dataerr, "errors", []);
-
-      if (errors.length > 0) {
-        errors.map((error) => toast.error(error));
-      } else {
-        toast.error("Erro desconhecido");
-      }
-
       if (status === 401) dispatch(actions.loginFailure());
+      toast.error("Erro ao buscar imóveis, tente novamente.");
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Esconde o loader.
     }
-
     setRealEstate([]);
     setRealEstateInternalCode("");
     setRealEstateCommercialCode("");
     setCondominium("");
     setAdress("");
   }
+
 
   return (
     <HeroSection>

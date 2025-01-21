@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import styled from "styled-components";
 import { Link as ScrollLink } from "react-scroll";
+import { Link as RouterLink } from "react-router-dom";
+
 // Components
 import Sidebar from "./Sidebar";
 import Backdrop from "../Elements/Backdrop";
@@ -84,7 +86,7 @@ export default function TopNavbar() {
                 Contato
               </ScrollLink>
             </li>
-            {/* <li className="semiBold font15 pointer">
+            <li className="semiBold font15 pointer">
               <RouterLink
                 to="/login"
                 style={{
@@ -93,9 +95,9 @@ export default function TopNavbar() {
                   textDecoration: "none",
                 }}
               >
-                Imobiliárias
+                Login
               </RouterLink>
-            </li> */}
+            </li>
           </UlWrapper>
         </NavInner>
       </Wrapper>
