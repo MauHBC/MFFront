@@ -5,17 +5,19 @@ import PropTypes from "prop-types";
 import { toast } from "react-toastify";
 import { useDispatch } from "react-redux";
 import { Link } from "react-router-dom";
-import { FaEdit, FaWindowClose } from "react-icons/fa";
+import { HeroSection } from "../../styles/GlobalStyles";
 import * as actions from "../../store/modules/auth/actions";
+// import * as actionsRealEstateData from "../../store/modules/realestatedata/actions";
 
-import { Container } from "../../styles/GlobalStyles";
+// hooks
+import { useRealEstate } from "../../hooks/useRealEstate";
+
 import {
   Title,
-  MenuButtons,
-  Voltar,
   Form,
   ListProp,
-  NovoImovel,
+  RightColumn,
+  LeftColumn,
 } from "./styled";
 import axios from "../../services/axios";
 
@@ -25,7 +27,7 @@ export default function Imoveis() {
   const [isLoading, setIsLoading] = useState(false);
   const dispatch = useDispatch();
 
-  const [realEstatelist, setRealEstateList] = useState([]);
+  const userRealEstateName = useRealEstate();
   const [realEstate, setRealEstate] = useState("");
   const [properties, setProperties] = useState([]);
   const [realEstateInternalCode, setRealEstateInternalCode] = useState("");
@@ -34,14 +36,38 @@ export default function Imoveis() {
   const [adress, setAdress] = useState("");
 
   useEffect(() => {
-    async function fetchRealEstates() {
-      setIsLoading(true);
-      const response = await axios.get("/property/realEstates");
-      setRealEstateList(response.data);
-      setIsLoading(false);
+    async function fetchProperties() {
+      try {
+        setIsLoading(true);
+
+        // Realizar a requisição de busca de imóveis
+        const response = await axios.get("/property/showproperty", {
+          params: {
+            real_estate: userRealEstateName,
+          },
+        });
+
+        if (Array.isArray(response.data)) {
+          setProperties(response.data); // Atualiza o estado com os imóveis retornados
+        } else {
+          toast.error("Erro desconhecido na resposta do servidor");
+        }
+      } catch (err) {
+        console.error(err);
+        const status = get(err, "response.status", 0);
+        if (status === 401) dispatch(actions.loginFailure());
+        toast.error("Imóveis encontrados");
+      } finally {
+        setIsLoading(false);
+      }
     }
-    fetchRealEstates();
-  }, []);
+
+    fetchProperties();
+  }, [userRealEstateName, dispatch]);
+
+  // const handleAgendar = (property) => {
+  //   dispatch(actionsRealEstateData.realEstateData({ data: property }));
+  // };
 
   async function handleDelete(e, id, index) {
     e.persist();
@@ -99,7 +125,7 @@ export default function Imoveis() {
     try {
       const response = await axios.get("/property/showproperty", {
         params: {
-          real_estate: realEstate,
+          real_estate: userRealEstateName,
           real_estate_internal_code: realEstateInternalCode,
           real_estate_commercial_code: realEstateCommercialCode,
           condominium,
@@ -137,36 +163,17 @@ export default function Imoveis() {
     setCondominium("");
     setAdress("");
   }
+
   return (
-    <>
-      <Container>
+    <HeroSection>
+      <LeftColumn>
         <Loading isLoading={isLoading} />
 
         <Title>Buscar imóvel</Title>
 
-        <MenuButtons>
-          <Voltar to="/">Voltar</Voltar>
-          <NovoImovel to="/imovel/">Novo Imóvel</NovoImovel>
-        </MenuButtons>
-
         <Form onSubmit={(e) => handleSubmit(e)}>
           <div className="tittletext">Imobiliária</div>
-          <select
-            value={realEstate}
-            onChange={(e) => setRealEstate(e.target.value)}
-          >
-            <option value="" disabled>
-              Selecione uma imobiliária
-            </option>
-            {realEstatelist.map((realEstateOption) => (
-              <option
-                key={realEstateOption.id}
-                value={realEstateOption.real_estate}
-              >
-                {realEstateOption.real_estate}
-              </option>
-            ))}
-          </select>
+          <input value={userRealEstateName} disabled />
           <div className="tittletext">Código interno da Imobiliária</div>
           <input
             type="text"
@@ -193,16 +200,21 @@ export default function Imoveis() {
           />
           <button type="submit">Buscar Imóvel</button>
         </Form>
-      </Container>
-      <Container>
+        <Link
+          className="schedule-btn"
+          to="/imovel/"
+        >
+          Cadastrar novo imóvel{" "}
+        </Link>
+
+      </LeftColumn>
+      <RightColumn>
         <Title>Imóveis encontrados</Title>
         {Array.isArray(properties) &&
           properties.map((property, index) => (
             <ListProp key={String(property.id)}>
               <div className="propertylist">
                 <div className="propertyListResult">
-                  <span>CCP: {property.id}.&nbsp;</span>
-                  <span>Imobiliária: {property.real_estate}.&nbsp;</span>
                   <span>
                     Cód interno: {property.real_estate_internal_code}.&nbsp;
                   </span>
@@ -215,22 +227,40 @@ export default function Imoveis() {
                   <span>Complemento: {property.complement}.&nbsp;</span>
                 </div>
 
-                <Link className="edit" to={`/imovel/${property.id}/edit`}>
-                  <FaEdit size={22} />{" "}
-                </Link>
+                <div className="action-buttons">
+                  <Link
+                    className="schedule-btn"
+                    to={{
+                      pathname: `/agendamentos/${property.id}/agendar`,
+                      state: { property },
+                    }}
+                  >
+                    Agendar
+                  </Link>
 
-                <Link
-                  className="delete"
-                  onClick={(e) => handleDeleteAsk(e, property.id, index)}
-                  to={`/property/${property.id}/delete`}
-                >
-                  <FaWindowClose size={22} />{" "}
-                </Link>
+
+                  <Link
+                    className="edit"
+                    to={{
+                      pathname: `/imovel/${property.id}/edit`,
+                    }}
+                  >
+                    Editar
+                  </Link>
+
+                  <Link
+                    className="delete"
+                    onClick={(e) => handleDeleteAsk(e, property.id, index)}
+                    to={`/property/${property.id}/delete`}
+                  >
+                    Excluir
+                  </Link>
+                </div>
               </div>
             </ListProp>
           ))}
-      </Container>
-    </>
+      </RightColumn>
+    </HeroSection>
   );
 }
 

@@ -1,132 +1,103 @@
-/* eslint-disable no-alert */
 import React, { useState, useEffect } from "react";
-import { get } from "lodash";
-import { toast } from "react-toastify";
+import PropTypes from "prop-types";
 import { useDispatch } from "react-redux";
+import { parse, compareDesc, format, startOfWeek, endOfWeek, addWeeks, subWeeks } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { Link } from "react-router-dom";
-import * as actions from "../../store/modules/auth/actions";
-import * as actionsRealEstateData from "../../store/modules/realestatedata/actions";
-
-import { HeroSection } from "../../styles/GlobalStyles";
-import { Title, Form, ListProp, RightColumn, LeftColumn } from "./styled";
+import { handleSubmit } from "./formUtils";
+import "react-datepicker/dist/react-datepicker.css";
 import axios from "../../services/axios";
+
+
+// hooks
+import { useRealEstate } from "../../hooks/useRealEstate";
+
+// styleds
+import {
+  Title,
+  TitleContainer,
+  Form,
+  ListProp,
+  RightColumn,
+  LeftColumn,
+} from "./styled";
+import { HeroSection } from "../../styles/GlobalStyles";
+
 
 import Loading from "../../components/Loading";
 
 export default function Agendamentos() {
   const [isLoading, setIsLoading] = useState(false);
+  const userRealEstateName = useRealEstate();
   const dispatch = useDispatch();
 
-  const [realEstatelist, setRealEstatelist] = useState([]);
-  const [realEstate, setRealEstate] = useState("");
-  const [properties, setProperties] = useState([]);
   const [realEstateInternalCode, setRealEstateInternalCode] = useState("");
   const [realEstateCommercialCode, setRealEstateCommercialCode] = useState("");
   const [condominium, setCondominium] = useState("");
   const [adress, setAdress] = useState("");
 
+  // Estados de semana
+  const [startDate, setStartDate] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [endDate, setEndDate] = useState(endOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [agendamentos, setAgendamentos] = useState([]);
+
   useEffect(() => {
-    async function fetchRealstates() {
+    async function fetchAgendamentos() {
       setIsLoading(true);
-      const response = await axios.get("/property/realEstates");
-      setRealEstatelist(response.data);
-      setIsLoading(false);
-    }
-    fetchRealstates();
-  }, []);
+      try {
+        const formattedStartDate = format(startDate, "yyyy-MM-dd");
+        const formattedEndDate = format(endDate, "yyyy-MM-dd");
 
-  const handleAgendar = (property) => {
-    dispatch(actionsRealEstateData.realEstateData({ data: property }));
-    // console.log("realEstateData", property);
-  };
+        const response = await axios.get("/appointments/filterByWeek", {
+          params: {
+            real_estate: userRealEstateName.toString(),
+            start_date: formattedStartDate,
+            end_date: formattedEndDate,
+          },
+        });
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-
-    let formErrors = false;
-
-    if (
-      !realEstate.length &&
-      !realEstateInternalCode.length &&
-      !realEstateCommercialCode.length &&
-      !condominium.length &&
-      !adress.length
-    ) {
-      formErrors = true;
-      toast.error("Pelo menos um campo deve ser preenchido");
-    }
-
-    setIsLoading(false);
-    if (formErrors) return;
-
-    setIsLoading(true);
-
-    try {
-      const response = await axios.get("/property/showproperty", {
-        params: {
-          real_estate: realEstate,
-          real_estate_internal_code: realEstateInternalCode,
-          real_estate_commercial_code: realEstateCommercialCode,
-          condominium,
-          adress,
-        },
-      });
-
-      if (Array.isArray(response.data)) {
-        setProperties(response.data);
-        toast.success("Imóveis recebidos");
-      } else {
-        toast.error("Erro desconhecido na resposta do servidor");
+        setAgendamentos(response.data);
+      } catch (error) {
+        console.error("Erro ao buscar agendamentos:", error);
       }
-    } catch (err) {
-      console.log(err);
-
-      const status = get(err, "response.status", 0);
-      const dataerr = get(err, "response.dataerr", {});
-      const errors = get(dataerr, "errors", []);
-
-      if (errors.length > 0) {
-        errors.map((error) => toast.error(error));
-      } else {
-        toast.error("Erro desconhecido");
-      }
-
-      if (status === 401) dispatch(actions.loginFailure());
-    } finally {
       setIsLoading(false);
     }
 
-    setRealEstate([]);
-    setRealEstateInternalCode("");
-    setRealEstateCommercialCode("");
-    setCondominium("");
-    setAdress("");
-  }
+    fetchAgendamentos();
+  }, [userRealEstateName, startDate, endDate]);
+
+
+  // Agrupar os laudos por data
+  const groupedLaudos = agendamentos.reduce((acc, agendamento) => {
+    const dateKey = agendamento.appointment_date;
+    if (!acc[dateKey]) acc[dateKey] = [];
+    acc[dateKey].push(agendamento);
+    return acc;
+  }, {});
+
 
   return (
     <HeroSection>
       <LeftColumn>
-        <Form onSubmit={(e) => handleSubmit(e)}>
+        <Form
+          onSubmit={(e) =>
+            handleSubmit(
+              e,
+              userRealEstateName,
+              realEstateInternalCode,
+              realEstateCommercialCode,
+              adress,
+              condominium,
+              setIsLoading,
+              setAgendamentos,
+              dispatch
+            )
+          }
+        >
           <Loading isLoading={isLoading} />
-          <Title>Buscar imóvel</Title>
-
+          <Title>Menu</Title>
           <div className="tittletext">Imobiliária</div>
-          <select
-            value={realEstate}
-            onChange={(e) => setRealEstate(e.target.value)}
-          >
-            <option value="" disabled>
-              Selecione uma imobiliária
-            </option>
-            {realEstatelist.map((realEstateOption) => (
-              <option
-                key={realEstateOption.id}
-                value={realEstateOption.real_estate}
-              >
-                {realEstateOption.real_estate}
-              </option>
-            ))}
-          </select>
+          <input value={userRealEstateName} disabled />
           <div className="tittletext">Código interno da Imobiliária</div>
           <input
             type="text"
@@ -154,40 +125,91 @@ export default function Agendamentos() {
           <button type="submit">Buscar Imóvel</button>
         </Form>
       </LeftColumn>
-      <RightColumn>
-        <Title>Imóveis encontrados</Title>
-        {Array.isArray(properties) &&
-          properties.map((property, index) => (
-            <ListProp key={String(property.id)}>
-              <div className="propertylist">
-                <div className="propertyListResult">
-                  <span>
-                    <strong>Cód interno:</strong>{" "}
-                    {property.real_estate_internal_code}.&nbsp;
-                  </span>
-                  <span>
-                    <strong>Cód comercial:</strong>{" "}
-                    {property.real_estate_commercial_code}.&nbsp;
-                  </span>
-                  <span>
-                    <strong>Endereço:</strong> {property.condominium},{" "}
-                    {property.adress}, {property.number}, {property.complement};
-                  </span>
-                </div>
 
-                <div className="actions">
-                  <Link
-                    className="schedule-btn"
-                    onClick={() => handleAgendar(property, index)}
-                    to={`/agendamentos/${property.id}/agendar`}
-                  >
-                    Agendar{" "}
-                  </Link>
-                </div>
+      <RightColumn>
+        <TitleContainer>
+          <Title> Agendamentos </Title>
+        </TitleContainer>
+        <div className="filter-container">
+          <button
+            type="button"
+            onClick={() => {
+              setStartDate(subWeeks(startDate, 1));
+              setEndDate(subWeeks(endDate, 1));
+            }}
+          >
+            &lt; Semana Anterior
+          </button>
+          <span>
+            {`Semana de ${format(startDate, "dd/MM/yyyy")} a ${format(endDate, "dd/MM/yyyy")}`}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setStartDate(addWeeks(startDate, 1));
+              setEndDate(addWeeks(endDate, 1));
+            }}
+          >
+            Próxima Semana &gt;
+          </button>
+        </div>
+
+        {Object.keys(groupedLaudos)
+          .sort((a, b) =>
+            compareDesc(
+              parse(a, "dd/MM/yyyy", new Date()),
+              parse(b, "dd/MM/yyyy", new Date())
+            )
+          )
+          .map((date) => {
+            const parsedDate = parse(date, "dd/MM/yyyy", new Date());
+            const formattedDate = format(parsedDate, "dd/MM/yyyy");
+            const weekDay = format(parsedDate, "EEEE", { locale: ptBR });
+            return (
+              <div key={date}>
+                <h3 className="DateTitle">
+                  {`${formattedDate}, ${weekDay.charAt(0).toUpperCase() + weekDay.slice(1)}`}
+                </h3>
+                {groupedLaudos[date].map((agendamento) => (
+                  <ListProp key={String(agendamento.id)}>
+                    <div className="propertylist">
+                      <div className="propertyListResult">
+                        <span>
+                          <strong>Cód CheckPoint:</strong> {agendamento.id}, <strong>Serviço:</strong> {agendamento.Service.service}.&nbsp;
+                        </span>
+                        <span>
+                          <strong>Cód Int Imobiliária:</strong> {agendamento.Property.real_estate_internal_code}.&nbsp;
+                        </span>
+                        <span>
+                          <strong>Endereço:</strong> {agendamento.Property.adress}, <strong>Nº:</strong> {agendamento.Property.number}.&nbsp;
+                        </span>
+                        <span>
+                          <strong>Condomínio:</strong> {agendamento.Property.condominium}, {agendamento.Property.complement}&nbsp;
+                        </span>
+                        <span>
+                          <strong>Local:</strong> {agendamento.Property.neighborhood}, {agendamento.Property.city}&nbsp;&nbsp;
+                        </span>
+                      </div>
+
+                      <div className="action-buttons">
+                        <Link className="edit" to={{
+                          pathname: `/agendamentos/${agendamento.property_id}/agendarEdit`,
+                          state: { agendamento },
+                        }}>
+                          Editar
+                        </Link>
+                      </div>
+                    </div>
+                  </ListProp>
+                ))}
               </div>
-            </ListProp>
-          ))}
+            );
+          })}
       </RightColumn>
     </HeroSection>
   );
 }
+
+Agendamentos.propTypes = {
+  match: PropTypes.shape({}).isRequired,
+};

@@ -1,4 +1,6 @@
+/* eslint-disable jsx-a11y/label-has-associated-control */
 import React, { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { get } from "lodash";
 import PropTypes from "prop-types";
 import { toast } from "react-toastify";
@@ -8,28 +10,34 @@ import * as actions from "../../store/modules/auth/actions";
 
 import axios from "../../services/axios";
 import history from "../../services/history";
-import { Container } from "../../styles/GlobalStyles";
-import { Form, Title, Voltar } from "./styled";
+import { HeroSection } from "../../styles/GlobalStyles";
+import { Form, Title, LeftColumn } from "./styled";
 import Loading from "../../components/Loading";
 
 export default function Imovel({ match }) {
   const dispatch = useDispatch();
-
   const id = get(match, "params.id", "");
-  const [condominium, setCondominium] = useState("");
-  const [adress, setAdress] = useState("");
-  const [complement, setComplement] = useState("");
-  const [number, setNumber] = useState("");
-  const [neighborhood, setNeighborhood] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
-  const [zipcode, setZipcode] = useState("");
-  const [realEstate, setRealEstate] = useState("");
-  const [realEstateInternalCode, setRealEstateInternalCode] = useState("");
-  const [realEstateCommercialCode, setRealEstateCommercialCode] = useState("");
+  const location = useLocation();
+  const property = location.state?.property || {};
+
+  const [condominium, setCondominium] = useState(property.condominium || "");
+  const [adress, setAdress] = useState(property.adress || "");
+  const [complement, setComplement] = useState(property.complement || "");
+  const [number, setNumber] = useState(property.number || "");
+  const [neighborhood, setNeighborhood] = useState(property.neighborhood || "");
+  const [city, setCity] = useState(property.city || "");
+  const [state, setState] = useState(property.state || "");
+  const [zipcode, setZipcode] = useState(property.zipcode || "");
+  const realEstate = useState(property.real_estate || "");
+  const [realEstateInternalCode, setRealEstateInternalCode] = useState(
+    property.real_estate_internal_code || ""
+  );
+  const [realEstateCommercialCode, setRealEstateCommercialCode] = useState(
+    property.real_estate_commercial_code || ""
+  );
+
   const [isLoading, setIsLoading] = useState(false);
 
-  // to fill form with the data
   useEffect(() => {
     if (!id) return;
 
@@ -38,7 +46,7 @@ export default function Imovel({ match }) {
         setIsLoading(true);
 
         const { data } = await axios.get(`/property/${id}`);
-        setCondominium(data.Condomínio);
+        // setCondominium(data.Condomínio);
         setAdress(data.adress);
         setComplement(data.complement);
         setNumber(data.number);
@@ -46,7 +54,6 @@ export default function Imovel({ match }) {
         setCity(data.city);
         setState(data.state);
         setZipcode(data.zipcode);
-        setRealEstate(data.real_estate);
         setRealEstateInternalCode(data.real_estate_internal_code);
         setRealEstateCommercialCode(data.real_estate_commercial_code);
 
@@ -101,10 +108,6 @@ export default function Imovel({ match }) {
       formErrors = true;
       toast.error("CEP inválido");
     }
-    if (realEstate.length < 3 || realEstate.length > 255) {
-      formErrors = true;
-      toast.error("Imobiliária deve ter 3 caracteres");
-    }
     if (
       realEstateInternalCode.length < 3 ||
       realEstateInternalCode.length > 255
@@ -141,7 +144,7 @@ export default function Imovel({ match }) {
           real_estate_commercial_code: realEstateCommercialCode,
         });
         toast.success("Imóvel editado com sucesso");
-        history.push(`/imovel/${id}/edit`);
+        history.push(`/imoveis`);
       } else {
         const { data } = await axios.post(`/property/`, {
           condominium,
@@ -178,96 +181,122 @@ export default function Imovel({ match }) {
   }
 
   return (
-    <Container>
-      <Loading isLoading={isLoading}>Carregando...</Loading>
+    <HeroSection>
+      <LeftColumn>
+        <Loading isLoading={isLoading}>Carregando...</Loading>
 
-      <Title>{id ? `Editar imóvel CCP: ${id}` : "Nova imóvel"}</Title>
+        <Title>{id ? `Editar imóvel` : "Novo imóvel"}</Title>
+        <Title>{`${condominium} ${complement}`}</Title>
 
-      <Form onSubmit={(e) => handleSubmit(e)}>
-        <Voltar to="/imoveis">Voltar</Voltar>
+        <Form onSubmit={(e) => handleSubmit(e)}>
+          <fieldset>
+            <legend>Informações Básicas</legend>
+            <div className="form-group">
+              <label htmlFor="realEstateInternalCode">Código Interno</label>
+              <input
+                id="realEstateInternalCode"
+                type="text"
+                value={realEstateInternalCode}
+                onChange={(e) => setRealEstateInternalCode(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="realEstateCommercialCode">Código Comercial</label>
+              <input
+                id="realEstateCommercialCode"
+                type="text"
+                value={realEstateCommercialCode}
+                onChange={(e) => setRealEstateCommercialCode(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="zipcode">CEP</label>
+              <input
+                id="zipcode"
+                type="text"
+                value={zipcode}
+                onChange={(e) => setZipcode(e.target.value)}
+              />
+            </div>
+          </fieldset>
 
-        <div className="tittletext">Imobiliária</div>
-        <input
-          type="text"
-          value={realEstate}
-          onChange={(e) => setRealEstate(e.target.value)}
-        />
+          <fieldset>
+            <legend>Endereço</legend>
+            <div className="form-group">
+              <label htmlFor="adress">Endereço</label>
+              <input
+                id="adress"
+                type="text"
+                value={adress}
+                onChange={(e) => setAdress(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="number">Número</label>
+              <input
+                id="number"
+                type="text"
+                value={number}
+                onChange={(e) => setNumber(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="complement">Complemento</label>
+              <input
+                id="complement"
+                type="text"
+                value={complement}
+                onChange={(e) => setComplement(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="neighborhood">Bairro</label>
+              <input
+                id="neighborhood"
+                type="text"
+                value={neighborhood}
+                onChange={(e) => setNeighborhood(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="city">Cidade</label>
+              <input
+                id="city"
+                type="text"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="state">Estado</label>
+              <input
+                id="state"
+                type="text"
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+              />
+            </div>
+          </fieldset>
 
-        <div className="tittletext">Código interno</div>
-        <input
-          type="text"
-          value={realEstateInternalCode}
-          onChange={(e) => setRealEstateInternalCode(e.target.value)}
-        />
+          <fieldset>
+            <legend>Condomínio</legend>
+            <div className="form-group">
+              <label htmlFor="condominium">Condomínio</label>
+              <input
+                id="condominium"
+                type="text"
+                value={condominium}
+                onChange={(e) => setCondominium(e.target.value)}
+              />
+            </div>
+          </fieldset>
 
-        <div className="tittletext">Código comercial</div>
-        <input
-          type="text"
-          value={realEstateCommercialCode}
-          onChange={(e) => setRealEstateCommercialCode(e.target.value)}
-        />
-
-        <div className="tittletext">CEP</div>
-        <input
-          type="text"
-          value={zipcode}
-          onChange={(e) => setZipcode(e.target.value)}
-        />
-
-        <div className="tittletext">Endereço</div>
-        <input
-          type="text"
-          value={adress}
-          onChange={(e) => setAdress(e.target.value)}
-        />
-
-        <div className="tittletext">Número</div>
-        <input
-          type="text"
-          value={number}
-          onChange={(e) => setNumber(e.target.value)}
-        />
-
-        <div className="tittletext">Complemento</div>
-        <input
-          type="text"
-          value={complement}
-          onChange={(e) => setComplement(e.target.value)}
-        />
-
-        <div className="tittletext">Bairro</div>
-        <input
-          type="text"
-          value={neighborhood}
-          onChange={(e) => setNeighborhood(e.target.value)}
-        />
-
-        <div className="tittletext">Cidade</div>
-        <input
-          type="text"
-          value={city}
-          onChange={(e) => setCity(e.target.value)}
-        />
-
-        <div className="tittletext">Estado</div>
-        <input
-          type="text"
-          value={state}
-          onChange={(e) => setState(e.target.value)}
-        />
-
-        <div className="tittletext">Condomínio</div>
-        <input
-          type="text"
-          value={condominium}
-          onChange={(e) => setCondominium(e.target.value)}
-        />
-
-        <button type="submit">
-          {id ? `Editar Imóvel` : "Cadastrar novo Imóvel"}
-        </button>
-      </Form>
-    </Container>
+          <button type="submit">
+            {id ? `Editar Imóvel` : "Cadastrar novo Imóvel"}
+          </button>
+        </Form>
+      </LeftColumn>
+    </HeroSection>
   );
 }
 

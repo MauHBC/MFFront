@@ -18,7 +18,8 @@ import Imovel from "../pages/Imovel";
 import Register from "../pages/Register";
 import Laudos from "../pages/Laudos";
 import Agendar from "../pages/Agendar";
-import ImobNavbar from "../components/ImobNavbar/TopNavbar"; // Importe a navbar
+import AgendarEdit from "../pages/AgendarEdit";
+import ImobNavbar from "../components/ImobNavbar/TopNavbar";
 
 export default function Routes() {
   const location = useLocation();
@@ -40,6 +41,7 @@ export default function Routes() {
         {/* Rotas protegidas */}
         <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed />
         <MyRoute exact path="/agendamentos/:id/agendar" component={Agendar} isClosed />
+        <MyRoute exact path="/agendamentos/:id/agendarEdit" component={AgendarEdit} isClosed />
         <MyRoute exact path="/imoveis" component={Imoveis} isClosed allowedGroups={1} />
         <MyRoute exact path="/laudos" component={Laudos} isClosed allowedGroups={3} />
         <MyRoute exact path="/imovel/:id/edit" component={Imovel} isClosed />

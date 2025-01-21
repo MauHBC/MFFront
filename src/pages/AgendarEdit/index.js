@@ -27,20 +27,28 @@ import {
 import ServiceButton from "../../components/ServiceButton";
 import ObservationField from "../../components/ObservationField";
 
-export default function Agendar() {
+export default function AgendarEdit() {
   const dispatch = useDispatch();
   const location = useLocation();
-  const property = location.state?.property || {};
+  const agendamento = location.state?.agendamento || {};
 
   const [isLoading, setIsLoading] = useState(false);
 
-  const [dataAgendamento, setDataAgendamento] = useState("");
-  const [serviceType, setServiceType] = useState("");
-  const [mobiliado, setMobiliado] = useState("");
-  const [acompanhado, setAcompanhado] = useState("");
-  const [keyLocation, setKeyLocation] = useState("");
-  const [observation, setObservation] = useState("");
-  const [obsAcompanhado, setObsAcompanhado] = useState("");
+  // Formatando data recebida da página 'Agendamentos'.
+  const dataSemFormatar = agendamento.appointment_date || "";
+  function convertToDBFormat(dateStr) {
+    const [year, month, day] = dateStr.split("/");
+    return `${day}-${month}-${year}`;
+  }
+  const dataFormatada = convertToDBFormat(dataSemFormatar);
+
+  const [dataAgendamento, setDataAgendamento] = useState(dataFormatada || "");
+  const [serviceType, setServiceType] = useState(agendamento.service_id || "");
+  const [mobiliado, setMobiliado] = useState(agendamento.mobiliado || "");
+  const [acompanhado, setAcompanhado] = useState(agendamento.accompanied_by || "");
+  const [keyLocation, setKeyLocation] = useState(agendamento.key_location || "");
+  const [observation, setObservation] = useState(agendamento.appointment_observation || "");
+  const [obsAcompanhado, setObsAcompanhado] = useState(agendamento.accompanied_obs || "");
 
   const userAdminId = useSelector((state) =>
     state.auth.user ? state.auth.user.id : "",
@@ -80,27 +88,30 @@ export default function Agendar() {
       return `${year}-${month}-${day}`;
     }
 
+    // Verificar se o campo de observação foi alterado.
+    const adjustedObsAcompanhado = acompanhado === "Sim" ? obsAcompanhado : null;
+
     try {
       setIsLoading(true);
       const dataAgendamentoISO = convertToISOFormat(dataAgendamento);
 
-
-      await axios.post(`/appointments`, {
-        property_id: property.id,
-        appointment_date: dataAgendamentoISO,
-        service_id: serviceType,
-        appointment_observation: observation,
-        status: "Agenda Geral",
-        admin_user_id: userAdminId,
-        uuid: chaveAleatoria,
-        mobiliado,
-        key_location: keyLocation,
-        accompanied_by: acompanhado,
-        accompanied_obs: obsAcompanhado,
-      });
-      toast.success("Agendado com sucesso");
-      history.push(`/imoveis`);
-
+      if (agendamento.id) {
+        await axios.put(`/appointments/${agendamento.id}`, {
+          property_id: agendamento.Property.id,
+          appointment_date: dataAgendamentoISO,
+          service_id: serviceType,
+          appointment_observation: observation,
+          status: agendamento.status,
+          admin_user_id: userAdminId,
+          uuid: chaveAleatoria,
+          mobiliado,
+          key_location: keyLocation,
+          accompanied_by: acompanhado,
+          accompanied_obs: adjustedObsAcompanhado,
+        });
+        toast.success("Agendamento editado com sucesso");
+        history.push(`/agendamentos`);
+      }
 
       setIsLoading(false);
     } catch (err) {
@@ -119,6 +130,9 @@ export default function Agendar() {
     }
   }
 
+  console.log(serviceType);
+
+
   return (
     <HeroSection>
       <LeftColumn>
@@ -128,40 +142,41 @@ export default function Agendar() {
           <Title>Imóvel</Title>
           <p>
             <strong>Código interno:</strong>{" "}
-            {property.real_estate_internal_code}
+            {agendamento.Property.real_estate_internal_code}
           </p>
           <p>
             <strong>Código comercial:</strong>{" "}
-            {property.real_estate_commercial_code}
+            {agendamento.Property.real_estate_commercial_code}
           </p>
 
           <p>
-            <strong>Condomínio:</strong> {property.condominium}
+            <strong>Condomínio:</strong> {agendamento.Property.condominium}
           </p>
           <p>
-            <strong>Endereço:</strong> {property.adress},{" "}
-            {property.number}
+            <strong>Endereço:</strong> {agendamento.Property.adress},{" "}
+            {agendamento.Property.number}
           </p>
           <p>
-            <strong>Complemento:</strong> {property.complement}
+            <strong>Complemento:</strong> {agendamento.Property.complement}
           </p>
           <p>
-            <strong>Bairro:</strong> {property.neighborhood}
+            <strong>Bairro:</strong> {agendamento.Property.neighborhood}
           </p>
           <p>
-            <strong>Cidade:</strong> {property.city}
+            <strong>Cidade:</strong> {agendamento.Property.city}
           </p>
           <p>
-            <strong>Estado:</strong> {property.state}
+            <strong>Estado:</strong> {agendamento.Property.state}
           </p>
           <p>
-            <strong>CEP:</strong> {property.zip_code}
+            <strong>CEP:</strong> {agendamento.Property.zip_code}
           </p>
         </PropertyHeader>{" "}
 
       </LeftColumn>
       <RightColumn>
-        <Title>Novo Agendamento</Title>
+        <Title>Editar Agendamento</Title>
+        <Title>{`Código do agendamento: ${agendamento.id}`}</Title>
 
         <Form onSubmit={(e) => handleSubmit(e)}>
           <div className="tittletext">Data do agendamento:</div>
@@ -264,13 +279,13 @@ export default function Agendar() {
             value={observation}
             onChange={(e) => setObservation(e.target.value)}
           />
-          <button type="submit">Cadastrar Novo Agendamento</button>
+          <button type="submit">Salvar alterações</button>
         </Form>
       </RightColumn>
     </HeroSection>
   );
 }
 
-Agendar.propTypes = {
+AgendarEdit.propTypes = {
   match: PropTypes.shape({}).isRequired,
 };

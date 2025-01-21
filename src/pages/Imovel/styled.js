@@ -23,30 +23,60 @@ export const Voltar = styled(Link)`
 `;
 
 export const Form = styled.form`
-  margin-top: 30px;
   display: flex;
   flex-direction: column;
+  gap: 20px;
 
-  input {
-    height: 40px;
-    margin-bottom: 20px;
-    border: 1px bold;
+  fieldset {
+    border: 1px solid #ddd;
+    padding: 20px;
     border-radius: 8px;
-    padding: 0 10px;
-  }
-  select {
-    height: 40px;
-    margin-bottom: 20px;
-    border: 1px bold;
-    border-radius: 8px;
-    padding: 0 10px;
   }
 
-  .tittletext {
+  legend {
+    font-size: 18px;
     font-weight: bold;
-    font-size: 20px;
+    margin-bottom: 10px;
+    color: #333;
   }
 
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 20px;
+
+    label {
+      font-size: 14px;
+      color: #555;
+    }
+
+    input {
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    input:focus {
+      border-color: #007bff;
+      box-shadow: 0 0 4px rgba(0, 123, 255, 0.5);
+    }
+  }
+
+  button {
+    padding: 10px 15px;
+    background-color: #007bff;
+    color: #fff;
+    font-size: 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  button:hover {
+    background-color: #0056b3;
+  }
 `;
 
 export const ImovelContainer = styled.div`
@@ -93,4 +123,40 @@ export const ListProp = styled.div`
 `;
 
 export const Button = styled.button`
+`;
+
+export const LeftColumn = styled.div`
+  flex: 1;
+  background: #ffffff;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px 0 rgba(0,0,0,0.1);
+  margin: 20px;
+ 
+  h1 {
+    font-size: 2rem;
+    color: #333;
+    margin-bottom: 1rem;
+  }
+  
+  @media (max-width: 768px) {
+    width: 100%;
+    margin: 20px 0;
+  }
+
+  .schedule-btn {
+    padding: 10px 15px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.2s;
+    margin: 60px;
+
+    &:hover {
+      background-color: #0056b3;
+    }
+  }
 `;

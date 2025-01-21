@@ -41,10 +41,10 @@ export const RightColumn = styled.div`
   display: flex;
   flex-direction: column;
   background: #ffffff;
-  padding: 20px;
+  padding: 0px 10px;
   border-radius: 10px;
   box-shadow: 0 4px 8px 0 rgba(0,0,0,0.1);
-  margin: 20px;
+  margin: 50px 20px 20px 20px;
   height: calc(145vh - 410px);
   overflow-y: auto;
 
@@ -53,13 +53,72 @@ export const RightColumn = styled.div`
     margin-top: 0;
     height: auto;
   }
+
+  .DateTitle {
+    padding-top: 40px;
+    font-weight: bold;
+    font-size: 18px;
+  }
+
+  .filter-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.filter-container button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 10px 10px 10px;
+  cursor: pointer;
+}
+
+.filter-container span {
+  font-size: 16px;
+  font-weight: bold;
+  padding: 0 10px 0 10px;
+}
+
 `;
 
-export const Title = styled.h1`
+export const Title = styled.h2`
   text-align: center;
   font-size: 24px;
   color: #333;
   margin-bottom: 20px;
+  margin: 0;
+  flex: 1;
+  text-align: center;
+`;
+
+export const TitleContainer = styled.div`
+  position: sticky;
+  top: 0;
+  background: #ffffff;
+  z-index: 1;
+  padding: 10px 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+`;
+
+export const ButtonWrapper = styled.div`
+  position: absolute;
+  right: 20px;
+`;
+
+export const Actions = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px; /* Espaçamento entre checkbox e botão */
+`;
+
+export const StyledCheckbox = styled.input`
+  transform: scale(1.5); /* Aumenta o tamanho do checkbox */
+  margin-bottom: 10px; /* Espaçamento abaixo do checkbox */
 `;
 
 export const Form = styled.form`
@@ -90,7 +149,7 @@ export const Form = styled.form`
 `;
 
 export const ListProp = styled.div`
-  margin-top: 20px;
+  margin-top: 10px;
   padding: 15px;
   border: 2px solid black;
   border-radius: 8px;
@@ -127,6 +186,52 @@ export const ListProp = styled.div`
       background-color: #0056b3;
     }
   }
+
+  .action-buttons {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px; /* Espaço entre os botões */
+
+      .schedule-btn,
+      .edit,
+      .delete {
+        padding: 8px 12px;
+        font-size: 14px;
+        border-radius: 4px;
+        text-align: center;
+        text-decoration: none;
+        color: white;
+        width: 100px;
+        transition: background-color 0.3s;
+      }
+
+      .schedule-btn {
+        background-color: #007bff;
+
+        &:hover {
+          background-color: #0056b3;
+        }
+      }
+
+      .edit {
+        background-color: #007bff;
+
+        &:hover {
+          background-color:rgb(33, 109, 14);
+        }
+      }
+
+      .delete {
+        background-color: #007bff;
+
+        &:hover {
+          background-color: #c82333;
+        }
+      }
+  }
+
+  
 `;
 
 export const EditIcon = styled(FaEdit)`

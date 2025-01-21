@@ -142,7 +142,7 @@ export const HeroSection = styled.section`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 20px;
+  margin-top: 30px;
   padding: 40px;
   background: ${colors.backgroundColorCompany};
 
