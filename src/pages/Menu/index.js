@@ -77,7 +77,7 @@ const StyledLink = styled(Link)`
   transition: background-color 0.3s ease, color 0.3s ease;
   
   &:hover {
-    background-color: #af9b55;
+    background-color: #123f2d;
     color: white;
   }
 

@@ -7,6 +7,7 @@ export const LeftColumn = styled.div`
   border-radius: 10px;
   box-shadow: 0 4px 8px 0 rgba(0,0,0,0.1);
   margin: 20px;
+  
  
   h1 {
     font-size: 2rem;
@@ -20,20 +21,24 @@ export const LeftColumn = styled.div`
   }
 
   .schedule-btn {
-    padding: 10px 15px;
-    background-color: #007bff;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 16px;
-    transition: background-color 0.2s;
-    margin: 60px;
+  padding: 10px 15px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.2s;
 
-    &:hover {
-      background-color: #0056b3;
-    }
+  margin: 0 auto; /* Centraliza horizontalmente */
+  display: block; /* Garante que o elemento respeite o margin */
+  text-align: center; /* Centraliza o texto dentro do botão */
+
+  &:hover {
+    background-color: #0056b3;
   }
+}
+
 `;
 
 export const RightColumn = styled.div`

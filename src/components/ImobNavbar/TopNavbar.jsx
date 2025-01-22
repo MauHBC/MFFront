@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import styled from "styled-components";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink, useHistory } from "react-router-dom";
 
 // Components
 import Sidebar from "./Sidebar";
@@ -19,6 +19,8 @@ export default function TopNavbar() {
   const handleLogout = useLogout();
   const [y, setY] = useState(window.scrollY);
   const [sidebarOpen, toggleSidebar] = useState(false);
+
+  const history = useHistory();
 
   useEffect(() => {
     const handleScroll = () => setY(window.scrollY);
@@ -50,26 +52,29 @@ export default function TopNavbar() {
           <NavLinks>
             {isLoggedIn ? (
               <>
-                <NavItem>
-                  <RouterLink to="/menu">Menu</RouterLink>
-                </NavItem>
-                <NavItem>
-                  <LogoutButton onClick={(e) => handleLogout(e)}>
-                    Sair
-                  </LogoutButton>
-                </NavItem>
-              </>
-            ) : (
-              <NavItem>
-                <RouterLink to="/login">Entrar</RouterLink>
-              </NavItem>
-            )}
 
-            {isLoggedIn && (
+              <NavItem>
+                <button type="button" onClick={() => history.goBack()} style={{ all: 'unset', cursor: 'pointer' }}> 
+                  Voltar
+                </button>
+              </NavItem>
+              
+              <NavItem>
+                <RouterLink to="/menu">Menu</RouterLink>
+              </NavItem>
+
+              <NavItem>
+                <RouterLink onClick={(e) => handleLogout(e)}>
+                  Sair
+                </RouterLink>
+              </NavItem>
+
               <UserInfo>
                 <span>Bem-vindo, {username}</span>
               </UserInfo>
-            )}
+              </>
+            ) : ""}
+
           </NavLinks>
         </NavInner>
       </Wrapper>
@@ -85,14 +90,6 @@ const Wrapper = styled.nav`
   top: 0;
   left: 0;
   z-index: 999;
-`;
-
-const NavInner = styled.div`
-  position: relative;
-  height: 100%;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 `;
 
 const LogoWrapper = styled(RouterLink)`
@@ -123,34 +120,33 @@ const BurderWrapper = styled.button`
   }
 `;
 
+const NavInner = styled.div`
+  position: relative;
+  height: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+`;
+
 const NavLinks = styled.ul`
   display: flex;
   list-style-type: none;
   margin: 0;
   padding: 0;
-
+  align-items: center;
   @media (max-width: 760px) {
     display: none;
   }
 `;
 
 const NavItem = styled.li`
-  margin: 0 10px;
-  &:hover {
-    background-color: #af9b55;
-    color: white;
-  }
-`;
-
-const LogoutButton = styled.button`
- margin: 0 10px;
- border: none;
- 
+  margin: 0px 15px;
+  align-items: center;
 `;
 
 const UserInfo = styled.div`
-  margin-left: 20px;
-  font-size: 14px;
-  color: #555;
+  padding: 10px;
+  font-size: 18px;
+  color: #123f2d;
 `;
 

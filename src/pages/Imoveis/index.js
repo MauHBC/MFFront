@@ -168,7 +168,6 @@ export default function Imoveis() {
     setAdress("");
   }
 
-
   return (
     <HeroSection>
       <LeftColumn>

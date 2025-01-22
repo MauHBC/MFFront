@@ -18,7 +18,7 @@ export async function handleSubmit(
   setIsLoading(true);
 
   try {
-    const response = await axios.get("/appointments/filterByRealEstateEnviados", {
+    const response = await axios.get("/appointments/filterByRealEstate", {
       params: {
         real_estate: userRealEstateName.toString(),
         real_estate_internal_code: realEstateInternalCode,
@@ -27,6 +27,7 @@ export async function handleSubmit(
         condominium,
       },
     });
+    console.log(response.data);
 
     if (Array.isArray(response.data)) {
       toast.success("Laudos recebidos");
@@ -51,4 +52,5 @@ export async function handleSubmit(
   } finally {
     setIsLoading(false);
   }
+
 }

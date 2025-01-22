@@ -1,7 +1,7 @@
 export const primaryColor = "#0B3E2D"; // Verde escuro
 export const primaryDarkColor = "#1A1A1D"; // Quase preto
 export const buttonColor = "#C3073F"; // Vermelho vinho
-export const backgroundColorCompany = "#C9A750"; // Dourado
+export const backgroundColorCompany = "#123f2d"; // Verde Checkpoint
 
 // Cores atualizadas para melhor contraste
 export const textColor = "#FFFFFF"; // Branco para texto, para contraste com fundos escuros

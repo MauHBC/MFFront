@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import { useDispatch } from "react-redux";
-import { parse, compareDesc, format, startOfWeek, endOfWeek, addWeeks, subWeeks } from "date-fns";
+import { parse, compareAsc, format, startOfWeek, endOfWeek, addWeeks, subWeeks } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Link } from "react-router-dom";
 import { handleSubmit } from "./formUtils";
@@ -67,14 +67,13 @@ export default function Agendamentos() {
   }, [userRealEstateName, startDate, endDate]);
 
 
-  // Agrupar os laudos por data
-  const groupedLaudos = agendamentos.reduce((acc, agendamento) => {
+  // Agrupar os agendamentos por data
+  const groupedAgendamentos = agendamentos.reduce((acc, agendamento) => {
     const dateKey = agendamento.appointment_date;
     if (!acc[dateKey]) acc[dateKey] = [];
     acc[dateKey].push(agendamento);
     return acc;
   }, {});
-
 
   return (
     <HeroSection>
@@ -154,9 +153,9 @@ export default function Agendamentos() {
           </button>
         </div>
 
-        {Object.keys(groupedLaudos)
+        {Object.keys(groupedAgendamentos)
           .sort((a, b) =>
-            compareDesc(
+            compareAsc(
               parse(a, "dd/MM/yyyy", new Date()),
               parse(b, "dd/MM/yyyy", new Date())
             )
@@ -170,7 +169,7 @@ export default function Agendamentos() {
                 <h3 className="DateTitle">
                   {`${formattedDate}, ${weekDay.charAt(0).toUpperCase() + weekDay.slice(1)}`}
                 </h3>
-                {groupedLaudos[date].map((agendamento) => (
+                {groupedAgendamentos[date].map((agendamento) => (
                   <ListProp key={String(agendamento.id)}>
                     <div className="propertylist">
                       <div className="propertyListResult">

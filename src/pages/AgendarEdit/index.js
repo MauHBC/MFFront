@@ -1,7 +1,7 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 import React, { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { v4 as uuidv4 } from "uuid";
+// import { v4 as uuidv4 } from "uuid";
 import { useLocation } from "react-router-dom";
 
 import { get } from "lodash";
@@ -56,7 +56,7 @@ export default function AgendarEdit() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    const chaveAleatoria = uuidv4();
+    // const chaveAleatoria = uuidv4();
 
     let formErrors = false;
     if (!dataAgendamento) {
@@ -103,7 +103,7 @@ export default function AgendarEdit() {
           appointment_observation: observation,
           status: agendamento.status,
           admin_user_id: userAdminId,
-          uuid: chaveAleatoria,
+          uuid: agendamento.Property.real_estate_internal_code,
           mobiliado,
           key_location: keyLocation,
           accompanied_by: acompanhado,
