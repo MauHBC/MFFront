@@ -1,5 +1,5 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { get } from "lodash";
 import PropTypes from "prop-types";
@@ -14,11 +14,15 @@ import { HeroSection } from "../../styles/GlobalStyles";
 import { Form, Title, LeftColumn } from "./styled";
 import Loading from "../../components/Loading";
 
+// hooks
+import { useRealEstate } from "../../hooks/useRealEstate";
+
 export default function Imovel({ match }) {
   const dispatch = useDispatch();
   const id = get(match, "params.id", "");
   const location = useLocation();
   const property = location.state?.property || {};
+  const userRealEstateName = useRealEstate();
 
   const [condominium, setCondominium] = useState(property.condominium || "");
   const [adress, setAdress] = useState(property.adress || "");
@@ -26,9 +30,7 @@ export default function Imovel({ match }) {
   const [number, setNumber] = useState(property.number || "");
   const [neighborhood, setNeighborhood] = useState(property.neighborhood || "");
   const [city, setCity] = useState(property.city || "");
-  const [state, setState] = useState(property.state || "");
-  const [zipcode, setZipcode] = useState(property.zipcode || "");
-  const realEstate = useState(property.real_estate || "");
+  const [zipcode, setZipcode] = useState(property.zip_code || "");
   const [realEstateInternalCode, setRealEstateInternalCode] = useState(
     property.real_estate_internal_code || ""
   );
@@ -38,38 +40,6 @@ export default function Imovel({ match }) {
 
   const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    if (!id) return;
-
-    async function getData() {
-      try {
-        setIsLoading(true);
-
-        const { data } = await axios.get(`/property/${id}`);
-        // setCondominium(data.Condomínio);
-        setAdress(data.adress);
-        setComplement(data.complement);
-        setNumber(data.number);
-        setNeighborhood(data.neighborhood);
-        setCity(data.city);
-        setState(data.state);
-        setZipcode(data.zipcode);
-        setRealEstateInternalCode(data.real_estate_internal_code);
-        setRealEstateCommercialCode(data.real_estate_commercial_code);
-
-        setIsLoading(false);
-      } catch (err) {
-        setIsLoading(false);
-        const status = get(err, "response.status", 0);
-        const errors = get(err, "response.data.erros", []);
-
-        if (status === 400) errors.map((error) => toast.error(error));
-        history.push("/");
-      }
-    }
-
-    getData();
-  }, [id]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -99,10 +69,6 @@ export default function Imovel({ match }) {
     if (city.length < 3 || city.length > 255) {
       formErrors = true;
       toast.error("Cidade deve ter 3 caracteres");
-    }
-    if (state.length < 3 || state.length > 255) {
-      formErrors = true;
-      toast.error("Estado deve ter 3 caracteres");
     }
     if (!isInt(String(zipcode))) {
       formErrors = true;
@@ -137,9 +103,9 @@ export default function Imovel({ match }) {
           number,
           neighborhood,
           city,
-          state,
+          state: "Espírito Santo",
           zip_code: zipcode,
-          real_estate: realEstate,
+          real_estate: userRealEstateName[0],
           real_estate_internal_code: realEstateInternalCode,
           real_estate_commercial_code: realEstateCommercialCode,
         });
@@ -153,9 +119,9 @@ export default function Imovel({ match }) {
           number,
           neighborhood,
           city,
-          state,
+          state: "Espírito Santo",
           zip_code: zipcode,
-          real_estate: realEstate,
+          real_estate: userRealEstateName[0],
           real_estate_internal_code: realEstateInternalCode,
           real_estate_commercial_code: realEstateCommercialCode,
         });
@@ -192,7 +158,7 @@ export default function Imovel({ match }) {
           <fieldset>
             <legend>Informações Básicas</legend>
             <div className="form-group">
-              <label htmlFor="realEstateInternalCode">Código Interno</label>
+              <label htmlFor="realEstateInternalCode">Código Interno da Imobiliária</label>
               <input
                 id="realEstateInternalCode"
                 type="text"
@@ -201,7 +167,7 @@ export default function Imovel({ match }) {
               />
             </div>
             <div className="form-group">
-              <label htmlFor="realEstateCommercialCode">Código Comercial</label>
+              <label htmlFor="realEstateCommercialCode">Código Comercial da Imobiliária</label>
               <input
                 id="realEstateCommercialCode"
                 type="text"
@@ -241,6 +207,15 @@ export default function Imovel({ match }) {
               />
             </div>
             <div className="form-group">
+              <label htmlFor="condominium">Condomínio</label>
+              <input
+                id="condominium"
+                type="text"
+                value={condominium}
+                onChange={(e) => setCondominium(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
               <label htmlFor="complement">Complemento</label>
               <input
                 id="complement"
@@ -267,30 +242,7 @@ export default function Imovel({ match }) {
                 onChange={(e) => setCity(e.target.value)}
               />
             </div>
-            <div className="form-group">
-              <label htmlFor="state">Estado</label>
-              <input
-                id="state"
-                type="text"
-                value={state}
-                onChange={(e) => setState(e.target.value)}
-              />
-            </div>
           </fieldset>
-
-          <fieldset>
-            <legend>Condomínio</legend>
-            <div className="form-group">
-              <label htmlFor="condominium">Condomínio</label>
-              <input
-                id="condominium"
-                type="text"
-                value={condominium}
-                onChange={(e) => setCondominium(e.target.value)}
-              />
-            </div>
-          </fieldset>
-
           <button type="submit">
             {id ? `Editar Imóvel` : "Cadastrar novo Imóvel"}
           </button>

@@ -270,6 +270,7 @@ export default function Imoveis() {
                     className="edit"
                     to={{
                       pathname: `/imovel/${property.id}/edit`,
+                      state: { property },
                     }}
                   >
                     Editar
