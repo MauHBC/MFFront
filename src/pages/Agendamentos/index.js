@@ -80,32 +80,52 @@ export default function Agendamentos() {
     e.persist();
     try {
       setIsLoading(true);
-      await axios.delete(`/appointments/${id}`);
+
+      // Faz a atualização da coluna key_obs no banco
+      await axios.put(`/appointments/${id}`, {
+        key_obs: "esse agendamento foi cancelado",
+      });
+
+      // Atualiza localmente o agendamento na lista
       const novosAgendamentos = [...agendamentos];
       novosAgendamentos.splice(index, 1);
       setAgendamentos(novosAgendamentos);
+
       setIsLoading(false);
+      toast.success("Agendamento atualizado com sucesso");
     } catch (err) {
       const status = get(err, "response.status", 0);
 
       if (status === 401) {
         toast.error("Você precisa fazer login");
       } else {
-        toast.error("Ocorreu um erro ao excluir o agendamento");
+        toast.error("Ocorreu um erro ao atualizar o agendamento");
       }
 
       setIsLoading(false);
     }
-    toast.success("Agendamento removido com sucesso");
   }
 
   function handleDeleteAsk(e, id, index) {
     e.preventDefault();
-    const confirmation = window.confirm(
-      "Tem certeza de que deseja excluir este agendamento?",
+
+    // Solicita o motivo do cancelamento
+    const reason = window.prompt(
+      "Digite o motivo do cancelamento do agendamento:",
     );
+
+    // Se o usuário cancelar ou deixar vazio, não prossegue
+    if (!reason) {
+      toast.error("O motivo do cancelamento é obrigatório.");
+      return;
+    }
+
+    const confirmation = window.confirm(
+      "Tem certeza de que deseja cancelar este agendamento?",
+    );
+
     if (confirmation) {
-      handleDelete(e, id, index);
+      handleDelete(e, id, index, reason); // Passa o motivo para handleDelete
     }
   }
 
