@@ -76,14 +76,16 @@ export default function Agendamentos() {
     return acc;
   }, {});
 
-  async function handleDelete(e, id, index) {
+  async function handleDelete(e, id, index, reason) {
     e.persist();
     try {
       setIsLoading(true);
+      console.log("reason2", reason);
 
       // Faz a atualização da coluna key_obs no banco
       await axios.put(`/appointments/${id}`, {
-        key_obs: "esse agendamento foi cancelado",
+        status: "Cancelado",
+        key_obs: reason,
       });
 
       // Atualiza localmente o agendamento na lista
@@ -119,6 +121,7 @@ export default function Agendamentos() {
       toast.error("O motivo do cancelamento é obrigatório.");
       return;
     }
+    console.log("reason", reason);
 
     const confirmation = window.confirm(
       "Tem certeza de que deseja cancelar este agendamento?",

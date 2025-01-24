@@ -91,7 +91,7 @@ export default function Imoveis() {
       const status = get(err, "response.status", 0);
 
       if (status === 401) {
-        toast.error("Você precisa afzer login");
+        toast.error("Você precisa fazer login");
       } else {
         toast.error("Ocorreu um erro ao excluir o imóvel");
       }
