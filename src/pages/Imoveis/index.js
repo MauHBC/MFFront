@@ -7,7 +7,6 @@ import { useDispatch } from "react-redux";
 import { Link } from "react-router-dom";
 import { HeroSection } from "../../styles/GlobalStyles";
 import * as actions from "../../store/modules/auth/actions";
-// import * as actionsRealEstateData from "../../store/modules/realestatedata/actions";
 
 // hooks
 import { useRealEstate } from "../../hooks/useRealEstate";

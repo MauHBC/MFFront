@@ -1,5 +1,8 @@
+/* eslint-disable no-alert */
 import React, { useState, useEffect } from "react";
 import PropTypes from "prop-types";
+import { toast } from "react-toastify";
+import { get } from "lodash";
 import { useDispatch } from "react-redux";
 import { parse, compareAsc, format, startOfWeek, endOfWeek, addWeeks, subWeeks } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -7,7 +10,6 @@ import { Link } from "react-router-dom";
 import { handleSubmit } from "./formUtils";
 import "react-datepicker/dist/react-datepicker.css";
 import axios from "../../services/axios";
-
 
 // hooks
 import { useRealEstate } from "../../hooks/useRealEstate";
@@ -22,7 +24,6 @@ import {
   LeftColumn,
 } from "./styled";
 import { HeroSection } from "../../styles/GlobalStyles";
-
 
 import Loading from "../../components/Loading";
 
@@ -74,6 +75,39 @@ export default function Agendamentos() {
     acc[dateKey].push(agendamento);
     return acc;
   }, {});
+
+  async function handleDelete(e, id, index) {
+    e.persist();
+    try {
+      setIsLoading(true);
+      await axios.delete(`/appointments/${id}`);
+      const novosAgendamentos = [...agendamentos];
+      novosAgendamentos.splice(index, 1);
+      setAgendamentos(novosAgendamentos);
+      setIsLoading(false);
+    } catch (err) {
+      const status = get(err, "response.status", 0);
+
+      if (status === 401) {
+        toast.error("Você precisa fazer login");
+      } else {
+        toast.error("Ocorreu um erro ao excluir o agendamento");
+      }
+
+      setIsLoading(false);
+    }
+    toast.success("Agendamento removido com sucesso");
+  }
+
+  function handleDeleteAsk(e, id, index) {
+    e.preventDefault();
+    const confirmation = window.confirm(
+      "Tem certeza de que deseja excluir este agendamento?",
+    );
+    if (confirmation) {
+      handleDelete(e, id, index);
+    }
+  }
 
   return (
     <HeroSection>
@@ -160,7 +194,7 @@ export default function Agendamentos() {
               parse(b, "dd/MM/yyyy", new Date())
             )
           )
-          .map((date) => {
+          .map((date, index) => {
             const parsedDate = parse(date, "dd/MM/yyyy", new Date());
             const formattedDate = format(parsedDate, "dd/MM/yyyy");
             const weekDay = format(parsedDate, "EEEE", { locale: ptBR });
@@ -196,6 +230,14 @@ export default function Agendamentos() {
                           state: { agendamento },
                         }}>
                           Editar
+                        </Link>
+
+                        <Link
+                          className="delete"
+                          onClick={(e) => handleDeleteAsk(e, agendamento.id, index)}
+                          to={`/property/${agendamento.id}/delete`}
+                        >
+                          Excluir
                         </Link>
                       </div>
                     </div>

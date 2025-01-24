@@ -41,11 +41,11 @@ export const RightColumn = styled.div`
   display: flex;
   flex-direction: column;
   background: #ffffff;
-  padding: 0px 10px;
+  padding: 0px 10px 50px 10px;
   border-radius: 10px;
   box-shadow: 0 4px 8px 0 rgba(0,0,0,0.1);
   margin: 50px 20px 20px 20px;
-  height: calc(145vh - 410px);
+  height: calc(145vh - 610px);
   overflow-y: auto;
 
   @media (max-width: 768px) {
@@ -98,7 +98,8 @@ export const TitleContainer = styled.div`
   top: 0;
   background: #ffffff;
   z-index: 1;
-  padding: 10px 0;
+  padding: 10;
+  margin-top: 10px;
   display: flex;
   justify-content: center;
   align-items: center;

@@ -45,8 +45,7 @@ export const RightColumn = styled.div`
   border-radius: 10px;
   box-shadow: 0 4px 8px 0 rgba(0,0,0,0.1);
   margin: 50px 20px 20px 20px;
-  height: calc(145vh - 410px);
-  overflow-y: auto;
+  height: calc(145vh - 610px);  overflow-y: auto;
 
   @media (max-width: 768px) {
     width: 100%;
