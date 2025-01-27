@@ -68,7 +68,17 @@ export default function Agendar() {
 
     if (!keyLocation) {
       formErrors = true;
-      toast.error("Selecione se é mobiliado");
+      toast.error("Selecione o local das chaves");
+    }
+
+    if (!acompanhado) {
+      formErrors = true;
+      toast.error("Selecione se será acompanhado");
+    }
+
+    if (!observation) {
+      formErrors = true;
+      toast.error("Adicione 'sem observações' se não houver observações");
     }
 
     setIsLoading(false);
@@ -99,7 +109,7 @@ export default function Agendar() {
         accompanied_obs: obsAcompanhado,
       });
       toast.success("Agendado com sucesso");
-      history.push(`/imoveis`);
+      history.push(`/agendamentos`);
 
 
       setIsLoading(false);

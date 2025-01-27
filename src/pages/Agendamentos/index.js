@@ -245,6 +245,9 @@ export default function Agendamentos() {
                         <span>
                           <strong>Local:</strong> {agendamento.Property.neighborhood}, {agendamento.Property.city}&nbsp;&nbsp;
                         </span>
+                        <span>
+                          <strong>Chaves:</strong> {agendamento.key_location}&nbsp;&nbsp;
+                        </span>
                       </div>
 
                       <div className="action-buttons">
