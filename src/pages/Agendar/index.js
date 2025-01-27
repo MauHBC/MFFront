@@ -85,19 +85,17 @@ export default function Agendar() {
     if (formErrors) return;
 
     // Converter data antes de enviar para o banco
-    function convertToISOFormat(dateStr) {
-      const [day, month, year] = dateStr.split("/");
-      return `${year}-${month}-${day}`;
-    }
+    // function convertToISOFormat(dateStr) {
+    //   const [day, month, year] = dateStr.split("/");
+    //   return `${year}-${month}-${day}`;
+    // }
 
     try {
       setIsLoading(true);
-      const dataAgendamentoISO = convertToISOFormat(dataAgendamento);
-
 
       await axios.post(`/appointments`, {
         property_id: property.id,
-        appointment_date: dataAgendamentoISO,
+        appointment_date: dataAgendamento,
         service_id: serviceType,
         appointment_observation: observation,
         status: "Agenda Geral",
