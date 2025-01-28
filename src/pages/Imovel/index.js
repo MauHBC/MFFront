@@ -13,6 +13,7 @@ import history from "../../services/history";
 import { HeroSection } from "../../styles/GlobalStyles";
 import { Form, Title, LeftColumn } from "./styled";
 import Loading from "../../components/Loading";
+import { processText } from "./textProcessor"
 
 // hooks
 import { useRealEstate } from "../../hooks/useRealEstate";
@@ -24,6 +25,7 @@ export default function Imovel({ match }) {
   const property = location.state?.property || {};
   const userRealEstateName = useRealEstate();
 
+  const [rawText, setRawText] = useState(""); // Texto bruto do imóvel
   const [condominium, setCondominium] = useState(property.condominium || "");
   const [adress, setAdress] = useState(property.adress || "");
   const [complement, setComplement] = useState(property.complement || "");
@@ -40,6 +42,19 @@ export default function Imovel({ match }) {
 
   const [isLoading, setIsLoading] = useState(false);
 
+  // Função para processar o texto e atualizar os estados
+  const handleProcessText = () => {
+    const processedData = processText(rawText);
+
+    setCondominium(processedData.condominium);
+    setComplement(processedData.complement);
+    setZipcode(processedData.zipcode);
+    setAdress(processedData.adress);
+    setNumber(processedData.number);
+    setNeighborhood(processedData.neighborhood);
+    setCity(processedData.city);
+    setRealEstateCommercialCode(processedData.realEstateInternalCode);
+  };
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -112,7 +127,7 @@ export default function Imovel({ match }) {
         toast.success("Imóvel editado com sucesso");
         history.push(`/imoveis`);
       } else {
-        const { data } = await axios.post(`/property/`, {
+        await axios.post(`/property/`, {
           condominium,
           adress,
           complement,
@@ -126,7 +141,7 @@ export default function Imovel({ match }) {
           real_estate_commercial_code: realEstateCommercialCode,
         });
         toast.success("Imóvel criado com sucesso");
-        history.push(`/imovel/${data.id}/edit`);
+        history.push(`/imoveis`);
       }
 
       setIsLoading(false);
@@ -152,9 +167,28 @@ export default function Imovel({ match }) {
         <Loading isLoading={isLoading}>Carregando...</Loading>
 
         <Title>{id ? `Editar imóvel` : "Novo imóvel"}</Title>
-        <Title>{`${condominium} ${complement}`}</Title>
+        <Title>{id ? `${condominium} ${complement}` : ""}</Title>
 
         <Form onSubmit={(e) => handleSubmit(e)}>
+          <fieldset>
+            <legend>Texto do Imóvel</legend>
+            <div className="form-group">
+              <label htmlFor="rawText">Informação do Imóvel (Texto)</label>
+              <textarea
+                id="rawText"
+                value={rawText}
+                onChange={(e) => setRawText(e.target.value)}
+                placeholder="Insira o texto do imóvel aqui"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleProcessText}
+            >
+              Processar Texto
+            </button>
+          </fieldset>
+
           <fieldset>
             <legend>Informações Básicas</legend>
             <div className="form-group">

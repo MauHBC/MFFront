@@ -80,7 +80,6 @@ export default function Agendamentos() {
     e.persist();
     try {
       setIsLoading(true);
-      console.log("reason2", reason);
 
       // Faz a atualização da coluna key_obs no banco
       await axios.put(`/appointments/${id}`, {
@@ -121,7 +120,6 @@ export default function Agendamentos() {
       toast.error("O motivo do cancelamento é obrigatório.");
       return;
     }
-    console.log("reason", reason);
 
     const confirmation = window.confirm(
       "Tem certeza de que deseja cancelar este agendamento?",

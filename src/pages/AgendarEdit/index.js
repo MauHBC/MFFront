@@ -130,9 +130,6 @@ export default function AgendarEdit() {
     }
   }
 
-  console.log(serviceType);
-
-
   return (
     <HeroSection>
       <LeftColumn>
