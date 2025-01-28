@@ -62,7 +62,7 @@ export const RightColumn = styled.div`
 
 export const Title = styled.h2`
   text-align: center;
-  font-size: 24px;
+  font-size: 40px;
   color: #333;
   margin-bottom: 20px;
   margin: 0;

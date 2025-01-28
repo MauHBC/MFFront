@@ -60,30 +60,67 @@ export const RightColumn = styled.div`
   }
 `;
 
-export const Title = styled.h2`
-  text-align: center;
-  font-size: 24px;
-  color: #333;
-  margin-bottom: 20px;
-  margin: 0;
-  flex: 1;
-  text-align: center;
-`;
-
 export const TitleContainer = styled.div`
   position: sticky;
   top: 0;
   background: #ffffff;
   z-index: 1;
-  padding: 10px 0;
+  padding: 10px 20px;
   display: flex;
-  justify-content: center;
+  flex-direction: column; /* Empilha o título e o botão */
   align-items: center;
+
+  button {
+    align-self: flex-end; /* Posiciona o botão no canto direito */
+    margin-top: 10px;
+    padding: 10px 20px;
+    background-color: #4caf50;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+
+    &:hover {
+      background-color: #45a049;
+    }
+
+    &:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+  }
+`;
+
+export const Title = styled.h2`
+  font-size: 40px;
+  color: #333;
+  margin: 0;
+  text-align: left; /* Centralização não necessária com justify-content */
 `;
 
 export const ButtonWrapper = styled.div`
-  position: absolute;
-  right: 20px;
+  display: flex; /* Caso futuramente precise de múltiplos botões */
+  align-items: center;
+
+  button {
+    padding: 10px 20px;
+    background-color: #007bff;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+
+    &:hover {
+      background-color: #0056b3;
+    }
+
+    &:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+  }
 `;
 
 export const Actions = styled.div`

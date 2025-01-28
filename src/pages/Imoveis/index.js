@@ -261,7 +261,7 @@ export default function Imoveis() {
                       state: { property },
                     }}
                   >
-                    Agendar
+                    Agendar novo checklist
                   </Link>
 
 

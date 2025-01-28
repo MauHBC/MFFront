@@ -182,7 +182,7 @@ export default function Agendamentos() {
 
       <RightColumn>
         <TitleContainer>
-          <Title> Agendamentos </Title>
+          <Title> Agenda </Title>
         </TitleContainer>
         <div className="filter-container">
           <button

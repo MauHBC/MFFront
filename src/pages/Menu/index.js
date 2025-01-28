@@ -4,7 +4,6 @@ import { FaClipboardList, FaBuilding, FaFileAlt } from "react-icons/fa";
 import styled from "styled-components";
 
 export default function Menu() {
-
   return (
     <Wrapper>
       <Content>
@@ -14,15 +13,24 @@ export default function Menu() {
         <Nav>
           <StyledLink to="/agendamentos">
             <FaClipboardList size={24} />
-            <span>Agenda</span>
+            <div>
+              <span>Agenda</span>
+              <Description>Checklists disponíveis para serem realizados</Description>
+            </div>
           </StyledLink>
           <StyledLink to="/imoveis">
             <FaBuilding size={24} />
-            <span>Imóveis</span>
+            <div>
+              <span>Novo Agendamento e Imóveis</span>
+              <Description>Agendar um novo checklist e cadastrar um novo imóvel</Description>
+            </div>
           </StyledLink>
           <StyledLink to="/laudos">
             <FaFileAlt size={24} />
-            <span>Laudos</span>
+            <div>
+              <span>Laudos Realizados</span>
+              <Description>Download de Checklists realizados</Description>
+            </div>
           </StyledLink>
         </Nav>
       </Content>
@@ -31,7 +39,6 @@ export default function Menu() {
 }
 
 // Styled-components
-
 const Wrapper = styled.div`
   display: flex;
   justify-content: center;
@@ -53,7 +60,7 @@ const Content = styled.div`
 
 const Title = styled.div`
   margin-bottom: 30px;
-  
+
   h1 {
     font-size: 24px;
     font-weight: 800; /* Extra bold */
@@ -69,19 +76,28 @@ const Nav = styled.nav`
 
 const StyledLink = styled(Link)`
   display: flex;
+  flex-direction: column; /* Alinha o conteúdo verticalmente */
   align-items: center;
+  text-align: center; /* Centraliza o texto */
   padding: 10px 20px;
   font-size: 18px;
   color: #143610;
   text-decoration: none;
   transition: background-color 0.3s ease, color 0.3s ease;
-  
+
   &:hover {
     background-color: #123f2d;
     color: white;
   }
 
   span {
-    margin-left: 10px;
+    margin-top: 8px; /* Espaço entre o ícone e o texto */
+    font-weight: bold;
   }
+`;
+
+const Description = styled.p`
+  font-size: 14px;
+  color: #666;
+  margin-top: 8px; /* Espaço entre o nome do menu e a descrição */
 `;

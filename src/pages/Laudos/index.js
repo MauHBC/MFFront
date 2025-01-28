@@ -136,7 +136,7 @@ export default function Laudos() {
 
       <RightColumn>
         <TitleContainer>
-          <Title>Laudos</Title>
+          <Title>Checklists realizados</Title>
           <ButtonWrapper>
             <button
               type="button"
