@@ -9,26 +9,23 @@ export const processText = (rawText) => {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
 
-  // Regex para encontrar o condomínio, agora considerando "Ed." ou "Edificio" e similares
-  const condominioRegex = /(?:\d+\s)([^,;]+(?:,?[^,;]+)*)(?=\s*(apto|loja|sala|bl|torre|andares|unidade))/i;
-
-  // Regex para encontrar o complemento (ex: "apto 303", "loja 04")
-  const complementoRegex = /(ap\.?\s*\d+|apto\s*\d+|lj\.?\s*\d+|loja\s*\d+|torre\s*\w+)/gi;
-
-  // Regex para encontrar o CEP e removê-lo do texto
+  const condominioRegex = /(?:ed\.?\s*|edificio\s*)([a-zA-ZÀ-ÿ\s]+?)(?=\s*(?:,|;|apt|apto|loja|lj|sala|bl|torre|andares|unidade))/i;
+  const complementoRegex = /(apt\.?\s*\d+|ap\.?\s*\d+|apto\s*\d+|lj\.?\s*\d+|loja\s*\d+|torre\s*\w+|sala\s*\d+|sl\.?\s*\d+)/gi;
   const zipcodeMatch = normalizedText.match(/CEP:\s*(\d{5}-\d{3})/i);
-
-  // Regex para encontrar o endereço até o número, sem incluir o número
   const addressMatch = normalizedText.match(/(?:Rua|Avenida|Travessa|Alameda)\s[^\d,;]+/i);
-
-  // Regex para identificar o número do imóvel
   const numberMatch = normalizedText.match(/(\d+)\s*(Casa|Apto|Torre)?/i);
-
-  // Regex para identificar o bairro
   const neighborhoodMatch = normalizedText.match(/(?:Loja|Apartamento|Sala comercial)?\s*no\s*([^,]+)/i);
 
   let neighborhood = "N/A";
   let city = "N/A";
+
+  // Função para normalizar texto: remove acentos e converte para minúsculas
+  const normalizeText = (text) => {
+    return text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+      .toLowerCase();
+  };
 
   // Tentar encontrar o bairro e a cidade correspondente
   if (neighborhoodMatch) {
@@ -36,7 +33,7 @@ export const processText = (rawText) => {
 
     // Procurar a cidade com base no bairro
     for (const [cidade, bairros] of Object.entries(bairrosPorCidade)) {
-      if (bairros.map((b) => b.toLowerCase()).includes(neighborhood.toLowerCase())) {
+      if (bairros.some((b) => normalizeText(b) === normalizeText(neighborhood))) {
         city = cidade;
         break;
       }
@@ -45,12 +42,16 @@ export const processText = (rawText) => {
 
   // Definir o condomínio corretamente
   let condominium = "N/A";
-  if (condominioRegex.test(normalizedText)) {
-    const condMatch = normalizedText.match(condominioRegex);
-    if (condMatch && condMatch[1]) {
-      condominium = condMatch[1].trim();
-    }
+  console.log("Texto normalizado:", normalizedText); // Verifique o texto normalizado
+  const condMatch = normalizedText.match(condominioRegex);
+  console.log("Regex para condomínio:", condominioRegex);
+  console.log("Resultado do match para condomínio:", condMatch);
+  if (condMatch && condMatch[1]) {
+    condominium = condMatch[1].trim();
   }
+  console.log("Condomínio encontrado:", condominium);
+
+
 
   return {
     condominium,
