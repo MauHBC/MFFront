@@ -78,37 +78,37 @@ export default function Imoveis() {
   };
 
 
-  async function handleDelete(e, id, index) {
-    e.persist();
-    try {
-      setIsLoading(true);
-      await axios.delete(`/property/${id}`);
-      const newsProperties = [...properties];
-      newsProperties.splice(index, 1);
-      setProperties(newsProperties);
-      setIsLoading(false);
-    } catch (err) {
-      const status = get(err, "response.status", 0);
+  // async function handleDelete(e, id, index) {
+  //   e.persist();
+  //   try {
+  //     setIsLoading(true);
+  //     await axios.delete(`/property/${id}`);
+  //     const newsProperties = [...properties];
+  //     newsProperties.splice(index, 1);
+  //     setProperties(newsProperties);
+  //     setIsLoading(false);
+  //   } catch (err) {
+  //     const status = get(err, "response.status", 0); np
 
-      if (status === 401) {
-        toast.error("Você precisa fazer login");
-      } else {
-        toast.error("Ocorreu um erro ao excluir o imóvel");
-      }
+  //     if (status === 401) {
+  //       toast.error("Você precisa fazer login");
+  //     } else {
+  //       toast.error("Ocorreu um erro ao excluir o imóvel");
+  //     }
 
-      setIsLoading(false);
-    }
-  }
+  //     setIsLoading(false);
+  //   }
+  // }
 
-  function handleDeleteAsk(e, id, index) {
-    e.preventDefault();
-    const confirmation = window.confirm(
-      "Tem certeza de que deseja excluir este imóvel?",
-    );
-    if (confirmation) {
-      handleDelete(e, id, index);
-    }
-  }
+  // function handleDeleteAsk(e, id, index) {
+  //   e.preventDefault();
+  //   const confirmation = window.confirm(
+  //     "Tem certeza de que deseja excluir este imóvel?",
+  //   );
+  //   if (confirmation) {
+  //     handleDelete(e, id, index);
+  //   }
+  // }
 
   async function handleSubmit(e) {
     e.preventDefault(); // Previne o comportamento padrão do formulário.
@@ -207,7 +207,7 @@ export default function Imoveis() {
           className="schedule-btn"
           to="/imovel/"
         >
-          novo imóvel{" "}
+          Novo imóvel{" "}
         </Link>
 
       </LeftColumn>
@@ -237,7 +237,7 @@ export default function Imoveis() {
         </div>
 
         {Array.isArray(properties) &&
-          properties.map((property, index) => (
+          properties.map((property) => (
             <ListProp key={String(property.id)}>
               <div className="propertylist">
                 <div className="propertyListResult">
@@ -275,13 +275,13 @@ export default function Imoveis() {
                     Editar
                   </Link>
 
-                  <Link
+                  {/* <Link
                     className="delete"
                     onClick={(e) => handleDeleteAsk(e, property.id, index)}
                     to={`/property/${property.id}/delete`}
                   >
                     Excluir
-                  </Link>
+                  </Link> */}
                 </div>
               </div>
             </ListProp>
