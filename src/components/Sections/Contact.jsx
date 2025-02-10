@@ -20,13 +20,13 @@ export default function Contact() {
             <ButtonRow>
               <div style={{ textAlign: "center" }}>
                 <Button
-                  href="https://wa.me/5527997448834?text=Olá%20Checkpoint%2C%20gostaria%20de%20mais%20informações."
+                  href="https://wa.me/5527988252557?text=Olá%20Checkpoint%2C%20gostaria%20de%20mais%20informações."
                   target="_blank"
                   style={{background: 'transparent'}}
                 >
                   <FaWhatsapp size={24} color="#25D366" />
                 </Button>
-                <span>55 27 997448834</span> {/* Número abaixo do ícone do WhatsApp */}
+                <span>55 27 988252557</span> {/* Número abaixo do ícone do WhatsApp */}
               </div>
 
               <div style={{ textAlign: "center" }}>
