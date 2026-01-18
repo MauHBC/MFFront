@@ -10,7 +10,7 @@ import ProjectImg3 from "../../assets/img/projects/3.png";
 import ProjectImg4 from "../../assets/img/projects/4.png";
 import ProjectImg5 from "../../assets/img/projects/5.png";
 import ProjectImg6 from "../../assets/img/projects/6.png";
-import AddImage2 from "../../assets/img/add/add2.png";
+// import AddImage2 from "../../assets/img/add/add2.png";
 
 export default function Projects() {
   return (
@@ -90,9 +90,9 @@ export default function Projects() {
           <Advertising className="flexSpaceCenter">
             <AddLeft>
               <AddLeftInner>
-                <ImgWrapper className="flexCenter">
+                {/* <ImgWrapper className="flexCenter">
                   <img className="radius8" src={AddImage2} alt="add" />
-                </ImgWrapper>
+                </ImgWrapper> */}
               </AddLeftInner>
             </AddLeft>
             <AddRight>
@@ -200,14 +200,14 @@ const AddLeftInner = styled.div`
     left: 0;
   }
 `;
-const ImgWrapper = styled.div`
-  width: 100%;
-  padding: 0 15%;
-  img {
-    width: 100%;
-    height: auto;
-  }
-  @media (max-width: 400px) {
-    padding: 0;
-  }
-`;
+// const ImgWrapper = styled.div`
+//   width: 100%;
+//   padding: 0 15%;
+//   img {
+//     width: 100%;
+//     height: auto;
+//   }
+//   @media (max-width: 400px) {
+//     padding: 0;
+//   }
+// `;

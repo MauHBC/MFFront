@@ -17,10 +17,10 @@
 .env.development.local
 .env.test.local
 .env.production.local
-.pull-server.sh
+.release-win.sh
 
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-.pull-server.sh
+release-win.sh

@@ -8,7 +8,7 @@ import Logo from "../../assets/img/Logo.png";
 
 export default function Sidebar({ sidebarOpen, toggleSidebar }) {
   return (
-    <Wrapper className="animate darkBg" sidebarOpen={sidebarOpen}>
+    <Wrapper className="animate" sidebarOpen={sidebarOpen}>
       <SidebarHeader className="flexSpaceCenter">
         <div className="flexNullCenter">
           <img
@@ -16,7 +16,7 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
               alt="Espaço Cuidar Logo"
               style={{ height: "40px", marginRight: "15px" }}
           />
-          <h1 className="whiteColor font20" style={{ marginLeft: "15px", color: '#af9b55' }}>
+          <h1 className="whiteColor font20" style={{ marginLeft: "15px", color: '#A2B190' }}>
             Espaço Cuidar
           </h1>
         </div>
@@ -32,7 +32,7 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
           <Link
             to="/menu"
             style={{ padding: "10px 15px", textDecoration: "none" }}
-            className="radius8 lightBg"
+            
           >
             Menu
           </Link>
@@ -42,7 +42,7 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
           <Link
             to="/agendamentos"
             style={{ padding: "10px 15px", textDecoration: "none" }}
-            className="radius8 lightBg"
+            
           >
             Agenda
           </Link>
@@ -50,11 +50,11 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
 
         <li className="semiBold font15 pointer flexCenter">
           <Link
-            to="/imoveis"
+            to="/pacientes"
             style={{ padding: "10px 15px", textDecoration: "none" }}
-            className="radius8 lightBg"
+            
           >
-            Imóveis
+            Pacientes
           </Link>
         </li>
 
@@ -62,9 +62,9 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
           <Link
             to="/laudos"
             style={{ padding: "10px 15px", textDecoration: "none" }}
-            className="radius8 lightBg"
+            
           >
-            Laudos
+            Exames
           </Link>
         </li>
 
@@ -79,15 +79,17 @@ Sidebar.propTypes = {
 };
 
 const Wrapper = styled.nav`
-  width: 400px;
+  width: 360px;
   height: 100vh;
   position: fixed;
   top: 0;
-  padding: 0 30px;
-  right: ${(props) => (props.sidebarOpen ? "0px" : "-400px")};
+  padding: 0 24px;
+  right: ${(props) => (props.sidebarOpen ? "0px" : "-360px")};
   z-index: 9999;
+  background: #6a795c;
   @media (max-width: 400px) {
     width: 100%;
+    right: ${(props) => (props.sidebarOpen ? "0px" : "-100%")};
   }
 `;
 const SidebarHeader = styled.div`
@@ -104,18 +106,23 @@ const CloseBtn = styled.button`
 const UlStyle = styled.ul`
   display: flex;
   flex-direction: column; /* Organiza os itens verticalmente */
-  align-items: flex-start; /* Alinha os itens à esquerda */
-  padding: 40px 0; /* Espaço no topo e embaixo */
+  align-items: flex-start; /* Alinha os itens a esquerda */
+  padding: 30px 0 10px;
   list-style: none; /* Remove os marcadores da lista */
 
   li {
-    width: 100%; /* Para os links ocuparem toda a largura */
-    margin-bottom: 20px; /* Espaço entre os itens */
-    
+    width: 100%;
+    margin-bottom: 16px;
+
     a {
-      display: block; /* Garante que o link seja tratado como bloco */
-      width: 100%; /* Ocupa toda a largura disponível */
-      text-align: left; /* Alinha o texto à esquerda */
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: rgba(255, 255, 255, 0.14);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 12px;
+      font-weight: 600;
     }
   }
 `;

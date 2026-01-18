@@ -36,7 +36,7 @@ export default function TopNavbar() {
       <Sidebar sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} />
       {sidebarOpen && <Backdrop toggleSidebar={toggleSidebar} />}
       <Wrapper
-        className="flexCenter animate whiteBg"
+        className="flexCenter animate"
         style={y > 100 ? { height: "60px" } : { height: "80px" }}
       >
         <NavInner className="container flexSpaceCenter">
@@ -54,9 +54,9 @@ export default function TopNavbar() {
               <>
 
               <NavItem>
-                <button type="button" onClick={() => history.goBack()} style={{ all: 'unset', cursor: 'pointer' }}> 
+                <NavButton type="button" onClick={history.goBack}>
                   Voltar
-                </button>
+                </NavButton>
               </NavItem>
               
               <NavItem>
@@ -86,6 +86,8 @@ export default function TopNavbar() {
 
 const Wrapper = styled.nav`
   width: 100%;
+  background: #ffffff;
+  border-bottom: 1px solid rgba(106, 121, 92, 0.12);
   position: fixed;
   top: 0;
   left: 0;
@@ -103,7 +105,7 @@ const LogoWrapper = styled(RouterLink)`
   }
 
   h1 {
-    color: #af9b55;
+    color: #A2B190;
   }
 `;
 
@@ -142,11 +144,26 @@ const NavLinks = styled.ul`
 const NavItem = styled.li`
   margin: 0px 15px;
   align-items: center;
+
+  a,
+  button {
+    color: #6a795c;
+    font-weight: 600;
+  }
 `;
 
 const UserInfo = styled.div`
   padding: 10px;
   font-size: 18px;
-  color: #123f2d;
+  color: #1b1b1b;
 `;
 
+
+const NavButton = styled.button`
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: #6a795c;
+  font-weight: 600;
+`;

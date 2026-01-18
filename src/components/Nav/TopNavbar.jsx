@@ -107,6 +107,8 @@ export default function TopNavbar() {
 
 const Wrapper = styled.nav`
   width: 100%;
+  background: #ffffff;
+  border-bottom: 1px solid rgba(106, 121, 92, 0.12);
   position: fixed;
   top: 0;
   left: 0;
