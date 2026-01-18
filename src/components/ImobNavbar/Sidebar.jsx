@@ -13,11 +13,11 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
         <div className="flexNullCenter">
           <img
               src={Logo}
-              alt="Checkpoint Logo"
+              alt="Espaço Cuidar Logo"
               style={{ height: "40px", marginRight: "15px" }}
           />
           <h1 className="whiteColor font20" style={{ marginLeft: "15px", color: '#af9b55' }}>
-            Checkpoint
+            Espaço Cuidar
           </h1>
         </div>
         <CloseBtn

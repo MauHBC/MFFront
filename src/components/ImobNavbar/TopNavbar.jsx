@@ -41,8 +41,8 @@ export default function TopNavbar() {
       >
         <NavInner className="container flexSpaceCenter">
           <LogoWrapper to="/">
-            <img src={Logo} alt="Checkpoint Logo" />
-            <h1 className="font20 extraBold">Checkpoint</h1>
+            <img src={Logo} alt="Espaço Cuidar Logo" />
+            <h1 className="font20 extraBold">Espaço Cuidar</h1>
           </LogoWrapper>
 
           <BurderWrapper onClick={() => toggleSidebar(!sidebarOpen)}>

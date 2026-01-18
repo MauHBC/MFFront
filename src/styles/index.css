@@ -39,10 +39,10 @@
   }
   a {
     text-decoration: none!important;
-    color: #143610;
+    color: #6A795C;
   }
   a:hover {
-    color: #143610;
+    color: #6A795C;
   }
   input:-webkit-autofill {
     -webkit-box-shadow:0 0 0 50px #fff inset;
@@ -51,7 +51,7 @@
   }
   body {
     background: #fff;
-    color: #143610;
+    color: #1B1B1B;
     font-family: 'Khula', sans-serif;
     overflow-x: hidden;
     font-size: 16px;
@@ -104,8 +104,8 @@
     width: 100%;
   }
   .active {
-    border-bottom: 2px solid #af9b55;
-    color: #af9b55 !important;
+    border-bottom: 2px solid #A2B190;
+    color: #A2B190 !important;
   }
   .tag {
     padding: 5px 10px;
@@ -221,13 +221,13 @@
   }
   /* COLORS */
   .darkColor {
-    color: #143610;
+    color: #1B1B1B;
   }
   .purpleColor {
     color: #7620FF;
   }
   .orangeColor {
-    color: #F2B300;
+    color: #A2B190;
   }
   .lightColor {
     color: #F5F5F5;
@@ -246,16 +246,16 @@
   }
   /* BACKGROUNDS */
   .darkBg {
-    background-color: #143610;
+    background-color: #6A795C;
   }
   .purpleBg {
     background-color: #7620FF;
   }
   .orangeBg {
-    background-color: #F2B300;
+    background-color: #A2B190;
   }
   .lightBg {
-    background-color: #F5F5F5;
+    background-color: #F3F5F1;
   }
   .coralBg {
     background-color: #C4FFFF;

@@ -13,7 +13,7 @@ function SvgComponent(props) {
       <path
         data-name="Line 5"
         fill="none"
-        stroke="#143610"
+        stroke="#6A795C"
         strokeLinecap="round"
         strokeWidth={2}
         d="M1 1h26"
@@ -21,7 +21,7 @@ function SvgComponent(props) {
       <path
         data-name="Line 6"
         fill="none"
-        stroke="#143610"
+        stroke="#6A795C"
         strokeLinecap="round"
         strokeWidth={2}
         d="M1 11h26"
@@ -29,7 +29,7 @@ function SvgComponent(props) {
       <path
         data-name="Line 7"
         fill="none"
-        stroke="#143610"
+        stroke="#6A795C"
         strokeLinecap="round"
         strokeWidth={2}
         d="M1 21h26"

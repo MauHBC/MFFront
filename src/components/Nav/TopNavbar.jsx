@@ -33,14 +33,14 @@ export default function TopNavbar() {
           <ScrollLink className="pointer flexNullCenter" to="home" smooth>
             <img
               src={Logo}
-              alt="Checkpoint Logo"
+              alt="Espaço Cuidar Logo"
               style={{ height: "40px", marginRight: "15px" }}
             />
             <h1
-              style={{ marginLeft: "15px", color: "#af9b55" }}
+              style={{ marginLeft: "15px", color: "#A2B190" }}
               className="font20 extraBold"
             >
-              Checkpoint
+              Espaço Cuidar
             </h1>
           </ScrollLink>
           <BurderWrapper
@@ -53,7 +53,7 @@ export default function TopNavbar() {
             <li className="semiBold font15 pointer">
               <ScrollLink
                 activeClass="active"
-                style={{ padding: "10px 15px", color: "#143610" }}
+                style={{ padding: "10px 15px", color: "#6A795C" }}
                 to="home"
                 spy
                 smooth
@@ -65,7 +65,7 @@ export default function TopNavbar() {
             <li className="semiBold font15 pointer">
               <ScrollLink
                 activeClass="active"
-                style={{ padding: "10px 15px", color: "#143610" }}
+                style={{ padding: "10px 15px", color: "#6A795C" }}
                 to="services"
                 spy
                 smooth
@@ -77,7 +77,7 @@ export default function TopNavbar() {
             <li className="semiBold font15 pointer">
               <ScrollLink
                 activeClass="active"
-                style={{ padding: "10px 15px", color: "#143610" }}
+                style={{ padding: "10px 15px", color: "#6A795C" }}
                 to="contact"
                 spy
                 smooth
@@ -91,7 +91,7 @@ export default function TopNavbar() {
                 to="/login"
                 style={{
                   padding: "10px 15px",
-                  color: "#143610",
+                  color: "#6A795C",
                   textDecoration: "none",
                 }}
               >

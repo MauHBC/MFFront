@@ -12,13 +12,11 @@ import SemAcesso from "../pages/SemAcesso";
 import Page404 from "../pages/Page404";
 
 // Páginas protegidas (requer autenticação)
-import Agendamentos from "../pages/Agendamentos";
-import Imoveis from "../pages/Imoveis";
-import Imovel from "../pages/Imovel";
 import Register from "../pages/Register";
-import Laudos from "../pages/Laudos";
-import Agendar from "../pages/Agendar";
-import AgendarEdit from "../pages/AgendarEdit";
+import PatientsMenu from "../pages/Patients";
+import PatientsNew from "../pages/PatientsNew";
+import PatientsSearch from "../pages/PatientsSearch";
+import PatientDetails from "../pages/PatientDetails";
 import ImobNavbar from "../components/ImobNavbar/TopNavbar";
 
 export default function Routes() {
@@ -39,14 +37,11 @@ export default function Routes() {
         <MyRoute exact path="/politica" component={Politica} isClosed={false} />
 
         {/* Rotas protegidas */}
-        <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed />
-        <MyRoute exact path="/agendamentos/:id/agendar" component={Agendar} isClosed />
-        <MyRoute exact path="/agendamentos/:id/agendarEdit" component={AgendarEdit} isClosed />
-        <MyRoute exact path="/imoveis" component={Imoveis} isClosed allowedGroups={1} />
-        <MyRoute exact path="/laudos" component={Laudos} isClosed allowedGroups={3} />
-        <MyRoute exact path="/imovel/:id/edit" component={Imovel} isClosed />
-        <MyRoute exact path="/imovel/" component={Imovel} isClosed />
         <MyRoute exact path="/register/" component={Register} isClosed />
+        <MyRoute exact path="/pacientes" component={PatientsMenu} isClosed={false} />
+        <MyRoute exact path="/pacientes/novo" component={PatientsNew} isClosed={false} />
+        <MyRoute exact path="/pacientes/consultar" component={PatientsSearch} isClosed={false} />
+        <MyRoute exact path="/pacientes/:id" component={PatientDetails} isClosed={false} />
 
         {/* Rota para páginas não encontradas ou sem acesso */}
         <MyRoute exact path="/semAcesso/" component={SemAcesso} isClosed={false} />

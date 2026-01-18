@@ -20,18 +20,18 @@ export default function Contact() {
             <ButtonRow>
               <div style={{ textAlign: "center" }}>
                 <Button
-                  href="https://wa.me/5527988252557?text=Olá%20Checkpoint%2C%20gostaria%20de%20mais%20informações."
+                  href="https://wa.me/5527988252557?text=Olá%20EspacoCuidar%2C%20gostaria%20de%20mais%20informações."
                   target="_blank"
                   style={{background: 'transparent'}}
                 >
                   <FaWhatsapp size={24} color="#25D366" />
                 </Button>
-                <span>55 27 988252557</span> {/* Número abaixo do ícone do WhatsApp */}
+                <span>55 27 99999-9999</span> {/* Número abaixo do ícone do WhatsApp */}
               </div>
 
               <div style={{ textAlign: "center" }}>
                 <Button
-                  href="https://www.instagram.com/checkpoint.si/"
+                  href="https://www.instagram.com/multifisioreabilitacao/"
                   target="_blank"
                   style={{background: 'transparent'}}
                 >
@@ -41,8 +41,7 @@ export default function Contact() {
               </div>
             </ButtonRow>
               <p style={{ textAlign: 'center'}}>
-                <p>Espírito Santo</p> {/* Novo texto adicionado */}
-                Atendemos nas cidades de: Vitória, Vila Velha, Serra e Cariacica.
+                Rua Marquês de Monte Alegre - nº 5, Jardim da Penha, Vitória - ES.
               </p>
             </div>
             <div className="col-xs-12 col-sm-12 col-md-6 col-lg-6 flex">
@@ -91,7 +90,9 @@ const HeaderInfo = styled.div`
 const ButtonRow = styled.div`
   display: flex;
   justify-content: center;
-  margin: 20px 0;
+  gap: 28px;
+  margin: 20px 0 10px;
+  flex-wrap: wrap;
 `;
 
 const Button = styled.a`
@@ -99,20 +100,27 @@ const Button = styled.a`
   align-items: center;
   justify-content: center;
   margin: 0 10px;
-  padding: 15px 20px;
-  border-radius: 6px;
-  background-color: #f0f0f0;
-  color: #333;
+  padding: 18px 22px;
+  border-radius: 10px;
+  background-color: #fff;
+  color: #1b1b1b;
   text-decoration: none;
   font-size: 18px;
+  border: 1px solid rgba(106, 121, 92, 0.25);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease,
+    background-color 0.2s ease;
 
   &:hover {
-    background-color: #e0e0e0;
+    background-color: #f3f5f1;
+    transform: translateY(-2px);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.12);
   }
 
   svg {
-    width: 60px;  /* Aumente o tamanho do ícone */
-    height: 60px; /* Aumente o tamanho do ícone */
-    margin-right: 8px; /* Espaço entre ícone e texto */
+    width: 60px;  /* Aumente o tamanho do ??cone */
+    height: 60px; /* Aumente o tamanho do ??cone */
+    margin-right: 8px; /* Espa??o entre ??cone e texto */
   }
 `;
+

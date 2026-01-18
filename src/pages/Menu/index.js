@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { FaClipboardList, FaBuilding, FaFileAlt } from "react-icons/fa";
+import { FaCalendarAlt, FaUserFriends, FaFileMedical } from "react-icons/fa";
 import styled from "styled-components";
 
 export default function Menu() {
@@ -8,28 +8,31 @@ export default function Menu() {
     <Wrapper>
       <Content>
         <Title>
-          <h1>Menu Principal</h1>
+          {/* <h1>Menu Principal</h1> */}
         </Title>
         <Nav>
           <StyledLink to="/agendamentos">
-            <FaClipboardList size={24} />
+            <IconBadge $bg="#f0f3ec" $color="#6a795c">
+              <FaCalendarAlt size={24} />
+            </IconBadge>
             <div>
               <span>Agenda</span>
-              <Description>Checklists disponíveis para serem realizados</Description>
             </div>
           </StyledLink>
-          <StyledLink to="/imoveis">
-            <FaBuilding size={24} />
+          <StyledLink to="/pacientes">
+            <IconBadge $bg="#edf1f7" $color="#5a6e8a">
+              <FaUserFriends size={24} />
+            </IconBadge>
             <div>
-              <span>Novo Agendamento e Imóveis</span>
-              <Description>Agendar um novo checklist e cadastrar um novo imóvel</Description>
+              <span>Pacientes</span>
             </div>
           </StyledLink>
           <StyledLink to="/laudos">
-            <FaFileAlt size={24} />
+            <IconBadge $bg="#f6f0ec" $color="#8a6a5a">
+              <FaFileMedical size={24} />
+            </IconBadge>
             <div>
-              <span>Laudos Realizados</span>
-              <Description>Download de Checklists realizados</Description>
+              <span>Exames</span>
             </div>
           </StyledLink>
         </Nav>
@@ -64,7 +67,7 @@ const Title = styled.div`
   h1 {
     font-size: 24px;
     font-weight: 800; /* Extra bold */
-    color: #143610;
+    color: #6A795C;
   }
 `;
 
@@ -76,28 +79,46 @@ const Nav = styled.nav`
 
 const StyledLink = styled(Link)`
   display: flex;
-  flex-direction: column; /* Alinha o conteúdo verticalmente */
+  flex-direction: column; /* Alinha o conteudo verticalmente */
   align-items: center;
   text-align: center; /* Centraliza o texto */
-  padding: 10px 20px;
+  gap: 10px;
+  padding: 18px 24px;
+  min-width: 160px;
   font-size: 18px;
-  color: #143610;
+  color: #1b1b1b;
   text-decoration: none;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid rgba(106, 121, 92, 0.2);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.06);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 
   &:hover {
-    background-color: #123f2d;
-    color: white;
+    transform: translateY(-3px);
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.1);
   }
 
   span {
-    margin-top: 8px; /* Espaço entre o ícone e o texto */
-    font-weight: bold;
+    font-weight: 700;
   }
 `;
 
-const Description = styled.p`
-  font-size: 14px;
-  color: #666;
-  margin-top: 8px; /* Espaço entre o nome do menu e a descrição */
+
+// const Description = styled.p`
+//   font-size: 14px;
+//   color: #666;
+//   margin-top: 8px; /* Espaço entre o nome do menu e a descrição */
+// `;
+
+const IconBadge = styled.div`
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: ${(props) => props.$bg || "#f3f5f1"};
+  color: ${(props) => props.$color || "#6a795c"};
 `;
+

@@ -27,14 +27,14 @@ FullButton.defaultProps = {
 
 const Wrapper = styled.button`
   border: 1px solid ${(props) => (props.border ? "#707070" : "")};
-  background-color: ${(props) => (props.border ? "transparent" : "#143610")};
+  background-color: ${(props) => (props.border ? "transparent" : "#6A795C")};
   width: 100%;
   padding: 15px;
   outline: none;
   color: ${(props) => (props.border ? "#707070" : "#fff")};
   :hover {
-    background-color: ${(props) => (props.border ? "transparent" : "#580cd2")};
-    border: 1px solid #143610;
-    color: ${(props) => (props.border ? "#143610" : "#fff")};
+    background-color: ${(props) => (props.border ? "transparent" : "#5C6852")};
+    border: 1px solid #6A795C;
+    color: ${(props) => (props.border ? "#6A795C" : "#fff")};
   }
 `;

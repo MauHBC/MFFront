@@ -26,12 +26,12 @@ export default function Contact() {
                 className="font15 extraBold whiteColor"
                 style={{ marginLeft: "15px" }}
               >
-                Checkpoint
+                Espaço Cuidar
               </h1>
             </Link>
             <StyleP className="whiteColor font13">
               © {getCurrentYear()} -{" "}
-              <span className="font13" style={{color: "#af9b55", fontWeight: 'bold'}}>Checkpoint</span> All Right
+              <span className="font13" style={{color: "#A2B190", fontWeight: 'bold'}}>Espaço Cuidar</span> All Right
               Reserved
             </StyleP>
 

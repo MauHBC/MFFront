@@ -1,6 +1,12 @@
+// src/components/Elements/ServiceBox.jsx
 import React from "react";
 import styled from "styled-components";
-import { FaCheck, FaKey, FaClipboardCheck, FaDoorOpen } from "react-icons/fa";
+import {
+  FaKey,
+  FaUserInjured,
+  FaChild,
+  FaRunning,
+} from "react-icons/fa";
 // Assets
 import PropTypes from "prop-types";
 
@@ -8,19 +14,23 @@ export default function ServiceBox({ icon, title, subtitle }) {
   let getIcon;
 
   switch (icon) {
-    case "check":
-      getIcon = <FaCheck size={40} color="#143610" />;
-      break;
-    case "stethoscope":
-      getIcon = <FaClipboardCheck size={40} color="#143610" />;
-      break;
-    case "door":
-      getIcon = <FaDoorOpen size={40} color="#143610" />;
-      break;
-    default:
-      getIcon = <FaKey size={40} color="#143610" />;
-      break;
-  }
+  case "physio":
+    getIcon = <FaUserInjured size={40} color="#6A795C" />;
+    break;
+
+  case "pilates":
+    getIcon = <FaChild size={40} color="#6A795C" />;
+    break;
+
+  case "functional":
+    getIcon = <FaRunning size={40} color="#6A795C" />;
+    break;
+
+  default:
+    getIcon = <FaKey size={40} color="#6A795C" />;
+    break;
+}
+
 
   return (
     <Wrapper className="flex flexColumn">

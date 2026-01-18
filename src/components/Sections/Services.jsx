@@ -5,10 +5,10 @@ import styled from "styled-components";
 import ServiceBox from "../Elements/ServiceBox";
 // import FullButton from "../Buttons/FullButton";
 // Assets
-import AddImage1 from "../../assets/img/add/1.jpg";
-import AddImage2 from "../../assets/img/add/Anderson.jpeg";
+import AddImage1 from "../../assets/img/add/equipe.jpg";
+import AddImage2 from "../../assets/img/add/2.JPG";
 import AddImage3 from "../../assets/img/add/3.jpg";
-import AddImage4 from "../../assets/img/add/4.jpg";
+import AddImage4 from "../../assets/img/add/4.JPG";
 
 export default function Services() {
   return (
@@ -21,41 +21,39 @@ export default function Services() {
       <div className="whiteBg" style={{ padding: "60px 0" }}>
         <div className="container">
           <HeaderInfo>
-            <h1 className="font40 extraBold">Nossos serviços</h1>
-            <p className="font13" style={{ textAlign: "justify" }}>
+            <h1 className="font40 extraBold">Conheça nossos serviços</h1>
+            {/* <p className="font13" style={{ textAlign: "justify" }}>
               Todos os nossos serviços são realizados com nosso app, registrado
               com fotos e vídeos e enviado ao cliente.
               <br />
               Em alguns casos realizamos manutenção no momento da verificação.
-            </p>
+            </p> */}
           </HeaderInfo>
-          <ServiceBoxRow className="flex">
-            <ServiceBoxWrapper>
-              <ServiceBox
-                icon="check"
-                title=" Check-in"
-                subtitle="Realizamos a `contra-vistoria` para o inquilino que acabou de alugar
-          um imóvel e recebeu uma vistoria da imobiliária."
-              />
-            </ServiceBoxWrapper>
-            <ServiceBoxWrapper>
-              <ServiceBox
-                icon="stethoscope"
-                title="Check-up"
-                subtitle="Está há mais de um ano no imóvel alugado? Então está na hora de fazer
-          uma verificação da saúde da sua locação."
-              />
-            </ServiceBoxWrapper>
-            <ServiceBoxWrapper>
-              <ServiceBox
-                icon="door"
-                title="Check-out"
-                subtitle="Nós te preparamos para a desocupação do imóvel. Orientamos o inquilino
-          sobre suas responsabilidades e o que ele precisa fazer para evitar
-          cobranças indevidas!"
-              />
-            </ServiceBoxWrapper>
-          </ServiceBoxRow>
+        <ServiceBoxRow className="flex">
+          <ServiceBoxWrapper>
+            <ServiceBox
+              icon="physio"
+              title="Fisioterapia"
+              subtitle="Tratamento personalizado"
+            />
+          </ServiceBoxWrapper>
+
+          <ServiceBoxWrapper>
+            <ServiceBox
+              icon="pilates"
+              title="Pilates"
+              subtitle="Força, equilíbrio e postura"
+            />
+          </ServiceBoxWrapper>
+
+          <ServiceBoxWrapper>
+            <ServiceBox
+              icon="functional"
+              title="Funcional"
+              subtitle="Movimento para o dia a dia"
+            />
+          </ServiceBoxWrapper>
+        </ServiceBoxRow>
         </div>
         <div className="lightBg">
           <div className="container">
@@ -63,11 +61,18 @@ export default function Services() {
               <AddLeft>
                 {/* <h4 className="font15 semiBold">A few words about company</h4> */}
                 <h2 className="font40 extraBold">Sobre nós</h2>
-                <p className="font13" style={{ textAlign: "justify" }}>
-                  Somos uma empresa que tem o objetivo de resguardar o inquilino
-                  no início, durante e no final da sua locação por entendermos que cada cliente tem sua história e é único. 
-                  Prezamos pelo atendimento personalizado e pautamos por transparência em todas as etapas dos nossos serviços.    
+                <p className="font13" style={{ textAlign: "justify", marginBottom: "12px" }}>
+                  Somos uma clínica dedicada ao cuidado com o movimento, à recuperação funcional e à promoção da saúde.
+                  Atuamos com fisioterapia, pilates e treinamento funcional, sempre com foco em um atendimento individualizado,
+                  humanizado e baseado em evidências.
                 </p>
+
+                <p className="font13" style={{ textAlign: "justify", marginBottom: "12px" }}>
+                  Acreditamos que cada pessoa é única. Por isso, nossos tratamentos são planejados de forma personalizada,
+                  respeitando as necessidades, objetivos e limites de cada paciente, seja na reabilitação, na prevenção de
+                  lesões ou na melhora da qualidade de vida.
+                </p>
+
                 {/* <ButtonsRow
                   className="flexNullCenter"
                   style={{ margin: "30px 0" }}

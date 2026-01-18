@@ -1,7 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 // Assets
-import HeaderImage from "../../assets/img/header-img.jpg";
+import HeaderImage from "../../assets/img/leo.png";
 import QuotesIcon from "../../assets/svg/Quotes";
 import Dots from "../../assets/svg/Dots";
 
@@ -11,13 +11,10 @@ export default function Header() {
       <LeftSide className="flexCenter">
         <div>
           <h1 className="extraBold font60">
-            A empresa parceira dos inquilinos <span>&#10004;</span>
+            Fisioterapia Especializada 
           </h1>
           <HeaderP className="font13 semiBold" style={{ textAlign: "justify" }}>
-            Focada em proteger seus interesses durante o processo de locação.
-            Não ajudamos a encontrar imóveis, mas sim, garantimos uma
-            contra-vistoria que resguarda você dos riscos das vistorias
-            imobiliárias.
+            subtext
           </HeaderP>
         </div>
       </LeftSide>
@@ -36,14 +33,14 @@ export default function Header() {
             <div>
               <p className="font15 whiteColor">
                 <em>
-                  Primeiro escutamos a história, depois entregamos a solução.
+                  Se sua coluna falasse, o que ela diria para você?
                 </em>
               </p>
               <p
                 className="font13 orangeColor textRight"
                 style={{ marginTop: "10px" }}
               >
-                Maurício Borges
+                Leonardo do Carmo, especialista em tratamento de coluna.
               </p>
             </div>
           </QuoteWrapper>
@@ -104,6 +101,8 @@ const GreyDiv = styled.div`
   top: 0;
   right: 0;
   z-index: 0;
+  background: linear-gradient(180deg, #F7F8F4 0%, #E9EDE2 100%);
+  border-left: 1px solid rgba(106, 121, 92, 0.12);
   @media (max-width: 960px) {
     display: none;
   }

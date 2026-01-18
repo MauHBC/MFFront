@@ -13,7 +13,7 @@ function SvgComponent(props) {
       <path
         data-name="Path 131"
         d="M18.966.004l-8 34.626H0L4 .004zm23.316 0l-7.83 34.622H23.49L27.49 0z"
-        fill="#f2b300"
+        fill="#A2B190"
       />
     </svg>
   );

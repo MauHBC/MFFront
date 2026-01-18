@@ -88,7 +88,7 @@ export default function Politica() {
         O Provedor de Serviços reterá os dados fornecidos pelo usuário enquanto
         o Aplicativo estiver em uso. Caso deseje solicitar a exclusão dos dados,
         entre em contato com o Provedor de Serviços pelo e-mail
-        checkpoint.vix@gmail.com, e sua solicitação será atendida em um prazo
+        Espaço Cuidar@gmail.com, e sua solicitação será atendida em um prazo
         razoável.
       </p>
       <br />
@@ -135,7 +135,7 @@ export default function Politica() {
       <p>
         Se você tiver alguma dúvida sobre privacidade ao usar o Aplicativo, ou
         tiver perguntas sobre as práticas, entre em contato com o Provedor de
-        Serviços via e-mail em checkpoint.vix@gmail.com.
+        Serviços via e-mail em espaco.cuidar@gmail.com.
       </p>
       <hr />
     </PrivacyPolicySection>
