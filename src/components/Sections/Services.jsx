@@ -8,7 +8,7 @@ import ServiceBox from "../Elements/ServiceBox";
 import AddImage1 from "../../assets/img/add/equipe.jpg";
 import AddImage2 from "../../assets/img/add/2.JPG";
 import AddImage3 from "../../assets/img/add/3.jpg";
-import AddImage4 from "../../assets/img/add/4.JPG";
+import AddImage4 from "../../assets/img/add/4.jpg";
 
 export default function Services() {
   return (
