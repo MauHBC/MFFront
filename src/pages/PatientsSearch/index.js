@@ -16,7 +16,7 @@ export default function PatientsSearch() {
     async function loadPatients() {
       setIsLoading(true);
       try {
-        const response = await axios.get("/api/patients");
+        const response = await axios.get("/patients");
         const list = Array.isArray(response.data) ? response.data : [];
         setPatients(list);
       } catch (error) {

@@ -66,7 +66,7 @@ export default function PatientsNew() {
 
       setIsSaving(true);
       try {
-        await axios.post("/api/patients", payload);
+        await axios.post("/patients", payload);
         toast.success("Paciente cadastrado com sucesso.");
         history.push("/pacientes/consultar");
       } catch (error) {

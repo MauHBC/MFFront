@@ -35,10 +35,7 @@ export default function TopNavbar() {
     <>
       <Sidebar sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} />
       {sidebarOpen && <Backdrop toggleSidebar={toggleSidebar} />}
-      <Wrapper
-        className="flexCenter animate"
-        style={y > 100 ? { height: "60px" } : { height: "80px" }}
-      >
+      <Wrapper className="flexCenter animate">
         <NavInner className="container flexSpaceCenter">
           <LogoWrapper to="/">
             <img src={Logo} alt="Espaço Cuidar Logo" />
@@ -92,6 +89,7 @@ const Wrapper = styled.nav`
   top: 0;
   left: 0;
   z-index: 999;
+  height: 80px;
 `;
 
 const LogoWrapper = styled(RouterLink)`

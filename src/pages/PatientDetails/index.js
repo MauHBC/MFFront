@@ -78,8 +78,8 @@ export default function PatientDetails() {
       setIsLoading(true);
       try {
         const [patientResponse, evalResponse] = await Promise.all([
-          axios.get(`/api/patients/${id}`),
-          axios.get(`/api/evaluations?patient_id=${id}`),
+          axios.get(`/patients/${id}`),
+          axios.get(`/evaluations?patient_id=${id}`),
         ]);
         setPatient(patientResponse.data);
         setEvaluations(Array.isArray(evalResponse.data) ? evalResponse.data : []);
@@ -126,7 +126,12 @@ export default function PatientDetails() {
             </h1>
             <p className="font15">Detalhes do paciente</p>
           </div>
-          <BackLink to="/pacientes/consultar">Voltar</BackLink>
+          <HeaderActions>
+            <AddLink to={`/pacientes/${id}/avaliacoes/nova`}>
+              Adicionar registro
+            </AddLink>
+            <BackLink to="/pacientes/consultar">Voltar</BackLink>
+          </HeaderActions>
         </Header>
 
         <Tabs>
@@ -192,13 +197,16 @@ export default function PatientDetails() {
               const createdAt = formatDate(evaluation.created_at || evaluation.createdAt);
 
               return (
-                <HistoryCard key={evaluation.id || `${createdAt}-${title}`}>
+                <HistoryCardLink
+                  key={evaluation.id || `${createdAt}-${title}`}
+                  to={`/pacientes/${id}/avaliacoes/${evaluation.id}`}
+                >
                   <HistoryHeader>
                     <span>{createdAt}</span>
                     <h3>{title}</h3>
                   </HistoryHeader>
                   <p>{note}</p>
-                </HistoryCard>
+                </HistoryCardLink>
               );
             })}
           </Section>
@@ -269,6 +277,24 @@ const Header = styled.div`
   }
 `;
 
+const HeaderActions = styled.div`
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+`;
+
+const AddLink = styled(Link)`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: #6a795c;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+`;
+
 const BackLink = styled(Link)`
   display: inline-flex;
   align-items: center;
@@ -333,16 +359,23 @@ const InfoList = styled.ul`
   color: #6a795c;
 `;
 
-const HistoryCard = styled.div`
+const HistoryCardLink = styled(Link)`
   background: #fff;
   border-radius: 16px;
   border: 1px solid rgba(106, 121, 92, 0.18);
   padding: 16px;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 
   p {
     color: #6a795c;
     margin-top: 8px;
+  }
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.08);
   }
 `;
 
