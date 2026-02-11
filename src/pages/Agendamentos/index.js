@@ -17,6 +17,16 @@ import Loading from "../../components/Loading";
 const START_HOUR = 7;
 const END_HOUR = 20;
 
+const WEEKDAY_OPTIONS = [
+  { value: 1, label: "Seg" },
+  { value: 2, label: "Ter" },
+  { value: 3, label: "Qua" },
+  { value: 4, label: "Qui" },
+  { value: 5, label: "Sex" },
+  { value: 6, label: "Sab" },
+  { value: 7, label: "Dom" },
+];
+
 const emptyForm = {
   patient_id: "",
   professional_user_id: "",
@@ -33,6 +43,11 @@ const emptyForm = {
 const normalizeText = (value) => {
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+};
+
+const toIsoWeekday = (date) => {
+  const day = date.getDay();
+  return day === 0 ? 7 : day;
 };
 
 const formatDateTime = (value) => {
@@ -166,6 +181,12 @@ export default function Agendamentos() {
     patient_id: "",
     service_type: "",
   });
+  const [repeatEnabled, setRepeatEnabled] = useState(false);
+  const [repeatInterval, setRepeatInterval] = useState(1);
+  const [repeatWeekdays, setRepeatWeekdays] = useState([]);
+  const [repeatEndMode, setRepeatEndMode] = useState("count");
+  const [repeatUntilDate, setRepeatUntilDate] = useState("");
+  const [repeatCount, setRepeatCount] = useState("10");
 
   const loadBaseData = useCallback(async () => {
     try {
@@ -487,11 +508,23 @@ export default function Agendamentos() {
       starts_at: value,
       ends_at: toInputValue(endsAt),
     }));
-  }, []);
+    if (repeatEnabled && repeatWeekdays.length === 0) {
+      setRepeatWeekdays([toIsoWeekday(startDate)]);
+    }
+  }, [repeatEnabled, repeatWeekdays.length]);
 
   const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
     setFilters((prev) => ({ ...prev, [name]: value }));
+  }, []);
+
+  const handleToggleWeekday = useCallback((value) => {
+    setRepeatWeekdays((prev) => {
+      if (prev.includes(value)) {
+        return prev.filter((item) => item !== value);
+      }
+      return [...prev, value].sort((a, b) => a - b);
+    });
   }, []);
 
   const openDrawer = useCallback(() => {
@@ -508,6 +541,12 @@ export default function Agendamentos() {
     setEditingId(null);
     setForm(emptyForm);
     setPatientQuery("");
+    setRepeatEnabled(false);
+    setRepeatInterval(1);
+    setRepeatWeekdays([]);
+    setRepeatEndMode("count");
+    setRepeatUntilDate("");
+    setRepeatCount("10");
   }, []);
 
   const handleCreateAt = useCallback(
@@ -607,6 +646,12 @@ export default function Agendamentos() {
         serviceIdValue = String(serviceFromCode.id);
       }
       setEditingId(session.id);
+      setRepeatEnabled(false);
+      setRepeatInterval(1);
+      setRepeatWeekdays([]);
+      setRepeatEndMode("count");
+      setRepeatUntilDate("");
+      setRepeatCount("10");
       setForm({
         patient_id: session.patient_id ? String(session.patient_id) : "",
         professional_user_id: session.professional_user_id
@@ -700,6 +745,38 @@ export default function Agendamentos() {
         toast.error("Informe a data e horario.");
         return;
       }
+      const startsAtDate = new Date(form.starts_at);
+      if (Number.isNaN(startsAtDate.getTime())) {
+        toast.error("Data de inicio invalida.");
+        return;
+      }
+
+      const isRecurring = repeatEnabled && !editingId;
+      const endsAtDate = form.ends_at ? new Date(form.ends_at) : null;
+      const hasValidEnd =
+        endsAtDate && !Number.isNaN(endsAtDate.getTime()) && endsAtDate > startsAtDate;
+      const durationMinutes = hasValidEnd
+        ? Math.max(15, Math.round((endsAtDate - startsAtDate) / 60000))
+        : 60;
+
+      if (isRecurring) {
+        const interval = Number(repeatInterval) || 1;
+        if (interval <= 0) {
+          toast.error("Intervalo de repeticao invalido.");
+          return;
+        }
+        if (repeatEndMode === "until" && !repeatUntilDate) {
+          toast.error("Informe a data final.");
+          return;
+        }
+        if (repeatEndMode === "count") {
+          const count = Number(repeatCount);
+          if (!Number.isFinite(count) || count <= 0) {
+            toast.error("Informe a quantidade de sessoes.");
+            return;
+          }
+        }
+      }
 
       const payload = {
         patient_id: Number(form.patient_id),
@@ -720,7 +797,31 @@ export default function Agendamentos() {
 
       setIsSaving(true);
       try {
-        if (editingId) {
+        if (isRecurring) {
+          const weekdays = repeatWeekdays.length
+            ? repeatWeekdays
+            : [toIsoWeekday(startsAtDate)];
+          const seriesPayload = {
+            patient_id: payload.patient_id,
+            professional_user_id: payload.professional_user_id,
+            service_type: payload.service_type,
+            service_id: payload.service_id,
+            status: payload.status,
+            starts_at: startsAtDate.toISOString(),
+            duration_minutes: durationMinutes,
+            repeat_interval: Number(repeatInterval) || 1,
+            weekdays,
+            until_date: repeatEndMode === "until" ? repeatUntilDate : null,
+            occurrence_count:
+              repeatEndMode === "count" ? Number(repeatCount) : null,
+            notes: payload.notes,
+          };
+          const response = await axios.post("/session-series", seriesPayload);
+          const total = response?.data?.total_sessions;
+          toast.success(
+            total ? `Serie criada (${total} sessoes).` : "Serie criada.",
+          );
+        } else if (editingId) {
           await axios.put(`/sessions/${editingId}`, payload);
           toast.success("Agendamento atualizado.");
         } else {
@@ -743,7 +844,21 @@ export default function Agendamentos() {
         setIsSaving(false);
       }
     },
-    [closeDrawer, editingId, form, loadSessions, resetForm, selectedDate, view],
+    [
+      closeDrawer,
+      editingId,
+      form,
+      loadSessions,
+      repeatEnabled,
+      repeatEndMode,
+      repeatInterval,
+      repeatUntilDate,
+      repeatCount,
+      repeatWeekdays,
+      resetForm,
+      selectedDate,
+      view,
+    ],
   );
 
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
@@ -833,6 +948,11 @@ export default function Agendamentos() {
             {view === "day" && (
               <SecondaryButton type="button" onClick={handleToday}>
                 Hoje
+              </SecondaryButton>
+            )}
+            {view === "week" && (
+              <SecondaryButton type="button" onClick={handleToday}>
+                Semana atual
               </SecondaryButton>
             )}
           </DateNav>
@@ -1359,6 +1479,125 @@ export default function Agendamentos() {
                     <option value="true">1a avaliacao</option>
                   </select>
                 </Field>
+                <RepeatCard className="span-2">
+                  <RepeatHeader>
+                    <div>
+                      <strong>Repetir agendamento</strong>
+                      <span>Agende 2x, 3x ou toda semana com poucos cliques.</span>
+                    </div>
+                    <RepeatToggle>
+                      <input
+                        type="checkbox"
+                        checked={repeatEnabled}
+                        disabled={!!editingId}
+                        onChange={(event) => {
+                          const { checked } = event.target;
+                          setRepeatEnabled(checked);
+                          if (
+                            checked &&
+                            repeatWeekdays.length === 0 &&
+                            form.starts_at
+                          ) {
+                            const start = new Date(form.starts_at);
+                            if (!Number.isNaN(start.getTime())) {
+                              setRepeatWeekdays([toIsoWeekday(start)]);
+                            }
+                          }
+                        }}
+                      />
+                      <span>{repeatEnabled ? "Ativo" : "Desativado"}</span>
+                    </RepeatToggle>
+                  </RepeatHeader>
+                  {!repeatEnabled && (
+                    <RepeatHint>
+                      {editingId
+                        ? "A repeticao pode ser definida apenas em novos agendamentos."
+                        : "Ative para selecionar dias da semana e quantidade de sessoes."}
+                    </RepeatHint>
+                  )}
+                  {repeatEnabled && (
+                    <RepeatBody>
+                      <RepeatRow>
+                        <RepeatField>
+                          Repetir a cada
+                          <input
+                            type="number"
+                            min="1"
+                            value={repeatInterval}
+                            onChange={(event) =>
+                              setRepeatInterval(event.target.value)
+                            }
+                          />
+                          <small>semanas</small>
+                        </RepeatField>
+                        <RepeatField>
+                          Termino
+                          <RepeatMode>
+                            <RepeatOption>
+                              <input
+                                id="repeat_end_until"
+                                type="radio"
+                                name="repeat_end_mode"
+                                value="until"
+                                checked={repeatEndMode === "until"}
+                                onChange={() => setRepeatEndMode("until")}
+                                aria-label="Termino ate data"
+                              />
+                              <span>Ate data</span>
+                            </RepeatOption>
+                            <RepeatOption>
+                              <input
+                                id="repeat_end_count"
+                                type="radio"
+                                name="repeat_end_mode"
+                                value="count"
+                                checked={repeatEndMode === "count"}
+                                onChange={() => setRepeatEndMode("count")}
+                                aria-label="Termino por quantidade"
+                              />
+                              <span>Quantidade</span>
+                            </RepeatOption>
+                          </RepeatMode>
+                          {repeatEndMode === "until" ? (
+                            <input
+                              type="date"
+                              value={repeatUntilDate}
+                              onChange={(event) =>
+                                setRepeatUntilDate(event.target.value)
+                              }
+                            />
+                          ) : (
+                            <input
+                              type="number"
+                              min="1"
+                              value={repeatCount}
+                              onChange={(event) =>
+                                setRepeatCount(event.target.value)
+                              }
+                            />
+                          )}
+                        </RepeatField>
+                      </RepeatRow>
+                      <RepeatRow>
+                        <RepeatField className="full">
+                          Dias da semana
+                          <WeekdayGrid>
+                            {WEEKDAY_OPTIONS.map((option) => (
+                              <WeekdayButton
+                                key={option.value}
+                                type="button"
+                                $active={repeatWeekdays.includes(option.value)}
+                                onClick={() => handleToggleWeekday(option.value)}
+                              >
+                                {option.label}
+                              </WeekdayButton>
+                            ))}
+                          </WeekdayGrid>
+                        </RepeatField>
+                      </RepeatRow>
+                    </RepeatBody>
+                  )}
+                </RepeatCard>
                   <Field className="span-2">
                     Observacoes
                     <textarea
@@ -2022,6 +2261,126 @@ const Field = styled.label`
   textarea {
     resize: vertical;
   }
+`;
+
+const RepeatCard = styled.div`
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  border-radius: 14px;
+  padding: 14px;
+  background: #f9faf6;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const RepeatHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  strong {
+    display: block;
+    font-size: 0.95rem;
+    color: #1b1b1b;
+  }
+
+  span {
+    color: #6a795c;
+    font-size: 0.85rem;
+  }
+`;
+
+const RepeatToggle = styled.label`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #6a795c;
+
+  input {
+    width: 18px;
+    height: 18px;
+  }
+`;
+
+const RepeatHint = styled.div`
+  font-size: 0.85rem;
+  color: #6a795c;
+`;
+
+const RepeatBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const RepeatRow = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+`;
+
+const RepeatField = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: #1b1b1b;
+
+  &.full {
+    grid-column: 1 / -1;
+  }
+
+  input {
+    border-radius: 10px;
+    border: 1px solid rgba(106, 121, 92, 0.2);
+    padding: 8px 10px;
+    font-size: 0.9rem;
+    background: #fff;
+  }
+
+  small {
+    color: #6a795c;
+  }
+`;
+
+const RepeatMode = styled.div`
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+`;
+
+const RepeatOption = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: #6a795c;
+
+  input {
+    margin: 0;
+  }
+
+  label {
+    cursor: pointer;
+  }
+`;
+
+const WeekdayGrid = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+`;
+
+const WeekdayButton = styled.button`
+  border: 1px solid rgba(106, 121, 92, 0.25);
+  background: ${(props) => (props.$active ? "#6a795c" : "#fff")};
+  color: ${(props) => (props.$active ? "#fff" : "#6a795c")};
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
 `;
 
 const SearchInput = styled.input`
