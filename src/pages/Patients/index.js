@@ -1,9 +1,49 @@
-import React from "react";
+import React, { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
-import { FaUserPlus, FaSearch } from "react-icons/fa";
+import { toast } from "react-toastify";
+import { FaLink, FaSearch, FaUserPlus } from "react-icons/fa";
 import styled from "styled-components";
 
+import axios from "../../services/axios";
+
 export default function PatientsMenu() {
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteExpiresAt, setInviteExpiresAt] = useState("");
+  const [isInviteLoading, setIsInviteLoading] = useState(false);
+
+  const handleGenerateInvite = useCallback(async () => {
+    setIsInviteLoading(true);
+    try {
+      const response = await axios.post("/patient-invites", {
+        expires_in_days: 7,
+      });
+      const code = response?.data?.code;
+      const inviteUrl =
+        response?.data?.invite_url ||
+        (code ? `${window.location.origin}/cadastro/paciente/${code}` : "");
+      setInviteLink(inviteUrl);
+      setInviteExpiresAt(response?.data?.expires_at || "");
+      toast.success("Link gerado.");
+    } catch (error) {
+      const message =
+        error?.response?.data?.error || "Nao foi possivel gerar o link.";
+      toast.error(message);
+    } finally {
+      setIsInviteLoading(false);
+    }
+  }, []);
+
+  const handleCopyInvite = useCallback(async () => {
+    if (!inviteLink) return;
+
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      toast.success("Link copiado.");
+    } catch (error) {
+      toast.error("Nao foi possivel copiar o link.");
+    }
+  }, [inviteLink]);
+
   return (
     <Wrapper>
       <Content>
@@ -20,6 +60,36 @@ export default function PatientsMenu() {
             <CardTitle>Novo paciente</CardTitle>
             <CardSubtitle>Cadastrar um novo paciente.</CardSubtitle>
           </CardLink>
+
+          <ActionCard>
+            <IconCircle>
+              <FaLink size={20} />
+            </IconCircle>
+            <CardTitle>Cadastro por link</CardTitle>
+            <CardSubtitle>Envie para o paciente preencher no celular.</CardSubtitle>
+            <CardActions>
+              <PrimaryAction
+                type="button"
+                onClick={handleGenerateInvite}
+                disabled={isInviteLoading}
+              >
+                {isInviteLoading ? "Gerando..." : "Gerar link"}
+              </PrimaryAction>
+              {inviteExpiresAt && (
+                <CardMeta>
+                  Expira em {new Date(inviteExpiresAt).toLocaleDateString("pt-BR")}
+                </CardMeta>
+              )}
+            </CardActions>
+            {inviteLink && (
+              <LinkBox>
+                <LinkInput value={inviteLink} readOnly />
+                <SecondaryAction type="button" onClick={handleCopyInvite}>
+                  Copiar
+                </SecondaryAction>
+              </LinkBox>
+            )}
+          </ActionCard>
 
           <CardLink to="/pacientes/consultar">
             <IconCircle>
@@ -86,6 +156,19 @@ const CardLink = styled(Link)`
   }
 `;
 
+const ActionCard = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  color: inherit;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
+  min-height: 176px;
+`;
+
 const IconCircle = styled.div`
   width: 44px;
   height: 44px;
@@ -107,4 +190,79 @@ const CardTitle = styled.div`
 const CardSubtitle = styled.div`
   font-size: 0.95rem;
   color: #6a795c;
+`;
+
+const CardActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+`;
+
+const CardMeta = styled.span`
+  color: #6a795c;
+  font-size: 0.84rem;
+`;
+
+const PrimaryAction = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: none;
+  background: #6a795c;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.2s ease;
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.95);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+`;
+
+const SecondaryAction = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.24);
+  background: #f5f7f1;
+  color: #516046;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+
+  &:hover {
+    background: #eef2e7;
+    transform: translateY(-1px);
+  }
+`;
+
+const LinkBox = styled.div`
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: auto;
+`;
+
+const LinkInput = styled.input`
+  flex: 1;
+  min-width: 220px;
+  height: 42px;
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.2);
+  padding: 0 12px;
+  font-size: 0.94rem;
+  color: #1b1b1b;
+  background: #fff;
 `;

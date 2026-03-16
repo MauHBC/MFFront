@@ -1,6 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { FaCalendarAlt, FaUserFriends, FaFileMedical } from "react-icons/fa";
+import { FaCalendarAlt, FaUserFriends, FaMoneyBillWave } from "react-icons/fa";
+// Icone para exames: FaFileMedical
 import styled from "styled-components";
 
 export default function Menu() {
@@ -27,12 +28,20 @@ export default function Menu() {
               <span>Pacientes</span>
             </div>
           </StyledLink>
-          <StyledLink to="/laudos">
+          {/* <StyledLink to="/laudos">
             <IconBadge $bg="#f6f0ec" $color="#8a6a5a">
               <FaFileMedical size={24} />
             </IconBadge>
             <div>
               <span>Exames</span>
+            </div>
+          </StyledLink> */}
+          <StyledLink to="/financeiro">
+            <IconBadge $bg="#e9f1ee" $color="#4f6b45">
+              <FaMoneyBillWave size={24} />
+            </IconBadge>
+            <div>
+              <span>Financeiro</span>
             </div>
           </StyledLink>
         </Nav>
@@ -121,4 +130,3 @@ const IconBadge = styled.div`
   background: ${(props) => props.$bg || "#f3f5f1"};
   color: ${(props) => props.$color || "#6a795c"};
 `;
-

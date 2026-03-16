@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
+  FaBell,
   FaCheckCircle,
   FaChevronLeft,
   FaChevronRight,
@@ -16,6 +17,13 @@ import Loading from "../../components/Loading";
 
 const START_HOUR = 7;
 const END_HOUR = 20;
+const PROFESSIONAL_GROUP_SLUG = "profissional";
+const ATTENDANCE_CONFIRMATION_TOLERANCE_MINUTES = 15;
+const PENDING_STATUS_FALLBACK = [
+  { code: "done", label: "Concluido" },
+  { code: "no_show", label: "Falta" },
+  { code: "canceled", label: "Cancelado" },
+];
 
 const WEEKDAY_OPTIONS = [
   { value: 1, label: "Seg" },
@@ -63,6 +71,16 @@ const formatDateTime = (value) => {
   });
 };
 
+const formatDateParam = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const formatDate = (value) => {
   if (!value) return "";
   const date = new Date(value);
@@ -72,6 +90,27 @@ const formatDate = (value) => {
     month: "2-digit",
     year: "numeric",
   });
+};
+
+const formatPendingDayLabel = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("pt-BR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+  });
+};
+
+const formatPendingTimeLabel = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}hrs`;
 };
 
 const formatMonthName = (value) => {
@@ -124,6 +163,9 @@ const endOfDay = (date) => {
   return d;
 };
 
+const isScheduledStatus = (status) =>
+  !status || status === "scheduled" || status === "open";
+
 const getWeekDays = (baseDate) => {
   const start = startOfDay(baseDate);
   const day = start.getDay();
@@ -156,14 +198,17 @@ export default function Agendamentos() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [sessions, setSessions] = useState([]);
+  const [pendingSessionsSource, setPendingSessionsSource] = useState([]);
   const [patients, setPatients] = useState([]);
   const [professionals, setProfessionals] = useState([]);
   const [serviceLimits, setServiceLimits] = useState([]);
   const [services, setServices] = useState([]);
   const [statusOptions, setStatusOptions] = useState([]);
   const [form, setForm] = useState(emptyForm);
-  const [patientQuery, setPatientQuery] = useState("");
-  const [isPatientListOpen, setIsPatientListOpen] = useState(false);
+  const [filterPatientQuery, setFilterPatientQuery] = useState("");
+  const [isFilterPatientListOpen, setIsFilterPatientListOpen] = useState(false);
+  const [formPatientQuery, setFormPatientQuery] = useState("");
+  const [isFormPatientListOpen, setIsFormPatientListOpen] = useState(false);
   const [absenceModal, setAbsenceModal] = useState({
     open: false,
     id: null,
@@ -176,23 +221,25 @@ export default function Agendamentos() {
   const [groupContext, setGroupContext] = useState(null);
   const [view, setView] = useState("week");
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [currentTime, setCurrentTime] = useState(Date.now());
+  const startsAtRef = useRef(null);
+  const endsAtRef = useRef(null);
   const [filters, setFilters] = useState({
     status: "",
     patient_id: "",
     service_type: "",
   });
   const [repeatEnabled, setRepeatEnabled] = useState(false);
-  const [repeatInterval, setRepeatInterval] = useState(1);
   const [repeatWeekdays, setRepeatWeekdays] = useState([]);
-  const [repeatEndMode, setRepeatEndMode] = useState("count");
-  const [repeatUntilDate, setRepeatUntilDate] = useState("");
+  const [repeatMode, setRepeatMode] = useState("count");
   const [repeatCount, setRepeatCount] = useState("10");
+  const [repeatWeeks, setRepeatWeeks] = useState("4");
 
   const loadBaseData = useCallback(async () => {
     try {
       const [patientsResponse, usersResponse, limitsResponse, statusResponse, servicesResponse] = await Promise.all([
         axios.get("/patients"),
-        axios.get("/users"),
+        axios.get("/users", { params: { group: PROFESSIONAL_GROUP_SLUG } }),
         axios.get("/service-limits"),
         axios.get("/session-statuses"),
         axios.get("/services"),
@@ -215,8 +262,8 @@ export default function Agendamentos() {
       setIsLoading(true);
       try {
         const params = {};
-        if (fromDate) params.from = fromDate.toISOString().slice(0, 10);
-        if (toDate) params.to = toDate.toISOString().slice(0, 10);
+        if (fromDate) params.from = formatDateParam(fromDate);
+        if (toDate) params.to = formatDateParam(toDate);
         const response = await axios.get("/sessions", { params });
         setSessions(Array.isArray(response.data) ? response.data : []);
       } catch (error) {
@@ -230,9 +277,24 @@ export default function Agendamentos() {
     [],
   );
 
+  const loadPendingSessions = useCallback(async () => {
+    try {
+      const response = await axios.get("/sessions");
+      setPendingSessionsSource(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      const message =
+        error?.response?.data?.error || "Nao foi possivel carregar as pendencias.";
+      toast.error(message);
+    }
+  }, []);
+
   useEffect(() => {
     loadBaseData();
   }, [loadBaseData]);
+
+  useEffect(() => {
+    loadPendingSessions();
+  }, [loadPendingSessions]);
 
   useEffect(() => {
     if (view === "month") {
@@ -249,6 +311,14 @@ export default function Agendamentos() {
     loadSessions(startOfDay(weekDays[0]), endOfDay(weekDays[6]));
   }, [loadSessions, selectedDate, view]);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 60000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   const patientOptions = useMemo(
     () =>
       patients.map((patient) => ({
@@ -258,18 +328,31 @@ export default function Agendamentos() {
     [patients],
   );
 
-  const filteredPatientOptions = useMemo(() => {
-    const query = patientQuery.trim().toLowerCase();
-    if (!query) return patientOptions;
-    return patientOptions.filter((patient) =>
-      patient.name.toLowerCase().includes(query),
-    );
-  }, [patientOptions, patientQuery]);
+  const filterPatientList = useCallback(
+    (query) => {
+      const normalized = query.trim().toLowerCase();
+      if (!normalized) return patientOptions;
+      return patientOptions.filter((patient) =>
+        patient.name.toLowerCase().includes(normalized),
+      );
+    },
+    [patientOptions],
+  );
+
+  const filteredPatientOptions = useMemo(
+    () => filterPatientList(filterPatientQuery),
+    [filterPatientQuery, filterPatientList],
+  );
+
+  const filteredFormPatientOptions = useMemo(
+    () => filterPatientList(formPatientQuery),
+    [formPatientQuery, filterPatientList],
+  );
 
   const handleSelectPatient = useCallback((patient) => {
     setForm((prev) => ({ ...prev, patient_id: String(patient.id) }));
-    setPatientQuery(patient.name);
-    setIsPatientListOpen(false);
+    setFormPatientQuery(patient.name);
+    setIsFormPatientListOpen(false);
   }, []);
 
   const selectedPatient = useMemo(() => {
@@ -306,28 +389,28 @@ export default function Agendamentos() {
         id: null,
         code: "fisioterapia",
         name: "Fisioterapia",
-        color: "#A2B190",
+        color: "#16A34A",
         duration: 60,
       },
       {
         id: null,
         code: "pilates",
         name: "Pilates",
-        color: "#748DBD",
+        color: "#0EA5E9",
         duration: 60,
       },
       {
         id: null,
         code: "funcional",
         name: "Funcional",
-        color: "#7891B0",
+        color: "#F97316",
         duration: 60,
       },
       {
         id: null,
         code: "outro",
         name: "Outro",
-        color: "#C9BC98",
+        color: "#8B5CF6",
         duration: 60,
       },
     ],
@@ -381,6 +464,36 @@ export default function Agendamentos() {
     [statusMap],
   );
 
+  const pendingStatusOptions = useMemo(() => {
+    const baseOptions =
+      statusOptions.length > 0
+        ? statusOptions.map((status) => ({
+            code: status.code,
+            label: status.label || status.code,
+          }))
+        : PENDING_STATUS_FALLBACK;
+
+    const order = {
+      done: 0,
+      no_show: 1,
+      canceled: 2,
+    };
+
+    return baseOptions
+      .filter(
+        (status) =>
+          status?.code &&
+          status.code !== "scheduled" &&
+          status.code !== "open",
+      )
+      .sort((first, second) => {
+        const firstOrder = order[first.code] ?? 99;
+        const secondOrder = order[second.code] ?? 99;
+        if (firstOrder !== secondOrder) return firstOrder - secondOrder;
+        return first.label.localeCompare(second.label, "pt-BR");
+      });
+  }, [statusOptions]);
+
   const serviceName = useCallback(
     (value) => {
       if (!value) return "N/A";
@@ -406,6 +519,37 @@ export default function Agendamentos() {
     if (status === "no_show") return "no_show";
     return "scheduled";
   }, []);
+
+  const getSessionEndDate = useCallback(
+    (session) => {
+      if (session?.ends_at) {
+        const endsAt = new Date(session.ends_at);
+        if (!Number.isNaN(endsAt.getTime())) return endsAt;
+      }
+      if (!session?.starts_at) return null;
+      const startsAt = new Date(session.starts_at);
+      if (Number.isNaN(startsAt.getTime())) return null;
+      const service =
+        (session.service_id && servicesById.get(session.service_id)) ||
+        (session.service_type && servicesByCode.get(session.service_type)) ||
+        session.Service ||
+        null;
+      const durationMinutes = Number(service?.default_duration_minutes) || 60;
+      return new Date(startsAt.getTime() + durationMinutes * 60000);
+    },
+    [servicesByCode, servicesById],
+  );
+
+  const needsAttendanceConfirmation = useCallback(
+    (session) => {
+      if (!isScheduledStatus(session?.status)) return false;
+      const endsAt = getSessionEndDate(session);
+      if (!endsAt) return false;
+      const toleranceMs = ATTENDANCE_CONFIRMATION_TOLERANCE_MINUTES * 60000;
+      return currentTime >= endsAt.getTime() + toleranceMs;
+    },
+    [currentTime, getSessionEndDate],
+  );
 
   const filteredSessions = useMemo(() => {
     return sessions.filter((session) => {
@@ -435,6 +579,112 @@ export default function Agendamentos() {
     const key = startOfDay(selectedDate).toISOString();
     return sessionsByDay.get(key) || [];
   }, [selectedDate, sessionsByDay]);
+
+  const pendingConfirmationSessions = useMemo(() => {
+    const queue = pendingSessionsSource.filter((session) =>
+      needsAttendanceConfirmation(session),
+    );
+
+    return queue.sort((first, second) => {
+      const firstDate = getSessionEndDate(first)?.getTime() || 0;
+      const secondDate = getSessionEndDate(second)?.getTime() || 0;
+      return firstDate - secondDate;
+    });
+  }, [getSessionEndDate, needsAttendanceConfirmation, pendingSessionsSource]);
+
+  const pendingConfirmationGroups = useMemo(() => {
+    const groups = [];
+    const dayMap = new Map();
+
+    pendingConfirmationSessions.forEach((session) => {
+      const startsAt = session?.starts_at ? new Date(session.starts_at) : null;
+      if (!startsAt || Number.isNaN(startsAt.getTime())) return;
+
+      const dayDate = startOfDay(startsAt);
+      const dayKey = dayDate.toISOString();
+      const minutes = startsAt.getHours() * 60 + startsAt.getMinutes();
+      const timeKey = `${dayKey}-${minutes}`;
+      const serviceCode = session.service_type || session.Service?.code || "outro";
+      const professionalName = session?.professional?.name || "Profissional";
+      const serviceKey = `${timeKey}-${serviceCode}-${professionalName}`;
+
+      if (!dayMap.has(dayKey)) {
+        const group = {
+          key: dayKey,
+          date: dayDate,
+          sessionCount: 0,
+          timeGroups: [],
+          timeMap: new Map(),
+        };
+        dayMap.set(dayKey, group);
+        groups.push(group);
+      }
+
+      const dayGroup = dayMap.get(dayKey);
+      dayGroup.sessionCount += 1;
+
+      if (!dayGroup.timeMap.has(timeKey)) {
+        const timeGroup = {
+          key: timeKey,
+          startsAt,
+          sortMinutes: minutes,
+          sessionCount: 0,
+          serviceGroups: [],
+          serviceMap: new Map(),
+        };
+        dayGroup.timeMap.set(timeKey, timeGroup);
+        dayGroup.timeGroups.push(timeGroup);
+      }
+
+      const timeGroup = dayGroup.timeMap.get(timeKey);
+      timeGroup.sessionCount += 1;
+
+      if (!timeGroup.serviceMap.has(serviceKey)) {
+        const groupedService = {
+          key: serviceKey,
+          serviceCode,
+          serviceLabel: serviceName(serviceCode),
+          serviceColor: serviceColor(serviceCode),
+          professionalName,
+          sessions: [],
+        };
+        timeGroup.serviceMap.set(serviceKey, groupedService);
+        timeGroup.serviceGroups.push(groupedService);
+      }
+
+      timeGroup.serviceMap.get(serviceKey).sessions.push(session);
+    });
+
+    return groups.map((group) => ({
+      key: group.key,
+      date: group.date,
+      sessionCount: group.sessionCount,
+      timeGroups: group.timeGroups
+        .map((timeGroup) => ({
+          key: timeGroup.key,
+          startsAt: timeGroup.startsAt,
+          sessionCount: timeGroup.sessionCount,
+          sortMinutes: timeGroup.sortMinutes,
+          serviceGroups: timeGroup.serviceGroups
+            .map((serviceGroup) => ({
+              ...serviceGroup,
+              sessions: serviceGroup.sessions.sort((first, second) => {
+                const firstName =
+                  first?.Patient?.full_name || first?.Patient?.name || "Paciente";
+                const secondName =
+                  second?.Patient?.full_name || second?.Patient?.name || "Paciente";
+                return firstName.localeCompare(secondName, "pt-BR");
+              }),
+            }))
+            .sort((first, second) => {
+              const firstLabel = `${first.serviceLabel}-${first.professionalName}`;
+              const secondLabel = `${second.serviceLabel}-${second.professionalName}`;
+              return firstLabel.localeCompare(secondLabel, "pt-BR");
+            }),
+        }))
+        .sort((first, second) => first.sortMinutes - second.sortMinutes),
+    }));
+  }, [pendingConfirmationSessions, serviceColor, serviceName]);
 
   const getSlotGroups = useCallback(
     (day, hour) => {
@@ -533,6 +783,17 @@ export default function Agendamentos() {
     setIsDrawerOpen(true);
   }, []);
 
+  const togglePendingDrawer = useCallback(() => {
+    if (isDrawerOpen && drawerMode === "pending") {
+      setIsDrawerOpen(false);
+      return;
+    }
+
+    setDrawerMode("pending");
+    setGroupContext(null);
+    setIsDrawerOpen(true);
+  }, [drawerMode, isDrawerOpen]);
+
   const closeDrawer = useCallback(() => {
     setIsDrawerOpen(false);
   }, []);
@@ -540,13 +801,13 @@ export default function Agendamentos() {
   const resetForm = useCallback(() => {
     setEditingId(null);
     setForm(emptyForm);
-    setPatientQuery("");
+    setFormPatientQuery("");
+    setIsFormPatientListOpen(false);
     setRepeatEnabled(false);
-    setRepeatInterval(1);
     setRepeatWeekdays([]);
-    setRepeatEndMode("count");
-    setRepeatUntilDate("");
+    setRepeatMode("count");
     setRepeatCount("10");
+    setRepeatWeeks("4");
   }, []);
 
   const handleCreateAt = useCallback(
@@ -610,6 +871,7 @@ export default function Agendamentos() {
         } else {
           await loadSessions();
         }
+        await loadPendingSessions();
       } catch (error) {
         const message =
           error?.response?.data?.error ||
@@ -619,7 +881,7 @@ export default function Agendamentos() {
         setIsSaving(false);
       }
     },
-    [filteredSessions, loadSessions, selectedDate, view],
+    [filteredSessions, loadPendingSessions, loadSessions, selectedDate, view],
   );
 
   const handleDragOver = useCallback((event) => {
@@ -647,11 +909,10 @@ export default function Agendamentos() {
       }
       setEditingId(session.id);
       setRepeatEnabled(false);
-      setRepeatInterval(1);
       setRepeatWeekdays([]);
-      setRepeatEndMode("count");
-      setRepeatUntilDate("");
+      setRepeatMode("count");
       setRepeatCount("10");
+      setRepeatWeeks("4");
       setForm({
         patient_id: session.patient_id ? String(session.patient_id) : "",
         professional_user_id: session.professional_user_id
@@ -666,7 +927,8 @@ export default function Agendamentos() {
         notes: session.notes || "",
         absence_reason: session.absence_reason || "",
       });
-      setPatientQuery(patientName);
+      setFormPatientQuery(patientName);
+      setIsFormPatientListOpen(false);
       setIsDrawerOpen(true);
     },
     [filteredSessions, servicesByCode],
@@ -688,6 +950,7 @@ export default function Agendamentos() {
         } else {
           await loadSessions();
         }
+        await loadPendingSessions();
       } catch (error) {
         const message =
           error?.response?.data?.error ||
@@ -697,7 +960,7 @@ export default function Agendamentos() {
         setIsSaving(false);
       }
     },
-    [loadSessions, selectedDate, view],
+    [loadPendingSessions, loadSessions, selectedDate, view],
   );
 
   const handleQuickStatus = useCallback(
@@ -720,6 +983,25 @@ export default function Agendamentos() {
     });
   }, []);
 
+  const handlePendingStatusChange = useCallback(
+    async (id, status) => {
+      if (!id || !status) return;
+
+      if (status === "no_show" || status === "canceled") {
+        setAbsenceModal({
+          open: true,
+          id,
+          status,
+          reason: "",
+        });
+        return;
+      }
+
+      await updateSessionStatus({ id, status });
+    },
+    [updateSessionStatus],
+  );
+
   const handleConfirmAbsence = useCallback(async () => {
     if (!absenceModal.id || !absenceModal.status) return;
     if (!absenceModal.reason.trim()) {
@@ -734,6 +1016,15 @@ export default function Agendamentos() {
     setAbsenceModal({ open: false, id: null, status: null, reason: "" });
   }, [absenceModal, updateSessionStatus]);
 
+  const handleOpenPendingDay = useCallback((value) => {
+    if (!value) return;
+    const sessionDate = new Date(value);
+    if (Number.isNaN(sessionDate.getTime())) return;
+    setSelectedDate(sessionDate);
+    setView("day");
+    closeDrawer();
+  }, [closeDrawer]);
+
   const handleSubmit = useCallback(
     async (event) => {
       event.preventDefault();
@@ -743,6 +1034,10 @@ export default function Agendamentos() {
       }
       if (!form.starts_at) {
         toast.error("Informe a data e horario.");
+        return;
+      }
+      if (!form.service_id && !form.service_type) {
+        toast.error("Selecione o servico.");
         return;
       }
       const startsAtDate = new Date(form.starts_at);
@@ -760,19 +1055,17 @@ export default function Agendamentos() {
         : 60;
 
       if (isRecurring) {
-        const interval = Number(repeatInterval) || 1;
-        if (interval <= 0) {
-          toast.error("Intervalo de repeticao invalido.");
-          return;
-        }
-        if (repeatEndMode === "until" && !repeatUntilDate) {
-          toast.error("Informe a data final.");
-          return;
-        }
-        if (repeatEndMode === "count") {
+        if (repeatMode === "count") {
           const count = Number(repeatCount);
           if (!Number.isFinite(count) || count <= 0) {
             toast.error("Informe a quantidade de sessoes.");
+            return;
+          }
+        }
+        if (repeatMode === "weeks") {
+          const weeks = Number(repeatWeeks);
+          if (!Number.isFinite(weeks) || weeks <= 0) {
+            toast.error("Informe o numero de semanas.");
             return;
           }
         }
@@ -801,6 +1094,14 @@ export default function Agendamentos() {
           const weekdays = repeatWeekdays.length
             ? repeatWeekdays
             : [toIsoWeekday(startsAtDate)];
+          let untilDate = null;
+          if (repeatMode === "weeks") {
+            const weeks = Math.max(1, Number(repeatWeeks) || 1);
+            const endDate = new Date(startsAtDate);
+            endDate.setHours(0, 0, 0, 0);
+            endDate.setDate(endDate.getDate() + weeks * 7 - 1);
+            untilDate = formatDateParam(endDate);
+          }
           const seriesPayload = {
             patient_id: payload.patient_id,
             professional_user_id: payload.professional_user_id,
@@ -809,11 +1110,10 @@ export default function Agendamentos() {
             status: payload.status,
             starts_at: startsAtDate.toISOString(),
             duration_minutes: durationMinutes,
-            repeat_interval: Number(repeatInterval) || 1,
+            repeat_interval: 1,
             weekdays,
-            until_date: repeatEndMode === "until" ? repeatUntilDate : null,
-            occurrence_count:
-              repeatEndMode === "count" ? Number(repeatCount) : null,
+            until_date: repeatMode === "weeks" ? untilDate : null,
+            occurrence_count: repeatMode === "count" ? Number(repeatCount) : null,
             notes: payload.notes,
           };
           const response = await axios.post("/session-series", seriesPayload);
@@ -835,6 +1135,7 @@ export default function Agendamentos() {
         } else {
           await loadSessions();
         }
+        await loadPendingSessions();
       } catch (error) {
         const message =
           error?.response?.data?.error ||
@@ -849,11 +1150,11 @@ export default function Agendamentos() {
       editingId,
       form,
       loadSessions,
+      loadPendingSessions,
       repeatEnabled,
-      repeatEndMode,
-      repeatInterval,
-      repeatUntilDate,
+      repeatMode,
       repeatCount,
+      repeatWeeks,
       repeatWeekdays,
       resetForm,
       selectedDate,
@@ -885,14 +1186,18 @@ export default function Agendamentos() {
   }, []);
 
   let drawerTitle = "Novo agendamento";
-  if (drawerMode === "group") {
+  if (drawerMode === "pending") {
+    drawerTitle = "Pendencias";
+  } else if (drawerMode === "group") {
     drawerTitle = "Detalhes do horario";
   } else if (editingId) {
     drawerTitle = `Editar #${editingId}`;
   }
 
   let drawerSubtitle = "Preencha os dados do atendimento.";
-  if (drawerMode === "group") {
+  if (drawerMode === "pending") {
+    drawerSubtitle = "Confirme quem veio, faltou ou precisa de ajuste.";
+  } else if (drawerMode === "group") {
     drawerSubtitle = "Gerencie os pacientes deste horario.";
   }
 
@@ -956,31 +1261,44 @@ export default function Agendamentos() {
               </SecondaryButton>
             )}
           </DateNav>
-          <PrimaryButton type="button" onClick={openDrawer}>
-            <FaPlus /> Novo agendamento
-          </PrimaryButton>
+          <ToolbarActions>
+            <NotificationButton
+              type="button"
+              onClick={togglePendingDrawer}
+              $active={isDrawerOpen && drawerMode === "pending"}
+              aria-label={`Abrir pendencias. ${pendingConfirmationSessions.length} pendencias.`}
+            >
+              <FaBell />
+              <NotificationBadge $hasPending={pendingConfirmationSessions.length > 0}>
+                {pendingConfirmationSessions.length}
+              </NotificationBadge>
+            </NotificationButton>
+            <PrimaryButton type="button" onClick={openDrawer}>
+              <FaPlus /> Novo agendamento
+            </PrimaryButton>
+          </ToolbarActions>
         </Toolbar>
 
         <FiltersRow>
-              <FilterField>
-                Status
-                <select name="status" value={filters.status} onChange={handleFilterChange}>
-                  <option value="">Todos</option>
-                  {statusOptions.length === 0 && (
-                    <>
-                      <option value="scheduled">Agendado</option>
-                      <option value="done">Concluido</option>
-                      <option value="canceled">Cancelado</option>
-                      <option value="no_show">Falta</option>
-                    </>
-                  )}
-                  {statusOptions.map((status) => (
-                    <option key={status.code} value={status.code}>
-                      {status.label || status.code}
-                    </option>
-                  ))}
-                </select>
-              </FilterField>
+          <FilterField>
+            Status
+            <select name="status" value={filters.status} onChange={handleFilterChange}>
+              <option value="">Todos</option>
+              {statusOptions.length === 0 && (
+                <>
+                  <option value="scheduled">Agendado</option>
+                  <option value="done">Concluido</option>
+                  <option value="canceled">Cancelado</option>
+                  <option value="no_show">Falta</option>
+                </>
+              )}
+              {statusOptions.map((status) => (
+                <option key={status.code} value={status.code}>
+                  {status.label || status.code}
+                </option>
+              ))}
+            </select>
+          </FilterField>
           <FilterField>
             Tipo
             <select
@@ -999,48 +1317,50 @@ export default function Agendamentos() {
               ))}
             </select>
           </FilterField>
-              <FilterField>
-                Paciente
-                <AutoComplete>
-                  <SearchInput
-                    type="text"
-                    placeholder="Buscar paciente"
-                    value={patientQuery}
-                    onChange={(event) => {
-                      setPatientQuery(event.target.value);
-                      setIsPatientListOpen(true);
-                      if (filters.patient_id) {
-                        setFilters((prev) => ({ ...prev, patient_id: "" }));
-                      }
-                    }}
-                    onFocus={() => setIsPatientListOpen(true)}
-                    onBlur={() => {
-                      setTimeout(() => setIsPatientListOpen(false), 150);
-                    }}
-                  />
-                  {isPatientListOpen && filteredPatientOptions.length > 0 && patientQuery && (
-                    <AutoList>
-                      {filteredPatientOptions.slice(0, 8).map((patient) => (
-                        <AutoItem
-                          key={patient.id}
-                          type="button"
-                          onClick={() => {
-                            setFilters((prev) => ({
-                              ...prev,
-                              patient_id: String(patient.id),
-                            }));
-                            setPatientQuery(patient.name);
-                            setIsPatientListOpen(false);
-                          }}
-                          onMouseDown={(event) => event.preventDefault()}
-                        >
-                          {patient.name}
-                        </AutoItem>
-                      ))}
-                    </AutoList>
-                  )}
-                </AutoComplete>
-              </FilterField>
+          <FilterField>
+            Paciente
+            <AutoComplete>
+              <SearchInput
+                type="text"
+                placeholder="Buscar paciente"
+                value={filterPatientQuery}
+                onChange={(event) => {
+                  setFilterPatientQuery(event.target.value);
+                  setIsFilterPatientListOpen(true);
+                  if (filters.patient_id) {
+                    setFilters((prev) => ({ ...prev, patient_id: "" }));
+                  }
+                }}
+                onFocus={() => setIsFilterPatientListOpen(true)}
+                onBlur={() => {
+                  setTimeout(() => setIsFilterPatientListOpen(false), 150);
+                }}
+              />
+              {isFilterPatientListOpen &&
+                filteredPatientOptions.length > 0 &&
+                filterPatientQuery && (
+                  <AutoList>
+                    {filteredPatientOptions.slice(0, 8).map((patient) => (
+                      <AutoItem
+                        key={patient.id}
+                        type="button"
+                        onClick={() => {
+                          setFilters((prev) => ({
+                            ...prev,
+                            patient_id: String(patient.id),
+                          }));
+                          setFilterPatientQuery(patient.name);
+                          setIsFilterPatientListOpen(false);
+                        }}
+                        onMouseDown={(event) => event.preventDefault()}
+                      >
+                        {patient.name}
+                      </AutoItem>
+                    ))}
+                  </AutoList>
+                )}
+            </AutoComplete>
+          </FilterField>
         </FiltersRow>
         <Legend>
           {allServiceOptions.map((service) => (
@@ -1169,6 +1489,14 @@ export default function Agendamentos() {
                     <QuickButton
                       type="button"
                       data-id={session.id}
+                      data-status="no_show"
+                      onClick={handleAbsence}
+                    >
+                      <FaTimesCircle /> Falta
+                    </QuickButton>
+                    <QuickButton
+                      type="button"
+                      data-id={session.id}
                       data-status="canceled"
                       onClick={handleQuickStatus}
                     >
@@ -1231,12 +1559,110 @@ export default function Agendamentos() {
           </DrawerHeader>
           <DrawerBody>
             <Loading isLoading={isSaving} />
-            {drawerMode === "group" ? (
+            {drawerMode === "pending" && (
+              <PendingDrawerPanel>
+                {pendingConfirmationSessions.length === 0 ? (
+                  <EmptyState>Nenhuma pendencia no periodo carregado.</EmptyState>
+                ) : (
+                  <PendingGroupList>
+                    {pendingConfirmationGroups.map((group) => (
+                      <PendingGroup key={group.key}>
+                        <PendingGroupHeader>
+                          <div>
+                            <PendingGroupTitle>
+                              {formatPendingDayLabel(group.date)}
+                            </PendingGroupTitle>
+                            <PendingGroupMeta>
+                              {group.sessionCount} pendencia
+                              {group.sessionCount > 1 ? "s" : ""}
+                            </PendingGroupMeta>
+                          </div>
+                          <SecondaryButton
+                            type="button"
+                            onClick={() => handleOpenPendingDay(group.date)}
+                          >
+                            Abrir dia
+                          </SecondaryButton>
+                        </PendingGroupHeader>
+                        <PendingTimeList>
+                          {group.timeGroups.map((timeGroup) => (
+                            <PendingTimeGroup key={timeGroup.key}>
+                              <PendingTimeHeader>
+                                <div>
+                                  <PendingTimeTitle>
+                                    {formatPendingTimeLabel(timeGroup.startsAt)}
+                                  </PendingTimeTitle>
+                                  <PendingTimeMeta>
+                                    {timeGroup.sessionCount} pendencia
+                                    {timeGroup.sessionCount > 1 ? "s" : ""}
+                                  </PendingTimeMeta>
+                                </div>
+                              </PendingTimeHeader>
+                              <PendingServiceList>
+                                {timeGroup.serviceGroups.map((serviceGroup) => (
+                                  <PendingServiceGroup
+                                    key={serviceGroup.key}
+                                    $color={serviceGroup.serviceColor}
+                                  >
+                                    <PendingServiceHeader $color={serviceGroup.serviceColor}>
+                                      <PendingServiceTitle>
+                                        {serviceGroup.serviceLabel} - {serviceGroup.professionalName}
+                                      </PendingServiceTitle>
+                                      <PendingServiceCount>
+                                        {serviceGroup.sessions.length}
+                                      </PendingServiceCount>
+                                    </PendingServiceHeader>
+                                    <PendingList>
+                                      {serviceGroup.sessions.map((session) => (
+                                        <PendingCard key={session.id}>
+                                          <PendingInfo>
+                                            <strong>
+                                              {session?.Patient?.full_name || "Paciente"}
+                                            </strong>
+                                          </PendingInfo>
+                                          <PendingActionSection>
+                                            <PendingActionTitle>
+                                              Atualizar status
+                                            </PendingActionTitle>
+                                            <PendingStatusGrid>
+                                              {pendingStatusOptions.map((status) => (
+                                                <PendingStatusButton
+                                                  key={`${session.id}-${status.code}`}
+                                                  type="button"
+                                                  $variant={statusStyle(status.code)}
+                                                  onClick={() =>
+                                                    handlePendingStatusChange(
+                                                      String(session.id),
+                                                      status.code,
+                                                    )
+                                                  }
+                                                >
+                                                  {status.label}
+                                                </PendingStatusButton>
+                                              ))}
+                                            </PendingStatusGrid>
+                                          </PendingActionSection>
+                                        </PendingCard>
+                                      ))}
+                                    </PendingList>
+                                  </PendingServiceGroup>
+                                ))}
+                              </PendingServiceList>
+                            </PendingTimeGroup>
+                          ))}
+                        </PendingTimeList>
+                      </PendingGroup>
+                    ))}
+                  </PendingGroupList>
+                )}
+              </PendingDrawerPanel>
+            )}
+            {drawerMode === "group" && (
               <GroupPanel>
                 <GroupHeader>
                   <div>
                     <h3>{groupContext ? formatDateTime(groupContext.date) : ""}</h3>
-                    <span>VisÃ£o completa do horÃ¡rio</span>
+                    <span>Visão completa do horário</span>
                   </div>
                   <SecondaryButton
                     type="button"
@@ -1252,7 +1678,8 @@ export default function Agendamentos() {
                         starts_at: toInputValue(groupContext.date),
                         ends_at: toInputValue(endsAt),
                       }));
-                      setPatientQuery("");
+                      setFormPatientQuery("");
+                      setIsFormPatientListOpen(false);
                     }}
                   >
                     <FaPlus /> Adicionar paciente
@@ -1263,15 +1690,23 @@ export default function Agendamentos() {
                 )}
                 <GroupList>
                   {groupSessions.map((group) => (
-                    <GroupSection key={group.service_type}>
-                      <GroupSectionHeader>
-                        <TypePill $type={group.service_type} $color={group.service?.color || serviceColor(group.service_type)}>
-                          {serviceName(group.service_type)}
-                        </TypePill>
-                        <span>
-                          {group.count}
-                          {group.limit && group.limit > 0 ? ` / ${group.limit}` : ""} pacientes
-                        </span>
+                    <GroupSection
+                      key={group.service_type}
+                      $color={group.service?.color || serviceColor(group.service_type)}
+                    >
+                      <GroupSectionHeader
+                        $color={group.service?.color || serviceColor(group.service_type)}
+                      >
+                        <div>
+                          <GroupSectionTitle>
+                            {serviceName(group.service_type)}
+                          </GroupSectionTitle>
+                          <GroupSectionMeta>
+                            {group.count}
+                            {group.limit && group.limit > 0 ? ` / ${group.limit}` : ""} pacientes
+                          </GroupSectionMeta>
+                        </div>
+                        <GroupCountBadge>{group.count}</GroupCountBadge>
                       </GroupSectionHeader>
                       {group.sessions.map((session) => (
                         <GroupItem key={session.id}>
@@ -1285,6 +1720,7 @@ export default function Agendamentos() {
                                 type="button"
                                 data-id={session.id}
                                 data-status="scheduled"
+                                $status="scheduled"
                                 $active={session.status === "scheduled" || session.status === "open"}
                                 onClick={handleQuickStatus}
                               >
@@ -1294,6 +1730,7 @@ export default function Agendamentos() {
                                 type="button"
                                 data-id={session.id}
                                 data-status="done"
+                                $status="done"
                                 $active={session.status === "done"}
                                 onClick={handleQuickStatus}
                               >
@@ -1303,6 +1740,7 @@ export default function Agendamentos() {
                                 type="button"
                                 data-id={session.id}
                                 data-status="no_show"
+                                $status="no_show"
                                 $active={session.status === "no_show"}
                                 onClick={handleAbsence}
                               >
@@ -1312,6 +1750,7 @@ export default function Agendamentos() {
                                 type="button"
                                 data-id={session.id}
                                 data-status="canceled"
+                                $status="canceled"
                                 $active={session.status === "canceled"}
                                 onClick={handleAbsence}
                               >
@@ -1332,57 +1771,62 @@ export default function Agendamentos() {
                   ))}
                 </GroupList>
               </GroupPanel>
-            ) : (
+            )}
+            {drawerMode !== "pending" && drawerMode !== "group" && (
               <Form onSubmit={handleSubmit}>
                 <FormGrid>
-                <Field>
-                  Paciente *
-                  <AutoComplete>
-                    <SearchInput
-                      type="text"
-                      placeholder="Buscar paciente"
-                      value={patientQuery}
-                      onChange={(event) => {
-                        setPatientQuery(event.target.value);
-                        setIsPatientListOpen(true);
-                        if (form.patient_id) {
-                          setForm((prev) => ({ ...prev, patient_id: "" }));
-                        }
-                      }}
-                      onFocus={() => setIsPatientListOpen(true)}
-                      onBlur={() => {
-                        setTimeout(() => setIsPatientListOpen(false), 150);
-                      }}
-                    />
-                    {isPatientListOpen && filteredPatientOptions.length > 0 && patientQuery && (
-                      <AutoList>
-                        {filteredPatientOptions.slice(0, 8).map((patient) => (
-                          <AutoItem
-                            key={patient.id}
-                            type="button"
-                            onClick={() => handleSelectPatient(patient)}
-                            onMouseDown={(event) => event.preventDefault()}
-                          >
-                            {patient.name}
-                          </AutoItem>
-                        ))}
-                      </AutoList>
-                    )}
-                    {selectedPatient && (
-                      <SelectedHint>
-                        Selecionado: <strong>{selectedPatient.name}</strong>
-                      </SelectedHint>
-                    )}
-                  </AutoComplete>
-                </Field>
-                  <Field>
+                  <Field className="span-2">
+                    Paciente *
+                    <AutoComplete>
+                      <SearchInput
+                        type="text"
+                        placeholder="Buscar paciente"
+                        value={formPatientQuery}
+                        onChange={(event) => {
+                          setFormPatientQuery(event.target.value);
+                          setIsFormPatientListOpen(true);
+                          if (form.patient_id) {
+                            setForm((prev) => ({ ...prev, patient_id: "" }));
+                          }
+                        }}
+                        onFocus={() => setIsFormPatientListOpen(true)}
+                        onBlur={() => {
+                          setTimeout(() => setIsFormPatientListOpen(false), 150);
+                        }}
+                      />
+                      {isFormPatientListOpen &&
+                        filteredFormPatientOptions.length > 0 &&
+                        formPatientQuery && (
+                          <AutoList>
+                            {filteredFormPatientOptions.slice(0, 8).map((patient) => (
+                              <AutoItem
+                                key={patient.id}
+                                type="button"
+                                onClick={() => handleSelectPatient(patient)}
+                                onMouseDown={(event) => event.preventDefault()}
+                              >
+                                {patient.name}
+                              </AutoItem>
+                            ))}
+                          </AutoList>
+                        )}
+                      {selectedPatient && (
+                        <SelectedHint>
+                          Selecionado: <strong>{selectedPatient.name}</strong>
+                        </SelectedHint>
+                      )}
+                    </AutoComplete>
+                  </Field>
+                  <Field className="span-2">
                     Profissional
                     <select
                       name="professional_user_id"
                       value={form.professional_user_id}
                       onChange={handleFormChange}
                     >
-                      <option value="">Selecionar</option>
+                      <option value="" disabled hidden>
+                        Selecionar
+                      </option>
                       {professionalOptions.map((professional) => (
                         <option key={professional.id} value={professional.id}>
                           {professional.name}
@@ -1390,228 +1834,238 @@ export default function Agendamentos() {
                       ))}
                     </select>
                   </Field>
-                <Field>
-                  Tipo de atendimento
-                  <select
-                    name="service_id"
-                    value={form.service_id}
-                    onChange={(event) => {
-                      const selectedId = event.target.value;
-                      const service = serviceOptions.find(
-                        (item) => String(item.id) === selectedId,
-                      );
-                      setForm((prev) => ({
-                        ...prev,
-                        service_id: selectedId,
-                        service_type: service?.code || "",
-                      }));
-                    }}
-                  >
-                    <option value="">Selecionar</option>
-                    {serviceOptions.length === 0 && (
-                      <>
-                        <option value="fisioterapia">Fisioterapia</option>
-                        <option value="funcional">Funcional</option>
-                        <option value="pilates">Pilates</option>
-                        <option value="outro">Outro</option>
-                      </>
-                    )}
-                    {serviceOptions.map((service) => (
-                      <option key={service.id} value={service.id}>
-                        {service.name}
+                  <Field>
+                    Tipo de atendimento
+                    <select
+                      name="service_id"
+                      value={form.service_id}
+                      onChange={(event) => {
+                        const selectedId = event.target.value;
+                        const service = serviceOptions.find(
+                          (item) => String(item.id) === selectedId,
+                        );
+                        setForm((prev) => ({
+                          ...prev,
+                          service_id: selectedId,
+                          service_type: service?.code || "",
+                        }));
+                      }}
+                    >
+                      <option value="" disabled hidden>
+                        Selecionar
                       </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field>
-                  Status
-                  <select
-                    name="status"
-                    value={form.status}
-                    onChange={handleFormChange}
-                  >
-                    {statusOptions.length === 0 && (
-                      <>
-                        <option value="scheduled">Agendado</option>
-                        <option value="done">Concluido</option>
-                        <option value="canceled">Cancelado</option>
-                        <option value="no_show">Falta</option>
-                      </>
-                    )}
-                    {statusOptions.map((status) => (
-                      <option key={status.code} value={status.code}>
-                        {status.label || status.code}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field>
-                  Inicio *
-                  <input
-                    type="datetime-local"
-                    name="starts_at"
-                    value={form.starts_at}
-                    onChange={handleStartsAtChange}
-                  />
-                </Field>
-                <Field>
-                  Fim
-                  <input
-                    type="datetime-local"
-                    name="ends_at"
-                    value={form.ends_at}
-                    onChange={handleFormChange}
-                  />
-                </Field>
-                <Field className="span-2">
-                  Tipo da sessao
-                  <select
-                    name="is_initial"
-                    value={form.is_initial ? "true" : "false"}
-                    onChange={(event) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        is_initial: event.target.value === "true",
-                      }))
-                    }
-                  >
-                    <option value="false">Sessao normal</option>
-                    <option value="true">1a avaliacao</option>
-                  </select>
-                </Field>
-                <RepeatCard className="span-2">
-                  <RepeatHeader>
-                    <div>
-                      <strong>Repetir agendamento</strong>
-                      <span>Agende 2x, 3x ou toda semana com poucos cliques.</span>
-                    </div>
-                    <RepeatToggle>
+                      {serviceOptions.length === 0 && (
+                        <>
+                          <option value="fisioterapia">Fisioterapia</option>
+                          <option value="funcional">Funcional</option>
+                          <option value="pilates">Pilates</option>
+                          <option value="outro">Outro</option>
+                        </>
+                      )}
+                      {serviceOptions.map((service) => (
+                        <option key={service.id} value={service.id}>
+                          {service.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field>
+                    Status
+                    <select
+                      name="status"
+                      value={form.status}
+                      onChange={handleFormChange}
+                    >
+                      {statusOptions.length === 0 && (
+                        <>
+                          <option value="scheduled">Agendado</option>
+                          <option value="done">Concluido</option>
+                          <option value="canceled">Cancelado</option>
+                          <option value="no_show">Falta</option>
+                        </>
+                      )}
+                      {statusOptions.map((status) => (
+                        <option key={status.code} value={status.code}>
+                          {status.label || status.code}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field>
+                    Inicio *
+                    <InputRow>
                       <input
-                        type="checkbox"
-                        checked={repeatEnabled}
-                        disabled={!!editingId}
-                        onChange={(event) => {
-                          const { checked } = event.target;
-                          setRepeatEnabled(checked);
-                          if (
-                            checked &&
-                            repeatWeekdays.length === 0 &&
-                            form.starts_at
-                          ) {
-                            const start = new Date(form.starts_at);
-                            if (!Number.isNaN(start.getTime())) {
-                              setRepeatWeekdays([toIsoWeekday(start)]);
-                            }
-                          }
-                        }}
+                        ref={startsAtRef}
+                        type="datetime-local"
+                        name="starts_at"
+                        value={form.starts_at}
+                        onChange={handleStartsAtChange}
                       />
-                      <span>{repeatEnabled ? "Ativo" : "Desativado"}</span>
-                    </RepeatToggle>
-                  </RepeatHeader>
-                  {!repeatEnabled && (
-                    <RepeatHint>
-                      {editingId
-                        ? "A repeticao pode ser definida apenas em novos agendamentos."
-                        : "Ative para selecionar dias da semana e quantidade de sessoes."}
-                    </RepeatHint>
-                  )}
-                  {repeatEnabled && (
-                    <RepeatBody>
-                      <RepeatRow>
-                        <RepeatField>
-                          Repetir a cada
-                          <input
-                            type="number"
-                            min="1"
-                            value={repeatInterval}
-                            onChange={(event) =>
-                              setRepeatInterval(event.target.value)
+                      <OkButton
+                        type="button"
+                        onClick={() => startsAtRef.current && startsAtRef.current.blur()}
+                        aria-label="Confirmar data de inicio"
+                      >
+                        OK
+                      </OkButton>
+                    </InputRow>
+                  </Field>
+                  <Field>
+                    Fim
+                    <InputRow>
+                      <input
+                        ref={endsAtRef}
+                        type="datetime-local"
+                        name="ends_at"
+                        value={form.ends_at}
+                        onChange={handleFormChange}
+                      />
+                      <OkButton
+                        type="button"
+                        onClick={() => endsAtRef.current && endsAtRef.current.blur()}
+                        aria-label="Confirmar data de fim"
+                      >
+                        OK
+                      </OkButton>
+                    </InputRow>
+                  </Field>
+                  <Field className="span-2">
+                    Tipo da sessao
+                    <select
+                      name="is_initial"
+                      value={form.is_initial ? "true" : "false"}
+                      onChange={(event) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          is_initial: event.target.value === "true",
+                        }))
+                      }
+                    >
+                      <option value="false">Sessao normal</option>
+                      <option value="true">1a avaliacao</option>
+                    </select>
+                  </Field>
+                  <RepeatCard className="span-2">
+                    <RepeatHeader>
+                      <div>
+                        <strong>Repetição</strong>
+                      </div>
+                      <RepeatToggle>
+                        <input
+                          type="checkbox"
+                          checked={repeatEnabled}
+                          disabled={!!editingId}
+                          onChange={(event) => {
+                            const { checked } = event.target;
+                            setRepeatEnabled(checked);
+                            if (
+                              checked &&
+                              repeatWeekdays.length === 0 &&
+                              form.starts_at
+                            ) {
+                              const start = new Date(form.starts_at);
+                              if (!Number.isNaN(start.getTime())) {
+                                setRepeatWeekdays([toIsoWeekday(start)]);
+                              }
                             }
-                          />
-                          <small>semanas</small>
-                        </RepeatField>
-                        <RepeatField>
-                          Termino
-                          <RepeatMode>
-                            <RepeatOption>
-                              <input
-                                id="repeat_end_until"
-                                type="radio"
-                                name="repeat_end_mode"
-                                value="until"
-                                checked={repeatEndMode === "until"}
-                                onChange={() => setRepeatEndMode("until")}
-                                aria-label="Termino ate data"
-                              />
-                              <span>Ate data</span>
-                            </RepeatOption>
-                            <RepeatOption>
-                              <input
-                                id="repeat_end_count"
-                                type="radio"
-                                name="repeat_end_mode"
-                                value="count"
-                                checked={repeatEndMode === "count"}
-                                onChange={() => setRepeatEndMode("count")}
-                                aria-label="Termino por quantidade"
-                              />
-                              <span>Quantidade</span>
-                            </RepeatOption>
-                          </RepeatMode>
-                          {repeatEndMode === "until" ? (
-                            <input
-                              type="date"
-                              value={repeatUntilDate}
-                              onChange={(event) =>
-                                setRepeatUntilDate(event.target.value)
-                              }
-                            />
-                          ) : (
-                            <input
-                              type="number"
-                              min="1"
-                              value={repeatCount}
-                              onChange={(event) =>
-                                setRepeatCount(event.target.value)
-                              }
-                            />
-                          )}
-                        </RepeatField>
-                      </RepeatRow>
-                      <RepeatRow>
-                        <RepeatField className="full">
-                          Dias da semana
-                          <WeekdayGrid>
-                            {WEEKDAY_OPTIONS.map((option) => (
-                              <WeekdayButton
-                                key={option.value}
+                          }}
+                        />
+                        <span>{repeatEnabled ? "Ativo" : "Inativo"}</span>
+                      </RepeatToggle>
+                    </RepeatHeader>
+                    {!repeatEnabled && (
+                      <RepeatHint>
+                        {editingId ? "Repetição só em novos agendamentos." : "Ative para repetir."}
+                      </RepeatHint>
+                    )}
+                    {repeatEnabled && (
+                      <RepeatBody>
+                        <RepeatRow>
+                          <RepeatField className="full">
+                            <RepeatLabel>Modo</RepeatLabel>
+                            <RepeatModes>
+                              <RepeatModeButton
                                 type="button"
-                                $active={repeatWeekdays.includes(option.value)}
-                                onClick={() => handleToggleWeekday(option.value)}
+                                $active={repeatMode === "count"}
+                                onClick={() => setRepeatMode("count")}
                               >
-                                {option.label}
-                              </WeekdayButton>
-                            ))}
-                          </WeekdayGrid>
-                        </RepeatField>
-                      </RepeatRow>
-                    </RepeatBody>
-                  )}
-                </RepeatCard>
+                                Quantidade
+                              </RepeatModeButton>
+                              <RepeatModeButton
+                                type="button"
+                                $active={repeatMode === "weeks"}
+                                onClick={() => setRepeatMode("weeks")}
+                              >
+                                Por semanas
+                              </RepeatModeButton>
+                            </RepeatModes>
+                          </RepeatField>
+                        </RepeatRow>
+                        <RepeatRow>
+                          {repeatMode === "count" ? (
+                            <RepeatField className="full">
+                              <RepeatLabel>Quantas sessoes?</RepeatLabel>
+                              <RepeatInline>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={repeatCount}
+                                  onChange={(event) =>
+                                    setRepeatCount(event.target.value)
+                                  }
+                                  placeholder="Ex.: 10"
+                                />
+                                <span>sessoes</span>
+                              </RepeatInline>
+                              <RepeatHelper>Ex.: 10 sessoes, Seg/Qua/Sex.</RepeatHelper>
+                            </RepeatField>
+                          ) : (
+                            <RepeatField className="full">
+                              <RepeatLabel>Por quantas semanas?</RepeatLabel>
+                              <RepeatInline>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={repeatWeeks}
+                                  onChange={(event) =>
+                                    setRepeatWeeks(event.target.value)
+                                  }
+                                  placeholder="Ex.: 4"
+                                />
+                                <span>semanas</span>
+                              </RepeatInline>
+                              <RepeatHelper>
+                                Ex.: Seg/Qua/Sex nas proximas 4 semanas.
+                              </RepeatHelper>
+                            </RepeatField>
+                          )}
+                        </RepeatRow>
+                        <RepeatRow>
+                          <RepeatField className="full">
+                            <RepeatLabel>Quais dias?</RepeatLabel>
+                            <RepeatHelper>Toque para selecionar.</RepeatHelper>
+                            <WeekdayGrid>
+                              {WEEKDAY_OPTIONS.map((option) => (
+                                <WeekdayButton
+                                  key={option.value}
+                                  type="button"
+                                  $active={repeatWeekdays.includes(option.value)}
+                                  onClick={() => handleToggleWeekday(option.value)}
+                                >
+                                  {option.label}
+                                </WeekdayButton>
+                              ))}
+                            </WeekdayGrid>
+                          </RepeatField>
+                        </RepeatRow>
+                      </RepeatBody>
+                    )}
+                  </RepeatCard>
                   <Field className="span-2">
                     Observacoes
                     <textarea
                       name="notes"
                       value={form.notes}
-                      onChange={handleFormChange}
-                      rows={3}
-                    />
-                  </Field>
-                  <Field className="span-2">
-                    Justificativa de falta
-                    <textarea
-                      name="absence_reason"
-                      value={form.absence_reason}
                       onChange={handleFormChange}
                       rows={3}
                     />
@@ -1758,6 +2212,14 @@ const DateNav = styled.div`
   justify-content: center;
 `;
 
+const ToolbarActions = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+`;
+
 const NavButton = styled.button`
   width: 36px;
   height: 36px;
@@ -1782,6 +2244,259 @@ const FiltersRow = styled.div`
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 12px;
   margin-bottom: 20px;
+`;
+
+const NotificationButton = styled.button`
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  border: 1px solid
+    ${(props) =>
+      props.$active ? "rgba(185, 120, 35, 0.35)" : "rgba(106, 121, 92, 0.2)"};
+  background: ${(props) => (props.$active ? "#fff5e7" : "#fff")};
+  color: ${(props) => (props.$active ? "#8a5718" : "#6a795c")};
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  cursor: pointer;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 20px rgba(42, 52, 35, 0.08);
+  }
+`;
+
+const NotificationBadge = styled.span`
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: ${(props) => (props.$hasPending ? "#c63b32" : "#dfe6d8")};
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.72rem;
+`;
+
+const PendingList = styled.div`
+  display: grid;
+  gap: 12px;
+`;
+
+const PendingDrawerPanel = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+`;
+
+const PendingGroupList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+`;
+
+const PendingGroup = styled.section`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const PendingGroupHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(106, 121, 92, 0.14);
+  flex-wrap: wrap;
+`;
+
+const PendingGroupTitle = styled.h3`
+  margin: 0;
+  color: #1b1b1b;
+  font-size: 1rem;
+  text-transform: capitalize;
+`;
+
+const PendingGroupMeta = styled.span`
+  display: inline-block;
+  margin-top: 4px;
+  color: #6a795c;
+  font-size: 0.84rem;
+`;
+
+const PendingTimeList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const PendingTimeGroup = styled.section`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #fbfcf8;
+  border: 1px solid rgba(106, 121, 92, 0.12);
+`;
+
+const PendingTimeHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+`;
+
+const PendingTimeTitle = styled.h4`
+  margin: 0;
+  color: #1b1b1b;
+  font-size: 0.95rem;
+`;
+
+const PendingTimeMeta = styled.span`
+  display: inline-block;
+  margin-top: 4px;
+  color: #6a795c;
+  font-size: 0.8rem;
+`;
+
+const PendingServiceList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`;
+
+const PendingServiceGroup = styled.section`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid
+    ${(props) =>
+      props.$color ? `${props.$color}55` : "rgba(106, 121, 92, 0.16)"};
+  background: ${(props) =>
+    props.$color ? `${props.$color}12` : "rgba(255, 255, 255, 0.92)"};
+`;
+
+const PendingServiceHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: ${(props) =>
+    props.$color ? `${props.$color}22` : "rgba(106, 121, 92, 0.1)"};
+`;
+
+const PendingServiceTitle = styled.h5`
+  margin: 0;
+  color: #1b1b1b;
+  font-size: 0.92rem;
+`;
+
+const PendingServiceCount = styled.span`
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #1b1b1b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 800;
+`;
+
+const PendingCard = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(214, 170, 104, 0.28);
+  background: #fff;
+`;
+
+const PendingInfo = styled.div`
+  display: grid;
+  gap: 6px;
+
+  strong {
+    color: #1b1b1b;
+    font-size: 1rem;
+  }
+`;
+
+const PendingActionSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(106, 121, 92, 0.12);
+`;
+
+const PendingActionTitle = styled.span`
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6a795c;
+`;
+
+const PendingStatusGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+`;
+
+const PendingStatusButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: 1px solid
+    ${(props) => {
+      if (props.$variant === "done") return "rgba(94, 135, 90, 0.32)";
+      if (props.$variant === "canceled") return "rgba(199, 102, 102, 0.3)";
+      if (props.$variant === "no_show") return "rgba(214, 170, 104, 0.34)";
+      return "rgba(106, 121, 92, 0.24)";
+    }};
+  background: ${(props) => {
+    if (props.$variant === "done") return "rgba(94, 135, 90, 0.12)";
+    if (props.$variant === "canceled") return "rgba(199, 102, 102, 0.11)";
+    if (props.$variant === "no_show") return "rgba(214, 170, 104, 0.14)";
+    return "#f7f8f4";
+  }};
+  color: ${(props) => {
+    if (props.$variant === "done") return "#2f5a33";
+    if (props.$variant === "canceled") return "#7b3a3a";
+    if (props.$variant === "no_show") return "#8a5718";
+    return "#516046";
+  }};
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(42, 52, 35, 0.08);
+    filter: brightness(0.98);
+  }
 `;
 
 const Legend = styled.div`
@@ -2086,9 +2801,12 @@ const GroupSection = styled.div`
   gap: 12px;
   padding: 12px;
   border-radius: 14px;
-  background: #ffffff;
-  border: 1px solid rgba(106, 121, 92, 0.22);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
+  background: ${(props) =>
+    props.$color ? `${props.$color}10` : "#ffffff"};
+  border: 1px solid
+    ${(props) =>
+      props.$color ? `${props.$color}44` : "rgba(106, 121, 92, 0.22)"};
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.05);
 `;
 
 const GroupSectionHeader = styled.div`
@@ -2096,24 +2814,53 @@ const GroupSectionHeader = styled.div`
   align-items: center;
   gap: 12px;
   justify-content: space-between;
-  padding-bottom: 8px;
-  border-bottom: 1px dashed rgba(106, 121, 92, 0.2);
-  span {
-    color: #6a795c;
-    font-size: 0.9rem;
-    font-weight: 600;
-  }
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: ${(props) =>
+    props.$color ? `${props.$color}22` : "rgba(106, 121, 92, 0.1)"};
+`;
+
+const GroupSectionTitle = styled.h4`
+  margin: 0;
+  color: #1b1b1b;
+  font-size: 0.95rem;
+`;
+
+const GroupSectionMeta = styled.span`
+  display: inline-block;
+  margin-top: 4px;
+  color: #516046;
+  font-size: 0.82rem;
+  font-weight: 600;
+`;
+
+const GroupCountBadge = styled.span`
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #1b1b1b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 800;
 `;
 
 const GroupItem = styled.div`
   padding: 12px;
   border-radius: 12px;
-  border: 1px solid rgba(106, 121, 92, 0.12);
-  background: #f9faf6;
+  border: 1px solid rgba(106, 121, 92, 0.1);
+  background: rgba(255, 255, 255, 0.92);
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 12px;
   align-items: center;
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 const PatientInfo = styled.div`
@@ -2134,33 +2881,73 @@ const GroupActions = styled.div`
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
+
+  @media (max-width: 720px) {
+    align-items: stretch;
+  }
 `;
 
 const ActionGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(2, minmax(110px, 1fr));
+  grid-template-columns: repeat(2, minmax(96px, 1fr));
   gap: 8px;
 `;
 
 const StatusAction = styled.button`
-  border: 1px solid rgba(106, 121, 92, 0.25);
-  background: ${(props) => (props.$active ? "#6a795c" : "#fff")};
-  color: ${(props) => (props.$active ? "#fff" : "#6a795c")};
+  border: 1px solid
+    ${(props) => {
+      if (props.$status === "done") return "rgba(94, 135, 90, 0.32)";
+      if (props.$status === "canceled") return "rgba(199, 102, 102, 0.3)";
+      if (props.$status === "no_show") return "rgba(214, 170, 104, 0.34)";
+      return "rgba(106, 121, 92, 0.24)";
+    }};
+  background: ${(props) => {
+    if (props.$active && props.$status === "done") return "#2f5a33";
+    if (props.$active && props.$status === "canceled") return "#7b3a3a";
+    if (props.$active && props.$status === "no_show") return "#8a5718";
+    if (props.$active) return "#6a795c";
+    if (props.$status === "done") return "rgba(94, 135, 90, 0.12)";
+    if (props.$status === "canceled") return "rgba(199, 102, 102, 0.11)";
+    if (props.$status === "no_show") return "rgba(214, 170, 104, 0.14)";
+    return "#fff";
+  }};
+  color: ${(props) => {
+    if (props.$active) return "#fff";
+    if (props.$status === "done") return "#2f5a33";
+    if (props.$status === "canceled") return "#7b3a3a";
+    if (props.$status === "no_show") return "#8a5718";
+    return "#516046";
+  }};
   padding: 7px 10px;
-  border-radius: 10px;
-  font-weight: 600;
+  border-radius: 9px;
+  font-weight: 700;
+  font-size: 0.82rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(42, 52, 35, 0.08);
+    filter: brightness(0.98);
+  }
 `;
 
 const SmallEdit = styled.button`
-  border: none;
-  background: transparent;
-  color: #6a795c;
-  font-size: 0.85rem;
-  text-decoration: underline;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  background: #f5f7f1;
+  color: #516046;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 7px 10px;
+  border-radius: 9px;
   cursor: pointer;
+
+  &:hover {
+    background: #eef2e7;
+  }
 `;
 
 const Backdrop = styled.div`
@@ -2263,6 +3050,28 @@ const Field = styled.label`
   }
 `;
 
+const InputRow = styled.div`
+  display: flex;
+  gap: 8px;
+  align-items: center;
+
+  input {
+    flex: 1;
+  }
+`;
+
+const OkButton = styled.button`
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.2);
+  background: #f3f5f1;
+  color: #42523a;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+`;
+
 const RepeatCard = styled.div`
   border: 1px solid rgba(106, 121, 92, 0.18);
   border-radius: 14px;
@@ -2301,6 +3110,7 @@ const RepeatToggle = styled.label`
   input {
     width: 18px;
     height: 18px;
+    accent-color: #6a795c;
   }
 `;
 
@@ -2317,7 +3127,7 @@ const RepeatBody = styled.div`
 
 const RepeatRow = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 12px;
 `;
 
@@ -2345,25 +3155,55 @@ const RepeatField = styled.div`
   }
 `;
 
-const RepeatMode = styled.div`
+const RepeatLabel = styled.span`
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1b1b1b;
+`;
+
+const RepeatHelper = styled.span`
+  font-size: 0.8rem;
+  color: #6a795c;
+`;
+
+const RepeatInline = styled.div`
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
+
+  input {
+    width: 90px;
+  }
+
+  span {
+    font-size: 0.85rem;
+    color: #6a795c;
+  }
+`;
+
+const RepeatModes = styled.div`
+  display: flex;
+  gap: 8px;
   flex-wrap: wrap;
 `;
 
-const RepeatOption = styled.div`
+const RepeatModeButton = styled.button`
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 0.85rem;
-  color: #6a795c;
+  color: #516046;
+  border: 1px solid rgba(106, 121, 92, 0.25);
+  background: ${(props) => (props.$active ? "rgba(106, 121, 92, 0.12)" : "#fff")};
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: transform 120ms ease, box-shadow 120ms ease;
 
-  input {
-    margin: 0;
-  }
-
-  label {
-    cursor: pointer;
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 12px rgba(42, 52, 35, 0.08);
   }
 `;
 
@@ -2381,6 +3221,12 @@ const WeekdayButton = styled.button`
   border-radius: 999px;
   font-weight: 600;
   cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 12px rgba(42, 52, 35, 0.08);
+  }
 `;
 
 const SearchInput = styled.input`
@@ -2391,6 +3237,8 @@ const SearchInput = styled.input`
   font-size: 0.95rem;
   color: #1b1b1b;
   background: #fff;
+  width: 100%;
+  box-sizing: border-box;
 `;
 
 const AutoComplete = styled.div`
@@ -2423,6 +3271,9 @@ const AutoItem = styled.button`
   color: #1b1b1b;
   font-size: 0.95rem;
   cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 
   &:hover {
     background: rgba(162, 177, 144, 0.2);
@@ -2432,6 +3283,9 @@ const AutoItem = styled.button`
 const SelectedHint = styled.div`
   font-size: 0.85rem;
   color: #6a795c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 
   strong {
     color: #1b1b1b;

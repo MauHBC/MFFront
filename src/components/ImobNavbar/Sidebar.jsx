@@ -58,7 +58,7 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
           </Link>
         </li>
 
-        <li className="semiBold font15 pointer flexCenter">
+        {/* <li className="semiBold font15 pointer flexCenter">
           <Link
             to="/laudos"
             style={{ padding: "10px 15px", textDecoration: "none" }}
@@ -66,7 +66,7 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
           >
             Exames
           </Link>
-        </li>
+        </li> */}
 
       </UlStyle>
     </Wrapper>
