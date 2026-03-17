@@ -64,6 +64,13 @@ const formatCurrency = (cents) => {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 };
 
+const formatDate = (value) => {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleDateString("pt-BR");
+};
+
 const normalizeId = (value) => (value ? Number(value) : null);
 
 const TOPBAR_HEIGHT = 80;
@@ -151,6 +158,7 @@ export default function Financeiro() {
     };
   });
   const [attendanceView, setAttendanceView] = useState("patients");
+  const [attendanceDrilldownPatientId, setAttendanceDrilldownPatientId] = useState(null);
 
   const [isEntryOpen, setIsEntryOpen] = useState(false);
   const [entryForm, setEntryForm] = useState(emptyEntry);
@@ -222,6 +230,12 @@ export default function Financeiro() {
     () => new Map(patients.map((item) => [item.id, item])),
     [patients],
   );
+
+  const activeAttendancePatient = useMemo(() => {
+    const patientId = normalizeId(attendanceFilters.patient_id);
+    if (!patientId) return null;
+    return patientMap.get(patientId) || null;
+  }, [attendanceFilters.patient_id, patientMap]);
 
   const servicePriceMap = useMemo(() => {
     const map = new Map();
@@ -605,13 +619,37 @@ export default function Financeiro() {
   const handleAttendanceFilterChange = useCallback((event) => {
     const { name, value } = event.target;
     setAttendanceFilters((prev) => ({ ...prev, [name]: value }));
+    if (name === "patient_id") {
+      setAttendanceDrilldownPatientId(null);
+    }
+  }, []);
+
+  const handleClearAttendancePatientFilter = useCallback(() => {
+    setAttendanceFilters((prev) => ({ ...prev, patient_id: "" }));
+    setAttendanceDrilldownPatientId(null);
   }, []);
 
   const handleViewPatientSessions = useCallback((patientId) => {
     if (!patientId) return;
+    setAttendanceDrilldownPatientId(String(patientId));
     setAttendanceFilters((prev) => ({ ...prev, patient_id: String(patientId) }));
     setAttendanceView("sessions");
   }, []);
+
+  const handleAttendanceViewChange = useCallback(
+    (view) => {
+      setAttendanceView(view);
+      if (
+        view === "patients" &&
+        attendanceDrilldownPatientId &&
+        attendanceFilters.patient_id === attendanceDrilldownPatientId
+      ) {
+        setAttendanceFilters((prev) => ({ ...prev, patient_id: "" }));
+        setAttendanceDrilldownPatientId(null);
+      }
+    },
+    [attendanceDrilldownPatientId, attendanceFilters.patient_id],
+  );
 
   const toggleSidebar = useCallback(() => {
     setIsSidebarCollapsed((prev) => {
@@ -923,7 +961,7 @@ export default function Financeiro() {
         if (attendanceFilters.financial === "missing") return status === "missing";
         return true;
       })
-      .sort((a, b) => new Date(b.starts_at || 0) - new Date(a.starts_at || 0));
+      .sort((a, b) => new Date(a.starts_at || 0) - new Date(b.starts_at || 0));
   }, [
     attendanceFilters.financial,
     attendanceFilters.search,
@@ -1656,134 +1694,142 @@ export default function Financeiro() {
 
       if (attendanceView === "patients" && attendanceByPatient.length > 0) {
         attendanceContent = (
-          <SimpleTable>
-            <thead>
-              <tr>
-                <th>Cliente</th>
-                <th>Profissionais</th>
-                <th>Servicos</th>
-                <th>Sessoes</th>
-                <th>Pendente</th>
-                <th>Em aberto</th>
-                <th>Ja recebido</th>
-                <th>Credito</th>
-                <th>Ultimo atendimento</th>
-                <th>Acoes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {attendanceByPatient.map((row) => (
-                <tr key={row.patientId}>
-                  <td>
-                    <CellStack>
-                      <strong>{row.patientName}</strong>
-                      <MutedText>Sessoes: {row.sessions}</MutedText>
-                    </CellStack>
-                  </td>
-                  <td>{row.professionalsLabel}</td>
-                  <td>{row.servicesLabel}</td>
-                  <td>{row.sessions}</td>
-                  <td>
-                    <Badge>{row.pendingSessions}</Badge>
-                  </td>
-                  <td>{formatCurrency(row.openCents)}</td>
-                  <td>{formatCurrency(row.paidCents)}</td>
-                  <td>{formatCurrency(row.creditsAvailable)}</td>
-                  <td>{row.lastSession ? new Date(row.lastSession).toLocaleDateString() : "-"}</td>
-                  <td>
-                    <RowActions>
-                      <SmallButton type="button" onClick={() => handleViewPatientSessions(row.patientId)}>
-                        Ver sessoes
-                      </SmallButton>
-                    </RowActions>
-                  </td>
+          <TableScroll>
+            <SimpleTable>
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Profissionais</th>
+                  <th>Servicos</th>
+                  <th>Sessoes</th>
+                  <th>Pendente</th>
+                  <th>Em aberto</th>
+                  <th>Ja recebido</th>
+                  <th>Credito</th>
+                  <th>Ultimo atendimento</th>
+                  <th>Acoes</th>
                 </tr>
-              ))}
-            </tbody>
-          </SimpleTable>
+              </thead>
+              <tbody>
+                {attendanceByPatient.map((row) => (
+                  <tr key={row.patientId}>
+                    <td>
+                      <CellStack>
+                        <strong>{row.patientName}</strong>
+                        <MutedText>Sessoes: {row.sessions}</MutedText>
+                      </CellStack>
+                    </td>
+                    <td>{row.professionalsLabel}</td>
+                    <td>{row.servicesLabel}</td>
+                    <td>{row.sessions}</td>
+                    <td>
+                      <Badge>{row.pendingSessions}</Badge>
+                    </td>
+                    <td>{formatCurrency(row.openCents)}</td>
+                    <td>{formatCurrency(row.paidCents)}</td>
+                    <td>{formatCurrency(row.creditsAvailable)}</td>
+                    <td>{formatDate(row.lastSession)}</td>
+                    <td>
+                      <RowActions>
+                        <SmallButton type="button" onClick={() => handleViewPatientSessions(row.patientId)}>
+                          Ver sessoes
+                        </SmallButton>
+                      </RowActions>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </SimpleTable>
+          </TableScroll>
         );
       }
 
       if (attendanceView === "sessions" && attendanceRows.length > 0) {
         attendanceContent = (
-          <AttendanceTable>
-            <thead>
-              <tr>
-                <th>Cliente</th>
-                <th>Profissional</th>
-                <th>Servico</th>
-                <th>Recorrencia</th>
-                <th>Sessoes abertas do paciente</th>
-                <th>Valor da sessao</th>
-                <th>Ultima forma</th>
-                <th>Parcelas</th>
-                <th>Situacao financeira</th>
-                <th>Observacoes</th>
-                <th>Acoes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {attendanceRows.map((row) => {
-                const pendingCount = pendingByPatientId.get(row.patientId) || 0;
-                const status = row.financialStatus || "missing";
-                const statusLabel = formatFinancialStatus(status);
-                let installmentsLabel = "-";
-                if (row.payment?.installments) installmentsLabel = `${row.payment.installments}x`;
-                else if (row.paymentCount > 1) installmentsLabel = "Varios";
+          <TableScroll>
+            <AttendanceTable>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Cliente</th>
+                  <th>Profissional</th>
+                  <th>Servico</th>
+                  <th>Recorrencia</th>
+                  <th>Abertas</th>
+                  <th>Valor</th>
+                  <th>Ultima forma</th>
+                  <th>Parcelas</th>
+                  <th>Status</th>
+                  <th>Obs.</th>
+                  <th>Acoes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attendanceRows.map((row) => {
+                  const pendingCount = pendingByPatientId.get(row.patientId) || 0;
+                  const status = row.financialStatus || "missing";
+                  const statusLabel = formatFinancialStatus(status);
+                  let installmentsLabel = "-";
+                  if (row.payment?.installments) installmentsLabel = `${row.payment.installments}x`;
+                  else if (row.paymentCount > 1) installmentsLabel = "Varios";
 
-                const methodLabel = row.paymentCount > 1 ? "Varios" : row.paymentMethod;
+                  const methodLabel = row.paymentCount > 1 ? "Varios" : row.paymentMethod;
 
-                return (
-                  <tr key={row.id}>
-                    <td>
-                      <CellStack>
-                        <strong>{row.patientName}</strong>
-                        <MutedText>
-                          Creditos: {formatCurrency(creditBalanceByPatient.get(row.patientId) || 0)}
-                        </MutedText>
-                      </CellStack>
-                    </td>
-                    <td>{row.professionalName}</td>
-                    <td>{row.serviceName}</td>
-                    <td>{row.recurrence}</td>
-                    <td>
-                      <Badge>{pendingCount}</Badge>
-                    </td>
-                    <td>
-                      <CellStack>
-                        <strong>{formatCurrency(row.amountCents)}</strong>
-                        {row.openCents > 0 && (
-                          <MutedText>Em aberto: {formatCurrency(row.openCents)}</MutedText>
-                        )}
-                      </CellStack>
-                    </td>
-                    <td>{methodLabel || "-"}</td>
-                    <td>{installmentsLabel}</td>
-                    <td>
-                      <StatusPill $status={status}>
-                        {statusLabel}
-                      </StatusPill>
-                    </td>
-                    <td>{row.entry?.notes || row.payment?.note || "-"}</td>
-                    <td>
-                      <RowActions>
-                        {!row.entry && (
-                          <SmallButton type="button" onClick={() => handleCreateSessionEntry(row.id)}>
-                            Gerar lancamento
-                          </SmallButton>
-                        )}
-                        {row.entry && status !== "paid" && status !== "canceled" && (
-                          <SmallButton type="button" onClick={() => openPaymentModal(row.entry)}>
-                            Confirmar pagamento
-                          </SmallButton>
-                        )}
-                      </RowActions>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </AttendanceTable>
+                  return (
+                    <tr key={row.id}>
+                      <td>{formatDate(row.starts_at)}</td>
+                      <td>
+                        <CellStack>
+                          <strong>{row.patientName}</strong>
+                          <MutedText>
+                            Creditos: {formatCurrency(creditBalanceByPatient.get(row.patientId) || 0)}
+                          </MutedText>
+                        </CellStack>
+                      </td>
+                      <td>{row.professionalName}</td>
+                      <td>{row.serviceName}</td>
+                      <td>{row.recurrence}</td>
+                      <td>
+                        <Badge>{pendingCount}</Badge>
+                      </td>
+                      <td>
+                        <CellStack>
+                          <strong>{formatCurrency(row.amountCents)}</strong>
+                          {row.openCents > 0 && (
+                            <MutedText>Em aberto: {formatCurrency(row.openCents)}</MutedText>
+                          )}
+                        </CellStack>
+                      </td>
+                      <td>{methodLabel || "-"}</td>
+                      <td>{installmentsLabel}</td>
+                      <td>
+                        <StatusPill $status={status}>
+                          {statusLabel}
+                        </StatusPill>
+                      </td>
+                      <td>
+                        <NotesText>{row.entry?.notes || row.payment?.note || "-"}</NotesText>
+                      </td>
+                      <td>
+                        <RowActions>
+                          {!row.entry && (
+                            <SmallButton type="button" onClick={() => handleCreateSessionEntry(row.id)}>
+                              Gerar lancamento
+                            </SmallButton>
+                          )}
+                          {row.entry && status !== "paid" && status !== "canceled" && (
+                            <SmallButton type="button" onClick={() => openPaymentModal(row.entry)}>
+                              Confirmar pagamento
+                            </SmallButton>
+                          )}
+                        </RowActions>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </AttendanceTable>
+          </TableScroll>
         );
       }
 
@@ -1944,6 +1990,21 @@ export default function Financeiro() {
                     />
                   </FilterField>
                 </FiltersRow>
+                {attendanceFilters.patient_id && (
+                  <ActiveFilterBar>
+                    <FilterSummary>
+                      Filtro ativo de paciente:{" "}
+                      <strong>
+                        {activeAttendancePatient?.full_name ||
+                          activeAttendancePatient?.name ||
+                          "Paciente selecionado"}
+                      </strong>
+                    </FilterSummary>
+                    <GhostButton type="button" onClick={handleClearAttendancePatientFilter}>
+                      Limpar filtro
+                    </GhostButton>
+                  </ActiveFilterBar>
+                )}
               </Panel>
 
               <Panel>
@@ -1953,7 +2014,7 @@ export default function Financeiro() {
                       type="button"
                       $active={attendanceView === "patients"}
                       $prominent
-                      onClick={() => setAttendanceView("patients")}
+                      onClick={() => handleAttendanceViewChange("patients")}
                     >
                       Por paciente
                     </SegmentButton>
@@ -1961,7 +2022,7 @@ export default function Financeiro() {
                       type="button"
                       $active={attendanceView === "sessions"}
                       $prominent
-                      onClick={() => setAttendanceView("sessions")}
+                      onClick={() => handleAttendanceViewChange("sessions")}
                     >
                       Por sessao
                     </SegmentButton>
@@ -3624,12 +3685,16 @@ const SimpleTable = styled.table`
   }
 `;
 
+const TableScroll = styled.div`
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+`;
+
 const AttendanceTable = styled.table`
   width: 100%;
-  min-width: 980px;
+  min-width: 1220px;
   border-collapse: collapse;
-  display: block;
-  overflow-x: auto;
 
   th,
   td {
@@ -3644,6 +3709,20 @@ const AttendanceTable = styled.table`
     font-weight: 700;
     color: #555;
   }
+`;
+
+const ActiveFilterBar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+`;
+
+const FilterSummary = styled.p`
+  margin: 0;
+  color: #5b6453;
+  font-size: 14px;
 `;
 
 const StatusPill = styled.span`
@@ -3706,6 +3785,13 @@ const CellStack = styled.div`
 const MutedText = styled.span`
   font-size: 12px;
   color: #7a7a7a;
+`;
+
+const NotesText = styled.div`
+  min-width: 220px;
+  max-width: 260px;
+  white-space: normal;
+  word-break: break-word;
 `;
 
 const Badge = styled.span`
