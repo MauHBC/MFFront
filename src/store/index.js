@@ -2,8 +2,9 @@ import { persistStore } from "redux-persist";
 import { createStore, applyMiddleware } from "redux";
 import createSagaMiddleware from "redux-saga";
 
+import history from "../services/history";
+import { setupAxiosInterceptors } from "../services/axios";
 import persistedReducers from "./modules/reduxPersist";
-
 import rootReducer from "./modules/rootReducer";
 import rootSaga from "./modules/rootSaga";
 
@@ -27,4 +28,7 @@ sagaMiddleware.run(rootSaga);
 
 // Create a persistor for a given store.
 export const persistor = persistStore(store);
+
+setupAxiosInterceptors({ store, persistor, history });
+
 export default store;
