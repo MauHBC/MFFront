@@ -324,7 +324,7 @@ export default function PatientEvaluationDetails() {
         <Header>
           <div>
             <h1 className="font40 extraBold">{templateTitle}</h1>
-            <p className="font15">Avaliacao em {headerDate}</p>
+            <p className="font15">Avaliação em {headerDate}</p>
           </div>
           <BackLink to={`/pacientes/${patientId}`}>Voltar</BackLink>
         </Header>
@@ -345,7 +345,7 @@ export default function PatientEvaluationDetails() {
             </SummaryGrid>
 
             {sections.length === 0 && (
-              <EmptyState>Sem respostas para esta avaliacao.</EmptyState>
+              <EmptyState>Sem respostas para esta avaliação.</EmptyState>
             )}
 
             <Sections>

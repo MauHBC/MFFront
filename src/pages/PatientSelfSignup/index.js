@@ -261,12 +261,12 @@ export default function PatientSelfSignup() {
               </select>
             </Field>
             <Field>
-              Profissao
+              Profissão
               <input
                 name="profession"
                 value={form.profession}
                 onChange={handleChange}
-                placeholder="Profissao"
+                placeholder="Profissão"
               />
             </Field>
           </FormGrid>
@@ -319,7 +319,7 @@ export default function PatientSelfSignup() {
             </Field>
           </FormGrid>
 
-          <SectionTitle>Preferencias de contato</SectionTitle>
+          <SectionTitle>Preferências de contato</SectionTitle>
           <CheckboxGroup>
             <CheckboxField>
               <input
@@ -350,7 +350,7 @@ export default function PatientSelfSignup() {
             </CheckboxField>
           </CheckboxGroup>
 
-          <SectionTitle>Endereco</SectionTitle>
+          <SectionTitle>Endereço</SectionTitle>
           <FormGrid>
             <Field>
               Rua
@@ -361,7 +361,7 @@ export default function PatientSelfSignup() {
               />
             </Field>
             <Field>
-              Numero
+              Número
               <input
                 name="address_number"
                 value={form.address_number}
@@ -442,7 +442,7 @@ export default function PatientSelfSignup() {
             </Field>
           </FormGrid>
 
-          <SectionTitle>Informacoes clinicas</SectionTitle>
+          <SectionTitle>informações clinicas</SectionTitle>
           <FormGrid>
             <Field className="span-2">
               Queixa principal
@@ -454,11 +454,12 @@ export default function PatientSelfSignup() {
               />
             </Field>
             <Field className="span-2">
-              Doencas ou condicoes relevantes
+              Doenças ou condições relevantes
               <textarea
                 name="relevant_conditions"
                 value={form.relevant_conditions}
                 onChange={handleChange}
+                placeholder="Ex.: Hipertensão, diabetes, cardiopatia, labirintite etc."
                 rows={3}
               />
             </Field>
@@ -487,7 +488,7 @@ export default function PatientSelfSignup() {
                 Autorizo a coleta e uso dos meus dados (LGPD). *
                 <small>
                   Dados usados apenas para atendimento, registro clinico e
-                  obrigacoes legais.
+                  Observações legais.
                 </small>
               </div>
             </CheckboxField>
@@ -498,7 +499,7 @@ export default function PatientSelfSignup() {
                 checked={form.consent_image_use}
                 onChange={handleChange}
               />
-              <div>Autorizo uso de imagem/voz/depoimento para comunicacao.</div>
+              <div>Autorizo uso de imagem/voz/depoimento para comunicação.</div>
             </CheckboxField>
             <CheckboxField>
               <input
@@ -508,7 +509,7 @@ export default function PatientSelfSignup() {
                 onChange={handleChange}
                 required
               />
-              <div>Declaro que as informacoes fornecidas sao verdadeiras. *</div>
+              <div>Declaro que as informações fornecidas sao verdadeiras. *</div>
             </CheckboxField>
           </CheckboxGroup>
 

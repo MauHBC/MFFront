@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 import {
   FaBars,
@@ -23,6 +23,7 @@ import {
   listFinancialPayments,
   listPaymentMethods,
   createFinancialPayment,
+  applyCreditToFinancialEntry,
   createFinancialCategory,
   createPaymentMethod,
   listServicePrices,
@@ -53,7 +54,11 @@ const emptyPayment = {
   patient_id: "",
   payment_method_id: "",
   amount: "",
-  installments: "",
+  convert_entry_to_installments: false,
+  entry_installments_count: "2",
+  discount: "",
+  surcharge: "",
+  adjustment_reason: "",
   paid_at: "",
   note: "",
   allocation_mode: "entry",
@@ -71,7 +76,162 @@ const formatDate = (value) => {
   return parsed.toLocaleDateString("pt-BR");
 };
 
+const formatWeekday = (value) => {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  const weekday = parsed.toLocaleDateString("pt-BR", { weekday: "long" });
+  return weekday ? weekday.charAt(0).toUpperCase() + weekday.slice(1) : "-";
+};
+
+const parseCurrencyInputToNumber = (value) => {
+  if (value === null || value === undefined) return Number.NaN;
+  const normalized = String(value)
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+};
+
+const formatCurrencyInput = (value) => {
+  const parsed = parseCurrencyInputToNumber(value);
+  if (Number.isNaN(parsed)) return "";
+  return parsed.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
+const sanitizeCurrencyInput = (value) => {
+  const source = String(value || "");
+  const onlyValidChars = source.replace(/[^\d,.-]/g, "").replace(/\./g, ",");
+  const hasNegative = onlyValidChars.startsWith("-");
+  const unsigned = onlyValidChars.replace(/-/g, "");
+  const [integerRaw = "", ...decimalParts] = unsigned.split(",");
+  const integer = integerRaw.replace(/\D/g, "");
+  const decimal = decimalParts.join("").replace(/\D/g, "").slice(0, 2);
+
+  if (!integer && !decimal) return "";
+
+  const normalizedInteger = integer.replace(/^0+(?=\d)/, "") || "0";
+  const prefix = hasNegative ? "-" : "";
+  if (onlyValidChars.includes(",")) return `${prefix}${normalizedInteger},${decimal}`;
+  return `${prefix}${normalizedInteger}`;
+};
+
+const sanitizePositiveCurrencyInput = (value) => sanitizeCurrencyInput(value).replace("-", "");
+
+const formatMonthYear = (value) => {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const label = parsed.toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
+  return label ? label.charAt(0).toUpperCase() + label.slice(1) : "";
+};
+
+const closeActionMenu = (event) => {
+  const container = event.currentTarget.closest("details");
+  if (container) {
+    container.removeAttribute("open");
+  }
+};
+
 const normalizeId = (value) => (value ? Number(value) : null);
+
+const getEntryInstallments = (entry) => {
+  const raw =
+    entry?.installments ||
+    entry?.FinancialEntryInstallments ||
+    entry?.financial_entry_installments ||
+    [];
+  if (!Array.isArray(raw)) return [];
+  return [...raw]
+    .map((item) => ({
+      ...item,
+      installment_number: Number(item.installment_number || 0),
+      amount_cents: Number(item.amount_cents || 0),
+      paid_amount_cents: Number(item.paid_amount_cents || 0),
+      open_amount_cents: Number(item.open_amount_cents || 0),
+    }))
+    .sort((a, b) => Number(a.installment_number || 0) - Number(b.installment_number || 0));
+};
+
+const resolveInstallmentAgreement = (
+  installments = [],
+  fallbackCount = 1,
+  fallbackTotalCents = 0,
+) => {
+  const normalizedInstallments = (Array.isArray(installments) ? installments : [])
+    .filter((item) => String(item?.status || "").toLowerCase() !== "canceled")
+    .sort((a, b) => Number(a.installment_number || 0) - Number(b.installment_number || 0));
+
+  const count = Math.max(
+    1,
+    Number(fallbackCount || normalizedInstallments.length || 1),
+  );
+
+  if (count <= 1) {
+    return {
+      count: 1,
+      unitCents: 0,
+      totalCents: 0,
+    };
+  }
+
+  const amountFromInstallment = (item) => Math.max(0, Number(item?.amount_cents || 0));
+  const allAmounts = normalizedInstallments
+    .map(amountFromInstallment)
+    .filter((value) => value > 0);
+
+  if (!allAmounts.length) {
+    const fallbackTotal = Math.max(0, Number(fallbackTotalCents || 0));
+    return {
+      count,
+      unitCents: Math.floor(fallbackTotal / Math.max(1, count)),
+      totalCents: fallbackTotal,
+    };
+  }
+
+  const recurringAmounts = normalizedInstallments
+    .filter((item) => Number(item?.installment_number || 0) > 1)
+    .map(amountFromInstallment)
+    .filter((value) => value > 0);
+  const sample = recurringAmounts.length ? recurringAmounts : allAmounts;
+
+  const frequency = new Map();
+  sample.forEach((value) => {
+    frequency.set(value, (frequency.get(value) || 0) + 1);
+  });
+
+  let unitCents = sample[0] || 0;
+  let highestFrequency = -1;
+  frequency.forEach((freq, value) => {
+    if (freq > highestFrequency || (freq === highestFrequency && value < unitCents)) {
+      highestFrequency = freq;
+      unitCents = value;
+    }
+  });
+
+  const totalAmountCents = allAmounts.reduce((sum, value) => sum + value, 0);
+  const firstInstallment =
+    normalizedInstallments.find((item) => Number(item?.installment_number || 0) === 1)
+    || normalizedInstallments[0]
+    || null;
+  const firstAmountCents = amountFromInstallment(firstInstallment);
+  const hasRelevantResidual = firstAmountCents - unitCents > 1;
+
+  return {
+    count,
+    unitCents,
+    totalCents: hasRelevantResidual
+      ? Math.min(totalAmountCents, unitCents * count)
+      : totalAmountCents,
+  };
+};
 
 const TOPBAR_HEIGHT = 80;
 const SIDEBAR_WIDTH = 240;
@@ -92,6 +252,43 @@ const slugifyCode = (value) => {
 };
 
 const toDateInputValue = (date) => date.toISOString().slice(0, 10);
+
+const toMonthInputValue = (date) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${date.getFullYear()}-${month}`;
+};
+
+const parseMonthInputValue = (value) => {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return null;
+  return { year, month };
+};
+
+const getMonthRangeFromInputValue = (value) => {
+  const parsed = parseMonthInputValue(value);
+  if (!parsed) return null;
+  const start = new Date(parsed.year, parsed.month - 1, 1);
+  const end = new Date(parsed.year, parsed.month, 0);
+  return {
+    start: toDateInputValue(start),
+    end: toDateInputValue(end),
+  };
+};
+
+const getYearRangeFromValue = (value) => {
+  const year = Number(String(value || "").trim());
+  if (!Number.isInteger(year) || year < 1900 || year > 9999) return null;
+  const start = new Date(year, 0, 1);
+  const end = new Date(year, 11, 31);
+  return {
+    start: toDateInputValue(start),
+    end: toDateInputValue(end),
+  };
+};
 
 const getCurrentMonthRange = () => {
   const now = new Date();
@@ -159,11 +356,21 @@ export default function Financeiro() {
   });
   const [attendanceView, setAttendanceView] = useState("patients");
   const [attendanceDrilldownPatientId, setAttendanceDrilldownPatientId] = useState(null);
+  const [attendancePeriodMode, setAttendancePeriodMode] = useState("month");
+  const [attendancePeriodMonth, setAttendancePeriodMonth] = useState(() =>
+    toMonthInputValue(new Date()),
+  );
+  const [attendancePeriodYear, setAttendancePeriodYear] = useState(() =>
+    String(new Date().getFullYear()),
+  );
+  const attendanceMonthPickerRef = useRef(null);
 
   const [isEntryOpen, setIsEntryOpen] = useState(false);
   const [entryForm, setEntryForm] = useState(emptyEntry);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [isPaymentSaving, setIsPaymentSaving] = useState(false);
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
+  const [paymentModalContext, setPaymentModalContext] = useState(null);
   const [paymentAllocations, setPaymentAllocations] = useState({});
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState({ name: "", type: "income", color: "" });
@@ -204,7 +411,7 @@ export default function Financeiro() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return () => {};
+    if (typeof window === "undefined") return () => { };
     const media = window.matchMedia("(max-width: 960px)");
     const handleChange = () => {
       setIsMobile(media.matches);
@@ -221,6 +428,36 @@ export default function Financeiro() {
     return () => media.removeListener(handleChange);
   }, []);
 
+  useEffect(() => {
+    if (typeof document === "undefined") return () => { };
+
+    const closeOpenActionMenus = (target) => {
+      const openMenus = document.querySelectorAll("details[data-action-menu='true'][open]");
+      openMenus.forEach((menu) => {
+        if (target && menu.contains(target)) return;
+        menu.removeAttribute("open");
+      });
+    };
+
+    const handlePointerDown = (event) => {
+      closeOpenActionMenus(event.target);
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") closeOpenActionMenus(null);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown, { passive: true });
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
   const categoryMap = useMemo(
     () => new Map(categories.map((item) => [item.id, item])),
     [categories],
@@ -230,6 +467,19 @@ export default function Financeiro() {
     () => new Map(patients.map((item) => [item.id, item])),
     [patients],
   );
+
+  const serviceMap = useMemo(
+    () => new Map(services.map((item) => [item.id, item])),
+    [services],
+  );
+
+  const sessionById = useMemo(() => {
+    const map = new Map();
+    attendanceSessions.forEach((session) => {
+      if (session?.id) map.set(session.id, session);
+    });
+    return map;
+  }, [attendanceSessions]);
 
   const activeAttendancePatient = useMemo(() => {
     const patientId = normalizeId(attendanceFilters.patient_id);
@@ -329,37 +579,46 @@ export default function Financeiro() {
   const entryFinancialMap = useMemo(() => {
     const map = new Map();
     entries.forEach((entry) => {
-      const paid = paidByEntryId.get(entry.id) || 0;
-      const amount = Number(entry.amount_cents || 0);
-      let open = Math.max(0, amount - paid);
+      const installments = getEntryInstallments(entry);
+      const amount = installments.length
+        ? installments.reduce((sum, item) => sum + Number(item.amount_cents || 0), 0)
+        : Number(entry.amount_cents || 0);
+      const paidFromInstallments = installments.reduce(
+        (sum, item) => sum + Number(item.paid_amount_cents || 0),
+        0,
+      );
+      const openFromInstallments = installments.reduce(
+        (sum, item) => sum + Number(item.open_amount_cents || 0),
+        0,
+      );
+
+      const paidFromAllocations = paidByEntryId.get(entry.id) || 0;
+      const paidValue = installments.length
+        ? Math.min(amount, paidFromInstallments)
+        : Math.min(amount, paidFromAllocations);
+      let open = installments.length
+        ? Math.max(0, openFromInstallments)
+        : Math.max(0, amount - paidValue);
       let status = entry.status || "pending";
-      let paidValue = paid;
 
       if (entry.status === "canceled") {
         status = "canceled";
         open = 0;
-        paidValue = 0;
-      } else if (amount <= 0) {
-        status = entry.status || "pending";
-        open = 0;
-      } else if (paid > 0) {
-        if (paid < amount) {
-          status = "partial";
-        } else {
-          status = "paid";
-          open = 0;
-          paidValue = amount;
-        }
-      } else if (entry.status === "paid") {
+      } else if (open <= 0 && amount > 0) {
         status = "paid";
-        open = 0;
-        paidValue = amount;
+      } else if (paidValue > 0) {
+        status = "partial";
       } else {
         status = "pending";
-        open = Math.max(0, amount);
       }
 
-      map.set(entry.id, { paid: paidValue, open, status });
+      map.set(entry.id, {
+        paid: paidValue,
+        open,
+        status,
+        amount,
+        installments,
+      });
     });
     return map;
   }, [entries, paidByEntryId]);
@@ -557,23 +816,79 @@ export default function Financeiro() {
     setIsEntryOpen(false);
   }, []);
 
-  const openPaymentModal = useCallback((entry) => {
-    const paidAmount = paidByEntryId.get(entry.id) || 0;
-    const openAmountCents = Math.max(0, Number(entry.amount_cents || 0) - paidAmount);
+  const openPaymentModal = useCallback((entry, options = null) => {
+    const dueInstallment = options?.installment || null;
+    const hasInstallmentTarget = Boolean(dueInstallment);
+    const hasPredefinedMethod = Boolean(options?.payment_method_id);
+    const openAmountOverrideCents = Math.max(0, Number(options?.open_amount_cents || 0));
+    const hasOpenAmountOverride = openAmountOverrideCents > 0;
+    const isSimplifiedInstallment = Boolean(
+      options?.simplifiedInstallment && dueInstallment && hasPredefinedMethod,
+    );
+    const financial = entryFinancialMap.get(entry.id);
+    const existingInstallments = getEntryInstallments(entry);
+    const existingInstallmentsCount = Math.max(
+      1,
+      Number(entry.installments_count || 0) || existingInstallments.length || 1,
+    );
+    const fallbackOpen = Math.max(
+      0,
+      Number(entry.amount_cents || 0) - (paidByEntryId.get(entry.id) || 0),
+    );
+    const installmentOpenCents = isSimplifiedInstallment
+      ? Math.max(
+        0,
+        Number(dueInstallment?.open_amount_cents || dueInstallment?.amount_cents || 0),
+      )
+      : 0;
+    const targetedInstallmentOpenCents = hasInstallmentTarget
+      ? Math.max(0, Number(dueInstallment?.open_amount_cents || dueInstallment?.amount_cents || 0))
+      : 0;
+    let openAmountCents = Math.max(0, Number(financial?.open ?? fallbackOpen));
+    if (hasInstallmentTarget && targetedInstallmentOpenCents > 0) {
+      openAmountCents = targetedInstallmentOpenCents;
+    }
+    if (hasOpenAmountOverride) {
+      openAmountCents = openAmountOverrideCents;
+    }
+    if (isSimplifiedInstallment) {
+      openAmountCents = installmentOpenCents;
+    }
+    const paidAt = (hasInstallmentTarget && dueInstallment?.due_date)
+      ? `${String(dueInstallment.due_date).slice(0, 10)}T09:00`
+      : new Date().toISOString().slice(0, 16);
+    const paymentMethodId = isSimplifiedInstallment
+      ? String(options?.payment_method_id || "")
+      : "";
     setPaymentForm({
       ...emptyPayment,
       entry_id: entry.id,
       patient_id: entry.patient_id || "",
+      payment_method_id: paymentMethodId,
       allocation_mode: "entry",
-      amount: (openAmountCents / 100).toFixed(2),
-      paid_at: new Date().toISOString().slice(0, 16),
+      amount: formatCurrencyInput(openAmountCents / 100),
+      convert_entry_to_installments: false,
+      entry_installments_count: String(Math.max(2, existingInstallmentsCount)),
+      paid_at: paidAt,
+    });
+    setPaymentModalContext({
+      simplifiedInstallment: isSimplifiedInstallment,
+      installmentId: dueInstallment?.id || null,
+      installmentNumber: Number(dueInstallment?.installment_number || 0) || null,
+      installmentDueDate: dueInstallment?.due_date || null,
+      installmentAmountCents: installmentOpenCents,
+      installmentCount: existingInstallmentsCount,
+      paymentMethodId: paymentMethodId || "",
+      paymentMethodName: options?.payment_method_name || "",
     });
     setPaymentAllocations({});
     setIsPaymentOpen(true);
-  }, [paidByEntryId]);
+  }, [entryFinancialMap, paidByEntryId]);
 
   const closePaymentModal = useCallback(() => {
     setIsPaymentOpen(false);
+    setIsPaymentSaving(false);
+    setPaymentModalContext(null);
     setPaymentAllocations({});
   }, []);
 
@@ -583,11 +898,35 @@ export default function Financeiro() {
       entry_id: null,
       patient_id: "",
       allocation_mode: "credit",
+      amount: "",
       paid_at: new Date().toISOString().slice(0, 16),
     });
     setPaymentAllocations({});
+    setPaymentModalContext(null);
     setIsPaymentOpen(true);
   }, []);
+
+  useEffect(() => {
+    if (!isPaymentOpen || typeof document === "undefined") return () => { };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isPaymentOpen]);
+
+  useEffect(() => {
+    if (!isPaymentOpen || typeof document === "undefined") return () => { };
+    const handleEscape = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closePaymentModal();
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isPaymentOpen, closePaymentModal]);
 
   const handleEntryChange = useCallback((event) => {
     const { name, value } = event.target;
@@ -599,11 +938,35 @@ export default function Financeiro() {
     if (name === "allocation_mode" && value !== "manual") {
       setPaymentAllocations({});
     }
+    if (name === "amount" || name === "discount" || name === "surcharge") {
+      setPaymentForm((prev) => ({ ...prev, [name]: sanitizePositiveCurrencyInput(value) }));
+      return;
+    }
+    if (name === "entry_installments_count") {
+      const digits = String(value || "").replace(/\D/g, "");
+      setPaymentForm((prev) => ({
+        ...prev,
+        entry_installments_count: digits ? String(Math.max(2, Number(digits))) : "",
+      }));
+      return;
+    }
     setPaymentForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   }, []);
 
+  const handlePaymentCurrencyBlur = useCallback((event) => {
+    const { name } = event.target;
+    if (!["amount", "discount", "surcharge"].includes(name)) return;
+    setPaymentForm((prev) => ({
+      ...prev,
+      [name]: formatCurrencyInput(prev[name]),
+    }));
+  }, []);
+
   const handleAllocationChange = useCallback((entryId, value) => {
-    setPaymentAllocations((prev) => ({ ...prev, [entryId]: value }));
+    setPaymentAllocations((prev) => ({
+      ...prev,
+      [entryId]: sanitizePositiveCurrencyInput(value),
+    }));
   }, []);
 
   const handleFilterChange = useCallback((event) => {
@@ -629,6 +992,95 @@ export default function Financeiro() {
     setAttendanceDrilldownPatientId(null);
   }, []);
 
+  useEffect(() => {
+    const range =
+      attendancePeriodMode === "year"
+        ? getYearRangeFromValue(attendancePeriodYear)
+        : getMonthRangeFromInputValue(attendancePeriodMonth);
+
+    if (!range) return;
+
+    setAttendanceFilters((prev) => {
+      if (prev.start === range.start && prev.end === range.end) return prev;
+      return {
+        ...prev,
+        start: range.start,
+        end: range.end,
+      };
+    });
+  }, [attendancePeriodMode, attendancePeriodMonth, attendancePeriodYear]);
+
+  const handleAttendanceMonthPickerChange = useCallback((event) => {
+    const { value } = event.target;
+    const parsed = parseMonthInputValue(value);
+    if (!parsed) return;
+    setAttendancePeriodMonth(value);
+    setAttendancePeriodYear(String(parsed.year));
+  }, []);
+
+  const handleAttendanceYearPickerChange = useCallback((event) => {
+    const digits = String(event.target.value || "").replace(/\D/g, "").slice(0, 4);
+    if (!digits) return;
+    setAttendancePeriodYear(digits);
+    setAttendancePeriodMonth((prev) => {
+      const parsed = parseMonthInputValue(prev);
+      if (!parsed) return `${digits}-01`;
+      return `${digits}-${String(parsed.month).padStart(2, "0")}`;
+    });
+  }, []);
+
+  const handleAttendancePeriodModeChange = useCallback((mode) => {
+    if (!["month", "year"].includes(mode)) return;
+    setAttendancePeriodMode(mode);
+  }, []);
+
+  const handleAttendancePeriodTagClick = useCallback(() => {
+    if (attendancePeriodMode !== "month") return;
+    const input = attendanceMonthPickerRef.current;
+    if (!input) return;
+    if (typeof input.showPicker === "function") {
+      try {
+        input.showPicker();
+        return;
+      } catch (error) {
+        // fallback below
+      }
+    }
+    input.focus();
+    input.click();
+  }, [attendancePeriodMode]);
+
+  const shiftAttendancePeriod = useCallback((direction) => {
+    if (!Number.isFinite(direction) || direction === 0) return;
+    if (attendancePeriodMode === "year") {
+      setAttendancePeriodYear((prev) => {
+        const baseYear = Number(String(prev || "").trim());
+        const nextYear = Number.isInteger(baseYear)
+          ? baseYear + direction
+          : new Date().getFullYear() + direction;
+        return String(nextYear);
+      });
+      return;
+    }
+
+    setAttendancePeriodMonth((prev) => {
+      const parsed = parseMonthInputValue(prev);
+      const baseDate = parsed
+        ? new Date(parsed.year, parsed.month - 1, 1)
+        : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      const target = new Date(baseDate.getFullYear(), baseDate.getMonth() + direction, 1);
+      return toMonthInputValue(target);
+    });
+  }, [attendancePeriodMode]);
+
+  const handleAttendancePreviousMonth = useCallback(() => {
+    shiftAttendancePeriod(-1);
+  }, [shiftAttendancePeriod]);
+
+  const handleAttendanceNextMonth = useCallback(() => {
+    shiftAttendancePeriod(1);
+  }, [shiftAttendancePeriod]);
+
   const handleViewPatientSessions = useCallback((patientId) => {
     if (!patientId) return;
     setAttendanceDrilldownPatientId(String(patientId));
@@ -650,6 +1102,40 @@ export default function Financeiro() {
     },
     [attendanceDrilldownPatientId, attendanceFilters.patient_id],
   );
+
+  const handleActionMenuToggle = useCallback((event) => {
+    const detailsEl = event.currentTarget;
+    if (!detailsEl?.open || typeof window === "undefined") return;
+
+    const trigger = detailsEl.querySelector("summary");
+    const menuList = detailsEl.querySelector("[data-action-menu-list='true']");
+    if (!trigger || !menuList) return;
+
+    window.requestAnimationFrame(() => {
+      const triggerRect = trigger.getBoundingClientRect();
+      const menuRect = menuList.getBoundingClientRect();
+      const menuWidth = Math.max(menuRect.width || 0, 190);
+      const menuHeight = Math.max(menuRect.height || 0, 90);
+      const margin = 8;
+      const gap = 6;
+
+      const spaceBelow = window.innerHeight - triggerRect.bottom - margin;
+      const spaceAbove = triggerRect.top - margin;
+      const openUp = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+
+      const top = openUp
+        ? Math.max(margin, triggerRect.top - menuHeight - gap)
+        : Math.min(window.innerHeight - menuHeight - margin, triggerRect.bottom + gap);
+
+      const left = Math.min(
+        Math.max(margin, triggerRect.right - menuWidth),
+        window.innerWidth - menuWidth - margin,
+      );
+
+      detailsEl.style.setProperty("--action-menu-top", `${top}px`);
+      detailsEl.style.setProperty("--action-menu-left", `${left}px`);
+    });
+  }, []);
 
   const toggleSidebar = useCallback(() => {
     setIsSidebarCollapsed((prev) => {
@@ -814,12 +1300,63 @@ export default function Financeiro() {
   }, [entryForm, closeEntryModal, loadData]);
 
   const handleSavePayment = useCallback(async () => {
-    const amountValue = Number(paymentForm.amount.replace(",", "."));
-    if (Number.isNaN(amountValue) || amountValue <= 0) {
+    if (isPaymentSaving) return;
+    const amountValue = parseCurrencyInputToNumber(paymentForm.amount);
+    const discountValue = parseCurrencyInputToNumber(paymentForm.discount);
+    const surchargeValue = parseCurrencyInputToNumber(paymentForm.surcharge);
+    const amountCents = Math.round(amountValue * 100);
+    const isSimplifiedInstallmentPayment = Boolean(paymentModalContext?.simplifiedInstallment);
+    const simplifiedInstallmentAmountCents = isSimplifiedInstallmentPayment
+      ? Math.max(0, Number(paymentModalContext?.installmentAmountCents || 0))
+      : 0;
+    const effectiveAmountCents = isSimplifiedInstallmentPayment
+      ? simplifiedInstallmentAmountCents
+      : amountCents;
+    const discountCents =
+      Number.isFinite(discountValue) && discountValue > 0 ? Math.round(discountValue * 100) : 0;
+    const surchargeCents =
+      Number.isFinite(surchargeValue) && surchargeValue > 0 ? Math.round(surchargeValue * 100) : 0;
+    const hasAdjustment = !isSimplifiedInstallmentPayment
+      && paymentForm.entry_id
+      && (discountCents > 0 || surchargeCents > 0);
+    const entryId = Number(paymentForm.entry_id || 0);
+    const entryFinancial = entryId ? entryFinancialMap.get(entryId) : null;
+    const entryInstallments = Array.isArray(entryFinancial?.installments)
+      ? entryFinancial.installments
+      : [];
+    const originalInstallmentsCountForValidation = entryId
+      ? Math.max(
+          1,
+          Number(entryMap.get(entryId)?.installments_count || entryInstallments.length || 1),
+        )
+      : 1;
+    const isAlreadyInstallmentCharge = originalInstallmentsCountForValidation > 1;
+    const shouldConvertEntryToInstallments = Boolean(
+      paymentForm.entry_id
+      && paymentForm.convert_entry_to_installments
+      && !isAlreadyInstallmentCharge
+      && !isSimplifiedInstallmentPayment,
+    );
+    const requestedInstallmentsCount = Number(paymentForm.entry_installments_count || 0);
+    const baseCentsForValidation = entryId
+      ? Math.max(
+          0,
+          Number(
+            entryFinancialMap.get(entryId)?.open ??
+              entryMap.get(entryId)?.amount_cents ??
+              0,
+          ),
+        )
+      : 0;
+
+    if (
+      (!isSimplifiedInstallmentPayment && (Number.isNaN(amountValue) || amountValue <= 0))
+      || (isSimplifiedInstallmentPayment && effectiveAmountCents <= 0)
+    ) {
       toast.error("Informe um valor valido.");
       return;
     }
-    if (!paymentForm.paid_at) {
+    if (!isSimplifiedInstallmentPayment && !paymentForm.paid_at) {
       toast.error("Informe a data do pagamento.");
       return;
     }
@@ -827,17 +1364,48 @@ export default function Financeiro() {
       toast.error("Selecione o paciente.");
       return;
     }
+    if (!normalizeId(paymentForm.payment_method_id)) {
+      toast.error("Selecione a forma de pagamento.");
+      return;
+    }
+    if (Number.isFinite(discountValue) && discountValue < 0) {
+      toast.error("Desconto nao pode ser negativo.");
+      return;
+    }
+    if (Number.isFinite(surchargeValue) && surchargeValue < 0) {
+      toast.error("Acrescimo nao pode ser negativo.");
+      return;
+    }
+    if (paymentForm.entry_id && discountCents > baseCentsForValidation) {
+      toast.error("O desconto nao pode ser maior que o valor original.");
+      return;
+    }
+    if (hasAdjustment && !paymentForm.adjustment_reason.trim()) {
+      toast.error("Informe o motivo do ajuste.");
+      return;
+    }
+    if (paymentForm.entry_id && paymentForm.convert_entry_to_installments && isAlreadyInstallmentCharge) {
+      toast.error("Esta cobranca ja esta parcelada. Registre apenas a quitacao.");
+      return;
+    }
+    if (shouldConvertEntryToInstallments) {
+      if (Number.isNaN(requestedInstallmentsCount) || requestedInstallmentsCount <= 1) {
+        toast.error("Informe um numero de parcelas maior que 1.");
+        return;
+      }
+    }
 
     try {
+      setIsPaymentSaving(true);
       const allocationMode = paymentForm.entry_id
         ? "entry"
         : paymentForm.allocation_mode || "none";
       const allocationItems = Object.entries(paymentAllocations)
-        .map(([entryId, value]) => {
-          const parsed = Number(String(value).replace(",", "."));
+        .map(([allocationEntryId, value]) => {
+          const parsed = parseCurrencyInputToNumber(value);
           if (Number.isNaN(parsed) || parsed <= 0) return null;
           return {
-            entry_id: Number(entryId),
+            entry_id: Number(allocationEntryId),
             amount_cents: Math.round(parsed * 100),
           };
         })
@@ -852,24 +1420,40 @@ export default function Financeiro() {
           toast.error("Informe as cobrancas para alocar.");
           return;
         }
-        if (allocationTotal > Math.round(amountValue * 100)) {
+        if (allocationTotal > effectiveAmountCents) {
           toast.error("O valor distribuido nao pode ser maior que o recebimento.");
           return;
         }
       }
 
+      const paidAtIso = isSimplifiedInstallmentPayment && paymentModalContext?.installmentDueDate
+        ? new Date(`${String(paymentModalContext.installmentDueDate).slice(0, 10)}T09:00:00`).toISOString()
+        : new Date(paymentForm.paid_at).toISOString();
+
       await createFinancialPayment({
         entry_id: paymentForm.entry_id || null,
         patient_id: normalizeId(paymentForm.patient_id),
         payment_method_id: normalizeId(paymentForm.payment_method_id),
-        amount_cents: Math.round(amountValue * 100),
-        installments: paymentForm.installments
-          ? Math.max(1, Number(paymentForm.installments))
-          : null,
-        paid_at: new Date(paymentForm.paid_at).toISOString(),
-        note: paymentForm.note.trim() || null,
+        amount_cents: effectiveAmountCents,
+        paid_at: paidAtIso,
+        note: isSimplifiedInstallmentPayment ? null : paymentForm.note.trim() || null,
         allocation_mode: allocationMode,
         allocations: allocationMode === "manual" ? allocationItems : undefined,
+        discount_cents: hasAdjustment ? discountCents : undefined,
+        surcharge_cents: hasAdjustment ? surchargeCents : undefined,
+        adjustment_reason: hasAdjustment ? paymentForm.adjustment_reason.trim() : undefined,
+        adjustment: hasAdjustment
+          ? {
+              discount_cents: discountCents,
+              surcharge_cents: surchargeCents,
+              reason: paymentForm.adjustment_reason.trim(),
+            }
+          : undefined,
+        convert_entry_to_installments: shouldConvertEntryToInstallments || undefined,
+        entry_installments_count: shouldConvertEntryToInstallments
+          ? Math.trunc(requestedInstallmentsCount)
+          : undefined,
+        preferred_installment_id: Number(paymentModalContext?.installmentId || 0) || undefined,
       });
 
       toast.success("Recebimento registrado.");
@@ -877,9 +1461,22 @@ export default function Financeiro() {
       setPaymentAllocations({});
       loadData();
     } catch (error) {
-      toast.error("Nao foi possivel registrar o pagamento.");
+      toast.error(
+        error?.response?.data?.error || "Nao foi possivel registrar o pagamento.",
+      );
+    } finally {
+      setIsPaymentSaving(false);
     }
-  }, [paymentForm, paymentAllocations, closePaymentModal, loadData]);
+  }, [
+    isPaymentSaving,
+    paymentForm,
+    paymentAllocations,
+    entryFinancialMap,
+    entryMap,
+    paymentModalContext,
+    closePaymentModal,
+    loadData,
+  ]);
 
   const handleCreateSessionEntry = useCallback(
     async (sessionId) => {
@@ -890,6 +1487,20 @@ export default function Financeiro() {
         loadAttendance();
       } catch (error) {
         toast.error("Nao foi possivel gerar o lancamento.");
+      }
+    },
+    [loadAttendance, loadData],
+  );
+
+  const handleApplyCreditToEntry = useCallback(
+    async (entryId) => {
+      try {
+        await applyCreditToFinancialEntry(entryId);
+        toast.success("Credito aplicado na cobranca.");
+        loadData();
+        loadAttendance();
+      } catch (error) {
+        toast.error("Nao foi possivel usar o credito.");
       }
     },
     [loadAttendance, loadData],
@@ -914,6 +1525,10 @@ export default function Financeiro() {
         const paymentList = entry ? paymentsByEntryId.get(entry.id) || [] : [];
         const latestPayment = paymentList[0] || null;
         const paymentCount = paymentList.length;
+        const totalReceivedCents = paymentList.reduce(
+          (sum, item) => sum + Number(item.amount_cents || 0),
+          0,
+        );
         const method = latestPayment?.payment_method_id
           ? paymentMethodMap.get(latestPayment.payment_method_id)
           : null;
@@ -922,6 +1537,43 @@ export default function Financeiro() {
         const openCents =
           entryFinancial?.open ?? Math.max(0, Number(amountCents || 0) - paidCents);
         const status = entry ? entryFinancial?.status || entry.status || "pending" : "missing";
+        const installments = entryFinancial?.installments || [];
+        const configuredInstallmentCount = Math.max(
+          1,
+          Number(entry?.installments_count || installments.length || 1),
+        );
+        const isInstallmentPlan = configuredInstallmentCount > 1;
+        const agreement = resolveInstallmentAgreement(
+          installments,
+          configuredInstallmentCount,
+          Number(amountCents || 0),
+        );
+        const firstInstallment = isInstallmentPlan
+          ? installments.find(
+            (item) =>
+              Number(item.installment_number || 0) === 1
+              && String(item.status || "").toLowerCase() !== "canceled",
+          ) || installments.find(
+            (item) => String(item.status || "").toLowerCase() !== "canceled",
+          ) || null
+          : null;
+        const firstInstallmentOpenCents = isInstallmentPlan
+          ? Math.max(0, Number(firstInstallment?.open_amount_cents ?? openCents ?? 0))
+          : 0;
+        const installmentCount = isInstallmentPlan ? configuredInstallmentCount : 0;
+        const installmentUnitCents = isInstallmentPlan ? agreement.unitCents : 0;
+        const installmentAgreementTotalCents = isInstallmentPlan ? agreement.totalCents : 0;
+        const paidInstallments = installments.filter(
+          (item) => String(item.status || "").toLowerCase() === "paid",
+        ).length;
+        const effectiveOpenCents = isInstallmentPlan
+          ? firstInstallmentOpenCents
+          : openCents;
+        const nextOpenInstallment = isInstallmentPlan
+          ? installments.find(
+            (item) => Number(item.open_amount_cents || 0) > 0 && item.status !== "canceled",
+          ) || null
+          : null;
 
         return {
           id: session.id,
@@ -933,12 +1585,21 @@ export default function Financeiro() {
           recurrence: formatRecurrence(session),
           amountCents,
           paidCents,
-          openCents,
+          openCents: effectiveOpenCents,
           entry,
           financialStatus: status,
           payment: latestPayment,
           paymentCount,
+          totalReceivedCents,
           paymentMethod: method?.name || "-",
+          isInstallmentPlan,
+          firstInstallmentOpenCents,
+          installmentCount,
+          installmentUnitCents,
+          installmentAgreementTotalCents,
+          paidInstallments,
+          nextOpenInstallment,
+          installments,
         };
       })
       .filter((row) => {
@@ -974,6 +1635,189 @@ export default function Financeiro() {
     servicePriceMap,
   ]);
 
+  const attendanceSessionRows = useMemo(() => {
+    const startDate = attendanceFilters.start
+      ? new Date(`${attendanceFilters.start}T00:00:00`)
+      : null;
+    const endDate = attendanceFilters.end
+      ? new Date(`${attendanceFilters.end}T23:59:59`)
+      : null;
+    const hasStart = !!startDate && !Number.isNaN(startDate.getTime());
+    const hasEnd = !!endDate && !Number.isNaN(endDate.getTime());
+    const search = attendanceFilters.search.trim().toLowerCase();
+
+    const matchesSearch = (row) => {
+      if (!search) return true;
+      const haystack = [row.patientName, row.professionalName, row.serviceName]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(search);
+    };
+
+    const matchesFinancial = (statusValue) => {
+      const normalizedStatus = String(statusValue || "missing").toLowerCase();
+      if (attendanceFilters.financial === "pending") return normalizedStatus === "pending";
+      if (attendanceFilters.financial === "partial") return normalizedStatus === "partial";
+      if (attendanceFilters.financial === "paid") return normalizedStatus === "paid";
+      if (attendanceFilters.financial === "missing") return normalizedStatus === "missing";
+      return true;
+    };
+
+    const existingEntryIds = new Set(
+      attendanceRows
+        .map((row) => Number(row.entry?.id || 0))
+        .filter((value) => value > 0),
+    );
+    const selectedPatientId = normalizeId(attendanceFilters.patient_id);
+    const selectedProfessionalId = normalizeId(attendanceFilters.professional_id);
+
+    const supplementalRows = [];
+
+    entries.forEach((entry) => {
+      if (!entry || entry.type !== "income") return;
+      if (!entry.session_id) return;
+      const entryId = Number(entry.id || 0);
+      if (!entryId || existingEntryIds.has(entryId)) return;
+
+      const entryFinancial = entryFinancialMap.get(entryId);
+      const installments = entryFinancial?.installments || getEntryInstallments(entry);
+      const configuredInstallmentCount = Math.max(
+        1,
+        Number(entry.installments_count || 0) || installments.length || 1,
+      );
+      if (configuredInstallmentCount <= 1 || !installments.length) return;
+
+      const dueInstallments = installments.filter((item) => {
+        if (String(item?.status || "").toLowerCase() === "canceled") return false;
+        if (Number(item?.installment_number || 0) <= 1) return false;
+        if (!item?.due_date) return false;
+        const dueDateValue =
+          typeof item.due_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.due_date)
+            ? `${item.due_date}T12:00:00`
+            : item.due_date;
+        const dueDate = new Date(dueDateValue);
+        if (Number.isNaN(dueDate.getTime())) return false;
+        if (hasStart && dueDate < startDate) return false;
+        if (hasEnd && dueDate > endDate) return false;
+        return true;
+      });
+
+      if (!dueInstallments.length) return;
+
+      const linkedSession = entry.session_id ? sessionById.get(entry.session_id) : null;
+      const patientId = Number(entry.patient_id || linkedSession?.patient_id || 0) || null;
+      if (selectedPatientId && patientId !== selectedPatientId) return;
+      const professionalId = Number(
+        linkedSession?.professional?.id || linkedSession?.professional_id || 0,
+      ) || null;
+      if (selectedProfessionalId && professionalId !== selectedProfessionalId) return;
+      const patient =
+        linkedSession?.Patient ||
+        (patientId ? patientMap.get(patientId) : null) ||
+        null;
+      const serviceId = Number(entry.service_id || linkedSession?.service_id || 0) || null;
+      const service =
+        linkedSession?.Service ||
+        (serviceId ? serviceMap.get(serviceId) : null) ||
+        null;
+      const paymentList = paymentsByEntryId.get(entryId) || [];
+      const latestPayment = paymentList[0] || null;
+      const totalReceivedCents = paymentList.reduce(
+        (sum, item) => sum + Number(item.amount_cents || 0),
+        0,
+      );
+      const method = latestPayment?.payment_method_id
+        ? paymentMethodMap.get(latestPayment.payment_method_id)
+        : null;
+      const paidInstallments = installments.filter(
+        (item) => String(item.status || "").toLowerCase() === "paid",
+      ).length;
+      const agreement = resolveInstallmentAgreement(
+        installments,
+        configuredInstallmentCount,
+        Number(entry.amount_cents || 0),
+      );
+      const firstInstallment = installments.find(
+        (item) =>
+          Number(item.installment_number || 0) === 1
+          && String(item.status || "").toLowerCase() !== "canceled",
+      ) || installments.find(
+        (item) => String(item.status || "").toLowerCase() !== "canceled",
+      ) || null;
+      const firstInstallmentOpenCents = Math.max(
+        0,
+        Number(firstInstallment?.open_amount_cents || 0),
+      );
+      const nextOpenInstallment = installments.find(
+        (item) =>
+          Number(item.open_amount_cents || 0) > 0
+          && String(item.status || "").toLowerCase() !== "canceled",
+      ) || null;
+      const installmentUnitCents = agreement.unitCents;
+
+      dueInstallments.forEach((dueInstallment) => {
+        const status = String(
+          dueInstallment.status || entryFinancial?.status || entry.status || "pending",
+        ).toLowerCase();
+        if (!matchesFinancial(status)) return;
+
+        const row = {
+          id: `installment-due-${entryId}-${dueInstallment.id || dueInstallment.installment_number}`,
+          starts_at: dueInstallment.due_date,
+          patientId,
+          patientName: patient?.full_name || patient?.name || "Paciente",
+          professionalName:
+            linkedSession?.professional?.name ||
+            linkedSession?.professional?.email ||
+            "-",
+          serviceName: service?.name || entry.description || "Servico",
+          recurrence: "-",
+          amountCents: Number(dueInstallment.amount_cents || 0),
+          paidCents: Number(dueInstallment.paid_amount_cents || 0),
+          openCents: Number(dueInstallment.open_amount_cents || 0),
+          entry,
+          financialStatus: status,
+          payment: latestPayment,
+          paymentCount: paymentList.length,
+          totalReceivedCents,
+          paymentMethod: method?.name || "-",
+          isInstallmentPlan: true,
+          firstInstallmentOpenCents,
+          installmentCount: configuredInstallmentCount,
+          installmentUnitCents,
+          installmentAgreementTotalCents: agreement.totalCents,
+          paidInstallments,
+          nextOpenInstallment,
+          dueInstallment,
+          isProjectedInstallmentRow: true,
+          installments,
+        };
+
+        if (!matchesSearch(row)) return;
+        supplementalRows.push(row);
+      });
+    });
+
+    return [...attendanceRows, ...supplementalRows]
+      .sort((a, b) => new Date(a.starts_at || 0) - new Date(b.starts_at || 0));
+  }, [
+    attendanceFilters.end,
+    attendanceFilters.financial,
+    attendanceFilters.patient_id,
+    attendanceFilters.professional_id,
+    attendanceFilters.search,
+    attendanceFilters.start,
+    attendanceRows,
+    entries,
+    entryFinancialMap,
+    patientMap,
+    paymentMethodMap,
+    paymentsByEntryId,
+    serviceMap,
+    sessionById,
+  ]);
+
   const attendanceByPatient = useMemo(() => {
     const map = new Map();
     attendanceRows.forEach((row) => {
@@ -983,19 +1827,15 @@ export default function Financeiro() {
         patientId: row.patientId,
         patientName: row.patientName,
         sessions: 0,
-        pendingSessions: 0,
+        totalCents: 0,
         openCents: 0,
         paidCents: 0,
-        services: new Set(),
-        professionals: new Set(),
         lastSession: row.starts_at,
       };
       base.sessions += 1;
-      if (row.financialStatus !== "paid") base.pendingSessions += 1;
+      base.totalCents += Number(row.amountCents || 0);
       base.openCents += Number(row.openCents || 0);
       base.paidCents += Number(row.paidCents || 0);
-      if (row.serviceName) base.services.add(row.serviceName);
-      if (row.professionalName) base.professionals.add(row.professionalName);
       if (!base.lastSession || new Date(row.starts_at) > new Date(base.lastSession)) {
         base.lastSession = row.starts_at;
       }
@@ -1004,28 +1844,13 @@ export default function Financeiro() {
 
     return Array.from(map.values())
       .map((item) => {
-        const serviceNames = Array.from(item.services);
-        const professionals = Array.from(item.professionals);
         return {
           ...item,
-          servicesLabel: serviceNames.length > 1 ? "Varios" : serviceNames[0] || "-",
-          professionalsLabel: professionals.length > 1 ? "Varios" : professionals[0] || "-",
           creditsAvailable: creditBalanceByPatient.get(item.patientId) || 0,
         };
       })
       .sort((a, b) => new Date(b.lastSession || 0) - new Date(a.lastSession || 0));
   }, [attendanceRows, creditBalanceByPatient]);
-
-  const pendingByPatientId = useMemo(() => {
-    const map = new Map();
-    attendanceRows.forEach((row) => {
-      const status = row.financialStatus || "missing";
-      if (status === "paid") return;
-      if (!map.has(row.patientId)) map.set(row.patientId, 0);
-      map.set(row.patientId, map.get(row.patientId) + 1);
-    });
-    return map;
-  }, [attendanceRows]);
 
   const attendanceSummary = useMemo(() => {
     const openPatients = new Set();
@@ -1058,14 +1883,24 @@ export default function Financeiro() {
     return data;
   }, [attendanceRows, creditBalanceByPatient]);
 
-  const creditRows = useMemo(() => {
-    const rows = [];
-    creditBalanceByPatient.forEach((amountCents, patientId) => {
-      if (!amountCents || amountCents <= 0) return;
-      rows.push({ patientId, amountCents });
-    });
-    return rows.sort((a, b) => b.amountCents - a.amountCents);
-  }, [creditBalanceByPatient]);
+  const attendancePeriodLabel = useMemo(() => {
+    if (attendancePeriodMode === "year") {
+      return attendancePeriodYear || "";
+    }
+    const parsed = parseMonthInputValue(attendancePeriodMonth);
+    if (!parsed) return "";
+    return formatMonthYear(new Date(parsed.year, parsed.month - 1, 1));
+  }, [attendancePeriodMode, attendancePeriodMonth, attendancePeriodYear]);
+
+  const attendanceYearOptions = useMemo(() => {
+    const nowYear = new Date().getFullYear();
+    const currentYear = Number(String(attendancePeriodYear || "").trim()) || nowYear;
+    const years = [];
+    for (let year = currentYear - 5; year <= currentYear + 5; year += 1) {
+      years.push(String(year));
+    }
+    return years;
+  }, [attendancePeriodYear]);
 
   const openEntriesForPayment = useMemo(() => {
     const patientId = Number(paymentForm.patient_id || 0);
@@ -1086,11 +1921,149 @@ export default function Financeiro() {
 
   const manualAllocationTotal = useMemo(() => {
     return Object.values(paymentAllocations).reduce((sum, value) => {
-      const parsed = Number(String(value).replace(",", "."));
+      const parsed = parseCurrencyInputToNumber(value);
       if (Number.isNaN(parsed) || parsed <= 0) return sum;
       return sum + Math.round(parsed * 100);
     }, 0);
   }, [paymentAllocations]);
+
+  const paymentPreview = useMemo(() => {
+    const amountNumber = parseCurrencyInputToNumber(paymentForm.amount);
+    const discountNumber = parseCurrencyInputToNumber(paymentForm.discount);
+    const surchargeNumber = parseCurrencyInputToNumber(paymentForm.surcharge);
+
+    const receivedCents =
+      Number.isFinite(amountNumber) && amountNumber > 0 ? Math.round(amountNumber * 100) : 0;
+    const discountCents =
+      Number.isFinite(discountNumber) && discountNumber > 0 ? Math.round(discountNumber * 100) : 0;
+    const surchargeCents =
+      Number.isFinite(surchargeNumber) && surchargeNumber > 0
+        ? Math.round(surchargeNumber * 100)
+        : 0;
+
+    let baseCents = receivedCents;
+    let installmentsCount = 1;
+    let originalInstallmentsCount = 1;
+    let installmentUnitCents = 0;
+    let installmentPlanTotalCents = 0;
+    let paidInstallments = 0;
+    let openInstallments = 1;
+
+    if (paymentForm.entry_id) {
+      const entryId = Number(paymentForm.entry_id);
+      const financial = entryFinancialMap.get(entryId);
+      const entry = entryMap.get(entryId);
+      if (financial) {
+        baseCents = Math.max(0, Number(financial.open || 0));
+        const installments = Array.isArray(financial.installments) ? financial.installments : [];
+        installmentsCount = Math.max(
+          1,
+          installments.length || Number(entry?.installments_count || 0),
+        );
+        originalInstallmentsCount = installmentsCount;
+        const agreement = resolveInstallmentAgreement(
+          installments,
+          installmentsCount,
+          Number(entry?.amount_cents || 0),
+        );
+        installmentUnitCents = agreement.unitCents;
+        installmentPlanTotalCents = agreement.totalCents;
+        paidInstallments = installments.filter(
+          (item) => String(item.status || "").toLowerCase() === "paid",
+        ).length;
+        openInstallments = Math.max(0, installmentsCount - paidInstallments);
+      } else {
+        baseCents = Math.max(0, Number(entry?.amount_cents || 0));
+        installmentsCount = Math.max(1, Number(entry?.installments_count || 1));
+        originalInstallmentsCount = installmentsCount;
+        installmentUnitCents = installmentsCount > 1
+          ? Math.floor(Math.max(0, Number(entry?.amount_cents || 0)) / installmentsCount)
+          : 0;
+        installmentPlanTotalCents = installmentsCount > 1 ? baseCents : 0;
+        paidInstallments = 0;
+        openInstallments = installmentsCount;
+      }
+
+      const requestedInstallmentsCount = Math.max(
+        2,
+        Number(paymentForm.entry_installments_count || 0) || 2,
+      );
+      const shouldConvertToInstallmentsNow = Boolean(
+        paymentForm.convert_entry_to_installments && originalInstallmentsCount <= 1,
+      );
+      if (shouldConvertToInstallmentsNow) {
+        const agreedInstallmentBaseCents = Math.max(
+          0,
+          receivedCents > 0 ? receivedCents : baseCents,
+        );
+        installmentsCount = requestedInstallmentsCount;
+        installmentUnitCents = Math.floor(
+          agreedInstallmentBaseCents / Math.max(1, requestedInstallmentsCount),
+        );
+        installmentPlanTotalCents = agreedInstallmentBaseCents;
+        paidInstallments = 0;
+        openInstallments = requestedInstallmentsCount;
+      }
+    } else if (paymentForm.allocation_mode === "manual" && manualAllocationTotal > 0) {
+      baseCents = manualAllocationTotal;
+    }
+
+    const finalChargedCents = Math.max(0, baseCents - discountCents + surchargeCents);
+    const openAfterCents = Math.max(0, finalChargedCents - receivedCents);
+    const creditAfterCents = Math.max(0, receivedCents - finalChargedCents);
+    const hasAdjustment = discountCents > 0 || surchargeCents > 0;
+
+    return {
+      baseCents,
+      receivedCents,
+      discountCents,
+      surchargeCents,
+      finalChargedCents,
+      openAfterCents,
+      creditAfterCents,
+      hasAdjustment,
+      originalInstallmentsCount,
+      installmentsCount,
+      installmentUnitCents,
+      installmentPlanTotalCents,
+      paidInstallments,
+      openInstallments,
+    };
+  }, [
+    entryFinancialMap,
+    entryMap,
+    manualAllocationTotal,
+    paymentForm.allocation_mode,
+    paymentForm.amount,
+    paymentForm.convert_entry_to_installments,
+    paymentForm.discount,
+    paymentForm.entry_id,
+    paymentForm.entry_installments_count,
+    paymentForm.surcharge,
+  ]);
+
+  const isSimplifiedInstallmentPayment = Boolean(paymentModalContext?.simplifiedInstallment);
+  const selectedChargeAmountCents = useMemo(() => {
+    if (!paymentForm.entry_id) return 0;
+    const entryId = Number(paymentForm.entry_id);
+    const entryAmountCents = Number(entryMap.get(entryId)?.amount_cents || 0);
+    if (entryAmountCents > 0) return entryAmountCents;
+    return Math.max(0, Number(paymentPreview.baseCents || 0));
+  }, [entryMap, paymentForm.entry_id, paymentPreview.baseCents]);
+
+  const paymentModalSubtitle = useMemo(() => {
+    if (isSimplifiedInstallmentPayment) {
+      return "Confirmacao simples da parcela pendente.";
+    }
+    if (paymentForm.entry_id && paymentPreview.originalInstallmentsCount > 1) {
+      return "";
+    }
+    return "";
+  }, [
+    isSimplifiedInstallmentPayment,
+    paymentForm.entry_id,
+    paymentPreview.originalInstallmentsCount,
+  ]);
 
   const filteredPayments = useMemo(() => {
     const search = paymentFilters.search.trim().toLowerCase();
@@ -1638,7 +2611,7 @@ export default function Financeiro() {
                   <th>Paciente</th>
                   <th>Valor</th>
                   <th>Status</th>
-                  <th>Acoes</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -1648,6 +2621,31 @@ export default function Financeiro() {
                   const financial = entryFinancialMap.get(entry.id);
                   const status = financial?.status || entry.status;
                   const openCents = financial?.open ?? 0;
+                  const availableCreditCents = creditBalanceByPatient.get(entry.patient_id) || 0;
+                  const installmentCount = Math.max(
+                    1,
+                    Number(entry.installments_count || financial?.installments?.length || 1),
+                  );
+                  const installmentList = Array.isArray(financial?.installments)
+                    ? financial.installments
+                    : [];
+                  const firstInstallment = installmentCount > 1
+                    ? installmentList.find(
+                      (item) =>
+                        Number(item.installment_number || 0) === 1
+                        && String(item.status || "").toLowerCase() !== "canceled",
+                    ) || installmentList.find(
+                      (item) => String(item.status || "").toLowerCase() !== "canceled",
+                    ) || null
+                    : null;
+                  const firstInstallmentOpenCents = installmentCount > 1
+                    ? Math.max(0, Number(firstInstallment?.open_amount_cents ?? openCents ?? 0))
+                    : 0;
+                  const hideActionsForInstallmentAgreement = Boolean(
+                    installmentCount > 1
+                    && status === "partial"
+                    && firstInstallmentOpenCents <= 0,
+                  );
                   return (
                     <tr key={entry.id}>
                       <td>{entry.reference_date || "-"}</td>
@@ -1667,10 +2665,42 @@ export default function Financeiro() {
                       </td>
                       <td>
                         <RowActions>
-                          {entry.type === "income" && status !== "paid" && status !== "canceled" && (
-                            <SmallButton type="button" onClick={() => openPaymentModal(entry)}>
-                              Confirmar pagamento
-                            </SmallButton>
+                          {entry.type === "income"
+                            && status !== "canceled"
+                            && status !== "paid"
+                            && !hideActionsForInstallmentAgreement && (
+                            <ActionMenu onToggle={handleActionMenuToggle}>
+                              <ActionMenuTrigger>Ações</ActionMenuTrigger>
+                              <ActionMenuList>
+                                {status !== "paid" && openCents > 0 && availableCreditCents > 0 && (
+                                  <ActionMenuItem
+                                    type="button"
+                                    onClick={(event) => {
+                                      closeActionMenu(event);
+                                      handleApplyCreditToEntry(entry.id);
+                                    }}
+                                  >
+                                    Usar credito
+                                  </ActionMenuItem>
+                                )}
+                                {status !== "paid" && (
+                                  <ActionMenuItem
+                                    type="button"
+                                    onClick={(event) => {
+                                      closeActionMenu(event);
+                                      openPaymentModal(
+                                        entry,
+                                        installmentCount > 1 && firstInstallmentOpenCents > 0
+                                          ? { open_amount_cents: firstInstallmentOpenCents }
+                                          : null,
+                                      );
+                                    }}
+                                  >
+                                    Registrar recebimento
+                                  </ActionMenuItem>
+                                )}
+                              </ActionMenuList>
+                            </ActionMenu>
                           )}
                         </RowActions>
                       </td>
@@ -1686,367 +2716,436 @@ export default function Financeiro() {
   );
 
   const renderAttendance = () => {
-      const isAttendanceBusy = isAttendanceLoading || (loading && !hasAttendanceLoaded);
-      const attendanceTitle =
-        attendanceView === "patients" ? "Resumo por paciente" : "Detalhe por sessao";
+    const isAttendanceBusy = isAttendanceLoading || (loading && !hasAttendanceLoaded);
+    const attendanceTitle =
+      attendanceView === "patients" ? "Resumo por paciente" : "Detalhe por sessao";
 
-      let attendanceContent = <EmptyState>Sem atendimentos no periodo.</EmptyState>;
+    let attendanceContent = <EmptyState>Sem atendimentos no periodo.</EmptyState>;
 
-      if (attendanceView === "patients" && attendanceByPatient.length > 0) {
-        attendanceContent = (
-          <TableScroll>
-            <SimpleTable>
-              <thead>
-                <tr>
-                  <th>Cliente</th>
-                  <th>Profissionais</th>
-                  <th>Servicos</th>
-                  <th>Sessoes</th>
-                  <th>Pendente</th>
-                  <th>Em aberto</th>
-                  <th>Ja recebido</th>
-                  <th>Credito</th>
-                  <th>Ultimo atendimento</th>
-                  <th>Acoes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {attendanceByPatient.map((row) => (
-                  <tr key={row.patientId}>
-                    <td>
-                      <CellStack>
-                        <strong>{row.patientName}</strong>
-                        <MutedText>Sessoes: {row.sessions}</MutedText>
-                      </CellStack>
-                    </td>
-                    <td>{row.professionalsLabel}</td>
-                    <td>{row.servicesLabel}</td>
-                    <td>{row.sessions}</td>
-                    <td>
-                      <Badge>{row.pendingSessions}</Badge>
-                    </td>
-                    <td>{formatCurrency(row.openCents)}</td>
-                    <td>{formatCurrency(row.paidCents)}</td>
-                    <td>{formatCurrency(row.creditsAvailable)}</td>
-                    <td>{formatDate(row.lastSession)}</td>
-                    <td>
-                      <RowActions>
-                        <SmallButton type="button" onClick={() => handleViewPatientSessions(row.patientId)}>
-                          Ver sessoes
-                        </SmallButton>
-                      </RowActions>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </SimpleTable>
-          </TableScroll>
-        );
-      }
-
-      if (attendanceView === "sessions" && attendanceRows.length > 0) {
-        attendanceContent = (
-          <TableScroll>
-            <AttendanceTable>
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Cliente</th>
-                  <th>Profissional</th>
-                  <th>Servico</th>
-                  <th>Recorrencia</th>
-                  <th>Abertas</th>
-                  <th>Valor</th>
-                  <th>Ultima forma</th>
-                  <th>Parcelas</th>
-                  <th>Status</th>
-                  <th>Obs.</th>
-                  <th>Acoes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {attendanceRows.map((row) => {
-                  const pendingCount = pendingByPatientId.get(row.patientId) || 0;
-                  const status = row.financialStatus || "missing";
-                  const statusLabel = formatFinancialStatus(status);
-                  let installmentsLabel = "-";
-                  if (row.payment?.installments) installmentsLabel = `${row.payment.installments}x`;
-                  else if (row.paymentCount > 1) installmentsLabel = "Varios";
-
-                  const methodLabel = row.paymentCount > 1 ? "Varios" : row.paymentMethod;
-
-                  return (
-                    <tr key={row.id}>
-                      <td>{formatDate(row.starts_at)}</td>
-                      <td>
-                        <CellStack>
-                          <strong>{row.patientName}</strong>
-                          <MutedText>
-                            Creditos: {formatCurrency(creditBalanceByPatient.get(row.patientId) || 0)}
-                          </MutedText>
-                        </CellStack>
-                      </td>
-                      <td>{row.professionalName}</td>
-                      <td>{row.serviceName}</td>
-                      <td>{row.recurrence}</td>
-                      <td>
-                        <Badge>{pendingCount}</Badge>
-                      </td>
-                      <td>
-                        <CellStack>
-                          <strong>{formatCurrency(row.amountCents)}</strong>
-                          {row.openCents > 0 && (
-                            <MutedText>Em aberto: {formatCurrency(row.openCents)}</MutedText>
-                          )}
-                        </CellStack>
-                      </td>
-                      <td>{methodLabel || "-"}</td>
-                      <td>{installmentsLabel}</td>
-                      <td>
-                        <StatusPill $status={status}>
-                          {statusLabel}
-                        </StatusPill>
-                      </td>
-                      <td>
-                        <NotesText>{row.entry?.notes || row.payment?.note || "-"}</NotesText>
-                      </td>
-                      <td>
-                        <RowActions>
-                          {!row.entry && (
-                            <SmallButton type="button" onClick={() => handleCreateSessionEntry(row.id)}>
-                              Gerar lancamento
-                            </SmallButton>
-                          )}
-                          {row.entry && status !== "paid" && status !== "canceled" && (
-                            <SmallButton type="button" onClick={() => openPaymentModal(row.entry)}>
-                              Confirmar pagamento
-                            </SmallButton>
-                          )}
-                        </RowActions>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </AttendanceTable>
-          </TableScroll>
-        );
-      }
-
-      let creditContent = <EmptyState>Sem creditos disponiveis.</EmptyState>;
-      if (creditRows.length > 0) {
-        creditContent = (
+    if (attendanceView === "patients" && attendanceByPatient.length > 0) {
+      attendanceContent = (
+        <TableScroll>
           <SimpleTable>
             <thead>
               <tr>
-                <th>Paciente</th>
-                <th>Valor disponivel</th>
+                <th>Cliente</th>
+                <th>Sessoes</th>
+                <th>Valor total</th>
+                <th>Em aberto</th>
+                <th>Valor pago</th>
+                <th>Credito</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody>
-              {creditRows.map((row) => {
-                const patient = patientMap.get(row.patientId);
+              {attendanceByPatient.map((row) => (
+                <PatientSummaryRow key={row.patientId} $hasOpen={row.openCents > 0}>
+                  <td>
+                    <CellStack>
+                      <strong>{row.patientName}</strong>
+                    </CellStack>
+                  </td>
+                  <td>{row.sessions}</td>
+                  <td>{formatCurrency(row.totalCents)}</td>
+                  <td>
+                    <OpenAmountValue $hasOpen={row.openCents > 0}>
+                      {formatCurrency(row.openCents)}
+                    </OpenAmountValue>
+                  </td>
+                  <td>{formatCurrency(row.paidCents)}</td>
+                  <td>{formatCurrency(row.creditsAvailable)}</td>
+                  <td>
+                    <RowActions>
+                      <SmallButton type="button" onClick={() => handleViewPatientSessions(row.patientId)}>
+                        Ver sessoes
+                      </SmallButton>
+                    </RowActions>
+                  </td>
+                </PatientSummaryRow>
+              ))}
+            </tbody>
+          </SimpleTable>
+        </TableScroll>
+      );
+    }
+
+    if (attendanceView === "sessions" && attendanceSessionRows.length > 0) {
+      attendanceContent = (
+        <TableScroll>
+          <AttendanceTable>
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Cliente</th>
+                <th>Profissional</th>
+                <th>Servico</th>
+                <th>Valor</th>
+                <th>Parcelamento</th>
+                <th>Status</th>
+                <th>Obs.</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {attendanceSessionRows.map((row) => {
+                const status = row.financialStatus || "missing";
+                const statusLabel = formatFinancialStatus(status);
+                const availableCreditCents = creditBalanceByPatient.get(row.patientId) || 0;
+                const hideActionsForInstallmentAgreement = Boolean(
+                  row.isInstallmentPlan
+                  && !row.isProjectedInstallmentRow
+                  && status === "partial"
+                  && Number(row.firstInstallmentOpenCents || 0) <= 0,
+                );
+                const canShowActions = Boolean(
+                  row.entry
+                  && status !== "canceled"
+                  && status !== "paid"
+                  && !hideActionsForInstallmentAgreement,
+                );
+                const installmentSummary = row.isInstallmentPlan
+                  ? `${row.installmentCount}x de ${formatCurrency(row.installmentUnitCents)}`
+                  : "-";
+                let installmentNote = null;
+                if (row.isProjectedInstallmentRow && row.dueInstallment) {
+                  installmentNote = `Parcela ${row.dueInstallment.installment_number} de ${row.installmentCount}`;
+                } else if (row.isInstallmentPlan) {
+                  installmentNote = `Parcela 1/${row.installmentCount}`;
+                }
+                let paymentModalOptions = null;
+                if (row.isProjectedInstallmentRow && row.dueInstallment) {
+                  paymentModalOptions = {
+                    simplifiedInstallment: true,
+                    installment: row.dueInstallment,
+                    payment_method_id: row.payment?.payment_method_id || null,
+                    payment_method_name: row.paymentMethod || "",
+                  };
+                } else if (row.isInstallmentPlan && Number(row.firstInstallmentOpenCents || 0) > 0) {
+                  paymentModalOptions = {
+                    open_amount_cents: Number(row.firstInstallmentOpenCents || 0),
+                  };
+                }
+
                 return (
-                  <tr key={row.patientId}>
-                    <td>{patient?.full_name || "-"}</td>
-                    <td>{formatCurrency(row.amountCents)}</td>
+                  <tr key={row.id}>
+                    <td>
+                      <CellStack>
+                        <strong>{formatDate(row.starts_at)}</strong>
+                        <MutedText>{formatWeekday(row.starts_at)}</MutedText>
+                      </CellStack>
+                    </td>
+                    <td>
+                      <CellStack>
+                        <strong>{row.patientName}</strong>
+                        <MutedText>
+                          Creditos: {formatCurrency(creditBalanceByPatient.get(row.patientId) || 0)}
+                        </MutedText>
+                      </CellStack>
+                    </td>
+                    <td>{row.professionalName}</td>
+                    <td>{row.serviceName}</td>
+                    <td>
+                      <CellStack>
+                        <strong>{formatCurrency(row.amountCents)}</strong>
+                        {row.openCents > 0 && (
+                          <MutedText>Em aberto: {formatCurrency(row.openCents)}</MutedText>
+                        )}
+                      </CellStack>
+                    </td>
+                    <td>
+                      <CellStack>
+                        <strong>{installmentSummary}</strong>
+                        {row.isInstallmentPlan && row.installmentAgreementTotalCents > 0 && (
+                          <MutedText>
+                            Acordo: {formatCurrency(row.installmentAgreementTotalCents)}
+                          </MutedText>
+                        )}
+                        {row.isInstallmentPlan
+                          && !row.isProjectedInstallmentRow
+                          && row.firstInstallmentOpenCents > 0 && (
+                          <MutedText>
+                            Residual em aberto: {formatCurrency(row.firstInstallmentOpenCents)}
+                          </MutedText>
+                        )}
+                      </CellStack>
+                    </td>
+                    <td>
+                      <StatusPill $status={status}>
+                        {statusLabel}
+                      </StatusPill>
+                    </td>
+                    <td>
+                      <NotesText>
+                        {installmentNote || row.entry?.notes || row.payment?.note || "-"}
+                      </NotesText>
+                    </td>
+                    <td>
+                      <RowActions>
+                        {!row.entry && (
+                          <SmallButton type="button" onClick={() => handleCreateSessionEntry(row.id)}>
+                            Gerar lancamento
+                          </SmallButton>
+                        )}
+                        {canShowActions && (
+                          <ActionMenu onToggle={handleActionMenuToggle}>
+                            <ActionMenuTrigger>Ações</ActionMenuTrigger>
+                            <ActionMenuList>
+                              {status !== "paid" && row.openCents > 0 && availableCreditCents > 0 && (
+                                <ActionMenuItem
+                                  type="button"
+                                  onClick={(event) => {
+                                    closeActionMenu(event);
+                                    handleApplyCreditToEntry(row.entry.id);
+                                  }}
+                                >
+                                  Usar credito
+                                </ActionMenuItem>
+                              )}
+                              {status !== "paid" && (
+                                <ActionMenuItem
+                                  type="button"
+                                  onClick={(event) => {
+                                    closeActionMenu(event);
+                                    openPaymentModal(row.entry, paymentModalOptions);
+                                  }}
+                                >
+                                  Registrar recebimento
+                                </ActionMenuItem>
+                              )}
+                            </ActionMenuList>
+                          </ActionMenu>
+                        )}
+                      </RowActions>
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
-          </SimpleTable>
-        );
-      }
-
-      return (
-        <Section>
-          <SectionHeader>
-            <div>
-              <SectionTitle>Atendimentos</SectionTitle>
-              <SectionSubtitle>O que foi atendido, o que gerou cobranca e o que ainda falta receber.</SectionSubtitle>
-            </div>
-            <HeaderActions>
-              <GhostButton type="button" onClick={loadAttendance}>
-                Atualizar
-              </GhostButton>
-              <PrimaryButton type="button" onClick={openCreditModal}>
-                <FaPlus />
-                Registrar credito
-              </PrimaryButton>
-            </HeaderActions>
-          </SectionHeader>
-
-          {isAttendanceBusy ? (
-            <SectionLoader>
-              <Spinner />
-              Carregando atendimentos...
-            </SectionLoader>
-          ) : (
-            <>
-              <Panel>
-                <PanelHeader>
-                  <PanelTitle>Resumo de cobranca</PanelTitle>
-                </PanelHeader>
-                <SummaryGrid>
-                  <SummaryCard>
-                    <SummaryLabel>Sessoes concluidas</SummaryLabel>
-                    <SummaryValue>{attendanceSummary.total}</SummaryValue>
-                  </SummaryCard>
-                  <SummaryCard>
-                    <SummaryLabel>Pacientes em aberto</SummaryLabel>
-                    <SummaryValue>{attendanceSummary.openPatients}</SummaryValue>
-                  </SummaryCard>
-                  <SummaryCard>
-                    <SummaryLabel>Total em aberto</SummaryLabel>
-                    <SummaryValue>{formatCurrency(attendanceSummary.pendingAmount)}</SummaryValue>
-                  </SummaryCard>
-                  <SummaryCard>
-                    <SummaryLabel>Credito antecipado</SummaryLabel>
-                    <SummaryValue>{formatCurrency(attendanceSummary.creditsAvailable)}</SummaryValue>
-                  </SummaryCard>
-                </SummaryGrid>
-              </Panel>
-
-              <Panel>
-                <PanelHeader>
-                  <PanelTitle>Filtros</PanelTitle>
-                </PanelHeader>
-                <FiltersRow>
-                  <FilterField>
-                    <Label htmlFor="attendance-status">Status financeiro</Label>
-                    <Select
-                      id="attendance-status"
-                      name="financial"
-                      value={attendanceFilters.financial}
-                      onChange={handleAttendanceFilterChange}
-                    >
-                      <option value="all">Todos</option>
-                      <option value="pending">Pendentes</option>
-                      <option value="partial">Parciais</option>
-                      <option value="paid">Pagos</option>
-                      <option value="missing">Sem lancamento</option>
-                    </Select>
-                  </FilterField>
-                  <FilterField>
-                    <Label htmlFor="attendance-patient">Paciente</Label>
-                    <Select
-                      id="attendance-patient"
-                      name="patient_id"
-                      value={attendanceFilters.patient_id}
-                      onChange={handleAttendanceFilterChange}
-                    >
-                      <option value="">Todos</option>
-                      {patients.map((patient) => (
-                        <option key={patient.id} value={patient.id}>
-                          {patient.full_name || patient.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </FilterField>
-                  <FilterField>
-                    <Label htmlFor="attendance-professional">Profissional</Label>
-                    <Select
-                      id="attendance-professional"
-                      name="professional_id"
-                      value={attendanceFilters.professional_id}
-                      onChange={handleAttendanceFilterChange}
-                    >
-                      <option value="">Todos</option>
-                      {professionalOptions.map((professional) => (
-                        <option key={professional.id} value={professional.id}>
-                          {professional.name || professional.email}
-                        </option>
-                      ))}
-                    </Select>
-                  </FilterField>
-                  <FilterField>
-                    <Label htmlFor="attendance-start">De</Label>
-                    <Input
-                      id="attendance-start"
-                      type="date"
-                      name="start"
-                      value={attendanceFilters.start}
-                      onChange={handleAttendanceFilterChange}
-                    />
-                  </FilterField>
-                  <FilterField>
-                    <Label htmlFor="attendance-end">Ate</Label>
-                    <Input
-                      id="attendance-end"
-                      type="date"
-                      name="end"
-                      value={attendanceFilters.end}
-                      onChange={handleAttendanceFilterChange}
-                    />
-                  </FilterField>
-                  <FilterField>
-                    <Label htmlFor="attendance-search">Busca</Label>
-                    <Input
-                      id="attendance-search"
-                      name="search"
-                      placeholder="Paciente, profissional, servico..."
-                      value={attendanceFilters.search}
-                      onChange={handleAttendanceFilterChange}
-                    />
-                  </FilterField>
-                </FiltersRow>
-                {attendanceFilters.patient_id && (
-                  <ActiveFilterBar>
-                    <FilterSummary>
-                      Filtro ativo de paciente:{" "}
-                      <strong>
-                        {activeAttendancePatient?.full_name ||
-                          activeAttendancePatient?.name ||
-                          "Paciente selecionado"}
-                      </strong>
-                    </FilterSummary>
-                    <GhostButton type="button" onClick={handleClearAttendancePatientFilter}>
-                      Limpar filtro
-                    </GhostButton>
-                  </ActiveFilterBar>
-                )}
-              </Panel>
-
-              <Panel>
-                <InlineViewToggle>
-                  <SegmentedControl $prominent>
-                    <SegmentButton
-                      type="button"
-                      $active={attendanceView === "patients"}
-                      $prominent
-                      onClick={() => handleAttendanceViewChange("patients")}
-                    >
-                      Por paciente
-                    </SegmentButton>
-                    <SegmentButton
-                      type="button"
-                      $active={attendanceView === "sessions"}
-                      $prominent
-                      onClick={() => handleAttendanceViewChange("sessions")}
-                    >
-                      Por sessao
-                    </SegmentButton>
-                  </SegmentedControl>
-                </InlineViewToggle>
-                <PanelHeader>
-                  <PanelTitle>{attendanceTitle}</PanelTitle>
-                </PanelHeader>
-                {attendanceContent}
-              </Panel>
-
-              <Panel>
-                <PanelHeader>
-                  <div>
-                    <PanelTitle>Credito dos pacientes</PanelTitle>
-                    <SectionSubtitle>Valores recebidos antes do uso e ainda disponiveis para futuras cobrancas.</SectionSubtitle>
-                  </div>
-                </PanelHeader>
-                {creditContent}
-              </Panel>
-            </>
-          )}
-        </Section>
+          </AttendanceTable>
+        </TableScroll>
       );
+    }
+
+    return (
+      <Section>
+        <SectionHeader>
+          <div>
+            <SectionTitle>Atendimentos</SectionTitle>
+            <SectionSubtitle>O que foi atendido, o que gerou cobranca e o que ainda falta receber.</SectionSubtitle>
+          </div>
+          <HeaderActions>
+            <GhostButton type="button" onClick={loadAttendance}>
+              Atualizar
+            </GhostButton>
+            <PrimaryButton type="button" onClick={openCreditModal}>
+              <FaPlus />
+              Registrar recebimento
+            </PrimaryButton>
+          </HeaderActions>
+        </SectionHeader>
+
+        {isAttendanceBusy ? (
+          <SectionLoader>
+            <Spinner />
+            Carregando atendimentos...
+          </SectionLoader>
+        ) : (
+          <>
+            <Panel>
+              <PanelHeader>
+                <PanelTitle>Resumo de cobranca</PanelTitle>
+              </PanelHeader>
+              <SummaryGrid>
+                <SummaryCard>
+                  <SummaryLabel>Sessoes concluidas</SummaryLabel>
+                  <SummaryValue>{attendanceSummary.total}</SummaryValue>
+                </SummaryCard>
+                <SummaryCard>
+                  <SummaryLabel>Pacientes em aberto</SummaryLabel>
+                  <SummaryValue>{attendanceSummary.openPatients}</SummaryValue>
+                </SummaryCard>
+                <SummaryCard>
+                  <SummaryLabel>Pendente de pagamento</SummaryLabel>
+                  <SummaryValue>{formatCurrency(attendanceSummary.pendingAmount)}</SummaryValue>
+                </SummaryCard>
+                <SummaryCard>
+                  <SummaryLabel>Credito antecipado</SummaryLabel>
+                  <SummaryValue>{formatCurrency(attendanceSummary.creditsAvailable)}</SummaryValue>
+                </SummaryCard>
+              </SummaryGrid>
+            </Panel>
+
+            <Panel>
+              <PanelHeader>
+                <PanelTitle>Filtros</PanelTitle>
+              </PanelHeader>
+              <FiltersRow>
+                <FilterField>
+                  <Label htmlFor="attendance-status">Status financeiro</Label>
+                  <Select
+                    id="attendance-status"
+                    name="financial"
+                    value={attendanceFilters.financial}
+                    onChange={handleAttendanceFilterChange}
+                  >
+                    <option value="all">Todos</option>
+                    <option value="pending">Pendentes</option>
+                    <option value="partial">Parciais</option>
+                    <option value="paid">Pagos</option>
+                  </Select>
+                </FilterField>
+                <FilterField>
+                  <Label htmlFor="attendance-patient">Paciente</Label>
+                  <Select
+                    id="attendance-patient"
+                    name="patient_id"
+                    value={attendanceFilters.patient_id}
+                    onChange={handleAttendanceFilterChange}
+                  >
+                    <option value="">Todos</option>
+                    {patients.map((patient) => (
+                      <option key={patient.id} value={patient.id}>
+                        {patient.full_name || patient.name}
+                      </option>
+                    ))}
+                  </Select>
+                </FilterField>
+                <FilterField>
+                  <Label htmlFor="attendance-professional">Profissional</Label>
+                  <Select
+                    id="attendance-professional"
+                    name="professional_id"
+                    value={attendanceFilters.professional_id}
+                    onChange={handleAttendanceFilterChange}
+                  >
+                    <option value="">Todos</option>
+                    {professionalOptions.map((professional) => (
+                      <option key={professional.id} value={professional.id}>
+                        {professional.name || professional.email}
+                      </option>
+                    ))}
+                  </Select>
+                </FilterField>
+                <FilterField>
+                  <Label htmlFor="attendance-search">Busca</Label>
+                  <Input
+                    id="attendance-search"
+                    name="search"
+                    placeholder="Paciente, profissional, servico..."
+                    value={attendanceFilters.search}
+                    onChange={handleAttendanceFilterChange}
+                  />
+                </FilterField>
+              </FiltersRow>
+              {attendanceFilters.patient_id && (
+                <ActiveFilterBar>
+                  <FilterSummary>
+                    Filtro ativo de paciente:{" "}
+                    <strong>
+                      {activeAttendancePatient?.full_name ||
+                        activeAttendancePatient?.name ||
+                        "Paciente selecionado"}
+                    </strong>
+                  </FilterSummary>
+                  <GhostButton type="button" onClick={handleClearAttendancePatientFilter}>
+                    Limpar filtro
+                  </GhostButton>
+                </ActiveFilterBar>
+              )}
+            </Panel>
+
+            <Panel>
+              <InlineViewToggle>
+                <SegmentedControl $prominent>
+                  <SegmentButton
+                    type="button"
+                    $active={attendanceView === "patients"}
+                    $prominent
+                    onClick={() => handleAttendanceViewChange("patients")}
+                  >
+                    Por paciente
+                  </SegmentButton>
+                  <SegmentButton
+                    type="button"
+                    $active={attendanceView === "sessions"}
+                    $prominent
+                    onClick={() => handleAttendanceViewChange("sessions")}
+                  >
+                    Por sessão
+                  </SegmentButton>
+                </SegmentedControl>
+                <SegmentedControl $prominent>
+                  <SegmentButton
+                    type="button"
+                    $active={attendancePeriodMode === "month"}
+                    $prominent
+                    onClick={() => handleAttendancePeriodModeChange("month")}
+                  >
+                    Mes
+                  </SegmentButton>
+                  <SegmentButton
+                    type="button"
+                    $active={attendancePeriodMode === "year"}
+                    $prominent
+                    onClick={() => handleAttendancePeriodModeChange("year")}
+                  >
+                    Visao anual
+                  </SegmentButton>
+                </SegmentedControl>
+              </InlineViewToggle>
+              {attendancePeriodLabel && (
+                <AttendancePeriodNav>
+                  <PeriodNavButton type="button" onClick={handleAttendancePreviousMonth}>
+                    {attendancePeriodMode === "year" ? "Ano anterior" : "Mes anterior"}
+                  </PeriodNavButton>
+                  <AttendancePeriodTag
+                    role="button"
+                    tabIndex={0}
+                    onClick={handleAttendancePeriodTagClick}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleAttendancePeriodTagClick();
+                      }
+                    }}
+                  >
+                    {attendancePeriodLabel}
+                    {attendancePeriodMode === "year" ? (
+                      <AttendancePeriodYearSelect
+                        aria-label="Selecionar ano"
+                        value={attendancePeriodYear}
+                        onChange={handleAttendanceYearPickerChange}
+                      >
+                        {attendanceYearOptions.map((year) => (
+                          <option key={year} value={year}>
+                            {year}
+                          </option>
+                        ))}
+                      </AttendancePeriodYearSelect>
+                    ) : (
+                      <AttendancePeriodMonthInput
+                        ref={attendanceMonthPickerRef}
+                        aria-label="Selecionar mes e ano"
+                        type="month"
+                        value={attendancePeriodMonth}
+                        onChange={handleAttendanceMonthPickerChange}
+                      />
+                    )}
+                  </AttendancePeriodTag>
+                  <PeriodNavButton type="button" onClick={handleAttendanceNextMonth}>
+                    {attendancePeriodMode === "year" ? "Ano seguinte" : "Mes seguinte"}
+                  </PeriodNavButton>
+                </AttendancePeriodNav>
+              )}
+              <PanelHeader>
+                <PanelTitle>{attendanceTitle}</PanelTitle>
+              </PanelHeader>
+              {attendanceContent}
+            </Panel>
+          </>
+        )}
+      </Section>
+    );
   };
 
   const renderPayments = () => (
@@ -2180,9 +3279,9 @@ export default function Financeiro() {
                     <th>Usado em cobrancas</th>
                     <th>Saldo disponivel</th>
                     <th>Forma de pagamento</th>
-                    <th>Parcelas</th>
+                    <th>Parcelas do pagamento</th>
                     <th>Uso do valor</th>
-                    <th>Observacoes</th>
+                    <th>Observações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2313,7 +3412,7 @@ export default function Financeiro() {
             <th>Nome</th>
             <th>Tipo</th>
             <th>Ativo</th>
-            <th>Acoes</th>
+            <th>Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -2382,7 +3481,7 @@ export default function Financeiro() {
           <tr>
             <th>Nome</th>
             <th>Ativo</th>
-            <th>Acoes</th>
+            <th>Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -2442,7 +3541,7 @@ export default function Financeiro() {
             <th>Servico</th>
             <th>Valor</th>
             <th>Ativo</th>
-            <th>Acoes</th>
+            <th>Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -2519,7 +3618,7 @@ export default function Financeiro() {
             <th>Valor</th>
             <th>Dia</th>
             <th>Ativo</th>
-            <th>Acoes</th>
+            <th>Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -2709,7 +3808,7 @@ export default function Financeiro() {
           )}
 
           <SidebarSection $collapsed={isSidebarCollapsed}>
-            <SidebarTitle $collapsed={isSidebarCollapsed}>Configuracoes</SidebarTitle>
+            <SidebarTitle $collapsed={isSidebarCollapsed}>Configurações</SidebarTitle>
             <SidebarButton
               type="button"
               $active={activeSection === "prices"}
@@ -2876,7 +3975,7 @@ export default function Financeiro() {
                   />
                 </Field>
                 <Field>
-                  <Label htmlFor="entry-notes">Observacoes</Label>
+                  <Label htmlFor="entry-notes">Observações</Label>
                   <TextArea
                     id="entry-notes"
                     name="notes"
@@ -2907,13 +4006,53 @@ export default function Financeiro() {
               <ModalHeader>
                 <div>
                   <ModalTitle>Registrar recebimento</ModalTitle>
-                  <ModalSubtitle>Informe o valor recebido e como ele deve ser usado.</ModalSubtitle>
+                  <ModalSubtitle>{paymentModalSubtitle}</ModalSubtitle>
                 </div>
                 <IconButton type="button" onClick={closePaymentModal}>
                   <FaTimes />
                 </IconButton>
               </ModalHeader>
               <ModalBody>
+                {isSimplifiedInstallmentPayment && (
+                  <PaymentPreviewBox>
+                    <PaymentPreviewTitle>Confirmacao de parcela</PaymentPreviewTitle>
+                    <PaymentPreviewRow>
+                      <span>Parcela</span>
+                      <strong>
+                        {paymentModalContext?.installmentNumber || "-"}
+                        /
+                        {paymentModalContext?.installmentCount || "-"}
+                      </strong>
+                    </PaymentPreviewRow>
+                    <PaymentPreviewRow>
+                      <span>Vencimento</span>
+                      <strong>{formatDate(paymentModalContext?.installmentDueDate)}</strong>
+                    </PaymentPreviewRow>
+                    <PaymentPreviewRow>
+                      <span>Valor</span>
+                      <strong>{formatCurrency(paymentModalContext?.installmentAmountCents || 0)}</strong>
+                    </PaymentPreviewRow>
+                    <PaymentPreviewRow>
+                      <span>Forma de pagamento</span>
+                      <strong>
+                        {paymentModalContext?.paymentMethodName ||
+                          paymentMethodMap.get(Number(paymentModalContext?.paymentMethodId || 0))?.name ||
+                          "-"}
+                      </strong>
+                    </PaymentPreviewRow>
+                    <MutedText>
+                      Clique em confirmar para registrar a baixa desta parcela.
+                    </MutedText>
+                  </PaymentPreviewBox>
+                )}
+                {!isSimplifiedInstallmentPayment && (
+                <>
+                {paymentForm.entry_id && (
+                  <ChargeAmountBanner>
+                    <span>Valor da cobranca</span>
+                    <strong>{formatCurrency(selectedChargeAmountCents)}</strong>
+                  </ChargeAmountBanner>
+                )}
                 <FormGrid>
                   {!paymentForm.entry_id && (
                     <Field>
@@ -2934,13 +4073,19 @@ export default function Financeiro() {
                     </Field>
                   )}
                   <Field>
-                    <Label htmlFor="payment-amount">Valor</Label>
-                    <Input
-                      id="payment-amount"
-                      name="amount"
-                      value={paymentForm.amount}
-                      onChange={handlePaymentChange}
-                    />
+                    <Label htmlFor="payment-amount">Valor recebido</Label>
+                    <CurrencyInputGroup>
+                      <CurrencyPrefix>R$</CurrencyPrefix>
+                      <CurrencyInput
+                        id="payment-amount"
+                        name="amount"
+                        value={paymentForm.amount}
+                        onChange={handlePaymentChange}
+                        onBlur={handlePaymentCurrencyBlur}
+                        inputMode="decimal"
+                        placeholder="0,00"
+                      />
+                    </CurrencyInputGroup>
                   </Field>
                   <Field>
                     <Label htmlFor="payment-date">Data do recebimento</Label>
@@ -2968,18 +4113,80 @@ export default function Financeiro() {
                       ))}
                     </Select>
                   </Field>
-                  <Field>
-                    <Label htmlFor="payment-installments">Parcelas</Label>
-                    <Input
-                      id="payment-installments"
-                      type="number"
-                      min="1"
-                      name="installments"
-                      placeholder="Ex: 3"
-                      value={paymentForm.installments}
-                      onChange={handlePaymentChange}
-                    />
-                  </Field>
+                  {paymentForm.entry_id && paymentPreview.originalInstallmentsCount <= 1 && (
+                    <Field>
+                      <InlineCheckLabel htmlFor="payment-convert-entry">
+                        <input
+                          id="payment-convert-entry"
+                          type="checkbox"
+                          name="convert_entry_to_installments"
+                          checked={Boolean(paymentForm.convert_entry_to_installments)}
+                          onChange={handlePaymentChange}
+                        />
+                        <span>Parcelamento da cobranca</span>
+                      </InlineCheckLabel>
+                      {paymentForm.convert_entry_to_installments && (
+                        <NestedField>
+                          <InstallmentInlineField>
+                            <InstallmentInlineLabel htmlFor="payment-entry-installments">
+                              nº de parcelas
+                            </InstallmentInlineLabel>
+                            <InstallmentCountInput
+                              id="payment-entry-installments"
+                              type="number"
+                              min="2"
+                              name="entry_installments_count"
+                              value={paymentForm.entry_installments_count}
+                              onChange={handlePaymentChange}
+                            />
+                          </InstallmentInlineField>
+                        </NestedField>
+                      )}
+                    </Field>
+                  )}
+                  {false && paymentForm.entry_id
+                    && paymentPreview.originalInstallmentsCount <= 1
+                    && paymentForm.convert_entry_to_installments && (
+                      <Field>
+                        <MutedText>
+                          Ao confirmar, a cobranca vira parcelada. A 1ª parcela vence na data do recebimento e sera baixada agora. As demais ficam para os meses seguintes.
+                        </MutedText>
+                      </Field>
+                  )}
+                  {paymentForm.entry_id && (
+                    <Field>
+                      <Label htmlFor="payment-discount">Desconto</Label>
+                      <CurrencyInputGroup>
+                        <CurrencyPrefix>R$</CurrencyPrefix>
+                        <CurrencyInput
+                          id="payment-discount"
+                          name="discount"
+                          value={paymentForm.discount}
+                          onChange={handlePaymentChange}
+                          onBlur={handlePaymentCurrencyBlur}
+                          inputMode="decimal"
+                          placeholder="0,00"
+                        />
+                      </CurrencyInputGroup>
+                    </Field>
+                  )}
+                  {paymentForm.entry_id && (
+                    <Field>
+                      <Label htmlFor="payment-surcharge">Acrescimo</Label>
+                      <CurrencyInputGroup>
+                        <CurrencyPrefix>R$</CurrencyPrefix>
+                        <CurrencyInput
+                          id="payment-surcharge"
+                          name="surcharge"
+                          value={paymentForm.surcharge}
+                          onChange={handlePaymentChange}
+                          onBlur={handlePaymentCurrencyBlur}
+                          inputMode="decimal"
+                          placeholder="0,00"
+                        />
+                      </CurrencyInputGroup>
+                    </Field>
+                  )}
                   {!paymentForm.entry_id && (
                     <Field>
                       <Label htmlFor="payment-allocation">Destino do valor</Label>
@@ -2996,8 +4203,26 @@ export default function Financeiro() {
                     </Field>
                   )}
                 </FormGrid>
+                {!isSimplifiedInstallmentPayment && paymentForm.entry_id && paymentPreview.originalInstallmentsCount > 1 && (
+                  <MutedText>
+                    Esta cobranca ja esta parcelada. Neste fluxo, registre apenas a quitacao da parcela em aberto.
+                  </MutedText>
+                )}
+                {!isSimplifiedInstallmentPayment && paymentForm.entry_id && paymentPreview.hasAdjustment && (
+                  <Field>
+                    <Label htmlFor="payment-adjustment-reason">Motivo do ajuste</Label>
+                    <TextArea
+                      id="payment-adjustment-reason"
+                      name="adjustment_reason"
+                      rows="2"
+                      placeholder="Descreva o motivo do desconto ou acrescimo."
+                      value={paymentForm.adjustment_reason}
+                      onChange={handlePaymentChange}
+                    />
+                  </Field>
+                )}
                 <Field>
-                  <Label htmlFor="payment-note">Observacoes</Label>
+                  <Label htmlFor="payment-note">Observações</Label>
                   <TextArea
                     id="payment-note"
                     name="note"
@@ -3007,7 +4232,47 @@ export default function Financeiro() {
                   />
                 </Field>
                 {paymentForm.entry_id && (
-                  <MutedText>Este recebimento sera usado para baixar esta cobranca.</MutedText>
+                  <PaymentPreviewBox>
+                    <PaymentPreviewTitle>Resumo da operacao</PaymentPreviewTitle>
+                    <PaymentPreviewRow>
+                      <span>Valor recebido</span>
+                      <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
+                    </PaymentPreviewRow>
+                    {paymentPreview.discountCents > 0 && (
+                      <PaymentPreviewRow>
+                        <span>Desconto</span>
+                        <strong>- {formatCurrency(paymentPreview.discountCents)}</strong>
+                      </PaymentPreviewRow>
+                    )}
+                    {paymentPreview.surchargeCents > 0 && (
+                      <PaymentPreviewRow>
+                        <span>Acrescimo</span>
+                        <strong>+ {formatCurrency(paymentPreview.surchargeCents)}</strong>
+                      </PaymentPreviewRow>
+                    )}
+                    {paymentPreview.hasAdjustment && (
+                      <PaymentPreviewRow>
+                        <span>Valor final cobrado</span>
+                        <strong>{formatCurrency(paymentPreview.finalChargedCents)}</strong>
+                      </PaymentPreviewRow>
+                    )}
+                    {(paymentPreview.installmentsCount > 1 || paymentForm.convert_entry_to_installments) && (
+                      <>
+                        <PaymentPreviewRow>
+                          <span>Parcelamento da cobranca</span>
+                          <strong>
+                            {`${paymentPreview.installmentsCount}x de ${formatCurrency(paymentPreview.installmentUnitCents)}`}
+                          </strong>
+                        </PaymentPreviewRow>
+                        <PaymentPreviewRow>
+                          <span>Status do parcelamento</span>
+                          <strong>
+                            {`${paymentPreview.paidInstallments}/${paymentPreview.installmentsCount} paga(s)`}
+                          </strong>
+                        </PaymentPreviewRow>
+                      </>
+                    )}
+                  </PaymentPreviewBox>
                 )}
                 {!paymentForm.entry_id && paymentForm.allocation_mode === "manual" && (
                   <Field>
@@ -3052,13 +4317,15 @@ export default function Financeiro() {
                     )}
                   </Field>
                 )}
+                </>
+                )}
               </ModalBody>
               <ModalActions>
-                <SecondaryButton type="button" onClick={closePaymentModal}>
+                <SecondaryButton type="button" onClick={closePaymentModal} disabled={isPaymentSaving}>
                   Cancelar
                 </SecondaryButton>
-                <PrimaryButton type="button" onClick={handleSavePayment}>
-                  Confirmar recebimento
+                <PrimaryButton type="button" onClick={handleSavePayment} disabled={isPaymentSaving}>
+                  {isPaymentSaving ? <ButtonSpinner /> : "Confirmar recebimento"}
                 </PrimaryButton>
               </ModalActions>
             </ModalCard>
@@ -3299,7 +4566,7 @@ export default function Financeiro() {
                   </Field>
                 </FormGrid>
                 <Field>
-                  <Label htmlFor="recurring-notes">Observacoes</Label>
+                  <Label htmlFor="recurring-notes">Observações</Label>
                   <TextArea
                     id="recurring-notes"
                     name="notes"
@@ -3607,8 +4874,76 @@ const SegmentButton = styled.button`
 
 const InlineViewToggle = styled.div`
   display: flex;
+  align-items: center;
   justify-content: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 14px;
+`;
+
+const AttendancePeriodNav = styled.div`
+  margin: -4px auto 12px;
+  width: fit-content;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+`;
+
+const AttendancePeriodTag = styled.div`
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(106, 121, 92, 0.25);
+  background: rgba(106, 121, 92, 0.12);
+  color: #42523a;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-align: center;
+  text-transform: capitalize;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid rgba(106, 121, 92, 0.6);
+    outline-offset: 2px;
+  }
+`;
+
+const AttendancePeriodMonthInput = styled.input`
+  position: absolute;
+  width: 0;
+  height: 0;
+  inset: auto;
+  opacity: 0;
+  pointer-events: none;
+`;
+
+const AttendancePeriodYearSelect = styled.select`
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+`;
+
+const PeriodNavButton = styled.button`
+  border: 1px solid rgba(106, 121, 92, 0.35);
+  background: #eef2e9;
+  color: #46533f;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+
+  &:hover {
+    background: #e1e7da;
+    border-color: rgba(106, 121, 92, 0.6);
+  }
 `;
 
 const SectionHeader = styled.div`
@@ -3689,6 +5024,15 @@ const TableScroll = styled.div`
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+`;
+
+const PatientSummaryRow = styled.tr`
+  background: ${(props) => (props.$hasOpen ? "rgba(199, 102, 102, 0.05)" : "transparent")};
+`;
+
+const OpenAmountValue = styled.span`
+  color: ${(props) => (props.$hasOpen ? "#a25a5a" : "inherit")};
+  font-weight: ${(props) => (props.$hasOpen ? 700 : 500)};
 `;
 
 const AttendanceTable = styled.table`
@@ -3776,6 +5120,68 @@ const RowActions = styled.div`
   gap: 8px;
 `;
 
+const ActionMenu = styled.details.attrs({
+  "data-action-menu": "true",
+})`
+  position: relative;
+  --action-menu-top: 0px;
+  --action-menu-left: 0px;
+`;
+
+const ActionMenuTrigger = styled.summary`
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 84px;
+  background: #eef2e9;
+  border: 1px solid rgba(106, 121, 92, 0.35);
+  color: #46533f;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+`;
+
+const ActionMenuList = styled.div.attrs({
+  "data-action-menu-list": "true",
+})`
+  position: fixed;
+  left: var(--action-menu-left);
+  top: var(--action-menu-top);
+  min-width: 190px;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12);
+  z-index: 3000;
+`;
+
+const ActionMenuItem = styled.button`
+  width: 100%;
+  border: none;
+  background: #f6f8f2;
+  color: #364030;
+  padding: 9px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: #e8eee0;
+  }
+`;
+
 const CellStack = styled.div`
   display: flex;
   flex-direction: column;
@@ -3792,18 +5198,6 @@ const NotesText = styled.div`
   max-width: 260px;
   white-space: normal;
   word-break: break-word;
-`;
-
-const Badge = styled.span`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: #eef2e9;
-  color: #46533f;
-  font-size: 12px;
-  font-weight: 700;
 `;
 
 const SmallButton = styled.button`
@@ -3927,6 +5321,13 @@ const Spinner = styled.span`
   }
 `;
 
+const ButtonSpinner = styled(Spinner)`
+  width: 16px;
+  height: 16px;
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+`;
+
 const SummaryGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -3985,17 +5386,30 @@ const ModalOverlay = styled.div`
   inset: 0;
   display: flex;
   justify-content: center;
-  align-items: center;
-  z-index: 40;
+  align-items: flex-start;
+  padding: max(14px, env(safe-area-inset-top)) 16px 14px;
+  overflow-y: auto;
+  z-index: 2000;
 `;
 
 const ModalCard = styled.div`
-  width: min(720px, 90vw);
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100dvh - 28px);
   background: #fff;
   border-radius: 20px;
   padding: 24px;
   box-shadow: 0 18px 45px rgba(0, 0, 0, 0.15);
-  z-index: 41;
+  z-index: 2001;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  @media (max-width: 760px) {
+    width: 100%;
+    max-height: calc(100dvh - 16px);
+    border-radius: 14px;
+    padding: 16px;
+  }
 `;
 
 const ModalHeader = styled.div`
@@ -4020,13 +5434,61 @@ const ModalBody = styled.div`
   display: flex;
   flex-direction: column;
   gap: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-right: -4px;
+`;
+
+const PaymentPreviewBox = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(106, 121, 92, 0.25);
+  background: rgba(106, 121, 92, 0.08);
+`;
+
+const PaymentPreviewTitle = styled.h4`
+  margin: 0;
+  font-size: 14px;
+  color: #2f3b26;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+`;
+
+const PaymentPreviewRow = styled.div`
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  color: #2f2f2f;
+`;
+
+const ChargeAmountBanner = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.25);
+  background: #f4f7f1;
+  color: #355325;
+  font-weight: 600;
 `;
 
 const ModalActions = styled.div`
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 20px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
 `;
 
 const IconButton = styled.button`
@@ -4053,10 +5515,82 @@ const Label = styled.label`
   color: #4a4a4a;
 `;
 
+const NestedField = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+`;
+
+const InstallmentInlineField = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+`;
+
+const InstallmentInlineLabel = styled.label`
+  font-size: 14px;
+  font-weight: 600;
+  color: #4a4a4a;
+`;
+
+const InlineCheckLabel = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #4a4a4a;
+  cursor: pointer;
+
+  input {
+    width: 16px;
+    height: 16px;
+  }
+`;
+
 const Input = styled.input`
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid rgba(0, 0, 0, 0.15);
+`;
+
+const InstallmentCountInput = styled(Input)`
+  width: 84px;
+  min-width: 84px;
+  padding: 8px 10px;
+  text-align: center;
+`;
+
+const CurrencyInputGroup = styled.div`
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+`;
+
+const CurrencyPrefix = styled.span`
+  padding: 0 10px;
+  font-weight: 700;
+  color: #4a4a4a;
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
+  background: #f7f7f7;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+`;
+
+const CurrencyInput = styled(Input)`
+  border: none;
+  border-radius: 0;
+  flex: 1;
+  min-width: 0;
+
+  &:focus {
+    outline: none;
+  }
 `;
 
 const ColorInput = styled.input`
@@ -4086,5 +5620,5 @@ const Backdrop = styled.div`
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.35);
-  z-index: 30;
+  z-index: 1990;
 `;

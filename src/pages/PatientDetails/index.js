@@ -184,7 +184,7 @@ export default function PatientDetails() {
         {!isLoading && activeTab === TABS.historico && (
           <Section>
             {evaluations.length === 0 && (
-              <EmptyState>Nenhuma avaliacao encontrada.</EmptyState>
+              <EmptyState>Nenhuma avaliação encontrada.</EmptyState>
             )}
             {evaluations.map((evaluation) => {
               const title = evaluation.summary_text || evaluation.summaryText || "Avaliacao";
@@ -193,7 +193,7 @@ export default function PatientDetails() {
                 evaluation.planText ||
                 evaluation.summary_text ||
                 evaluation.summaryText ||
-                "Sem observacoes.";
+                "Sem observações.";
               const createdAt = formatDate(evaluation.created_at || evaluation.createdAt);
 
               return (
@@ -216,7 +216,7 @@ export default function PatientDetails() {
           <Section>
             <InfoCard>
               <CardTitle>
-                <FaUserAlt /> Informacoes pessoais
+                <FaUserAlt /> informações pessoais
               </CardTitle>
               <InfoList>
                 <li>Sexo: {patient?.sex || "-"}</li>
@@ -230,7 +230,7 @@ export default function PatientDetails() {
               </CardTitle>
               <InfoList>
                 <li>Telefone: {patient?.phone || "-"}</li>
-                <li>Endereco: {address || "-"}</li>
+                <li>Endereço: {address || "-"}</li>
               </InfoList>
             </InfoCard>
           </Section>

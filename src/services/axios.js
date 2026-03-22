@@ -52,7 +52,7 @@ export function setupAxiosInterceptors({ store, persistor, history }) {
       try {
         store.dispatch(authActions.loginFailure());
         await persistor.purge();
-        toast.error("Sua sessao expirou. Faca login novamente.");
+        toast.error("Sua sessão expirou. Faca login novamente.");
         history.push("/login");
       } finally {
         isHandlingUnauthorized = false;

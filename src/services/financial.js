@@ -33,11 +33,17 @@ export const listFinancialEntries = (params) =>
 export const createFinancialEntry = (payload) =>
   api.post('/financial-entries', payload);
 
+export const updateFinancialEntry = (id, payload) =>
+  api.put(`/financial-entries/${id}`, payload);
+
 export const listFinancialPayments = (params) =>
   api.get('/financial-payments', { params });
 
 export const createFinancialPayment = (payload) =>
   api.post('/financial-payments', payload);
+
+export const applyCreditToFinancialEntry = (id) =>
+  api.post(`/financial-entries/${id}/apply-credit`);
 
 export const listPatientCredits = (params) =>
   api.get('/patient-credits', { params });
@@ -72,8 +78,10 @@ export default {
   updateServicePrice,
   listFinancialEntries,
   createFinancialEntry,
+  updateFinancialEntry,
   listFinancialPayments,
   createFinancialPayment,
+  applyCreditToFinancialEntry,
   listPatientCredits,
   createPatientCredit,
   updatePatientCredit,

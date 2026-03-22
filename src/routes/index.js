@@ -23,6 +23,7 @@ import PatientEvaluationNew from "../pages/PatientEvaluationNew";
 import PatientEvaluationDetails from "../pages/PatientEvaluationDetails";
 import ImobNavbar from "../components/ImobNavbar/TopNavbar";
 import Financeiro from "../pages/Financeiro";
+import SchedulingEvents from "../pages/SchedulingEvents";
 
 export default function Routes() {
   const location = useLocation();
@@ -52,6 +53,7 @@ export default function Routes() {
         <MyRoute exact path="/pacientes/:id/avaliacoes/nova" component={PatientEvaluationNew} isClosed />
         <MyRoute exact path="/pacientes/:id/avaliacoes/:evaluationId" component={PatientEvaluationDetails} isClosed />
         <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed />
+        <MyRoute exact path="/agendamentos/eventos" component={SchedulingEvents} isClosed />
         <MyRoute exact path="/financeiro" component={Financeiro} isClosed />
 
         {/* Rota para páginas não encontradas ou sem acesso */}

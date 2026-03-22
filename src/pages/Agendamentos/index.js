@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -14,6 +14,11 @@ import {
 
 import axios from "../../services/axios";
 import Loading from "../../components/Loading";
+import {
+  checkSchedulingAvailability,
+  listSpecialSchedulingEvents,
+  previewSchedulingOccurrences,
+} from "../../services/scheduling";
 
 const START_HOUR = 7;
 const END_HOUR = 20;
@@ -25,6 +30,92 @@ const PENDING_STATUS_FALLBACK = [
   { code: "canceled", label: "Cancelado" },
 ];
 
+const SPECIAL_SOURCE_LABELS = {
+  national: "Feriado nacional",
+  state: "Feriado estadual",
+  city: "Feriado municipal",
+  optional_point: "Ponto facultativo",
+  internal_block: "Bloqueio interno",
+  staff_time_off: "Ausencia profissional",
+  unit_closure: "Fechamento da unidade",
+};
+
+const SPECIAL_HOLIDAY_SOURCES = new Set(["national", "state", "city"]);
+
+const severityWeight = (value) => {
+  if (value === "block") return 3;
+  if (value === "warn") return 2;
+  return 1;
+};
+
+const eventSeverity = (event) => {
+  if (!event || event.affects_scheduling === false) return "info";
+  const behavior = String(event.behavior_type || "").toUpperCase();
+  if (behavior === "BLOCK") return "block";
+  if (behavior === "WARN_CONFIRM") return "warn";
+  return "info";
+};
+
+const eventSeverityLabel = (severity) => {
+  if (severity === "block") return "Bloqueio";
+  if (severity === "warn") return "Alerta";
+  return "Info";
+};
+
+const eventBehaviorLabel = (event) => {
+  if (!event || event.affects_scheduling === false) return "Informativo";
+  const behavior = String(event.behavior_type || "").toUpperCase();
+  if (behavior === "BLOCK") return "Bloqueante";
+  if (behavior === "WARN_CONFIRM") return "Requer confirmacao";
+  return "Informativo";
+};
+
+const daySummaryLabel = (summary) => {
+  if (!summary) return "";
+  const events = Array.isArray(summary.events) ? summary.events : [];
+  const hasHoliday = events.some((event) => SPECIAL_HOLIDAY_SOURCES.has(event.source_type));
+  if (summary.severity === "block") return hasHoliday ? "Feriado" : "Bloqueado";
+  if (summary.severity === "warn") return "Alerta";
+  if (hasHoliday) return "Feriado";
+  return "Informativo";
+};
+
+const buildSpecialEventsTooltip = (events = []) =>
+  events
+    .map((event) => {
+      const source = SPECIAL_SOURCE_LABELS[event.source_type] || event.source_type || "Evento";
+      const behavior = eventBehaviorLabel(event);
+      return `${event.name || "Evento especial"} - ${source} - ${behavior}`;
+    })
+    .join("\n");
+
+const availabilityStatus = (availability) => {
+  if (!availability) return "available";
+  if (availability?.has_blocking_events) return "block";
+  if (availability?.requires_confirmation) return "warn";
+  if (Array.isArray(availability?.matched_events) && availability.matched_events.length > 0) {
+    return "info";
+  }
+  return "available";
+};
+
+const formatOccurrenceDate = (dateOnly, startsAt) => {
+  if (dateOnly) {
+    const [year, month, day] = String(dateOnly).split("-");
+    if (year && month && day) {
+      return `${day}/${month}/${year}`;
+    }
+  }
+  if (!startsAt) return "";
+  const date = new Date(startsAt);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+};
+
 const WEEKDAY_OPTIONS = [
   { value: 1, label: "Seg" },
   { value: 2, label: "Ter" },
@@ -34,6 +125,13 @@ const WEEKDAY_OPTIONS = [
   { value: 6, label: "Sab" },
   { value: 7, label: "Dom" },
 ];
+
+const OCCURRENCE_STATUS_LABELS = {
+  AVAILABLE: "Disponivel",
+  INFO: "Info",
+  WARN_CONFIRM: "Alerta",
+  BLOCK: "Bloqueado",
+};
 
 const emptyForm = {
   patient_id: "",
@@ -51,6 +149,29 @@ const emptyForm = {
 const normalizeText = (value) => {
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+};
+
+const resolveSchedulingErrorMessage = (error) => {
+  const responseData = error?.response?.data || {};
+  const code = responseData?.code || "";
+  if (code === "SCHEDULING_OVERRIDE_REASON_REQUIRED") {
+    return responseData.error || "Informe um motivo para forcar o encaixe.";
+  }
+  if (code === "SCHEDULING_BLOCKED") {
+    const totalBlocked = Number(responseData?.total_blocked || 0);
+    if (totalBlocked > 0) {
+      return `${responseData.error || "Horario bloqueado."} (${totalBlocked} ocorrencia(s) bloqueada(s)).`;
+    }
+    return responseData.error || "Horario bloqueado por evento operacional.";
+  }
+  if (code === "SCHEDULING_CONFIRMATION_REQUIRED") {
+    const totalWarnings = Number(responseData?.total_warnings || 0);
+    if (totalWarnings > 0) {
+      return `${responseData.error || "Horario com alerta operacional."} (${totalWarnings} ocorrencia(s) com alerta).`;
+    }
+    return responseData.error || "Horario com alerta operacional.";
+  }
+  return responseData?.error || "Nao foi possivel salvar o agendamento.";
 };
 
 const toIsoWeekday = (date) => {
@@ -198,6 +319,7 @@ export default function Agendamentos() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [sessions, setSessions] = useState([]);
+  const [specialEvents, setSpecialEvents] = useState([]);
   const [pendingSessionsSource, setPendingSessionsSource] = useState([]);
   const [patients, setPatients] = useState([]);
   const [professionals, setProfessionals] = useState([]);
@@ -222,8 +344,6 @@ export default function Agendamentos() {
   const [view, setView] = useState("week");
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(Date.now());
-  const startsAtRef = useRef(null);
-  const endsAtRef = useRef(null);
   const [filters, setFilters] = useState({
     status: "",
     patient_id: "",
@@ -234,6 +354,9 @@ export default function Agendamentos() {
   const [repeatMode, setRepeatMode] = useState("count");
   const [repeatCount, setRepeatCount] = useState("10");
   const [repeatWeeks, setRepeatWeeks] = useState("4");
+  const [formAvailability, setFormAvailability] = useState(null);
+  const [isCheckingFormAvailability, setIsCheckingFormAvailability] = useState(false);
+  const [recurrencePreview, setRecurrencePreview] = useState(null);
 
   const loadBaseData = useCallback(async () => {
     try {
@@ -277,6 +400,20 @@ export default function Agendamentos() {
     [],
   );
 
+  const loadSpecialEvents = useCallback(async (fromDate, toDate) => {
+    try {
+      const params = {};
+      if (fromDate) params.from = formatDateParam(fromDate);
+      if (toDate) params.to = formatDateParam(toDate);
+      const response = await listSpecialSchedulingEvents(params);
+      setSpecialEvents(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      const message =
+        error?.response?.data?.error || "Nao foi possivel carregar eventos especiais.";
+      toast.error(message);
+    }
+  }, []);
+
   const loadPendingSessions = useCallback(async () => {
     try {
       const response = await axios.get("/sessions");
@@ -301,15 +438,18 @@ export default function Agendamentos() {
       const from = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
       const to = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0);
       loadSessions(from, to);
+      loadSpecialEvents(from, to);
       return;
     }
     if (view === "day") {
       loadSessions(startOfDay(selectedDate), endOfDay(selectedDate));
+      loadSpecialEvents(startOfDay(selectedDate), endOfDay(selectedDate));
       return;
     }
     const weekDays = getWeekDays(selectedDate);
     loadSessions(startOfDay(weekDays[0]), endOfDay(weekDays[6]));
-  }, [loadSessions, selectedDate, view]);
+    loadSpecialEvents(startOfDay(weekDays[0]), endOfDay(weekDays[6]));
+  }, [loadSessions, loadSpecialEvents, selectedDate, view]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -468,9 +608,9 @@ export default function Agendamentos() {
     const baseOptions =
       statusOptions.length > 0
         ? statusOptions.map((status) => ({
-            code: status.code,
-            label: status.label || status.code,
-          }))
+          code: status.code,
+          label: status.label || status.code,
+        }))
         : PENDING_STATUS_FALLBACK;
 
     const order = {
@@ -575,10 +715,47 @@ export default function Agendamentos() {
     return map;
   }, [filteredSessions]);
 
+  const specialEventsByDay = useMemo(() => {
+    const map = new Map();
+    specialEvents.forEach((event) => {
+      if (!event?.start_date || !event?.end_date) return;
+      const startDate = new Date(`${event.start_date}T00:00:00`);
+      const endDate = new Date(`${event.end_date}T00:00:00`);
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return;
+      if (startDate > endDate) return;
+
+      const severity = eventSeverity(event);
+      const cursor = new Date(startDate);
+      while (cursor <= endDate) {
+        const key = startOfDay(cursor).toISOString();
+        if (!map.has(key)) {
+          map.set(key, { events: [], severity: "info" });
+        }
+        const base = map.get(key);
+        base.events.push({ ...event, severity });
+        if (severityWeight(severity) > severityWeight(base.severity)) {
+          base.severity = severity;
+        }
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    });
+    return map;
+  }, [specialEvents]);
+
   const daySessions = useMemo(() => {
     const key = startOfDay(selectedDate).toISOString();
     return sessionsByDay.get(key) || [];
   }, [selectedDate, sessionsByDay]);
+
+  const selectedDaySpecialEvents = useMemo(() => {
+    const key = startOfDay(selectedDate).toISOString();
+    return specialEventsByDay.get(key)?.events || [];
+  }, [selectedDate, specialEventsByDay]);
+
+  const selectedDaySpecialSummary = useMemo(() => {
+    const key = startOfDay(selectedDate).toISOString();
+    return specialEventsByDay.get(key) || null;
+  }, [selectedDate, specialEventsByDay]);
 
   const pendingConfirmationSessions = useMemo(() => {
     const queue = pendingSessionsSource.filter((session) =>
@@ -763,6 +940,130 @@ export default function Agendamentos() {
     }
   }, [repeatEnabled, repeatWeekdays.length]);
 
+  useEffect(() => {
+    if (!isDrawerOpen || drawerMode !== "form") {
+      setFormAvailability(null);
+      setIsCheckingFormAvailability(false);
+      return undefined;
+    }
+
+    if (!form.starts_at) {
+      setFormAvailability(null);
+      setIsCheckingFormAvailability(false);
+      return undefined;
+    }
+
+    const startsAtDate = new Date(form.starts_at);
+    if (Number.isNaN(startsAtDate.getTime())) {
+      setFormAvailability(null);
+      setIsCheckingFormAvailability(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timerId = window.setTimeout(async () => {
+      setIsCheckingFormAvailability(true);
+      try {
+        const response = await checkSchedulingAvailability({
+          starts_at: form.starts_at,
+          ends_at: form.ends_at || null,
+          professional_user_id: form.professional_user_id
+            ? Number(form.professional_user_id)
+            : null,
+          service_id: form.service_id ? Number(form.service_id) : null,
+          service_type: form.service_type || null,
+        });
+        if (!cancelled) {
+          setFormAvailability(response?.data || null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setFormAvailability({
+            error:
+              error?.response?.data?.error ||
+              "Nao foi possivel validar a disponibilidade desta data.",
+            matched_events: [],
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setIsCheckingFormAvailability(false);
+        }
+      }
+    }, 280);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timerId);
+    };
+  }, [
+    drawerMode,
+    form.ends_at,
+    form.professional_user_id,
+    form.service_id,
+    form.service_type,
+    form.starts_at,
+    isDrawerOpen,
+  ]);
+
+  const closeRecurrencePreview = useCallback(() => {
+    setRecurrencePreview(null);
+  }, []);
+
+  const handleTogglePreviewOccurrence = useCallback((occurrence) => {
+    if (!occurrence?.index) return;
+    setRecurrencePreview((previous) => {
+      if (!previous) return previous;
+      const { index } = occurrence;
+      const isSelected = previous.selected_indexes.includes(index);
+      const selectedIndexes = isSelected
+        ? previous.selected_indexes.filter((item) => item !== index)
+        : [...previous.selected_indexes, index].sort((a, b) => a - b);
+
+      let confirmWarningIndexes = previous.confirm_warning_indexes.filter(
+        (item) => item !== index,
+      );
+      let forceOverrideIndexes = previous.force_override_indexes.filter(
+        (item) => item !== index,
+      );
+
+      if (!isSelected && occurrence.status === "WARN_CONFIRM") {
+        confirmWarningIndexes = [...confirmWarningIndexes, index].sort((a, b) => a - b);
+      }
+      if (
+        !isSelected &&
+        occurrence.status === "BLOCK" &&
+        occurrence.can_override_block
+      ) {
+        forceOverrideIndexes = [...forceOverrideIndexes, index].sort((a, b) => a - b);
+      }
+
+      return {
+        ...previous,
+        selected_indexes: selectedIndexes,
+        confirm_warning_indexes: confirmWarningIndexes,
+        force_override_indexes: forceOverrideIndexes,
+      };
+    });
+  }, []);
+
+  const handleSelectOnlyCreatablePreview = useCallback(() => {
+    setRecurrencePreview((previous) => {
+      if (!previous) return previous;
+      const selectedIndexes = previous.occurrences
+        .filter((occurrence) => occurrence.status === "AVAILABLE" || occurrence.status === "INFO")
+        .map((occurrence) => occurrence.index);
+
+      return {
+        ...previous,
+        selected_indexes: selectedIndexes,
+        confirm_warning_indexes: [],
+        force_override_indexes: [],
+        override_reason: "",
+      };
+    });
+  }, []);
+
   const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
     setFilters((prev) => ({ ...prev, [name]: value }));
@@ -808,7 +1109,99 @@ export default function Agendamentos() {
     setRepeatMode("count");
     setRepeatCount("10");
     setRepeatWeeks("4");
+    setFormAvailability(null);
+    setRecurrencePreview(null);
   }, []);
+
+  const handleConfirmRecurrenceCreation = useCallback(async () => {
+    if (!recurrencePreview?.series_payload) return;
+
+    const selectedIndexes = recurrencePreview.selected_indexes || [];
+    if (selectedIndexes.length === 0) {
+      toast.error("Selecione ao menos uma ocorrencia para criar.");
+      return;
+    }
+
+    const forceOverrideIndexes = recurrencePreview.force_override_indexes || [];
+    const requiresOverrideReason = forceOverrideIndexes.length > 0;
+    const overrideReason = (recurrencePreview.override_reason || "").trim();
+
+    if (requiresOverrideReason && !overrideReason) {
+      toast.error("Informe o motivo para override em ocorrencias bloqueadas.");
+      return;
+    }
+
+    setRecurrencePreview((previous) =>
+      previous ? { ...previous, is_submitting: true } : previous,
+    );
+
+    try {
+      const response = await axios.post("/session-series", {
+        ...recurrencePreview.series_payload,
+        creation_mode: "selected_only",
+        occurrence_indexes: selectedIndexes,
+        confirm_warning_indexes: recurrencePreview.confirm_warning_indexes || [],
+        force_override_indexes: forceOverrideIndexes,
+        override_reason: requiresOverrideReason ? overrideReason : null,
+      });
+
+      const created = Number(response?.data?.total_created || 0);
+      const skipped = Number(response?.data?.total_skipped || 0);
+      toast.success(
+        skipped > 0
+          ? `Serie criada: ${created} sessao(oes) criada(s), ${skipped} ignorada(s).`
+          : `Serie criada (${created} sessao(oes)).`,
+      );
+
+      setRecurrencePreview(null);
+      resetForm();
+      closeDrawer();
+      if (view === "day") {
+        await loadSessions(startOfDay(selectedDate), endOfDay(selectedDate));
+      } else {
+        await loadSessions();
+      }
+      await loadPendingSessions();
+    } catch (error) {
+      const responseData = error?.response?.data || {};
+      if (Array.isArray(responseData?.occurrences_preview)) {
+        setRecurrencePreview((previous) => {
+          if (!previous) return previous;
+          const validIndexes = new Set(
+            responseData.occurrences_preview.map((occurrence) => occurrence.index),
+          );
+          return {
+            ...previous,
+            occurrences: responseData.occurrences_preview,
+            summary: responseData.summary || previous.summary,
+            selected_indexes: previous.selected_indexes.filter((index) =>
+              validIndexes.has(index),
+            ),
+            confirm_warning_indexes: previous.confirm_warning_indexes.filter((index) =>
+              validIndexes.has(index),
+            ),
+            force_override_indexes: previous.force_override_indexes.filter((index) =>
+              validIndexes.has(index),
+            ),
+            is_submitting: false,
+          };
+        });
+      }
+      toast.error(resolveSchedulingErrorMessage(error));
+    } finally {
+      setRecurrencePreview((previous) =>
+        previous ? { ...previous, is_submitting: false } : previous,
+      );
+    }
+  }, [
+    closeDrawer,
+    loadPendingSessions,
+    loadSessions,
+    recurrencePreview,
+    resetForm,
+    selectedDate,
+    view,
+  ]);
 
   const handleCreateAt = useCallback(
     (date) => {
@@ -1065,7 +1458,7 @@ export default function Agendamentos() {
         if (repeatMode === "weeks") {
           const weeks = Number(repeatWeeks);
           if (!Number.isFinite(weeks) || weeks <= 0) {
-            toast.error("Informe o numero de semanas.");
+            toast.error("Informe o Número de semanas.");
             return;
           }
         }
@@ -1088,44 +1481,163 @@ export default function Agendamentos() {
         absence_reason: normalizeText(form.absence_reason),
       };
 
+      if (isRecurring) {
+        const weekdays = repeatWeekdays.length
+          ? repeatWeekdays
+          : [toIsoWeekday(startsAtDate)];
+        let untilDate = null;
+        if (repeatMode === "weeks") {
+          const weeks = Math.max(1, Number(repeatWeeks) || 1);
+          const endDate = new Date(startsAtDate);
+          endDate.setHours(0, 0, 0, 0);
+          endDate.setDate(endDate.getDate() + weeks * 7 - 1);
+          untilDate = formatDateParam(endDate);
+        }
+
+        const seriesPayload = {
+          patient_id: payload.patient_id,
+          professional_user_id: payload.professional_user_id,
+          service_type: payload.service_type,
+          service_id: payload.service_id,
+          status: payload.status,
+          starts_at: startsAtDate.toISOString(),
+          duration_minutes: durationMinutes,
+          repeat_interval: 1,
+          weekdays,
+          until_date: repeatMode === "weeks" ? untilDate : null,
+          occurrence_count: repeatMode === "count" ? Number(repeatCount) : null,
+          notes: payload.notes,
+        };
+
+        setIsSaving(true);
+        try {
+          const previewResponse = await previewSchedulingOccurrences(seriesPayload);
+          const occurrences = Array.isArray(previewResponse?.data?.occurrences_preview)
+            ? previewResponse.data.occurrences_preview
+            : [];
+          const summary = previewResponse?.data?.summary || {};
+
+          const selectedIndexes = occurrences
+            .filter(
+              (occurrence) =>
+                occurrence.status === "AVAILABLE" || occurrence.status === "INFO",
+            )
+            .map((occurrence) => occurrence.index);
+
+          setRecurrencePreview({
+            open: true,
+            is_submitting: false,
+            series_payload: seriesPayload,
+            occurrences,
+            summary,
+            selected_indexes: selectedIndexes,
+            confirm_warning_indexes: [],
+            force_override_indexes: [],
+            override_reason: "",
+          });
+        } catch (error) {
+          const message =
+            error?.response?.data?.error ||
+            "Nao foi possivel gerar a pre-visualizacao das ocorrencias.";
+          toast.error(message);
+        } finally {
+          setIsSaving(false);
+        }
+        return;
+      }
+
+      let confirmScheduleWarning = false;
+      let forceOverride = false;
+      let overrideReason = null;
+
+      try {
+        const availabilityResponse = await checkSchedulingAvailability({
+          starts_at: payload.starts_at,
+          ends_at: payload.ends_at,
+          professional_user_id: payload.professional_user_id,
+          service_id: payload.service_id,
+          service_type: payload.service_type,
+        });
+        const availability = availabilityResponse?.data || {};
+        const matchedEvents = Array.isArray(availability.matched_events)
+          ? availability.matched_events
+          : [];
+
+        if (availability.has_blocking_events) {
+          if (!availability.can_override_block) {
+            toast.error(
+              availability.blocking_reason ||
+              "Data bloqueada por evento operacional.",
+            );
+            return;
+          }
+
+          // eslint-disable-next-line no-alert
+          const shouldForce = window.confirm(
+            `${availability.blocking_reason || "Data bloqueada."}\n\nVoce tem permissao para forcar encaixe. Deseja continuar?`,
+          );
+          if (!shouldForce) return;
+          // eslint-disable-next-line no-alert
+          const typedReason = window.prompt(
+            "Informe o motivo do encaixe em data bloqueada:",
+            "Encaixe autorizado pelo administrador.",
+          );
+          if (typedReason === null) return;
+          const normalizedReason = typedReason.trim();
+          if (!normalizedReason) {
+            toast.error("Informe o motivo para forcar o encaixe.");
+            return;
+          }
+          forceOverride = true;
+          overrideReason = normalizedReason;
+        }
+
+        if (availability.requires_confirmation) {
+          const eventNames = matchedEvents
+            .map((matchedEvent) => matchedEvent.name)
+            .filter(Boolean)
+            .slice(0, 3)
+            .join(", ");
+          // eslint-disable-next-line no-alert
+          const shouldConfirm = window.confirm(
+            `Data com alerta operacional${eventNames ? ` (${eventNames})` : ""}. Deseja confirmar o agendamento?`,
+          );
+          if (!shouldConfirm) return;
+          confirmScheduleWarning = true;
+        }
+
+        if (
+          availability.severity === "info" &&
+          matchedEvents.length > 0
+        ) {
+          toast.info("Dia com evento especial informativo.");
+        }
+      } catch (error) {
+        const message =
+          error?.response?.data?.error ||
+          "Nao foi possivel validar disponibilidade.";
+        toast.error(message);
+        return;
+      }
+
       setIsSaving(true);
       try {
-        if (isRecurring) {
-          const weekdays = repeatWeekdays.length
-            ? repeatWeekdays
-            : [toIsoWeekday(startsAtDate)];
-          let untilDate = null;
-          if (repeatMode === "weeks") {
-            const weeks = Math.max(1, Number(repeatWeeks) || 1);
-            const endDate = new Date(startsAtDate);
-            endDate.setHours(0, 0, 0, 0);
-            endDate.setDate(endDate.getDate() + weeks * 7 - 1);
-            untilDate = formatDateParam(endDate);
-          }
-          const seriesPayload = {
-            patient_id: payload.patient_id,
-            professional_user_id: payload.professional_user_id,
-            service_type: payload.service_type,
-            service_id: payload.service_id,
-            status: payload.status,
-            starts_at: startsAtDate.toISOString(),
-            duration_minutes: durationMinutes,
-            repeat_interval: 1,
-            weekdays,
-            until_date: repeatMode === "weeks" ? untilDate : null,
-            occurrence_count: repeatMode === "count" ? Number(repeatCount) : null,
-            notes: payload.notes,
-          };
-          const response = await axios.post("/session-series", seriesPayload);
-          const total = response?.data?.total_sessions;
-          toast.success(
-            total ? `Serie criada (${total} sessoes).` : "Serie criada.",
-          );
-        } else if (editingId) {
-          await axios.put(`/sessions/${editingId}`, payload);
+        const schedulingPayload = {
+          confirm_schedule_warning: confirmScheduleWarning,
+          force_override: forceOverride,
+          override_reason: overrideReason,
+        };
+        if (editingId) {
+          await axios.put(`/sessions/${editingId}`, {
+            ...payload,
+            ...schedulingPayload,
+          });
           toast.success("Agendamento atualizado.");
         } else {
-          await axios.post("/sessions", payload);
+          await axios.post("/sessions", {
+            ...payload,
+            ...schedulingPayload,
+          });
           toast.success("Agendamento criado.");
         }
         resetForm();
@@ -1137,10 +1649,7 @@ export default function Agendamentos() {
         }
         await loadPendingSessions();
       } catch (error) {
-        const message =
-          error?.response?.data?.error ||
-          "Nao foi possivel salvar o agendamento.";
-        toast.error(message);
+        toast.error(resolveSchedulingErrorMessage(error));
       } finally {
         setIsSaving(false);
       }
@@ -1184,6 +1693,55 @@ export default function Agendamentos() {
   const handleToday = useCallback(() => {
     setSelectedDate(new Date());
   }, []);
+
+  const formAvailabilityEvents = useMemo(
+    () =>
+      Array.isArray(formAvailability?.matched_events)
+        ? formAvailability.matched_events
+        : [],
+    [formAvailability],
+  );
+
+  const formAvailabilityLevel = useMemo(
+    () => availabilityStatus(formAvailability),
+    [formAvailability],
+  );
+
+  const formAvailabilityTitle = useMemo(() => {
+    if (!formAvailability) return "";
+    if (formAvailability?.error) return formAvailability.error;
+    const baseDate = form.starts_at ? formatDate(form.starts_at) : "Data selecionada";
+    if (formAvailabilityLevel === "block") {
+      return `${baseDate} - Dia bloqueado para agendamento.`;
+    }
+    if (formAvailabilityLevel === "warn") {
+      return `${baseDate} - Data com alerta operacional.`;
+    }
+    if (formAvailabilityLevel === "info" && formAvailabilityEvents.length > 0) {
+      return `${baseDate} - Evento especial informativo.`;
+    }
+    return `${baseDate} - Disponivel para agendamento.`;
+  }, [form.starts_at, formAvailability, formAvailabilityEvents.length, formAvailabilityLevel]);
+
+  const recurrenceSelectedSet = useMemo(
+    () => new Set(recurrencePreview?.selected_indexes || []),
+    [recurrencePreview],
+  );
+
+  const recurrenceBlockedSelectedCount = useMemo(() => {
+    if (!recurrencePreview) return 0;
+    return recurrencePreview.occurrences.filter(
+      (occurrence) =>
+        recurrenceSelectedSet.has(occurrence.index) && occurrence.status === "BLOCK",
+    ).length;
+  }, [recurrencePreview, recurrenceSelectedSet]);
+
+  const selectedDaySpecialTitle = useMemo(() => {
+    if (!selectedDaySpecialSummary) return "";
+    if (selectedDaySpecialSummary.severity === "block") return "Dia bloqueado";
+    if (selectedDaySpecialSummary.severity === "warn") return "Dia com alerta";
+    return "Dia com evento especial";
+  }, [selectedDaySpecialSummary]);
 
   let drawerTitle = "Novo agendamento";
   if (drawerMode === "pending") {
@@ -1276,6 +1834,9 @@ export default function Agendamentos() {
             <PrimaryButton type="button" onClick={openDrawer}>
               <FaPlus /> Novo agendamento
             </PrimaryButton>
+            <ToolbarLink to="/agendamentos/eventos">
+              Eventos especiais
+            </ToolbarLink>
           </ToolbarActions>
         </Toolbar>
 
@@ -1381,9 +1942,37 @@ export default function Agendamentos() {
             <WeekHeader>
               <div />
               {weekDays.map((day) => (
-                <WeekHeaderCell key={day.toISOString()}>
+                <WeekHeaderCell
+                  key={day.toISOString()}
+                  onClick={() => {
+                    setSelectedDate(day);
+                    setView("day");
+                  }}
+                >
                   <span>{day.toLocaleDateString("pt-BR", { weekday: "short" })}</span>
                   <strong>{day.getDate()}</strong>
+                  {specialEventsByDay.get(startOfDay(day).toISOString()) && (
+                    <DaySpecialBadge
+                      $severity={
+                        specialEventsByDay.get(startOfDay(day).toISOString()).severity
+                      }
+                      title={buildSpecialEventsTooltip(
+                        specialEventsByDay.get(startOfDay(day).toISOString()).events,
+                      )}
+                    >
+                      <span>
+                        {daySummaryLabel(
+                          specialEventsByDay.get(startOfDay(day).toISOString()),
+                        )}
+                      </span>
+                      <strong>
+                        {
+                          specialEventsByDay.get(startOfDay(day).toISOString()).events
+                            .length
+                        }
+                      </strong>
+                    </DaySpecialBadge>
+                  )}
                 </WeekHeaderCell>
               ))}
             </WeekHeader>
@@ -1445,6 +2034,31 @@ export default function Agendamentos() {
                 Adicionar horario
               </SecondaryButton>
             </DayHeader>
+            {selectedDaySpecialSummary && (
+              <DaySpecialStateBanner $severity={selectedDaySpecialSummary.severity}>
+                <strong>{selectedDaySpecialTitle}</strong>
+                <span>
+                  {daySummaryLabel(selectedDaySpecialSummary)}
+                  {" - "}
+                  {selectedDaySpecialSummary.events.length} evento(s) no dia.
+                </span>
+              </DaySpecialStateBanner>
+            )}
+            {selectedDaySpecialEvents.length > 0 && (
+              <DaySpecialList>
+                {selectedDaySpecialEvents.map((event) => (
+                  <DaySpecialItem key={`${event.id}-${event.start_date}`} $severity={event.severity}>
+                    <strong>{event.name}</strong>
+                    <span>
+                      {SPECIAL_SOURCE_LABELS[event.source_type] || event.source_type}
+                      {" · "}
+                      {eventSeverityLabel(event.severity)}
+                    </span>
+                    <small>{eventBehaviorLabel(event)}</small>
+                  </DaySpecialItem>
+                ))}
+              </DaySpecialList>
+            )}
             {daySessions.length === 0 && (
               <EmptyState>Nenhum agendamento para este dia.</EmptyState>
             )}
@@ -1518,6 +2132,7 @@ export default function Agendamentos() {
               {monthDays.map((day) => {
                 const key = startOfDay(day).toISOString();
                 const count = (sessionsByDay.get(key) || []).length;
+                const specialSummary = specialEventsByDay.get(key) || null;
                 const isCurrentMonth = day.getMonth() === selectedDate.getMonth();
                 return (
                   <MonthCell
@@ -1532,6 +2147,14 @@ export default function Agendamentos() {
                     <div>
                       <strong>{day.getDate()}</strong>
                       {count > 0 && <CountBadge>{count}</CountBadge>}
+                      {specialSummary && (
+                        <SpecialDayFlag
+                          $severity={specialSummary.severity}
+                          title={buildSpecialEventsTooltip(specialSummary.events)}
+                        >
+                          {daySummaryLabel(specialSummary)} ({specialSummary.events.length})
+                        </SpecialDayFlag>
+                      )}
                     </div>
                   </MonthCell>
                 );
@@ -1891,46 +2514,69 @@ export default function Agendamentos() {
                       ))}
                     </select>
                   </Field>
-                  <Field>
+                  <Field className="span-2">
                     Inicio *
-                    <InputRow>
-                      <input
-                        ref={startsAtRef}
-                        type="datetime-local"
-                        name="starts_at"
-                        value={form.starts_at}
-                        onChange={handleStartsAtChange}
-                      />
-                      <OkButton
-                        type="button"
-                        onClick={() => startsAtRef.current && startsAtRef.current.blur()}
-                        aria-label="Confirmar data de inicio"
-                      >
-                        OK
-                      </OkButton>
-                    </InputRow>
-                  </Field>
-                  <Field>
-                    Fim
-                    <InputRow>
-                      <input
-                        ref={endsAtRef}
-                        type="datetime-local"
-                        name="ends_at"
-                        value={form.ends_at}
-                        onChange={handleFormChange}
-                      />
-                      <OkButton
-                        type="button"
-                        onClick={() => endsAtRef.current && endsAtRef.current.blur()}
-                        aria-label="Confirmar data de fim"
-                      >
-                        OK
-                      </OkButton>
-                    </InputRow>
+                    <input
+                      type="datetime-local"
+                      name="starts_at"
+                      value={form.starts_at}
+                      onChange={handleStartsAtChange}
+                    />
                   </Field>
                   <Field className="span-2">
-                    Tipo da sessao
+                    Fim
+                    <input
+                      type="datetime-local"
+                      name="ends_at"
+                      value={form.ends_at}
+                      onChange={handleFormChange}
+                    />
+                  </Field>
+                  {form.starts_at && (
+                    <ScheduleContextCard className="span-2" $severity={formAvailabilityLevel}>
+                      {isCheckingFormAvailability ? (
+                        <span>Validando disponibilidade...</span>
+                      ) : (
+                        <>
+                          <strong>{formAvailabilityTitle}</strong>
+                          {formAvailabilityLevel === "block" && (
+                            <span>
+                              Sem atendimento para esta data/periodo.
+                            </span>
+                          )}
+                          {formAvailabilityLevel === "warn" && (
+                            <span>
+                              Esta data exige confirmacao explicita antes de salvar.
+                            </span>
+                          )}
+                          {formAvailabilityLevel === "info" && (
+                            <span>Evento informativo ativo nesta data.</span>
+                          )}
+                          {formAvailabilityLevel === "available" && (
+                            <span>Nenhum bloqueio ativo para este horario.</span>
+                          )}
+                          {formAvailabilityEvents.length > 0 && (
+                            <ScheduleContextList>
+                              {formAvailabilityEvents.map((event) => (
+                                <li
+                                  key={`${event.id || "event"}-${event.source_type || "source"}-${event.name || "nome"}`}
+                                >
+                                  <span>{event.name || "Evento especial"}</span>
+                                  <small>
+                                    {SPECIAL_SOURCE_LABELS[event.source_type] || event.source_type}
+                                    {" - "}
+                                    {eventBehaviorLabel(event)}
+                                  </small>
+                                </li>
+                              ))}
+                            </ScheduleContextList>
+                          )}
+                        </>
+                      )}
+                    </ScheduleContextCard>
+                  )}
+                  <Field className="span-2">
+                    Tipo da sessão
                     <select
                       name="is_initial"
                       value={form.is_initial ? "true" : "false"}
@@ -1941,8 +2587,8 @@ export default function Agendamentos() {
                         }))
                       }
                     >
-                      <option value="false">Sessao normal</option>
-                      <option value="true">1a avaliacao</option>
+                      <option value="false">Sessão normal</option>
+                      <option value="true">1a avaliação</option>
                     </select>
                   </Field>
                   <RepeatCard className="span-2">
@@ -2062,7 +2708,7 @@ export default function Agendamentos() {
                     )}
                   </RepeatCard>
                   <Field className="span-2">
-                    Observacoes
+                    Observações
                     <textarea
                       name="notes"
                       value={form.notes}
@@ -2084,6 +2730,144 @@ export default function Agendamentos() {
           </DrawerBody>
         </Drawer>
         {isDrawerOpen && <Backdrop onClick={closeDrawer} />}
+        {recurrencePreview?.open && (
+          <ModalOverlay>
+            <RecurrencePreviewCard>
+              <ModalHeader>
+                <h3>Preview de recorrencia</h3>
+                <IconButton type="button" onClick={closeRecurrencePreview}>
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <RecurrencePreviewBody>
+                <RecurrenceSummaryGrid>
+                  <RecurrenceSummaryItem>
+                    <small>Total</small>
+                    <strong>{recurrencePreview?.summary?.total || 0}</strong>
+                  </RecurrenceSummaryItem>
+                  <RecurrenceSummaryItem>
+                    <small>Disponiveis</small>
+                    <strong>
+                      {(recurrencePreview?.summary?.available || 0) +
+                        (recurrencePreview?.summary?.info || 0)}
+                    </strong>
+                  </RecurrenceSummaryItem>
+                  <RecurrenceSummaryItem $variant="warn">
+                    <small>Alertas</small>
+                    <strong>{recurrencePreview?.summary?.warn || 0}</strong>
+                  </RecurrenceSummaryItem>
+                  <RecurrenceSummaryItem $variant="block">
+                    <small>Bloqueadas</small>
+                    <strong>{recurrencePreview?.summary?.blocked || 0}</strong>
+                  </RecurrenceSummaryItem>
+                </RecurrenceSummaryGrid>
+
+                <RecurrenceHint>
+                  Selecione explicitamente o que sera criado. Nada e persistido sem confirmacao.
+                </RecurrenceHint>
+
+                <RecurrenceList>
+                  {recurrencePreview.occurrences.map((occurrence) => {
+                    const isSelected = recurrenceSelectedSet.has(occurrence.index);
+                    const isBlocked = occurrence.status === "BLOCK";
+                    const isSelectable =
+                      !isBlocked || occurrence.can_override_block;
+                    return (
+                      <RecurrenceRow
+                        key={`occ-${occurrence.index}`}
+                        $status={occurrence.status}
+                        $selected={isSelected}
+                      >
+                        <RecurrenceRowSelect>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            disabled={
+                              recurrencePreview.is_submitting ||
+                              !isSelectable
+                            }
+                            onChange={() => handleTogglePreviewOccurrence(occurrence)}
+                          />
+                        </RecurrenceRowSelect>
+                        <RecurrenceRowInfo>
+                          <strong>
+                            {formatOccurrenceDate(occurrence.date, occurrence.starts_at)}
+                            {" - "}
+                            {occurrence.start_time || "--:--"} ate{" "}
+                            {occurrence.end_time || "--:--"}
+                          </strong>
+                          <span>
+                            {OCCURRENCE_STATUS_LABELS[occurrence.status] ||
+                              occurrence.status}
+                          </span>
+                          {Array.isArray(occurrence.matched_events) &&
+                            occurrence.matched_events.length > 0 && (
+                              <RecurrenceEventList>
+                                {occurrence.matched_events.map((event, index) => (
+                                  <li key={`${occurrence.index}-${event.id || index}`}>
+                                    {event.name || "Evento especial"} -{" "}
+                                    {SPECIAL_SOURCE_LABELS[event.source_type] ||
+                                      event.source_type}
+                                  </li>
+                                ))}
+                              </RecurrenceEventList>
+                            )}
+                          {!occurrence.can_override_block &&
+                            occurrence.status === "BLOCK" && (
+                              <small>Sem permissao para override nesta ocorrencia.</small>
+                            )}
+                        </RecurrenceRowInfo>
+                      </RecurrenceRow>
+                    );
+                  })}
+                </RecurrenceList>
+
+                {recurrenceBlockedSelectedCount > 0 && (
+                  <RecurrenceOverrideField>
+                    <span>Motivo do override (obrigatorio)</span>
+                    <textarea
+                      rows={3}
+                      value={recurrencePreview.override_reason || ""}
+                      onChange={(event) =>
+                        setRecurrencePreview((previous) =>
+                          previous
+                            ? {
+                              ...previous,
+                              override_reason: event.target.value,
+                            }
+                            : previous,
+                        )
+                      }
+                    />
+                  </RecurrenceOverrideField>
+                )}
+              </RecurrencePreviewBody>
+              <ModalActions>
+                <SecondaryButton
+                  type="button"
+                  onClick={handleSelectOnlyCreatablePreview}
+                  disabled={recurrencePreview.is_submitting}
+                >
+                  Criar apenas permitidas
+                </SecondaryButton>
+                <SecondaryButton
+                  type="button"
+                  onClick={closeRecurrencePreview}
+                  disabled={recurrencePreview.is_submitting}
+                >
+                  Voltar e editar
+                </SecondaryButton>
+                <PrimaryButton
+                  type="button"
+                  onClick={handleConfirmRecurrenceCreation}
+                  disabled={recurrencePreview.is_submitting}
+                >
+                  {recurrencePreview.is_submitting ? "Salvando..." : "Confirmar criacao"}
+                </PrimaryButton>
+              </ModalActions>
+            </RecurrencePreviewCard>
+          </ModalOverlay>
+        )}
         {absenceModal.open && (
           <ModalOverlay>
             <ModalCard>
@@ -2253,7 +3037,7 @@ const NotificationButton = styled.button`
   border-radius: 14px;
   border: 1px solid
     ${(props) =>
-      props.$active ? "rgba(185, 120, 35, 0.35)" : "rgba(106, 121, 92, 0.2)"};
+    props.$active ? "rgba(185, 120, 35, 0.35)" : "rgba(106, 121, 92, 0.2)"};
   background: ${(props) => (props.$active ? "#fff5e7" : "#fff")};
   color: ${(props) => (props.$active ? "#8a5718" : "#6a795c")};
   display: inline-flex;
@@ -2383,7 +3167,7 @@ const PendingServiceGroup = styled.section`
   border-radius: 12px;
   border: 1px solid
     ${(props) =>
-      props.$color ? `${props.$color}55` : "rgba(106, 121, 92, 0.16)"};
+    props.$color ? `${props.$color}55` : "rgba(106, 121, 92, 0.16)"};
   background: ${(props) =>
     props.$color ? `${props.$color}12` : "rgba(255, 255, 255, 0.92)"};
 `;
@@ -2470,11 +3254,11 @@ const PendingStatusButton = styled.button`
   border-radius: 9px;
   border: 1px solid
     ${(props) => {
-      if (props.$variant === "done") return "rgba(94, 135, 90, 0.32)";
-      if (props.$variant === "canceled") return "rgba(199, 102, 102, 0.3)";
-      if (props.$variant === "no_show") return "rgba(214, 170, 104, 0.34)";
-      return "rgba(106, 121, 92, 0.24)";
-    }};
+    if (props.$variant === "done") return "rgba(94, 135, 90, 0.32)";
+    if (props.$variant === "canceled") return "rgba(199, 102, 102, 0.3)";
+    if (props.$variant === "no_show") return "rgba(214, 170, 104, 0.34)";
+    return "rgba(106, 121, 92, 0.24)";
+  }};
   background: ${(props) => {
     if (props.$variant === "done") return "rgba(94, 135, 90, 0.12)";
     if (props.$variant === "canceled") return "rgba(199, 102, 102, 0.11)";
@@ -2544,14 +3328,55 @@ const WeekHeader = styled.div`
 const WeekHeaderCell = styled.div`
   padding: 10px;
   text-align: center;
-  span {
+  position: relative;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(162, 177, 144, 0.12);
+  }
+
+  > span {
     display: block;
     color: #6a795c;
     font-size: 0.8rem;
   }
-  strong {
+  > strong {
     font-size: 1rem;
     color: #1b1b1b;
+  }
+`;
+
+const DaySpecialBadge = styled.span`
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  background: ${(props) => {
+    if (props.$severity === "block") return "#f9d9d6";
+    if (props.$severity === "warn") return "#fdeacc";
+    return "#e2ecda";
+  }};
+  color: ${(props) => {
+    if (props.$severity === "block") return "#8f2f2a";
+    if (props.$severity === "warn") return "#8a5718";
+    return "#456039";
+  }};
+
+  span {
+    font-size: 0.64rem;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  strong {
+    font-size: 0.68rem;
   }
 `;
 
@@ -2637,6 +3462,76 @@ const DayHeader = styled.div`
   }
 `;
 
+const DaySpecialStateBanner = styled.div`
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid
+    ${(props) => {
+    if (props.$severity === "block") return "rgba(199, 102, 102, 0.35)";
+    if (props.$severity === "warn") return "rgba(196, 146, 73, 0.35)";
+    return "rgba(106, 121, 92, 0.25)";
+  }};
+  background: ${(props) => {
+    if (props.$severity === "block") return "rgba(199, 102, 102, 0.12)";
+    if (props.$severity === "warn") return "rgba(214, 170, 104, 0.16)";
+    return "rgba(162, 177, 144, 0.12)";
+  }};
+  display: grid;
+  gap: 4px;
+
+  strong {
+    color: #1b1b1b;
+    font-size: 0.9rem;
+  }
+
+  span {
+    color: #556649;
+    font-size: 0.82rem;
+  }
+`;
+
+const DaySpecialList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+`;
+
+const DaySpecialItem = styled.div`
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid
+    ${(props) => {
+    if (props.$severity === "block") return "rgba(199, 102, 102, 0.35)";
+    if (props.$severity === "warn") return "rgba(196, 146, 73, 0.35)";
+    return "rgba(106, 121, 92, 0.25)";
+  }};
+  background: ${(props) => {
+    if (props.$severity === "block") return "rgba(199, 102, 102, 0.12)";
+    if (props.$severity === "warn") return "rgba(214, 170, 104, 0.16)";
+    return "rgba(162, 177, 144, 0.12)";
+  }};
+  display: grid;
+  gap: 4px;
+
+  strong {
+    color: #1b1b1b;
+    font-size: 0.9rem;
+  }
+
+  span {
+    color: #556649;
+    font-size: 0.8rem;
+  }
+
+  small {
+    color: #5a6750;
+    font-size: 0.76rem;
+    font-weight: 600;
+  }
+`;
+
 const DayList = styled.div`
   display: flex;
   flex-direction: column;
@@ -2718,6 +3613,29 @@ const CountBadge = styled.span`
   color: #fff;
   font-size: 0.7rem;
   margin-top: 6px;
+`;
+
+const SpecialDayFlag = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  margin-top: 6px;
+  margin-left: 0;
+  font-weight: 700;
+  white-space: nowrap;
+  background: ${(props) => {
+    if (props.$severity === "block") return "#f9d9d6";
+    if (props.$severity === "warn") return "#fdeacc";
+    return "#e2ecda";
+  }};
+  color: ${(props) => {
+    if (props.$severity === "block") return "#8f2f2a";
+    if (props.$severity === "warn") return "#8a5718";
+    return "#456039";
+  }};
 `;
 
 const MonthHint = styled.p`
@@ -2805,7 +3723,7 @@ const GroupSection = styled.div`
     props.$color ? `${props.$color}10` : "#ffffff"};
   border: 1px solid
     ${(props) =>
-      props.$color ? `${props.$color}44` : "rgba(106, 121, 92, 0.22)"};
+    props.$color ? `${props.$color}44` : "rgba(106, 121, 92, 0.22)"};
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.05);
 `;
 
@@ -2896,11 +3814,11 @@ const ActionGrid = styled.div`
 const StatusAction = styled.button`
   border: 1px solid
     ${(props) => {
-      if (props.$status === "done") return "rgba(94, 135, 90, 0.32)";
-      if (props.$status === "canceled") return "rgba(199, 102, 102, 0.3)";
-      if (props.$status === "no_show") return "rgba(214, 170, 104, 0.34)";
-      return "rgba(106, 121, 92, 0.24)";
-    }};
+    if (props.$status === "done") return "rgba(94, 135, 90, 0.32)";
+    if (props.$status === "canceled") return "rgba(199, 102, 102, 0.3)";
+    if (props.$status === "no_show") return "rgba(214, 170, 104, 0.34)";
+    return "rgba(106, 121, 92, 0.24)";
+  }};
   background: ${(props) => {
     if (props.$active && props.$status === "done") return "#2f5a33";
     if (props.$active && props.$status === "canceled") return "#7b3a3a";
@@ -3011,6 +3929,148 @@ const ModalActions = styled.div`
   gap: 10px;
 `;
 
+const RecurrencePreviewCard = styled(ModalCard)`
+  width: min(860px, 96vw);
+  max-height: 88vh;
+`;
+
+const RecurrencePreviewBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+`;
+
+const RecurrenceSummaryGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+`;
+
+const RecurrenceSummaryItem = styled.div`
+  border-radius: 10px;
+  border: 1px solid
+    ${(props) => {
+    if (props.$variant === "block") return "rgba(199, 102, 102, 0.3)";
+    if (props.$variant === "warn") return "rgba(196, 146, 73, 0.32)";
+    return "rgba(106, 121, 92, 0.2)";
+  }};
+  background: ${(props) => {
+    if (props.$variant === "block") return "rgba(199, 102, 102, 0.1)";
+    if (props.$variant === "warn") return "rgba(214, 170, 104, 0.14)";
+    return "#f8faf5";
+  }};
+  padding: 8px 10px;
+  display: grid;
+  gap: 2px;
+
+  small {
+    color: #6a795c;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  strong {
+    color: #1b1b1b;
+    font-size: 1rem;
+  }
+`;
+
+const RecurrenceHint = styled.p`
+  margin: 0;
+  color: #556649;
+  font-size: 0.88rem;
+`;
+
+const RecurrenceList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
+const RecurrenceRow = styled.div`
+  border-radius: 10px;
+  border: 1px solid
+    ${(props) => {
+    if (props.$status === "BLOCK") return "rgba(199, 102, 102, 0.35)";
+    if (props.$status === "WARN_CONFIRM") return "rgba(196, 146, 73, 0.35)";
+    if (props.$status === "INFO") return "rgba(106, 121, 92, 0.25)";
+    return "rgba(106, 121, 92, 0.2)";
+  }};
+  background: ${(props) => {
+    if (props.$status === "BLOCK") return "rgba(199, 102, 102, 0.1)";
+    if (props.$status === "WARN_CONFIRM") return "rgba(214, 170, 104, 0.12)";
+    if (props.$selected) return "rgba(162, 177, 144, 0.12)";
+    return "#fff";
+  }};
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  padding: 10px;
+`;
+
+const RecurrenceRowSelect = styled.div`
+  padding-top: 3px;
+
+  input {
+    width: 18px;
+    height: 18px;
+    accent-color: #6a795c;
+  }
+`;
+
+const RecurrenceRowInfo = styled.div`
+  display: grid;
+  gap: 4px;
+
+  strong {
+    color: #1b1b1b;
+    font-size: 0.9rem;
+  }
+
+  span {
+    color: #5f6d53;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
+  small {
+    color: #6a795c;
+    font-size: 0.77rem;
+  }
+`;
+
+const RecurrenceEventList = styled.ul`
+  margin: 0;
+  padding-left: 16px;
+  color: #556649;
+  font-size: 0.8rem;
+  display: grid;
+  gap: 2px;
+`;
+
+const RecurrenceOverrideField = styled.div`
+  display: grid;
+  gap: 6px;
+
+  span {
+    font-size: 0.82rem;
+    color: #1b1b1b;
+    font-weight: 600;
+  }
+
+  textarea {
+    width: 100%;
+    box-sizing: border-box;
+    border-radius: 10px;
+    border: 1px solid rgba(106, 121, 92, 0.25);
+    padding: 10px 12px;
+    font-size: 0.9rem;
+    resize: vertical;
+  }
+`;
+
 const Form = styled.form`
   display: flex;
   flex-direction: column;
@@ -3050,26 +4110,57 @@ const Field = styled.label`
   }
 `;
 
-const InputRow = styled.div`
-  display: flex;
-  gap: 8px;
-  align-items: center;
+const ScheduleContextCard = styled.div`
+  border-radius: 12px;
+  border: 1px solid
+    ${(props) => {
+    if (props.$severity === "block") return "rgba(199, 102, 102, 0.35)";
+    if (props.$severity === "warn") return "rgba(196, 146, 73, 0.35)";
+    if (props.$severity === "info") return "rgba(106, 121, 92, 0.25)";
+    return "rgba(106, 121, 92, 0.2)";
+  }};
+  background: ${(props) => {
+    if (props.$severity === "block") return "rgba(199, 102, 102, 0.12)";
+    if (props.$severity === "warn") return "rgba(214, 170, 104, 0.16)";
+    if (props.$severity === "info") return "rgba(162, 177, 144, 0.12)";
+    return "#f8faf5";
+  }};
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
 
-  input {
-    flex: 1;
+  strong {
+    color: #1b1b1b;
+    font-size: 0.9rem;
+  }
+
+  span {
+    color: #556649;
+    font-size: 0.82rem;
   }
 `;
 
-const OkButton = styled.button`
-  height: 40px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(106, 121, 92, 0.2);
-  background: #f3f5f1;
-  color: #42523a;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
+const ScheduleContextList = styled.ul`
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 3px;
+
+  li {
+    display: grid;
+    gap: 1px;
+  }
+
+  span {
+    color: #1b1b1b;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
+  small {
+    color: #5f6d53;
+    font-size: 0.76rem;
+  }
 `;
 
 const RepeatCard = styled.div`
@@ -3326,6 +4417,19 @@ const SecondaryButton = styled.button`
   color: #6a795c;
   border: 1px solid rgba(106, 121, 92, 0.3);
   font-weight: 600;
+`;
+
+const ToolbarLink = styled(Link)`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #fff;
+  color: #6a795c;
+  border: 1px solid rgba(106, 121, 92, 0.3);
+  font-weight: 600;
+  text-decoration: none;
 `;
 
 const ActionButton = styled.button`
