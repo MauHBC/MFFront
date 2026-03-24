@@ -12,6 +12,22 @@ const clean = (value) => {
   return trimmed.length ? trimmed : null;
 };
 
+const TREATMENT_GOAL_OPTIONS = [
+  { value: "reduce_pain", label: "Reduzir dor" },
+  { value: "recover_movement", label: "Recuperar movimento" },
+  { value: "rehabilitation", label: "Reabilitacao" },
+  { value: "strength_flex_mob", label: "Forca/Flex/Mob" },
+];
+
+const buildTreatmentGoalPayload = (selectedValues = [], otherText = "") => {
+  const labels = TREATMENT_GOAL_OPTIONS
+    .filter((option) => selectedValues.includes(option.value))
+    .map((option) => option.label);
+  const other = clean(otherText || "");
+  if (other) labels.push(`Outro: ${other}`);
+  return labels.length ? labels.join(" | ") : null;
+};
+
 export default function PatientSelfSignup() {
   const { token } = useParams();
   const [isLoading, setIsLoading] = useState(true);
@@ -36,7 +52,8 @@ export default function PatientSelfSignup() {
     emergency_contact_phone: "",
     main_complaint: "",
     relevant_conditions: "",
-    treatment_goal: "",
+    treatment_goal_options: [],
+    treatment_goal_other: "",
     contact_via_phone: false,
     contact_via_whatsapp: false,
     contact_via_email: false,
@@ -81,6 +98,19 @@ export default function PatientSelfSignup() {
     setForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   }, []);
 
+  const handleTreatmentGoalToggle = useCallback((goalValue) => {
+    setForm((prev) => {
+      const hasValue = prev.treatment_goal_options.includes(goalValue);
+      const nextGoals = hasValue
+        ? prev.treatment_goal_options.filter((value) => value !== goalValue)
+        : [...prev.treatment_goal_options, goalValue];
+      return {
+        ...prev,
+        treatment_goal_options: nextGoals,
+      };
+    });
+  }, []);
+
   const handleSubmit = useCallback(
     async (event) => {
       event.preventDefault();
@@ -95,7 +125,18 @@ export default function PatientSelfSignup() {
         return;
       }
 
+      const hasTreatmentGoalOther = form.treatment_goal_options.includes("other");
+      const treatmentGoalOther = clean(form.treatment_goal_other || "");
+      if (hasTreatmentGoalOther && !treatmentGoalOther) {
+        toast.error("Preencha o campo 'Outro' em objetivo do tratamento.");
+        return;
+      }
+
       const sex = clean(form.sex);
+      const treatmentGoal = buildTreatmentGoalPayload(
+        form.treatment_goal_options,
+        form.treatment_goal_other,
+      );
       const payload = {
         full_name: name,
         email: clean(form.email),
@@ -113,7 +154,11 @@ export default function PatientSelfSignup() {
         emergency_contact_phone: clean(form.emergency_contact_phone),
         main_complaint: clean(form.main_complaint),
         relevant_conditions: clean(form.relevant_conditions),
-        treatment_goal: clean(form.treatment_goal),
+        treatment_goal: treatmentGoal,
+        treatment_goal_options: form.treatment_goal_options.length
+          ? form.treatment_goal_options
+          : null,
+        treatment_goal_other: hasTreatmentGoalOther ? treatmentGoalOther : null,
         contact_via_phone: form.contact_via_phone,
         contact_via_whatsapp: form.contact_via_whatsapp,
         contact_via_email: form.contact_via_email,
@@ -146,6 +191,8 @@ export default function PatientSelfSignup() {
     },
     [form, token],
   );
+
+  const isTreatmentGoalOtherSelected = form.treatment_goal_options.includes("other");
 
   if (isLoading) {
     return (
@@ -463,15 +510,37 @@ export default function PatientSelfSignup() {
                 rows={3}
               />
             </Field>
-            <Field className="span-2">
-              Objetivo do tratamento
-              <textarea
-                name="treatment_goal"
-                value={form.treatment_goal}
-                onChange={handleChange}
-                rows={3}
-              />
-            </Field>
+            <TreatmentGoalField className="span-2">
+              <TreatmentGoalLabel>Objetivo do tratamento</TreatmentGoalLabel>
+              <TreatmentGoalOptions>
+                {TREATMENT_GOAL_OPTIONS.map((goal) => (
+                  <TreatmentGoalOption key={goal.value}>
+                    <input
+                      type="checkbox"
+                      checked={form.treatment_goal_options.includes(goal.value)}
+                      onChange={() => handleTreatmentGoalToggle(goal.value)}
+                    />
+                    <span>{goal.label}</span>
+                  </TreatmentGoalOption>
+                ))}
+                <TreatmentGoalOption>
+                  <input
+                    type="checkbox"
+                    checked={isTreatmentGoalOtherSelected}
+                    onChange={() => handleTreatmentGoalToggle("other")}
+                  />
+                  <span>Outro:</span>
+                  {isTreatmentGoalOtherSelected && (
+                    <TreatmentGoalOtherInput
+                      name="treatment_goal_other"
+                      value={form.treatment_goal_other}
+                      onChange={handleChange}
+                      placeholder="Descreva"
+                    />
+                  )}
+                </TreatmentGoalOption>
+              </TreatmentGoalOptions>
+            </TreatmentGoalField>
           </FormGrid>
 
           <SectionTitle>Consentimentos</SectionTitle>
@@ -609,6 +678,49 @@ const SectionTitle = styled.h2`
   font-size: 1.05rem;
   color: #6a795c;
   margin: 6px 0 0;
+`;
+
+const TreatmentGoalField = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`;
+
+const TreatmentGoalLabel = styled.div`
+  font-size: 0.95rem;
+  color: #1b1b1b;
+`;
+
+const TreatmentGoalOptions = styled.div`
+  display: grid;
+  gap: 10px;
+`;
+
+const TreatmentGoalOption = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #1b1b1b;
+  font-size: 0.95rem;
+
+  input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: #6a795c;
+    flex-shrink: 0;
+  }
+`;
+
+const TreatmentGoalOtherInput = styled.input`
+  flex: 1;
+  min-width: 180px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.2);
+  padding: 0 12px;
+  font-size: 0.95rem;
+  color: #1b1b1b;
 `;
 
 const Actions = styled.div`

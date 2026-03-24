@@ -13,6 +13,20 @@ const TABS = {
   dados: "dados",
 };
 
+const TREATMENT_GOAL_LABELS = {
+  reduce_pain: "Reduzir dor",
+  recover_movement: "Recuperar movimento",
+  rehabilitation: "Reabilitacao",
+  strength_flex_mob: "Forca/Flex/Mob",
+  other: "Outro",
+};
+
+function valueOrDash(value) {
+  if (value === null || value === undefined) return "-";
+  const normalized = String(value).trim();
+  return normalized.length ? normalized : "-";
+}
+
 function formatDate(value) {
   if (!value) return "--/--/----";
   const date = new Date(value);
@@ -22,6 +36,25 @@ function formatDate(value) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const year = date.getFullYear();
   return `${day}/${month}/${year}`;
+}
+
+function formatDateTime(value) {
+  if (!value) return "--/--/---- --:--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--/--/---- --:--";
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatBoolean(value) {
+  if (value === true) return "Sim";
+  if (value === false) return "Nao";
+  return "-";
 }
 
 function calcAge(dateStr) {
@@ -111,6 +144,31 @@ export default function PatientDetails() {
   );
 
   const address = useMemo(() => resolveAddress(patient || {}), [patient]);
+  const createdAtLabel = useMemo(
+    () => formatDateTime(patient?.created_at || patient?.createdAt),
+    [patient],
+  );
+  const treatmentGoalDisplay = useMemo(() => {
+    if (!patient) return "-";
+    const goalOptions = Array.isArray(patient.treatment_goal_options)
+      ? patient.treatment_goal_options
+      : [];
+
+    const labels = goalOptions
+      .filter((item) => item !== "other")
+      .map((item) => TREATMENT_GOAL_LABELS[item] || item);
+
+    if (goalOptions.includes("other")) {
+      if (patient.treatment_goal_other) {
+        labels.push(`Outro: ${patient.treatment_goal_other}`);
+      } else {
+        labels.push("Outro");
+      }
+    }
+
+    if (labels.length) return labels.join(" | ");
+    return valueOrDash(patient.treatment_goal);
+  }, [patient]);
 
   const showResumo = useCallback(() => setActiveTab(TABS.resumo), []);
   const showHistorico = useCallback(() => setActiveTab(TABS.historico), []);
@@ -215,23 +273,179 @@ export default function PatientDetails() {
         {!isLoading && activeTab === TABS.dados && (
           <Section>
             <InfoCard>
+              <CardTitle>Cadastro</CardTitle>
+              <DataList>
+                <DataRow>
+                  <DataLabel>Criado em</DataLabel>
+                  <DataValue>{createdAtLabel}</DataValue>
+                </DataRow>
+              </DataList>
+            </InfoCard>
+            <InfoCard>
               <CardTitle>
-                <FaUserAlt /> informações pessoais
+                <FaUserAlt /> Informacoes pessoais
               </CardTitle>
-              <InfoList>
-                <li>Sexo: {patient?.sex || "-"}</li>
-                <li>Idade: {age !== null ? `${age} anos` : "-"}</li>
-                <li>Origem: {patient?.referral_source || "-"}</li>
-              </InfoList>
+              <DataList>
+                <DataRow>
+                  <DataLabel>Nome completo</DataLabel>
+                  <DataValue>{valueOrDash(patient?.full_name || patient?.name)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Sexo</DataLabel>
+                  <DataValue>{valueOrDash(patient?.sex)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Data de nascimento</DataLabel>
+                  <DataValue>{formatDate(patient?.birth_date || patient?.birthDate)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Idade</DataLabel>
+                  <DataValue>{age !== null ? `${age} anos` : "-"}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>CPF</DataLabel>
+                  <DataValue>{valueOrDash(patient?.cpf)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>RG</DataLabel>
+                  <DataValue>{valueOrDash(patient?.rg)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Estado civil</DataLabel>
+                  <DataValue>{valueOrDash(patient?.marital_status)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Profissao</DataLabel>
+                  <DataValue>{valueOrDash(patient?.profession)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Origem</DataLabel>
+                  <DataValue>{valueOrDash(patient?.referral_source)}</DataValue>
+                </DataRow>
+              </DataList>
             </InfoCard>
             <InfoCard>
               <CardTitle>
                 <FaPhoneAlt /> Contato
               </CardTitle>
-              <InfoList>
-                <li>Telefone: {patient?.phone || "-"}</li>
-                <li>Endereço: {address || "-"}</li>
-              </InfoList>
+              <DataList>
+                <DataRow>
+                  <DataLabel>Email</DataLabel>
+                  <DataValue>{valueOrDash(patient?.email)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Telefone</DataLabel>
+                  <DataValue>{valueOrDash(patient?.phone)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Instagram</DataLabel>
+                  <DataValue>{valueOrDash(patient?.instagram)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Contato via WhatsApp</DataLabel>
+                  <DataValue>{formatBoolean(patient?.contact_via_whatsapp)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Contato via telefone</DataLabel>
+                  <DataValue>{formatBoolean(patient?.contact_via_phone)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Contato via email</DataLabel>
+                  <DataValue>{formatBoolean(patient?.contact_via_email)}</DataValue>
+                </DataRow>
+              </DataList>
+            </InfoCard>
+            <InfoCard>
+              <CardTitle>Endereço</CardTitle>
+              <DataList>
+                <DataRow>
+                  <DataLabel>Endereço completo</DataLabel>
+                  <DataValue>{valueOrDash(address)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Rua</DataLabel>
+                  <DataValue>{valueOrDash(patient?.address_street)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Número</DataLabel>
+                  <DataValue>{valueOrDash(patient?.address_number)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Complemento</DataLabel>
+                  <DataValue>{valueOrDash(patient?.address_complement)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Bairro</DataLabel>
+                  <DataValue>{valueOrDash(patient?.address_neighborhood)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Cidade</DataLabel>
+                  <DataValue>{valueOrDash(patient?.address_city)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>UF</DataLabel>
+                  <DataValue>{valueOrDash(patient?.address_state)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>CEP</DataLabel>
+                  <DataValue>{valueOrDash(patient?.address_zip)}</DataValue>
+                </DataRow>
+              </DataList>
+            </InfoCard>
+            <InfoCard>
+              <CardTitle>Contato de emergência</CardTitle>
+              <DataList>
+                <DataRow>
+                  <DataLabel>Nome</DataLabel>
+                  <DataValue>{valueOrDash(patient?.emergency_contact_name)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Parentesco</DataLabel>
+                  <DataValue>{valueOrDash(patient?.emergency_contact_relationship)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Telefone</DataLabel>
+                  <DataValue>{valueOrDash(patient?.emergency_contact_phone)}</DataValue>
+                </DataRow>
+              </DataList>
+            </InfoCard>
+            <InfoCard>
+              <CardTitle>Informações clínicas</CardTitle>
+              <DataList>
+                <DataRow>
+                  <DataLabel>Queixa principal</DataLabel>
+                  <DataValue>{valueOrDash(patient?.main_complaint)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Doenças/condições relevantes</DataLabel>
+                  <DataValue>{valueOrDash(patient?.relevant_conditions)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Objetivo do tratamento</DataLabel>
+                  <DataValue>{treatmentGoalDisplay}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Objetivo (Outro)</DataLabel>
+                  <DataValue>{valueOrDash(patient?.treatment_goal_other)}</DataValue>
+                </DataRow>
+              </DataList>
+            </InfoCard>
+            <InfoCard>
+              <CardTitle>Consentimentos</CardTitle>
+              <DataList>
+                <DataRow>
+                  <DataLabel>Consentimento LGPD</DataLabel>
+                  <DataValue>{formatBoolean(patient?.consent_data_processing)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Consentimento de imagem</DataLabel>
+                  <DataValue>{formatBoolean(patient?.consent_image_use)}</DataValue>
+                </DataRow>
+                <DataRow>
+                  <DataLabel>Veracidade das informações</DataLabel>
+                  <DataValue>{formatBoolean(patient?.consent_info_truth)}</DataValue>
+                </DataRow>
+              </DataList>
             </InfoCard>
           </Section>
         )}
@@ -352,11 +566,42 @@ const CardText = styled.div`
   line-height: 1.5;
 `;
 
-const InfoList = styled.ul`
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: #6a795c;
+const DataList = styled.div`
+  display: grid;
+  gap: 8px;
+`;
+
+const DataRow = styled.div`
+  display: grid;
+  grid-template-columns: minmax(170px, 240px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(106, 121, 92, 0.12);
+
+  &:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  @media (max-width: 680px) {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+`;
+
+const DataLabel = styled.span`
+  color: #55644c;
+  font-size: 0.87rem;
+  font-weight: 700;
+`;
+
+const DataValue = styled.span`
+  color: #2d3629;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
 `;
 
 const HistoryCardLink = styled(Link)`
