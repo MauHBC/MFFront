@@ -4,12 +4,10 @@ import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
   FaBell,
-  FaCheckCircle,
   FaChevronLeft,
   FaChevronRight,
   FaPlus,
   FaTimes,
-  FaTimesCircle,
 } from "react-icons/fa";
 
 import axios from "../../services/axios";
@@ -278,6 +276,12 @@ const startOfDay = (date) => {
   return d;
 };
 
+const startOfNextDay = (date) => {
+  const d = startOfDay(date);
+  d.setDate(d.getDate() + 1);
+  return d;
+};
+
 const endOfDay = (date) => {
   const d = new Date(date);
   d.setHours(23, 59, 59, 999);
@@ -442,7 +446,7 @@ export default function Agendamentos() {
       return;
     }
     if (view === "day") {
-      loadSessions(startOfDay(selectedDate), endOfDay(selectedDate));
+      loadSessions(startOfDay(selectedDate), startOfNextDay(selectedDate));
       loadSpecialEvents(startOfDay(selectedDate), endOfDay(selectedDate));
       return;
     }
@@ -587,23 +591,6 @@ export default function Agendamentos() {
     return map;
   }, [serviceLimits]);
 
-  const statusMap = useMemo(() => {
-    const map = new Map();
-    statusOptions.forEach((status) => {
-      if (!status?.code) return;
-      map.set(status.code, status.label || status.code);
-    });
-    return map;
-  }, [statusOptions]);
-
-  const statusLabel = useCallback(
-    (status) => {
-      if (!status) return "Agendado";
-      return statusMap.get(status) || status;
-    },
-    [statusMap],
-  );
-
   const pendingStatusOptions = useMemo(() => {
     const baseOptions =
       statusOptions.length > 0
@@ -658,6 +645,14 @@ export default function Agendamentos() {
     if (status === "canceled") return "canceled";
     if (status === "no_show") return "no_show";
     return "scheduled";
+  }, []);
+
+  const statusLabel = useCallback((status) => {
+    if (!status || status === "scheduled" || status === "open") return "Agendado";
+    if (status === "done") return "Concluido";
+    if (status === "no_show") return "Falta";
+    if (status === "canceled") return "Cancelado";
+    return status;
   }, []);
 
   const getSessionEndDate = useCallback(
@@ -746,6 +741,85 @@ export default function Agendamentos() {
     const key = startOfDay(selectedDate).toISOString();
     return sessionsByDay.get(key) || [];
   }, [selectedDate, sessionsByDay]);
+
+  const daySessionGroups = useMemo(() => {
+    const timeMap = new Map();
+
+    daySessions.forEach((session) => {
+      if (!session?.starts_at) return;
+      const startsAt = new Date(session.starts_at);
+      if (Number.isNaN(startsAt.getTime())) return;
+
+      const minutes = startsAt.getHours() * 60 + startsAt.getMinutes();
+      const timeKey = `${String(startsAt.getHours()).padStart(2, "0")}:${String(
+        startsAt.getMinutes(),
+      ).padStart(2, "0")}`;
+
+      if (!timeMap.has(timeKey)) {
+        timeMap.set(timeKey, {
+          key: timeKey,
+          label: startsAt.toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          sortMinutes: minutes,
+          serviceMap: new Map(),
+        });
+      }
+
+      const timeGroup = timeMap.get(timeKey);
+
+      const serviceCode = session.service_type || session.Service?.code || "outro";
+      const professionalName = session?.professional?.name || "Profissional";
+      const serviceKey = `service-${serviceCode}`;
+      if (!timeGroup.serviceMap.has(serviceKey)) {
+        timeGroup.serviceMap.set(serviceKey, {
+          key: serviceKey,
+          serviceCode,
+          serviceLabel: serviceName(serviceCode),
+          serviceColor: serviceColor(serviceCode),
+          cards: [],
+        });
+      }
+      timeGroup.serviceMap.get(serviceKey).cards.push({
+        key: `${session.id}-${timeKey}`,
+        session,
+        professionalName,
+        serviceCode,
+        serviceLabel: serviceName(serviceCode),
+        serviceColor: serviceColor(serviceCode),
+      });
+    });
+
+    return Array.from(timeMap.values())
+      .map((timeGroup) => ({
+        key: timeGroup.key,
+        label: timeGroup.label,
+        sortMinutes: timeGroup.sortMinutes,
+        serviceGroups: Array.from(timeGroup.serviceMap.values())
+          .map((serviceGroup) => {
+            const cards = serviceGroup.cards.sort((first, second) => {
+              const firstPatient =
+                first.session?.Patient?.full_name || first.session?.Patient?.name || "Paciente";
+              const secondPatient =
+                second.session?.Patient?.full_name || second.session?.Patient?.name || "Paciente";
+              const firstLabel = `${firstPatient}-${first.professionalName}`;
+              const secondLabel = `${secondPatient}-${second.professionalName}`;
+              return firstLabel.localeCompare(secondLabel, "pt-BR");
+            });
+            const professionalNames = Array.from(
+              new Set(cards.map((card) => card.professionalName)),
+            ).sort((first, second) => first.localeCompare(second, "pt-BR"));
+            return {
+              ...serviceGroup,
+              cards,
+              professionalLabel: professionalNames.join(", "),
+            };
+          })
+          .sort((first, second) => first.serviceLabel.localeCompare(second.serviceLabel, "pt-BR")),
+      }))
+      .sort((first, second) => first.sortMinutes - second.sortMinutes);
+  }, [daySessions, serviceColor, serviceName]);
 
   const selectedDaySpecialEvents = useMemo(() => {
     const key = startOfDay(selectedDate).toISOString();
@@ -1157,7 +1231,7 @@ export default function Agendamentos() {
       resetForm();
       closeDrawer();
       if (view === "day") {
-        await loadSessions(startOfDay(selectedDate), endOfDay(selectedDate));
+        await loadSessions(startOfDay(selectedDate), startOfNextDay(selectedDate));
       } else {
         await loadSessions();
       }
@@ -1260,7 +1334,7 @@ export default function Agendamentos() {
         await axios.put(`/sessions/${id}`, payload);
         toast.success("Agendamento reagendado.");
         if (view === "day") {
-          await loadSessions(startOfDay(selectedDate), endOfDay(selectedDate));
+          await loadSessions(startOfDay(selectedDate), startOfNextDay(selectedDate));
         } else {
           await loadSessions();
         }
@@ -1339,7 +1413,7 @@ export default function Agendamentos() {
         await axios.put(`/sessions/${id}`, payload);
         toast.success("Agendamento atualizado.");
         if (view === "day") {
-          await loadSessions(startOfDay(selectedDate), endOfDay(selectedDate));
+          await loadSessions(startOfDay(selectedDate), startOfNextDay(selectedDate));
         } else {
           await loadSessions();
         }
@@ -1458,7 +1532,7 @@ export default function Agendamentos() {
         if (repeatMode === "weeks") {
           const weeks = Number(repeatWeeks);
           if (!Number.isFinite(weeks) || weeks <= 0) {
-            toast.error("Informe o Número de semanas.");
+            toast.error("Informe o NÃºmero de semanas.");
             return;
           }
         }
@@ -1643,7 +1717,7 @@ export default function Agendamentos() {
         resetForm();
         closeDrawer();
         if (view === "day") {
-          await loadSessions(startOfDay(selectedDate), endOfDay(selectedDate));
+          await loadSessions(startOfDay(selectedDate), startOfNextDay(selectedDate));
         } else {
           await loadSessions();
         }
@@ -2051,7 +2125,7 @@ export default function Agendamentos() {
                     <strong>{event.name}</strong>
                     <span>
                       {SPECIAL_SOURCE_LABELS[event.source_type] || event.source_type}
-                      {" · "}
+                      {" Â· "}
                       {eventSeverityLabel(event.severity)}
                     </span>
                     <small>{eventBehaviorLabel(event)}</small>
@@ -2062,64 +2136,97 @@ export default function Agendamentos() {
             {daySessions.length === 0 && (
               <EmptyState>Nenhum agendamento para este dia.</EmptyState>
             )}
-            <DayList>
-              {daySessions.map((session) => (
-                <DayCard
-                  key={session.id}
-                  data-id={session.id}
-                  draggable
-                  onDragStart={handleDragStart}
-                >
-                  <DayCardInfo>
-                    <TypePill
-                      $type={session.service_type || session.Service?.code}
-                      $color={serviceColor(session.service_type || session.Service?.code)}
-                    >
-                      {serviceName(session.service_type || session.Service?.code)}
-                    </TypePill>
-                    <h3>{session?.Patient?.full_name || "Paciente"}</h3>
-                    <span>{formatDateTime(session.starts_at)}</span>
-                    <span>{session?.professional?.name || "Profissional"}</span>
-                  </DayCardInfo>
-                  <DayCardActions>
-                    <StatusPill $status={statusStyle(session.status)}>
-                      {statusLabel(session.status)}
-                    </StatusPill>
-                    <ActionButton
-                      type="button"
-                      data-id={session.id}
-                      onClick={handleEdit}
-                    >
-                      Editar
-                    </ActionButton>
-                    <QuickButton
-                      type="button"
-                      data-id={session.id}
-                      data-status="done"
-                      onClick={handleQuickStatus}
-                    >
-                      <FaCheckCircle /> Concluir
-                    </QuickButton>
-                    <QuickButton
-                      type="button"
-                      data-id={session.id}
-                      data-status="no_show"
-                      onClick={handleAbsence}
-                    >
-                      <FaTimesCircle /> Falta
-                    </QuickButton>
-                    <QuickButton
-                      type="button"
-                      data-id={session.id}
-                      data-status="canceled"
-                      onClick={handleQuickStatus}
-                    >
-                      <FaTimesCircle /> Cancelar
-                    </QuickButton>
-                  </DayCardActions>
-                </DayCard>
-              ))}
-            </DayList>
+            {daySessions.length > 0 && (
+              <DayList>
+                {daySessionGroups.map((timeGroup) => (
+                  <DayTimeGroup key={timeGroup.key}>
+                    <DayTimeHeader>
+                      <strong>{timeGroup.label}</strong>
+                    </DayTimeHeader>
+                    <DayCardsColumn>
+                      {timeGroup.serviceGroups.map((serviceGroup) => (
+                        <DayServiceGroupBlock key={`${timeGroup.key}-${serviceGroup.key}`}>
+                          <DayServiceGroupHeader>
+                            <DayServiceGroupBadge
+                              $type={serviceGroup.serviceCode}
+                              $color={serviceGroup.serviceColor}
+                            >
+                              {serviceGroup.professionalLabel} - {serviceGroup.serviceLabel}
+                            </DayServiceGroupBadge>
+                          </DayServiceGroupHeader>
+                          <DayServiceCards>
+                            {serviceGroup.cards.map((card) => {
+                              const { session } = card;
+                              const tone = statusStyle(session.status);
+                              return (
+                                <DaySessionCard
+                                  key={card.key}
+                                  data-id={session.id}
+                                  draggable
+                                  onDragStart={handleDragStart}
+                                  $status={tone}
+                                >
+                                  <DayServiceBar $color={card.serviceColor} />
+                                  <DaySessionBody>
+                                    <DaySessionTop>
+                                      <DaySessionPatient>
+                                        {session?.Patient?.full_name || session?.Patient?.name || "Paciente"}
+                                      </DaySessionPatient>
+                                      <DayStatusPill $status={tone}>
+                                        {statusLabel(session.status)}
+                                      </DayStatusPill>
+                                    </DaySessionTop>
+                                    <DaySessionActions>
+                                      <DayActionButton
+                                        type="button"
+                                        data-id={session.id}
+                                        data-status="done"
+                                        $status="done"
+                                        $active={session.status === "done"}
+                                        onClick={handleQuickStatus}
+                                      >
+                                        Concluido
+                                      </DayActionButton>
+                                      <DayActionButton
+                                        type="button"
+                                        data-id={session.id}
+                                        data-status="no_show"
+                                        $status="no_show"
+                                        $active={session.status === "no_show"}
+                                        onClick={handleAbsence}
+                                      >
+                                        Falta
+                                      </DayActionButton>
+                                      <DayActionButton
+                                        type="button"
+                                        data-id={session.id}
+                                        data-status="canceled"
+                                        $status="canceled"
+                                        $active={session.status === "canceled"}
+                                        onClick={handleQuickStatus}
+                                      >
+                                        Cancelar
+                                      </DayActionButton>
+                                      <DayEditButton
+                                        type="button"
+                                        data-id={session.id}
+                                        onClick={handleEdit}
+                                      >
+                                        Editar
+                                      </DayEditButton>
+                                    </DaySessionActions>
+                                  </DaySessionBody>
+                                </DaySessionCard>
+                              );
+                            })}
+                          </DayServiceCards>
+                        </DayServiceGroupBlock>
+                      ))}
+                    </DayCardsColumn>
+                  </DayTimeGroup>
+                ))}
+              </DayList>
+            )}
           </DayPanel>
         )}
 
@@ -2285,7 +2392,7 @@ export default function Agendamentos() {
                 <GroupHeader>
                   <div>
                     <h3>{groupContext ? formatDateTime(groupContext.date) : ""}</h3>
-                    <span>Visão completa do horário</span>
+                    <span>VisÃ£o completa do horÃ¡rio</span>
                   </div>
                   <SecondaryButton
                     type="button"
@@ -2309,7 +2416,7 @@ export default function Agendamentos() {
                   </SecondaryButton>
                 </GroupHeader>
                 {groupSessions.length === 0 && (
-                  <EmptyState>Sem pacientes neste horÃ¡rio.</EmptyState>
+                  <EmptyState>Sem pacientes neste horÃƒÂ¡rio.</EmptyState>
                 )}
                 <GroupList>
                   {groupSessions.map((group) => (
@@ -2576,7 +2683,7 @@ export default function Agendamentos() {
                     </ScheduleContextCard>
                   )}
                   <Field className="span-2">
-                    Tipo da sessão
+                    Tipo da sessÃ£o
                     <select
                       name="is_initial"
                       value={form.is_initial ? "true" : "false"}
@@ -2587,14 +2694,14 @@ export default function Agendamentos() {
                         }))
                       }
                     >
-                      <option value="false">Sessão normal</option>
-                      <option value="true">1a avaliação</option>
+                      <option value="false">SessÃ£o normal</option>
+                      <option value="true">1a avaliaÃ§Ã£o</option>
                     </select>
                   </Field>
                   <RepeatCard className="span-2">
                     <RepeatHeader>
                       <div>
-                        <strong>Repetição</strong>
+                        <strong>RepetiÃ§Ã£o</strong>
                       </div>
                       <RepeatToggle>
                         <input
@@ -2621,7 +2728,7 @@ export default function Agendamentos() {
                     </RepeatHeader>
                     {!repeatEnabled && (
                       <RepeatHint>
-                        {editingId ? "Repetição só em novos agendamentos." : "Ative para repetir."}
+                        {editingId ? "RepetiÃ§Ã£o sÃ³ em novos agendamentos." : "Ative para repetir."}
                       </RepeatHint>
                     )}
                     {repeatEnabled && (
@@ -2708,7 +2815,7 @@ export default function Agendamentos() {
                     )}
                   </RepeatCard>
                   <Field className="span-2">
-                    Observações
+                    ObservaÃ§Ãµes
                     <textarea
                       name="notes"
                       value={form.notes}
@@ -3538,33 +3645,149 @@ const DayList = styled.div`
   gap: 12px;
 `;
 
-const DayCard = styled.div`
-  padding: 16px;
-  border-radius: 12px;
-  border: 1px solid rgba(106, 121, 92, 0.18);
-  background: #fdfdfb;
+const DayTimeGroup = styled.div`
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 6px 0 10px;
+  border-bottom: 1px solid rgba(106, 121, 92, 0.14);
+
+  &:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  @media (max-width: 920px) {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+`;
+
+const DayTimeHeader = styled.div`
+  display: flex;
+  align-items: center;
+  padding-top: 4px;
+
+  strong {
+    color: #1f1f1f;
+    font-size: 1.18rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    line-height: 1;
+  }
+`;
+
+const DayCardsColumn = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 `;
 
-const DayCardInfo = styled.div`
-  display: grid;
-  gap: 6px;
-  h3 {
-    margin: 0;
-    color: #1b1b1b;
-  }
-  span {
-    color: #6a795c;
-  }
-`;
-
-const DayCardActions = styled.div`
+const DayServiceGroupBlock = styled.div`
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const DayServiceGroupHeader = styled.div`
+  display: flex;
   align-items: center;
+`;
+
+const DayServiceGroupBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #42523a;
+  background: ${(props) => {
+    if (props.$color) return `${props.$color}2A`;
+    if (props.$type === "pilates") return "rgba(116, 141, 189, 0.22)";
+    if (props.$type === "funcional") return "rgba(120, 145, 176, 0.22)";
+    if (props.$type === "fisioterapia") return "rgba(162, 177, 144, 0.3)";
+    if (props.$type === "outro") return "rgba(201, 188, 152, 0.3)";
+    return "rgba(162, 177, 144, 0.2)";
+  }};
+`;
+
+const DayServiceCards = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const DaySessionCard = styled.article`
+  display: grid;
+  grid-template-columns: 5px 1fr;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  background: ${(props) => {
+    if (props.$status === "done") return "rgba(94, 135, 90, 0.07)";
+    if (props.$status === "canceled") return "rgba(199, 102, 102, 0.07)";
+    if (props.$status === "no_show") return "rgba(214, 170, 104, 0.09)";
+    return "#fff";
+  }};
+`;
+
+const DayServiceBar = styled.span`
+  background: ${(props) => {
+    if (props.$color) return props.$color;
+    return "#a2b190";
+  }};
+`;
+
+const DaySessionBody = styled.div`
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+`;
+
+const DaySessionTop = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+`;
+
+const DaySessionPatient = styled.strong`
+  margin: 0;
+  color: #1f1f1f;
+  font-size: 0.96rem;
+  font-weight: 800;
+`;
+
+const DayStatusPill = styled.span`
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: ${(props) => {
+    if (props.$status === "done") return "#2f5a33";
+    if (props.$status === "canceled") return "#7b3a3a";
+    if (props.$status === "no_show") return "#8a5718";
+    return "#556649";
+  }};
+  background: ${(props) => {
+    if (props.$status === "done") return "rgba(94, 135, 90, 0.16)";
+    if (props.$status === "canceled") return "rgba(199, 102, 102, 0.16)";
+    if (props.$status === "no_show") return "rgba(214, 170, 104, 0.18)";
+    return "rgba(162, 177, 144, 0.2)";
+  }};
+`;
+
+const DaySessionActions = styled.div`
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
 `;
 
 const MonthPanel = styled.div`
@@ -3866,6 +4089,28 @@ const SmallEdit = styled.button`
   &:hover {
     background: #eef2e7;
   }
+`;
+
+const DayActionButton = styled(StatusAction)`
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  box-shadow: none;
+  transition: none;
+
+  &:hover {
+    transform: none;
+    box-shadow: none;
+    filter: none;
+  }
+`;
+
+const DayEditButton = styled(SmallEdit)`
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
 `;
 
 const Backdrop = styled.div`
@@ -4432,21 +4677,6 @@ const ToolbarLink = styled(Link)`
   text-decoration: none;
 `;
 
-const ActionButton = styled.button`
-  border: none;
-  background: #f0f3ec;
-  color: #6a795c;
-  padding: 8px 12px;
-  border-radius: 10px;
-  font-weight: 600;
-`;
-
-const QuickButton = styled(ActionButton)`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-`;
-
 const IconButton = styled.button`
   border: none;
   background: transparent;
@@ -4458,25 +4688,6 @@ const EmptyState = styled.div`
   padding: 32px 16px;
   text-align: center;
   color: #6a795c;
-`;
-
-const StatusPill = styled.span`
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: ${(props) => {
-    if (props.$status === "done") return "#2f5a33";
-    if (props.$status === "canceled") return "#7b3a3a";
-    if (props.$status === "no_show") return "#6b4a1e";
-    return "#42523a";
-  }};
-  background: ${(props) => {
-    if (props.$status === "done") return "rgba(94, 135, 90, 0.2)";
-    if (props.$status === "canceled") return "rgba(199, 102, 102, 0.2)";
-    if (props.$status === "no_show") return "rgba(214, 170, 104, 0.25)";
-    return "rgba(162, 177, 144, 0.25)";
-  }};
 `;
 
 const TypePill = styled.span`
@@ -4494,3 +4705,5 @@ const TypePill = styled.span`
     return "rgba(162, 177, 144, 0.2)";
   }};
 `;
+
+
