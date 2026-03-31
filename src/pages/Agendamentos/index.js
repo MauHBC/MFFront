@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import styled from "styled-components";
+import styled, { keyframes } from "styled-components";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
@@ -7,6 +7,7 @@ import {
   FaChevronLeft,
   FaChevronRight,
   FaPlus,
+  FaSpinner,
   FaTimes,
 } from "react-icons/fa";
 
@@ -22,12 +23,6 @@ const START_HOUR = 7;
 const END_HOUR = 20;
 const PROFESSIONAL_GROUP_SLUG = "profissional";
 const ATTENDANCE_CONFIRMATION_TOLERANCE_MINUTES = 15;
-const PENDING_STATUS_FALLBACK = [
-  { code: "done", label: "Concluido" },
-  { code: "no_show", label: "Falta" },
-  { code: "canceled", label: "Cancelado" },
-];
-
 const SPECIAL_SOURCE_LABELS = {
   national: "Feriado nacional",
   state: "Feriado estadual",
@@ -591,36 +586,6 @@ export default function Agendamentos() {
     return map;
   }, [serviceLimits]);
 
-  const pendingStatusOptions = useMemo(() => {
-    const baseOptions =
-      statusOptions.length > 0
-        ? statusOptions.map((status) => ({
-          code: status.code,
-          label: status.label || status.code,
-        }))
-        : PENDING_STATUS_FALLBACK;
-
-    const order = {
-      done: 0,
-      no_show: 1,
-      canceled: 2,
-    };
-
-    return baseOptions
-      .filter(
-        (status) =>
-          status?.code &&
-          status.code !== "scheduled" &&
-          status.code !== "open",
-      )
-      .sort((first, second) => {
-        const firstOrder = order[first.code] ?? 99;
-        const secondOrder = order[second.code] ?? 99;
-        if (firstOrder !== secondOrder) return firstOrder - secondOrder;
-        return first.label.localeCompare(second.label, "pt-BR");
-      });
-  }, [statusOptions]);
-
   const serviceName = useCallback(
     (value) => {
       if (!value) return "N/A";
@@ -645,14 +610,6 @@ export default function Agendamentos() {
     if (status === "canceled") return "canceled";
     if (status === "no_show") return "no_show";
     return "scheduled";
-  }, []);
-
-  const statusLabel = useCallback((status) => {
-    if (!status || status === "scheduled" || status === "open") return "Agendado";
-    if (status === "done") return "Concluido";
-    if (status === "no_show") return "Falta";
-    if (status === "canceled") return "Cancelado";
-    return status;
   }, []);
 
   const getSessionEndDate = useCallback(
@@ -1840,7 +1797,7 @@ export default function Agendamentos() {
           <div>
             <h1 className="font40 extraBold">Agendamentos</h1>
             <p className="font15">
-              Visualize por semana, dia ou mes e edite com painel lateral.
+              {/* Visualize por semana, dia ou mes e edite com painel lateral. */}
             </p>
           </div>
           <BackLink to="/menu">Voltar</BackLink>
@@ -2172,49 +2129,60 @@ export default function Agendamentos() {
                                       <DaySessionPatient>
                                         {session?.Patient?.full_name || session?.Patient?.name || "Paciente"}
                                       </DaySessionPatient>
-                                      <DayStatusPill $status={tone}>
-                                        {statusLabel(session.status)}
-                                      </DayStatusPill>
+                                      <DaySessionActions>
+                                        <DayActionButton
+                                          type="button"
+                                          data-id={session.id}
+                                          data-status="scheduled"
+                                          $status="scheduled"
+                                          $active={
+                                            session.status === "scheduled" ||
+                                            session.status === "open" ||
+                                            !session.status
+                                          }
+                                          onClick={handleQuickStatus}
+                                        >
+                                          Agendado
+                                        </DayActionButton>
+                                        <DayActionButton
+                                          type="button"
+                                          data-id={session.id}
+                                          data-status="done"
+                                          $status="done"
+                                          $active={session.status === "done"}
+                                          onClick={handleQuickStatus}
+                                        >
+                                          Concluido
+                                        </DayActionButton>
+                                        <DayActionButton
+                                          type="button"
+                                          data-id={session.id}
+                                          data-status="no_show"
+                                          $status="no_show"
+                                          $active={session.status === "no_show"}
+                                          onClick={handleAbsence}
+                                        >
+                                          Falta
+                                        </DayActionButton>
+                                        <DayActionButton
+                                          type="button"
+                                          data-id={session.id}
+                                          data-status="canceled"
+                                          $status="canceled"
+                                          $active={session.status === "canceled"}
+                                          onClick={handleQuickStatus}
+                                        >
+                                          Cancelar
+                                        </DayActionButton>
+                                        <DayEditButton
+                                          type="button"
+                                          data-id={session.id}
+                                          onClick={handleEdit}
+                                        >
+                                          Editar
+                                        </DayEditButton>
+                                      </DaySessionActions>
                                     </DaySessionTop>
-                                    <DaySessionActions>
-                                      <DayActionButton
-                                        type="button"
-                                        data-id={session.id}
-                                        data-status="done"
-                                        $status="done"
-                                        $active={session.status === "done"}
-                                        onClick={handleQuickStatus}
-                                      >
-                                        Concluido
-                                      </DayActionButton>
-                                      <DayActionButton
-                                        type="button"
-                                        data-id={session.id}
-                                        data-status="no_show"
-                                        $status="no_show"
-                                        $active={session.status === "no_show"}
-                                        onClick={handleAbsence}
-                                      >
-                                        Falta
-                                      </DayActionButton>
-                                      <DayActionButton
-                                        type="button"
-                                        data-id={session.id}
-                                        data-status="canceled"
-                                        $status="canceled"
-                                        $active={session.status === "canceled"}
-                                        onClick={handleQuickStatus}
-                                      >
-                                        Cancelar
-                                      </DayActionButton>
-                                      <DayEditButton
-                                        type="button"
-                                        data-id={session.id}
-                                        onClick={handleEdit}
-                                      >
-                                        Editar
-                                      </DayEditButton>
-                                    </DaySessionActions>
                                   </DaySessionBody>
                                 </DaySessionCard>
                               );
@@ -2343,37 +2311,86 @@ export default function Agendamentos() {
                                       </PendingServiceCount>
                                     </PendingServiceHeader>
                                     <PendingList>
-                                      {serviceGroup.sessions.map((session) => (
-                                        <PendingCard key={session.id}>
-                                          <PendingInfo>
-                                            <strong>
-                                              {session?.Patient?.full_name || "Paciente"}
-                                            </strong>
-                                          </PendingInfo>
-                                          <PendingActionSection>
-                                            <PendingActionTitle>
-                                              Atualizar status
-                                            </PendingActionTitle>
-                                            <PendingStatusGrid>
-                                              {pendingStatusOptions.map((status) => (
-                                                <PendingStatusButton
-                                                  key={`${session.id}-${status.code}`}
-                                                  type="button"
-                                                  $variant={statusStyle(status.code)}
-                                                  onClick={() =>
-                                                    handlePendingStatusChange(
-                                                      String(session.id),
-                                                      status.code,
-                                                    )
-                                                  }
-                                                >
-                                                  {status.label}
-                                                </PendingStatusButton>
-                                              ))}
-                                            </PendingStatusGrid>
-                                          </PendingActionSection>
-                                        </PendingCard>
-                                      ))}
+                                      {serviceGroup.sessions.map((session) => {
+                                        const tone = statusStyle(session.status);
+                                        return (
+                                          <DaySessionCard key={session.id} $status={tone}>
+                                            <DayServiceBar $color={serviceGroup.serviceColor} />
+                                            <DaySessionBody>
+                                              <DaySessionTop>
+                                                <DaySessionPatient>
+                                                  {session?.Patient?.full_name || "Paciente"}
+                                                </DaySessionPatient>
+                                                <DaySessionActions>
+                                                  <DayActionButton
+                                                    type="button"
+                                                    $status="scheduled"
+                                                    $active={
+                                                      session.status === "scheduled" ||
+                                                      session.status === "open" ||
+                                                      !session.status
+                                                    }
+                                                    onClick={() =>
+                                                      handlePendingStatusChange(
+                                                        String(session.id),
+                                                        "scheduled",
+                                                      )
+                                                    }
+                                                  >
+                                                    Agendado
+                                                  </DayActionButton>
+                                                  <DayActionButton
+                                                    type="button"
+                                                    $status="done"
+                                                    $active={session.status === "done"}
+                                                    onClick={() =>
+                                                      handlePendingStatusChange(
+                                                        String(session.id),
+                                                        "done",
+                                                      )
+                                                    }
+                                                  >
+                                                    Concluido
+                                                  </DayActionButton>
+                                                  <DayActionButton
+                                                    type="button"
+                                                    $status="no_show"
+                                                    $active={session.status === "no_show"}
+                                                    onClick={() =>
+                                                      handlePendingStatusChange(
+                                                        String(session.id),
+                                                        "no_show",
+                                                      )
+                                                    }
+                                                  >
+                                                    Falta
+                                                  </DayActionButton>
+                                                  <DayActionButton
+                                                    type="button"
+                                                    $status="canceled"
+                                                    $active={session.status === "canceled"}
+                                                    onClick={() =>
+                                                      handlePendingStatusChange(
+                                                        String(session.id),
+                                                        "canceled",
+                                                      )
+                                                    }
+                                                  >
+                                                    Cancelar
+                                                  </DayActionButton>
+                                                  <DayEditButton
+                                                    type="button"
+                                                    data-id={session.id}
+                                                    onClick={handleEdit}
+                                                  >
+                                                    Editar
+                                                  </DayEditButton>
+                                                </DaySessionActions>
+                                              </DaySessionTop>
+                                            </DaySessionBody>
+                                          </DaySessionCard>
+                                        );
+                                      })}
                                     </PendingList>
                                   </PendingServiceGroup>
                                 ))}
@@ -2982,6 +2999,7 @@ export default function Agendamentos() {
                 <h3>Motivo da falta/cancelamento</h3>
                 <IconButton
                   type="button"
+                  disabled={isSaving}
                   onClick={() =>
                     setAbsenceModal({ open: false, id: null, status: null, reason: "" })
                   }
@@ -3002,15 +3020,21 @@ export default function Agendamentos() {
               <ModalActions>
                 <SecondaryButton
                   type="button"
+                  disabled={isSaving}
                   onClick={() =>
                     setAbsenceModal({ open: false, id: null, status: null, reason: "" })
                   }
                 >
                   Cancelar
                 </SecondaryButton>
-                <PrimaryButton type="button" onClick={handleConfirmAbsence}>
-                  Salvar
-                </PrimaryButton>
+                <ModalSaveButton
+                  type="button"
+                  onClick={handleConfirmAbsence}
+                  disabled={isSaving}
+                  aria-label={isSaving ? "Salvando motivo" : "Salvar motivo"}
+                >
+                  {isSaving ? <ButtonSpinner aria-hidden="true" /> : "Salvar"}
+                </ModalSaveButton>
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
@@ -3191,13 +3215,13 @@ const PendingDrawerPanel = styled.div`
 const PendingGroupList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
 `;
 
 const PendingGroup = styled.section`
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 `;
 
 const PendingGroupHeader = styled.div`
@@ -3227,14 +3251,14 @@ const PendingGroupMeta = styled.span`
 const PendingTimeList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 `;
 
 const PendingTimeGroup = styled.section`
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
   border-radius: 12px;
   background: #fbfcf8;
   border: 1px solid rgba(106, 121, 92, 0.12);
@@ -3263,14 +3287,14 @@ const PendingTimeMeta = styled.span`
 const PendingServiceList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 `;
 
 const PendingServiceGroup = styled.section`
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px;
+  gap: 8px;
+  padding: 8px;
   border-radius: 12px;
   border: 1px solid
     ${(props) =>
@@ -3284,7 +3308,7 @@ const PendingServiceHeader = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 10px;
   background: ${(props) =>
     props.$color ? `${props.$color}22` : "rgba(106, 121, 92, 0.1)"};
@@ -3293,7 +3317,7 @@ const PendingServiceHeader = styled.div`
 const PendingServiceTitle = styled.h5`
   margin: 0;
   color: #1b1b1b;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
 `;
 
 const PendingServiceCount = styled.span`
@@ -3308,86 +3332,6 @@ const PendingServiceCount = styled.span`
   justify-content: center;
   font-size: 0.78rem;
   font-weight: 800;
-`;
-
-const PendingCard = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(214, 170, 104, 0.28);
-  background: #fff;
-`;
-
-const PendingInfo = styled.div`
-  display: grid;
-  gap: 6px;
-
-  strong {
-    color: #1b1b1b;
-    font-size: 1rem;
-  }
-`;
-
-const PendingActionSection = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(106, 121, 92, 0.12);
-`;
-
-const PendingActionTitle = styled.span`
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #6a795c;
-`;
-
-const PendingStatusGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  gap: 8px;
-`;
-
-const PendingStatusButton = styled.button`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  padding: 7px 10px;
-  border-radius: 9px;
-  border: 1px solid
-    ${(props) => {
-    if (props.$variant === "done") return "rgba(94, 135, 90, 0.32)";
-    if (props.$variant === "canceled") return "rgba(199, 102, 102, 0.3)";
-    if (props.$variant === "no_show") return "rgba(214, 170, 104, 0.34)";
-    return "rgba(106, 121, 92, 0.24)";
-  }};
-  background: ${(props) => {
-    if (props.$variant === "done") return "rgba(94, 135, 90, 0.12)";
-    if (props.$variant === "canceled") return "rgba(199, 102, 102, 0.11)";
-    if (props.$variant === "no_show") return "rgba(214, 170, 104, 0.14)";
-    return "#f7f8f4";
-  }};
-  color: ${(props) => {
-    if (props.$variant === "done") return "#2f5a33";
-    if (props.$variant === "canceled") return "#7b3a3a";
-    if (props.$variant === "no_show") return "#8a5718";
-    return "#516046";
-  }};
-  font-weight: 700;
-  font-size: 0.82rem;
-  cursor: pointer;
-  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
-
-  &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 8px 18px rgba(42, 52, 35, 0.08);
-    filter: brightness(0.98);
-  }
 `;
 
 const Legend = styled.div`
@@ -3750,8 +3694,8 @@ const DaySessionBody = styled.div`
 const DaySessionTop = styled.div`
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
 `;
 
 const DaySessionPatient = styled.strong`
@@ -3759,35 +3703,29 @@ const DaySessionPatient = styled.strong`
   color: #1f1f1f;
   font-size: 0.96rem;
   font-weight: 800;
-`;
-
-const DayStatusPill = styled.span`
-  padding: 3px 7px;
-  border-radius: 999px;
-  font-size: 0.68rem;
-  font-weight: 700;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  color: ${(props) => {
-    if (props.$status === "done") return "#2f5a33";
-    if (props.$status === "canceled") return "#7b3a3a";
-    if (props.$status === "no_show") return "#8a5718";
-    return "#556649";
-  }};
-  background: ${(props) => {
-    if (props.$status === "done") return "rgba(94, 135, 90, 0.16)";
-    if (props.$status === "canceled") return "rgba(199, 102, 102, 0.16)";
-    if (props.$status === "no_show") return "rgba(214, 170, 104, 0.18)";
-    return "rgba(162, 177, 144, 0.2)";
-  }};
 `;
 
 const DaySessionActions = styled.div`
-  margin-top: 1px;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: flex-end;
   gap: 6px;
-  flex-wrap: wrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 `;
 
 const MonthPanel = styled.div`
@@ -4651,6 +4589,21 @@ const PrimaryButton = styled.button`
   }
 `;
 
+const spin = keyframes`
+  to {
+    transform: rotate(360deg);
+  }
+`;
+
+const ButtonSpinner = styled(FaSpinner)`
+  font-size: 0.95rem;
+  animation: ${spin} 0.9s linear infinite;
+`;
+
+const ModalSaveButton = styled(PrimaryButton)`
+  min-width: 88px;
+`;
+
 const SecondaryButton = styled.button`
   display: inline-flex;
   align-items: center;
@@ -4705,5 +4658,3 @@ const TypePill = styled.span`
     return "rgba(162, 177, 144, 0.2)";
   }};
 `;
-
-

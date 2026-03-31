@@ -1,17 +1,67 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import styled from "styled-components";
+import styled, { css } from "styled-components";
 import { toast } from "react-toastify";
-import { FaInfoCircle, FaListAlt, FaUserAlt, FaPhoneAlt } from "react-icons/fa";
+import { FaInfoCircle, FaListAlt, FaPhoneAlt, FaUserAlt } from "react-icons/fa";
 
-import axios from "../../services/axios";
 import Loading from "../../components/Loading";
+import axios from "../../services/axios";
+import {
+  calculateAgeFromBirthDate,
+  formatBirthDateForApi,
+  formatBirthDateForDisplay,
+  formatBirthDateForInput,
+  isBirthDateFilled,
+  isBirthDateValid,
+  maskBirthDateInput,
+} from "../../utils/birthDate";
 
 const TABS = {
   resumo: "resumo",
   historico: "historico",
   dados: "dados",
 };
+
+const EDIT_SECTIONS = {
+  personal: "personal",
+  contact: "contact",
+  address: "address",
+  emergency: "emergency",
+  clinical: "clinical",
+  consent: "consent",
+};
+
+const SEX_OPTIONS = [
+  { value: "", label: "Selecionar" },
+  { value: "F", label: "Feminino" },
+  { value: "M", label: "Masculino" },
+];
+
+const MARITAL_STATUS_OPTIONS = [
+  { value: "", label: "Selecionar" },
+  { value: "Solteiro(a)", label: "Solteiro(a)" },
+  { value: "Casado(a)", label: "Casado(a)" },
+  { value: "Uniao estavel", label: "Uniao estavel" },
+  { value: "Divorciado(a)", label: "Divorciado(a)" },
+  { value: "Viuvo(a)", label: "Viuvo(a)" },
+  { value: "Outro", label: "Outro" },
+];
+
+const REFERRAL_SOURCE_OPTIONS = [
+  { value: "", label: "Selecionar" },
+  { value: "Instagram", label: "Instagram" },
+  { value: "WhatsApp", label: "WhatsApp" },
+  { value: "Medico", label: "Medico" },
+  { value: "Amigo", label: "Amigo" },
+  { value: "Outro", label: "Outro" },
+];
+
+const TREATMENT_GOAL_OPTIONS = [
+  { value: "reduce_pain", label: "Reduzir dor" },
+  { value: "recover_movement", label: "Recuperar movimento" },
+  { value: "rehabilitation", label: "Reabilitacao" },
+  { value: "strength_flex_mob", label: "Forca/Flex/Mob" },
+];
 
 const TREATMENT_GOAL_LABELS = {
   reduce_pain: "Reduzir dor",
@@ -21,6 +71,12 @@ const TREATMENT_GOAL_LABELS = {
   other: "Outro",
 };
 
+function cleanText(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  return normalized.length ? normalized : null;
+}
+
 function valueOrDash(value) {
   if (value === null || value === undefined) return "-";
   const normalized = String(value).trim();
@@ -29,6 +85,12 @@ function valueOrDash(value) {
 
 function formatDate(value) {
   if (!value) return "--/--/----";
+
+  const normalizedValue = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedValue)) {
+    return formatBirthDateForDisplay(normalizedValue);
+  }
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "--/--/----";
 
@@ -57,18 +119,10 @@ function formatBoolean(value) {
   return "-";
 }
 
-function calcAge(dateStr) {
-  if (!dateStr) return null;
-  const date = new Date(dateStr);
-  if (Number.isNaN(date.getTime())) return null;
-
-  const now = new Date();
-  let years = now.getFullYear() - date.getFullYear();
-  const hadBirthday =
-    now.getMonth() > date.getMonth() ||
-    (now.getMonth() === date.getMonth() && now.getDate() >= date.getDate());
-  if (!hadBirthday) years -= 1;
-  return years < 0 ? 0 : years;
+function formatSex(value) {
+  if (value === "F") return "Feminino";
+  if (value === "M") return "Masculino";
+  return "-";
 }
 
 function resolveAddress(patient) {
@@ -99,12 +153,108 @@ function resolveAddress(patient) {
   return parts.join(", ");
 }
 
+function buildTreatmentGoalState(patient) {
+  const storedOptions = Array.isArray(patient?.treatment_goal_options)
+    ? [...new Set(patient.treatment_goal_options.filter(Boolean))]
+    : null;
+  const storedOther = cleanText(patient?.treatment_goal_other) || "";
+
+  if (storedOptions) {
+    const options = [...storedOptions];
+    if (storedOther && !options.includes("other")) options.push("other");
+    return { options, other: storedOther };
+  }
+
+  const legacyText = cleanText(patient?.treatment_goal);
+  if (!legacyText) {
+    return { options: [], other: "" };
+  }
+
+  const options = [];
+  const extraParts = [];
+
+  legacyText
+    .split("|")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .forEach((item) => {
+      const matchedOption = TREATMENT_GOAL_OPTIONS.find(
+        (option) => option.label.toLowerCase() === item.toLowerCase(),
+      );
+
+      if (matchedOption) {
+        options.push(matchedOption.value);
+        return;
+      }
+
+      if (/^outro\s*:/i.test(item)) {
+        const otherText = item.replace(/^outro\s*:\s*/i, "").trim();
+        options.push("other");
+        if (otherText) extraParts.push(otherText);
+        return;
+      }
+
+      extraParts.push(item);
+    });
+
+  const uniqueOptions = [...new Set(options)];
+  if (extraParts.length && !uniqueOptions.includes("other")) {
+    uniqueOptions.push("other");
+  }
+
+  return {
+    options: uniqueOptions,
+    other: extraParts.join(" | "),
+  };
+}
+
+function buildPatientForm(patient) {
+  const treatmentGoalState = buildTreatmentGoalState(patient);
+
+  return {
+    full_name: patient?.full_name || patient?.name || "",
+    sex: patient?.sex || "",
+    birth_date: formatBirthDateForInput(patient?.birth_date || patient?.birthDate),
+    cpf: patient?.cpf || "",
+    rg: patient?.rg || "",
+    marital_status: patient?.marital_status || "",
+    profession: patient?.profession || "",
+    referral_source: patient?.referral_source || "",
+    email: patient?.email || "",
+    phone: patient?.phone || "",
+    instagram: patient?.instagram || "",
+    contact_via_whatsapp: patient?.contact_via_whatsapp === true,
+    contact_via_phone: patient?.contact_via_phone === true,
+    contact_via_email: patient?.contact_via_email === true,
+    address_street: patient?.address_street || "",
+    address_number: patient?.address_number || "",
+    address_complement: patient?.address_complement || "",
+    address_neighborhood: patient?.address_neighborhood || "",
+    address_city: patient?.address_city || "",
+    address_state: patient?.address_state || "",
+    address_zip: patient?.address_zip || "",
+    emergency_contact_name: patient?.emergency_contact_name || "",
+    emergency_contact_relationship: patient?.emergency_contact_relationship || "",
+    emergency_contact_phone: patient?.emergency_contact_phone || "",
+    main_complaint: patient?.main_complaint || "",
+    relevant_conditions: patient?.relevant_conditions || "",
+    treatment_goal_options: treatmentGoalState.options,
+    treatment_goal_other: treatmentGoalState.other,
+    consent_data_processing: patient?.consent_data_processing === true,
+    consent_image_use: patient?.consent_image_use === true,
+    consent_info_truth: patient?.consent_info_truth === true,
+  };
+}
+
 export default function PatientDetails() {
   const { id } = useParams();
   const [activeTab, setActiveTab] = useState(TABS.resumo);
   const [isLoading, setIsLoading] = useState(false);
   const [patient, setPatient] = useState(null);
   const [evaluations, setEvaluations] = useState([]);
+  const [editingSection, setEditingSection] = useState(null);
+  const [isSavingSection, setIsSavingSection] = useState(false);
+  const [editForm, setEditForm] = useState(() => buildPatientForm(null));
 
   useEffect(() => {
     async function loadData() {
@@ -131,48 +281,279 @@ export default function PatientDetails() {
     }
   }, [id]);
 
+  useEffect(() => {
+    if (patient && !editingSection) {
+      setEditForm(buildPatientForm(patient));
+    }
+  }, [patient, editingSection]);
+
   const latestEval = evaluations[0] || null;
-  const summaryText =
-    latestEval?.summary_text || latestEval?.summaryText || "";
+  const summaryText = latestEval?.summary_text || latestEval?.summaryText || "";
   const planText = latestEval?.plan_text || latestEval?.planText || "";
   const lastNote = summaryText || planText || "Nenhum registro encontrado.";
-  const lastDate = latestEval ? formatDate(latestEval.created_at || latestEval.createdAt) : "--/--/----";
+  const lastDate = latestEval
+    ? formatDate(latestEval.created_at || latestEval.createdAt)
+    : "--/--/----";
 
   const age = useMemo(
-    () => (patient ? calcAge(patient.birth_date || patient.birthDate) : null),
+    () =>
+      patient
+        ? calculateAgeFromBirthDate(patient.birth_date || patient.birthDate)
+        : null,
     [patient],
   );
-
+  const editAge = useMemo(
+    () => calculateAgeFromBirthDate(editForm.birth_date),
+    [editForm.birth_date],
+  );
   const address = useMemo(() => resolveAddress(patient || {}), [patient]);
+  const editAddress = useMemo(() => resolveAddress(editForm || {}), [editForm]);
   const createdAtLabel = useMemo(
     () => formatDateTime(patient?.created_at || patient?.createdAt),
     [patient],
   );
   const treatmentGoalDisplay = useMemo(() => {
     if (!patient) return "-";
-    const goalOptions = Array.isArray(patient.treatment_goal_options)
-      ? patient.treatment_goal_options
-      : [];
 
-    const labels = goalOptions
+    const goalState = buildTreatmentGoalState(patient);
+    const labels = goalState.options
       .filter((item) => item !== "other")
       .map((item) => TREATMENT_GOAL_LABELS[item] || item);
 
-    if (goalOptions.includes("other")) {
-      if (patient.treatment_goal_other) {
-        labels.push(`Outro: ${patient.treatment_goal_other}`);
-      } else {
-        labels.push("Outro");
-      }
+    if (goalState.options.includes("other")) {
+      labels.push(goalState.other ? `Outro: ${goalState.other}` : "Outro");
     }
 
     if (labels.length) return labels.join(" | ");
     return valueOrDash(patient.treatment_goal);
   }, [patient]);
 
+  const isTreatmentGoalOtherSelected = editForm.treatment_goal_options.includes(
+    "other",
+  );
+  const isPersonalEditing = editingSection === EDIT_SECTIONS.personal;
+  const isContactEditing = editingSection === EDIT_SECTIONS.contact;
+  const isAddressEditing = editingSection === EDIT_SECTIONS.address;
+  const isEmergencyEditing = editingSection === EDIT_SECTIONS.emergency;
+  const isClinicalEditing = editingSection === EDIT_SECTIONS.clinical;
+  const isConsentEditing = editingSection === EDIT_SECTIONS.consent;
+
   const showResumo = useCallback(() => setActiveTab(TABS.resumo), []);
   const showHistorico = useCallback(() => setActiveTab(TABS.historico), []);
   const showDados = useCallback(() => setActiveTab(TABS.dados), []);
+
+  const startEditingSection = useCallback(
+    (section) => {
+      if (!patient || isSavingSection) return;
+      setEditForm(buildPatientForm(patient));
+      setEditingSection(section);
+    },
+    [patient, isSavingSection],
+  );
+
+  const cancelEditingSection = useCallback(() => {
+    setEditForm(buildPatientForm(patient));
+    setEditingSection(null);
+  }, [patient]);
+
+  const handleEditFieldChange = useCallback((event) => {
+    const { name, value, type, checked } = event.target;
+    let nextValue = type === "checkbox" ? checked : value;
+
+    if (name === "birth_date") {
+      nextValue = maskBirthDateInput(value);
+    } else if (name === "address_state") {
+      nextValue = String(value || "")
+        .replace(/[^a-zA-Z]/g, "")
+        .toUpperCase()
+        .slice(0, 2);
+    }
+
+    setEditForm((prev) => ({
+      ...prev,
+      [name]: nextValue,
+    }));
+  }, []);
+
+  const handleTreatmentGoalToggle = useCallback((goalValue) => {
+    setEditForm((prev) => {
+      const hasValue = prev.treatment_goal_options.includes(goalValue);
+      const nextGoals = hasValue
+        ? prev.treatment_goal_options.filter((value) => value !== goalValue)
+        : [...prev.treatment_goal_options, goalValue];
+
+      return {
+        ...prev,
+        treatment_goal_options: nextGoals,
+      };
+    });
+  }, []);
+
+  const handleSaveSection = useCallback(async () => {
+    if (!editingSection) return;
+
+    let payload = null;
+
+    if (editingSection === EDIT_SECTIONS.personal) {
+      const fullName = String(editForm.full_name || "").trim();
+      if (fullName.length < 3) {
+        toast.error("Informe o nome completo com pelo menos 3 caracteres.");
+        return;
+      }
+
+      if (isBirthDateFilled(editForm.birth_date) && !isBirthDateValid(editForm.birth_date)) {
+        toast.error(
+          "Confira a data de nascimento: use dia, mes e ano com 4 digitos, por exemplo 02/02/1992.",
+        );
+        return;
+      }
+
+      const sex = cleanText(editForm.sex);
+      payload = {
+        full_name: fullName,
+        sex: sex ? sex.toUpperCase() : null,
+        birth_date: formatBirthDateForApi(editForm.birth_date),
+        cpf: cleanText(editForm.cpf),
+        rg: cleanText(editForm.rg),
+        marital_status: cleanText(editForm.marital_status),
+        profession: cleanText(editForm.profession),
+        referral_source: cleanText(editForm.referral_source),
+      };
+    }
+
+    if (editingSection === EDIT_SECTIONS.contact) {
+      payload = {
+        email: cleanText(editForm.email),
+        phone: cleanText(editForm.phone),
+        instagram: cleanText(editForm.instagram),
+        contact_via_whatsapp: editForm.contact_via_whatsapp,
+        contact_via_phone: editForm.contact_via_phone,
+        contact_via_email: editForm.contact_via_email,
+      };
+    }
+
+    if (editingSection === EDIT_SECTIONS.address) {
+      payload = {
+        address_street: cleanText(editForm.address_street),
+        address_number: cleanText(editForm.address_number),
+        address_complement: cleanText(editForm.address_complement),
+        address_neighborhood: cleanText(editForm.address_neighborhood),
+        address_city: cleanText(editForm.address_city),
+        address_state: cleanText(editForm.address_state),
+        address_zip: cleanText(editForm.address_zip),
+      };
+    }
+
+    if (editingSection === EDIT_SECTIONS.emergency) {
+      payload = {
+        emergency_contact_name: cleanText(editForm.emergency_contact_name),
+        emergency_contact_relationship: cleanText(
+          editForm.emergency_contact_relationship,
+        ),
+        emergency_contact_phone: cleanText(editForm.emergency_contact_phone),
+      };
+    }
+
+    if (editingSection === EDIT_SECTIONS.clinical) {
+      const treatmentGoalOther = cleanText(editForm.treatment_goal_other);
+
+      if (
+        editForm.treatment_goal_options.includes("other") &&
+        !treatmentGoalOther
+      ) {
+        toast.error("Preencha o campo 'Outro' em objetivo do tratamento.");
+        return;
+      }
+
+      payload = {
+        main_complaint: cleanText(editForm.main_complaint),
+        relevant_conditions: cleanText(editForm.relevant_conditions),
+        treatment_goal_options: editForm.treatment_goal_options,
+        treatment_goal_other: editForm.treatment_goal_options.includes("other")
+          ? treatmentGoalOther
+          : null,
+      };
+    }
+
+    if (editingSection === EDIT_SECTIONS.consent) {
+      payload = {
+        consent_data_processing: editForm.consent_data_processing,
+        consent_image_use: editForm.consent_image_use,
+        consent_info_truth: editForm.consent_info_truth,
+      };
+    }
+
+    if (!payload) return;
+
+    setIsSavingSection(true);
+    try {
+      const response = await axios.put(`/patients/${id}`, payload);
+      const nextPatient =
+        response?.data && typeof response.data === "object"
+          ? response.data
+          : { ...patient, ...payload };
+
+      setPatient(nextPatient);
+      setEditForm(buildPatientForm(nextPatient));
+      setEditingSection(null);
+      toast.success("Dados atualizados com sucesso.");
+    } catch (error) {
+      const message =
+        error?.response?.data?.error ||
+        "Nao foi possivel atualizar os dados do paciente.";
+      toast.error(message);
+    } finally {
+      setIsSavingSection(false);
+    }
+  }, [editForm, editingSection, id, patient]);
+
+  const renderSectionActions = useCallback(
+    (section) => {
+      const isCurrentSection = editingSection === section;
+      const disableEdit = Boolean(editingSection) || isSavingSection;
+
+      if (isCurrentSection) {
+        return (
+          <CardActions>
+            <CardButton
+              type="button"
+              onClick={cancelEditingSection}
+              disabled={isSavingSection}
+            >
+              Cancelar
+            </CardButton>
+            <CardButton
+              type="button"
+              $primary
+              onClick={handleSaveSection}
+              disabled={isSavingSection}
+            >
+              {isSavingSection ? "Salvando..." : "Salvar"}
+            </CardButton>
+          </CardActions>
+        );
+      }
+
+      return (
+        <CardActions>
+          <CardButton
+            type="button"
+            onClick={() => startEditingSection(section)}
+            disabled={disableEdit}
+          >
+            Editar
+          </CardButton>
+        </CardActions>
+      );
+    },
+    [
+      cancelEditingSection,
+      editingSection,
+      handleSaveSection,
+      isSavingSection,
+      startEditingSection,
+    ],
+  );
 
   return (
     <Wrapper>
@@ -216,7 +597,7 @@ export default function PatientDetails() {
           </TabButton>
         </Tabs>
 
-        <Loading isLoading={isLoading} />
+        <Loading isLoading={isLoading || isSavingSection} />
 
         {!isLoading && activeTab === TABS.resumo && (
           <Section>
@@ -224,9 +605,7 @@ export default function PatientDetails() {
               <CardTitle>
                 <FaInfoCircle /> Resumo clinico
               </CardTitle>
-              <CardText>
-                {summaryText || "Sem resumo clinico."}
-              </CardText>
+              <CardText>{summaryText || "Sem resumo clinico."}</CardText>
             </InfoCard>
             <InfoCard>
               <CardTitle>
@@ -242,17 +621,20 @@ export default function PatientDetails() {
         {!isLoading && activeTab === TABS.historico && (
           <Section>
             {evaluations.length === 0 && (
-              <EmptyState>Nenhuma avaliação encontrada.</EmptyState>
+              <EmptyState>Nenhuma avaliacao encontrada.</EmptyState>
             )}
             {evaluations.map((evaluation) => {
-              const title = evaluation.summary_text || evaluation.summaryText || "Avaliacao";
+              const title =
+                evaluation.summary_text || evaluation.summaryText || "Avaliacao";
               const note =
                 evaluation.plan_text ||
                 evaluation.planText ||
                 evaluation.summary_text ||
                 evaluation.summaryText ||
-                "Sem observações.";
-              const createdAt = formatDate(evaluation.created_at || evaluation.createdAt);
+                "Sem observacoes.";
+              const createdAt = formatDate(
+                evaluation.created_at || evaluation.createdAt,
+              );
 
               return (
                 <HistoryCardLink
@@ -281,171 +663,654 @@ export default function PatientDetails() {
                 </DataRow>
               </DataList>
             </InfoCard>
-            <InfoCard>
-              <CardTitle>
-                <FaUserAlt /> Informacoes pessoais
-              </CardTitle>
-              <DataList>
-                <DataRow>
-                  <DataLabel>Nome completo</DataLabel>
-                  <DataValue>{valueOrDash(patient?.full_name || patient?.name)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Sexo</DataLabel>
-                  <DataValue>{valueOrDash(patient?.sex)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Data de nascimento</DataLabel>
-                  <DataValue>{formatDate(patient?.birth_date || patient?.birthDate)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Idade</DataLabel>
-                  <DataValue>{age !== null ? `${age} anos` : "-"}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>CPF</DataLabel>
-                  <DataValue>{valueOrDash(patient?.cpf)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>RG</DataLabel>
-                  <DataValue>{valueOrDash(patient?.rg)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Estado civil</DataLabel>
-                  <DataValue>{valueOrDash(patient?.marital_status)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Profissao</DataLabel>
-                  <DataValue>{valueOrDash(patient?.profession)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Origem</DataLabel>
-                  <DataValue>{valueOrDash(patient?.referral_source)}</DataValue>
-                </DataRow>
-              </DataList>
+
+            <InfoCard $editing={isPersonalEditing}>
+              <CardHeader>
+                <CardHeaderInfo>
+                  <CardTitle>
+                    <FaUserAlt /> Informacoes pessoais
+                  </CardTitle>
+                  {isPersonalEditing && <EditingBadge>Em edicao</EditingBadge>}
+                </CardHeaderInfo>
+                {renderSectionActions(EDIT_SECTIONS.personal)}
+              </CardHeader>
+              {!isPersonalEditing && (
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Nome completo</DataLabel>
+                    <DataValue>
+                      {valueOrDash(patient?.full_name || patient?.name)}
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Sexo</DataLabel>
+                    <DataValue>{formatSex(patient?.sex)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Data de nascimento</DataLabel>
+                    <DataValue>
+                      {formatBirthDateForDisplay(
+                        patient?.birth_date || patient?.birthDate,
+                      )}
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Idade</DataLabel>
+                    <DataValue>{age !== null ? `${age} anos` : "-"}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>CPF</DataLabel>
+                    <DataValue>{valueOrDash(patient?.cpf)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>RG</DataLabel>
+                    <DataValue>{valueOrDash(patient?.rg)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Estado civil</DataLabel>
+                    <DataValue>{valueOrDash(patient?.marital_status)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Profissao</DataLabel>
+                    <DataValue>{valueOrDash(patient?.profession)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Origem</DataLabel>
+                    <DataValue>{valueOrDash(patient?.referral_source)}</DataValue>
+                  </DataRow>
+                </DataList>
+              )}
+              {isPersonalEditing && (
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Nome completo</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="full_name"
+                        value={editForm.full_name}
+                        onChange={handleEditFieldChange}
+                        placeholder="Nome completo"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Sexo</DataLabel>
+                    <DataValue>
+                      <InlineSelect
+                        name="sex"
+                        value={editForm.sex}
+                        onChange={handleEditFieldChange}
+                      >
+                        {SEX_OPTIONS.map((option) => (
+                          <option key={option.value || "empty"} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </InlineSelect>
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Data de nascimento</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        type="text"
+                        name="birth_date"
+                        value={editForm.birth_date}
+                        onChange={handleEditFieldChange}
+                        placeholder="dd/mm/aaaa"
+                        inputMode="numeric"
+                        maxLength={10}
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Idade</DataLabel>
+                    <DataValue>{editAge !== null ? `${editAge} anos` : "-"}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>CPF</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="cpf"
+                        value={editForm.cpf}
+                        onChange={handleEditFieldChange}
+                        placeholder="000.000.000-00"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>RG</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="rg"
+                        value={editForm.rg}
+                        onChange={handleEditFieldChange}
+                        placeholder="RG"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Estado civil</DataLabel>
+                    <DataValue>
+                      <InlineSelect
+                        name="marital_status"
+                        value={editForm.marital_status}
+                        onChange={handleEditFieldChange}
+                      >
+                        {MARITAL_STATUS_OPTIONS.map((option) => (
+                          <option key={option.value || "empty"} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </InlineSelect>
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Profissao</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="profession"
+                        value={editForm.profession}
+                        onChange={handleEditFieldChange}
+                        placeholder="Profissao"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Origem</DataLabel>
+                    <DataValue>
+                      <InlineSelect
+                        name="referral_source"
+                        value={editForm.referral_source}
+                        onChange={handleEditFieldChange}
+                      >
+                        {REFERRAL_SOURCE_OPTIONS.map((option) => (
+                          <option key={option.value || "empty"} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </InlineSelect>
+                    </DataValue>
+                  </DataRow>
+                </DataList>
+              )}
             </InfoCard>
-            <InfoCard>
-              <CardTitle>
-                <FaPhoneAlt /> Contato
-              </CardTitle>
-              <DataList>
-                <DataRow>
-                  <DataLabel>Email</DataLabel>
-                  <DataValue>{valueOrDash(patient?.email)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Telefone</DataLabel>
-                  <DataValue>{valueOrDash(patient?.phone)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Instagram</DataLabel>
-                  <DataValue>{valueOrDash(patient?.instagram)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Contato via WhatsApp</DataLabel>
-                  <DataValue>{formatBoolean(patient?.contact_via_whatsapp)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Contato via telefone</DataLabel>
-                  <DataValue>{formatBoolean(patient?.contact_via_phone)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Contato via email</DataLabel>
-                  <DataValue>{formatBoolean(patient?.contact_via_email)}</DataValue>
-                </DataRow>
-              </DataList>
+
+            <InfoCard $editing={isContactEditing}>
+              <CardHeader>
+                <CardHeaderInfo>
+                  <CardTitle>
+                    <FaPhoneAlt /> Contato
+                  </CardTitle>
+                  {isContactEditing && <EditingBadge>Em edicao</EditingBadge>}
+                </CardHeaderInfo>
+                {renderSectionActions(EDIT_SECTIONS.contact)}
+              </CardHeader>
+              {!isContactEditing && (
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Email</DataLabel>
+                    <DataValue>{valueOrDash(patient?.email)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Telefone</DataLabel>
+                    <DataValue>{valueOrDash(patient?.phone)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Instagram</DataLabel>
+                    <DataValue>{valueOrDash(patient?.instagram)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Contato via WhatsApp</DataLabel>
+                    <DataValue>
+                      {formatBoolean(patient?.contact_via_whatsapp)}
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Contato via telefone</DataLabel>
+                    <DataValue>{formatBoolean(patient?.contact_via_phone)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Contato via email</DataLabel>
+                    <DataValue>{formatBoolean(patient?.contact_via_email)}</DataValue>
+                  </DataRow>
+                </DataList>
+              )}
+              {isContactEditing && (
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Email</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        type="email"
+                        name="email"
+                        value={editForm.email}
+                        onChange={handleEditFieldChange}
+                        placeholder="email@exemplo.com"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Telefone</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="phone"
+                        value={editForm.phone}
+                        onChange={handleEditFieldChange}
+                        placeholder="(00) 00000-0000"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Instagram</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="instagram"
+                        value={editForm.instagram}
+                        onChange={handleEditFieldChange}
+                        placeholder="@perfil"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Contato via WhatsApp</DataLabel>
+                    <DataValue>
+                      <CheckboxOption>
+                        <input
+                          type="checkbox"
+                          name="contact_via_whatsapp"
+                          checked={editForm.contact_via_whatsapp}
+                          onChange={handleEditFieldChange}
+                        />
+                        <span>Permitir contato por WhatsApp</span>
+                      </CheckboxOption>
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Contato via telefone</DataLabel>
+                    <DataValue>
+                      <CheckboxOption>
+                        <input
+                          type="checkbox"
+                          name="contact_via_phone"
+                          checked={editForm.contact_via_phone}
+                          onChange={handleEditFieldChange}
+                        />
+                        <span>Permitir contato por telefone</span>
+                      </CheckboxOption>
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Contato via email</DataLabel>
+                    <DataValue>
+                      <CheckboxOption>
+                        <input
+                          type="checkbox"
+                          name="contact_via_email"
+                          checked={editForm.contact_via_email}
+                          onChange={handleEditFieldChange}
+                        />
+                        <span>Permitir contato por email</span>
+                      </CheckboxOption>
+                    </DataValue>
+                  </DataRow>
+                </DataList>
+              )}
             </InfoCard>
-            <InfoCard>
-              <CardTitle>Endereço</CardTitle>
-              <DataList>
-                <DataRow>
-                  <DataLabel>Endereço completo</DataLabel>
-                  <DataValue>{valueOrDash(address)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Rua</DataLabel>
-                  <DataValue>{valueOrDash(patient?.address_street)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Número</DataLabel>
-                  <DataValue>{valueOrDash(patient?.address_number)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Complemento</DataLabel>
-                  <DataValue>{valueOrDash(patient?.address_complement)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Bairro</DataLabel>
-                  <DataValue>{valueOrDash(patient?.address_neighborhood)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Cidade</DataLabel>
-                  <DataValue>{valueOrDash(patient?.address_city)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>UF</DataLabel>
-                  <DataValue>{valueOrDash(patient?.address_state)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>CEP</DataLabel>
-                  <DataValue>{valueOrDash(patient?.address_zip)}</DataValue>
-                </DataRow>
-              </DataList>
+
+            <InfoCard $editing={isAddressEditing}>
+              <CardHeader>
+                <CardHeaderInfo>
+                  <CardTitle>Endereco</CardTitle>
+                  {isAddressEditing && <EditingBadge>Em edicao</EditingBadge>}
+                </CardHeaderInfo>
+                {renderSectionActions(EDIT_SECTIONS.address)}
+              </CardHeader>
+              {!isAddressEditing && (
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Endereco completo</DataLabel>
+                    <DataValue>{valueOrDash(address)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Rua</DataLabel>
+                    <DataValue>{valueOrDash(patient?.address_street)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Numero</DataLabel>
+                    <DataValue>{valueOrDash(patient?.address_number)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Complemento</DataLabel>
+                    <DataValue>{valueOrDash(patient?.address_complement)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Bairro</DataLabel>
+                    <DataValue>{valueOrDash(patient?.address_neighborhood)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Cidade</DataLabel>
+                    <DataValue>{valueOrDash(patient?.address_city)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>UF</DataLabel>
+                    <DataValue>{valueOrDash(patient?.address_state)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>CEP</DataLabel>
+                    <DataValue>{valueOrDash(patient?.address_zip)}</DataValue>
+                  </DataRow>
+                </DataList>
+              )}
+              {isAddressEditing && (
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Endereco completo</DataLabel>
+                    <DataValue>{valueOrDash(editAddress)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Rua</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="address_street"
+                        value={editForm.address_street}
+                        onChange={handleEditFieldChange}
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Numero</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="address_number"
+                        value={editForm.address_number}
+                        onChange={handleEditFieldChange}
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Complemento</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="address_complement"
+                        value={editForm.address_complement}
+                        onChange={handleEditFieldChange}
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Bairro</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="address_neighborhood"
+                        value={editForm.address_neighborhood}
+                        onChange={handleEditFieldChange}
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Cidade</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="address_city"
+                        value={editForm.address_city}
+                        onChange={handleEditFieldChange}
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>UF</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="address_state"
+                        value={editForm.address_state}
+                        onChange={handleEditFieldChange}
+                        maxLength={2}
+                        placeholder="UF"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>CEP</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="address_zip"
+                        value={editForm.address_zip}
+                        onChange={handleEditFieldChange}
+                      />
+                    </DataValue>
+                  </DataRow>
+                </DataList>
+              )}
             </InfoCard>
-            <InfoCard>
-              <CardTitle>Contato de emergência</CardTitle>
-              <DataList>
-                <DataRow>
-                  <DataLabel>Nome</DataLabel>
-                  <DataValue>{valueOrDash(patient?.emergency_contact_name)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Parentesco</DataLabel>
-                  <DataValue>{valueOrDash(patient?.emergency_contact_relationship)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Telefone</DataLabel>
-                  <DataValue>{valueOrDash(patient?.emergency_contact_phone)}</DataValue>
-                </DataRow>
-              </DataList>
+
+            <InfoCard $editing={isEmergencyEditing}>
+              <CardHeader>
+                <CardHeaderInfo>
+                  <CardTitle>Contato de emergencia</CardTitle>
+                  {isEmergencyEditing && <EditingBadge>Em edicao</EditingBadge>}
+                </CardHeaderInfo>
+                {renderSectionActions(EDIT_SECTIONS.emergency)}
+              </CardHeader>
+              {!isEmergencyEditing && (
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Nome</DataLabel>
+                    <DataValue>{valueOrDash(patient?.emergency_contact_name)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Parentesco</DataLabel>
+                    <DataValue>
+                      {valueOrDash(patient?.emergency_contact_relationship)}
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Telefone</DataLabel>
+                    <DataValue>{valueOrDash(patient?.emergency_contact_phone)}</DataValue>
+                  </DataRow>
+                </DataList>
+              )}
+              {isEmergencyEditing && (
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Nome</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="emergency_contact_name"
+                        value={editForm.emergency_contact_name}
+                        onChange={handleEditFieldChange}
+                        placeholder="Nome do contato"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Parentesco</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="emergency_contact_relationship"
+                        value={editForm.emergency_contact_relationship}
+                        onChange={handleEditFieldChange}
+                        placeholder="Ex.: Mae, Pai, Conjuge"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Telefone</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="emergency_contact_phone"
+                        value={editForm.emergency_contact_phone}
+                        onChange={handleEditFieldChange}
+                        placeholder="(00) 00000-0000"
+                      />
+                    </DataValue>
+                  </DataRow>
+                </DataList>
+              )}
             </InfoCard>
-            <InfoCard>
-              <CardTitle>Informações clínicas</CardTitle>
-              <DataList>
-                <DataRow>
-                  <DataLabel>Queixa principal</DataLabel>
-                  <DataValue>{valueOrDash(patient?.main_complaint)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Doenças/condições relevantes</DataLabel>
-                  <DataValue>{valueOrDash(patient?.relevant_conditions)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Objetivo do tratamento</DataLabel>
-                  <DataValue>{treatmentGoalDisplay}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Objetivo (Outro)</DataLabel>
-                  <DataValue>{valueOrDash(patient?.treatment_goal_other)}</DataValue>
-                </DataRow>
-              </DataList>
+
+            <InfoCard $editing={isClinicalEditing}>
+              <CardHeader>
+                <CardHeaderInfo>
+                  <CardTitle>Informacoes clinicas</CardTitle>
+                  {isClinicalEditing && <EditingBadge>Em edicao</EditingBadge>}
+                </CardHeaderInfo>
+                {renderSectionActions(EDIT_SECTIONS.clinical)}
+              </CardHeader>
+              {!isClinicalEditing && (
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Queixa principal</DataLabel>
+                    <DataValue>{valueOrDash(patient?.main_complaint)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Doencas/condicoes relevantes</DataLabel>
+                    <DataValue>{valueOrDash(patient?.relevant_conditions)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Objetivo do tratamento</DataLabel>
+                    <DataValue>{treatmentGoalDisplay}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Objetivo (Outro)</DataLabel>
+                    <DataValue>{valueOrDash(patient?.treatment_goal_other)}</DataValue>
+                  </DataRow>
+                </DataList>
+              )}
+              {isClinicalEditing && (
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Queixa principal</DataLabel>
+                    <DataValue>
+                      <InlineTextarea
+                        name="main_complaint"
+                        value={editForm.main_complaint}
+                        onChange={handleEditFieldChange}
+                        rows={4}
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Doencas/condicoes relevantes</DataLabel>
+                    <DataValue>
+                      <InlineTextarea
+                        name="relevant_conditions"
+                        value={editForm.relevant_conditions}
+                        onChange={handleEditFieldChange}
+                        rows={4}
+                        placeholder="Ex.: Hipertensao, diabetes, cardiopatia, labirintite etc."
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Objetivo do tratamento</DataLabel>
+                    <DataValue>
+                      <TreatmentGoalOptions>
+                        {TREATMENT_GOAL_OPTIONS.map((goal) => (
+                          <CheckboxOption key={goal.value}>
+                            <input
+                              type="checkbox"
+                              checked={editForm.treatment_goal_options.includes(goal.value)}
+                              onChange={() => handleTreatmentGoalToggle(goal.value)}
+                            />
+                            <span>{goal.label}</span>
+                          </CheckboxOption>
+                        ))}
+                        <CheckboxOption>
+                          <input
+                            type="checkbox"
+                            checked={isTreatmentGoalOtherSelected}
+                            onChange={() => handleTreatmentGoalToggle("other")}
+                          />
+                          <span>Outro</span>
+                        </CheckboxOption>
+                      </TreatmentGoalOptions>
+                      {isTreatmentGoalOtherSelected && (
+                        <TreatmentGoalOtherInput
+                          name="treatment_goal_other"
+                          value={editForm.treatment_goal_other}
+                          onChange={handleEditFieldChange}
+                          placeholder="Descreva"
+                        />
+                      )}
+                    </DataValue>
+                  </DataRow>
+                </DataList>
+              )}
             </InfoCard>
-            <InfoCard>
-              <CardTitle>Consentimentos</CardTitle>
-              <DataList>
-                <DataRow>
-                  <DataLabel>Consentimento LGPD</DataLabel>
-                  <DataValue>{formatBoolean(patient?.consent_data_processing)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Consentimento de imagem</DataLabel>
-                  <DataValue>{formatBoolean(patient?.consent_image_use)}</DataValue>
-                </DataRow>
-                <DataRow>
-                  <DataLabel>Veracidade das informações</DataLabel>
-                  <DataValue>{formatBoolean(patient?.consent_info_truth)}</DataValue>
-                </DataRow>
-              </DataList>
+
+            <InfoCard $editing={isConsentEditing}>
+              <CardHeader>
+                <CardHeaderInfo>
+                  <CardTitle>Consentimentos</CardTitle>
+                  {isConsentEditing && <EditingBadge>Em edicao</EditingBadge>}
+                </CardHeaderInfo>
+                {renderSectionActions(EDIT_SECTIONS.consent)}
+              </CardHeader>
+              {!isConsentEditing && (
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Consentimento LGPD</DataLabel>
+                    <DataValue>
+                      {formatBoolean(patient?.consent_data_processing)}
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Consentimento de imagem</DataLabel>
+                    <DataValue>{formatBoolean(patient?.consent_image_use)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Veracidade das informacoes</DataLabel>
+                    <DataValue>{formatBoolean(patient?.consent_info_truth)}</DataValue>
+                  </DataRow>
+                </DataList>
+              )}
+              {isConsentEditing && (
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Consentimento LGPD</DataLabel>
+                    <DataValue>
+                      <CheckboxOption>
+                        <input
+                          type="checkbox"
+                          name="consent_data_processing"
+                          checked={editForm.consent_data_processing}
+                          onChange={handleEditFieldChange}
+                        />
+                        <span>Autoriza a coleta e uso dos dados</span>
+                      </CheckboxOption>
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Consentimento de imagem</DataLabel>
+                    <DataValue>
+                      <CheckboxOption>
+                        <input
+                          type="checkbox"
+                          name="consent_image_use"
+                          checked={editForm.consent_image_use}
+                          onChange={handleEditFieldChange}
+                        />
+                        <span>Autoriza uso de imagem, voz e depoimento</span>
+                      </CheckboxOption>
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Veracidade das informacoes</DataLabel>
+                    <DataValue>
+                      <CheckboxOption>
+                        <input
+                          type="checkbox"
+                          name="consent_info_truth"
+                          checked={editForm.consent_info_truth}
+                          onChange={handleEditFieldChange}
+                        />
+                        <span>Declara que as informacoes sao verdadeiras</span>
+                      </CheckboxOption>
+                    </DataValue>
+                  </DataRow>
+                </DataList>
+              )}
             </InfoCard>
           </Section>
         )}
@@ -465,6 +1330,7 @@ const Content = styled.div`
   max-width: 1220px;
   margin: 0 auto;
   padding: 0 30px;
+
   @media only screen and (max-width: 859px) {
     padding: 0 15px;
   }
@@ -545,11 +1411,35 @@ const Section = styled.div`
 `;
 
 const InfoCard = styled.div`
-  background: #fff;
+  background: ${(props) => (props.$editing ? "#fcfdf8" : "#fff")};
   border-radius: 16px;
-  border: 1px solid rgba(106, 121, 92, 0.18);
+  border: 1px solid
+    ${(props) =>
+      props.$editing ? "rgba(190, 92, 92, 0.5)" : "rgba(106, 121, 92, 0.18)"};
   padding: 18px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
+  box-shadow: ${(props) =>
+    props.$editing
+      ? "0 14px 30px rgba(190, 92, 92, 0.08)"
+      : "0 10px 24px rgba(0, 0, 0, 0.06)"};
+`;
+
+const CardHeader = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+
+  @media (max-width: 720px) {
+    flex-direction: column;
+  }
+`;
+
+const CardHeaderInfo = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 `;
 
 const CardTitle = styled.div`
@@ -558,12 +1448,51 @@ const CardTitle = styled.div`
   gap: 8px;
   font-weight: 700;
   color: #1b1b1b;
-  margin-bottom: 10px;
+`;
+
+const EditingBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(106, 121, 92, 0.12);
+  color: #55644c;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 `;
 
 const CardText = styled.div`
+  margin-top: 10px;
   color: #6a795c;
   line-height: 1.5;
+`;
+
+const CardActions = styled.div`
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+`;
+
+const CardButton = styled.button`
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.28);
+  background: ${(props) => (props.$primary ? "#6a795c" : "#fff")};
+  color: ${(props) => (props.$primary ? "#fff" : "#6a795c")};
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.2s ease, opacity 0.2s ease;
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.97);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
 `;
 
 const DataList = styled.div`
@@ -586,7 +1515,7 @@ const DataRow = styled.div`
 
   @media (max-width: 680px) {
     grid-template-columns: 1fr;
-    gap: 2px;
+    gap: 4px;
   }
 `;
 
@@ -596,12 +1525,75 @@ const DataLabel = styled.span`
   font-weight: 700;
 `;
 
-const DataValue = styled.span`
+const DataValue = styled.div`
+  min-width: 0;
+  width: 100%;
   color: #2d3629;
   font-size: 0.92rem;
   line-height: 1.4;
   white-space: pre-wrap;
   word-break: break-word;
+`;
+
+const fieldStyles = css`
+  width: 100%;
+  max-width: 100%;
+  min-height: 42px;
+  box-sizing: border-box;
+  display: block;
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.2);
+  padding: 0 12px;
+  font-size: 0.95rem;
+  color: #1b1b1b;
+  background: #fff;
+
+  &:focus {
+    outline: none;
+    border-color: rgba(106, 121, 92, 0.45);
+    box-shadow: 0 0 0 3px rgba(106, 121, 92, 0.12);
+  }
+`;
+
+const InlineInput = styled.input`
+  ${fieldStyles}
+`;
+
+const InlineSelect = styled.select`
+  ${fieldStyles}
+`;
+
+const InlineTextarea = styled.textarea`
+  ${fieldStyles}
+  min-height: 110px;
+  padding: 10px 12px;
+  resize: vertical;
+`;
+
+const CheckboxOption = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #1b1b1b;
+  font-size: 0.95rem;
+
+  input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: #6a795c;
+    flex-shrink: 0;
+  }
+`;
+
+const TreatmentGoalOptions = styled.div`
+  display: grid;
+  gap: 10px;
+`;
+
+const TreatmentGoalOtherInput = styled.input`
+  ${fieldStyles}
+  margin-top: 10px;
 `;
 
 const HistoryCardLink = styled(Link)`

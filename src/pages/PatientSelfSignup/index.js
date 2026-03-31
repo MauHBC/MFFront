@@ -5,6 +5,12 @@ import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
 import Loading from "../../components/Loading";
+import {
+  formatBirthDateForApi,
+  isBirthDateFilled,
+  isBirthDateValid,
+  maskBirthDateInput,
+} from "../../utils/birthDate";
 
 const clean = (value) => {
   if (value === null || value === undefined) return null;
@@ -95,7 +101,18 @@ export default function PatientSelfSignup() {
 
   const handleChange = useCallback((event) => {
     const { name, value, type, checked } = event.target;
-    setForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
+    let nextValue = value;
+
+    if (type === "checkbox") {
+      nextValue = checked;
+    } else if (name === "birth_date") {
+      nextValue = maskBirthDateInput(value);
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      [name]: nextValue,
+    }));
   }, []);
 
   const handleTreatmentGoalToggle = useCallback((goalValue) => {
@@ -125,6 +142,13 @@ export default function PatientSelfSignup() {
         return;
       }
 
+      if (isBirthDateFilled(form.birth_date) && !isBirthDateValid(form.birth_date)) {
+        toast.error(
+          "Data de nascimento invalida, coloque 4 digitos.",
+        );
+        return;
+      }
+
       const hasTreatmentGoalOther = form.treatment_goal_options.includes("other");
       const treatmentGoalOther = clean(form.treatment_goal_other || "");
       if (hasTreatmentGoalOther && !treatmentGoalOther) {
@@ -143,7 +167,7 @@ export default function PatientSelfSignup() {
         phone: clean(form.phone),
         referral_source: clean(form.referral_source),
         sex: sex ? sex.toUpperCase() : null,
-        birth_date: clean(form.birth_date),
+        birth_date: formatBirthDateForApi(form.birth_date),
         cpf: clean(form.cpf),
         rg: clean(form.rg),
         profession: clean(form.profession),
@@ -277,10 +301,14 @@ export default function PatientSelfSignup() {
             <Field>
               Data de nascimento
               <input
-                type="date"
+                type="text"
                 name="birth_date"
                 value={form.birth_date}
                 onChange={handleChange}
+                placeholder="dd/mm/aaaa"
+                inputMode="numeric"
+                maxLength={10}
+                autoComplete="bday"
               />
             </Field>
             <Field>
