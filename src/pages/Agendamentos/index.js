@@ -139,6 +139,27 @@ const emptyForm = {
   absence_reason: "",
 };
 
+const emptyDeleteModal = {
+  open: false,
+  step: "choice",
+  mode: "single",
+  session: null,
+  candidates: [],
+  selectedIds: [],
+  reason: "",
+};
+
+const resolveSeriesId = (session) => session?.series_id || session?.series?.id || null;
+
+const hasRecurringSeries = (session) => !!resolveSeriesId(session);
+
+const sessionStatusLabel = (status) => {
+  if (status === "done") return "Concluido";
+  if (status === "no_show") return "Falta";
+  if (status === "canceled") return "Cancelado";
+  return "Agendado";
+};
+
 const normalizeText = (value) => {
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
@@ -193,6 +214,15 @@ const formatDateParam = (value) => {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+};
+
+const formatMonthValue = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
 };
 
 const formatDate = (value) => {
@@ -353,9 +383,13 @@ export default function Agendamentos() {
   const [repeatMode, setRepeatMode] = useState("count");
   const [repeatCount, setRepeatCount] = useState("10");
   const [repeatWeeks, setRepeatWeeks] = useState("4");
+  const [repeatMonth, setRepeatMonth] = useState(() => formatMonthValue(new Date()));
   const [formAvailability, setFormAvailability] = useState(null);
   const [isCheckingFormAvailability, setIsCheckingFormAvailability] = useState(false);
   const [recurrencePreview, setRecurrencePreview] = useState(null);
+  const [deleteModal, setDeleteModal] = useState(emptyDeleteModal);
+  const [isDeletePreviewing, setIsDeletePreviewing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadBaseData = useCallback(async () => {
     try {
@@ -611,6 +645,48 @@ export default function Agendamentos() {
     if (status === "no_show") return "no_show";
     return "scheduled";
   }, []);
+
+  const buildDeleteCandidates = useCallback(
+    (sourceSession, mode) => {
+      if (!sourceSession?.id) return [];
+      const sourcePool = pendingSessionsSource.length > 0 ? pendingSessionsSource : sessions;
+      const targetSession =
+        sourcePool.find((item) => String(item.id) === String(sourceSession.id)) || sourceSession;
+
+      if (mode !== "series") {
+        return targetSession ? [targetSession] : [];
+      }
+
+      const seriesId = resolveSeriesId(targetSession);
+      if (!seriesId) {
+        return targetSession ? [targetSession] : [];
+      }
+
+      const targetStart = targetSession?.starts_at ? new Date(targetSession.starts_at) : null;
+      const targetTime =
+        targetStart && !Number.isNaN(targetStart.getTime()) ? targetStart.getTime() : null;
+
+      const candidates = sourcePool
+        .filter((item) => String(resolveSeriesId(item)) === String(seriesId))
+        .filter((item) => {
+          if (targetTime === null) return true;
+          const startsAt = item?.starts_at ? new Date(item.starts_at) : null;
+          if (!startsAt || Number.isNaN(startsAt.getTime())) return false;
+          return startsAt.getTime() >= targetTime;
+        })
+        .sort((first, second) => {
+          const firstTime = first?.starts_at ? new Date(first.starts_at).getTime() : 0;
+          const secondTime = second?.starts_at ? new Date(second.starts_at).getTime() : 0;
+          if (firstTime !== secondTime) return firstTime - secondTime;
+          return Number(first.id) - Number(second.id);
+        });
+
+      if (candidates.length > 0) return candidates;
+      if (targetSession) return [targetSession];
+      return [];
+    },
+    [pendingSessionsSource, sessions],
+  );
 
   const getSessionEndDate = useCallback(
     (session) => {
@@ -966,10 +1042,13 @@ export default function Agendamentos() {
       starts_at: value,
       ends_at: toInputValue(endsAt),
     }));
+    if (repeatMode !== "month") {
+      setRepeatMonth(formatMonthValue(startDate));
+    }
     if (repeatEnabled && repeatWeekdays.length === 0) {
       setRepeatWeekdays([toIsoWeekday(startDate)]);
     }
-  }, [repeatEnabled, repeatWeekdays.length]);
+  }, [repeatEnabled, repeatMode, repeatWeekdays.length]);
 
   useEffect(() => {
     if (!isDrawerOpen || drawerMode !== "form") {
@@ -1140,6 +1219,7 @@ export default function Agendamentos() {
     setRepeatMode("count");
     setRepeatCount("10");
     setRepeatWeeks("4");
+    setRepeatMonth(formatMonthValue(new Date()));
     setFormAvailability(null);
     setRecurrencePreview(null);
   }, []);
@@ -1246,6 +1326,7 @@ export default function Agendamentos() {
         starts_at: toInputValue(date),
         ends_at: toInputValue(endsAt),
       }));
+      setRepeatMonth(formatMonthValue(date));
       setIsDrawerOpen(true);
     },
     [resetForm],
@@ -1337,6 +1418,7 @@ export default function Agendamentos() {
       setRepeatMode("count");
       setRepeatCount("10");
       setRepeatWeeks("4");
+      setRepeatMonth(session?.starts_at ? formatMonthValue(session.starts_at) : formatMonthValue(new Date()));
       setForm({
         patient_id: session.patient_id ? String(session.patient_id) : "",
         professional_user_id: session.professional_user_id
@@ -1357,6 +1439,144 @@ export default function Agendamentos() {
     },
     [filteredSessions, servicesByCode],
   );
+
+  const handleOpenDelete = useCallback(
+    (session) => {
+      if (!session?.id) return;
+      const sourcePool = pendingSessionsSource.length > 0 ? pendingSessionsSource : sessions;
+      const targetSession =
+        sourcePool.find((item) => String(item.id) === String(session.id)) || session;
+
+      setDeleteModal({
+        ...emptyDeleteModal,
+        open: true,
+        session: targetSession,
+      });
+    },
+    [pendingSessionsSource, sessions],
+  );
+
+  const handleCloseDelete = useCallback(() => {
+    if (isDeleting || isDeletePreviewing) return;
+    setDeleteModal(emptyDeleteModal);
+  }, [isDeletePreviewing, isDeleting]);
+
+  const handleDeleteModeSelection = useCallback(
+    async (mode) => {
+      const sessionId = deleteModal.session?.id;
+      if (!sessionId) return;
+
+      setIsDeletePreviewing(true);
+      try {
+        const response = await axios.post(`/sessions/${sessionId}/deletion-preview`, { mode });
+        const candidates = Array.isArray(response?.data?.candidates)
+          ? response.data.candidates
+          : [];
+
+        setDeleteModal((previous) => ({
+          ...previous,
+          step: "review",
+          mode,
+          candidates,
+          selectedIds: candidates
+            .filter((item) => item.can_delete !== false)
+            .map((item) => String(item.id)),
+          reason: "",
+        }));
+      } catch (error) {
+        const message =
+          error?.response?.data?.error || "Nao foi possivel preparar a revisao da exclusao.";
+        toast.error(message);
+      } finally {
+        setIsDeletePreviewing(false);
+      }
+    },
+    [deleteModal.session?.id],
+  );
+
+  const handleBackDeleteChoice = useCallback(() => {
+    if (isDeleting || isDeletePreviewing) return;
+    setDeleteModal((previous) => ({
+      ...previous,
+      step: "choice",
+      mode: "single",
+      candidates: [],
+      selectedIds: [],
+      reason: "",
+    }));
+  }, [isDeletePreviewing, isDeleting]);
+
+  const handleToggleDeleteCandidate = useCallback((id) => {
+    const normalizedId = String(id);
+    setDeleteModal((previous) => {
+      const candidate = previous.candidates.find((item) => String(item.id) === normalizedId);
+      if (candidate?.can_delete === false) return previous;
+      const isSelected = previous.selectedIds.includes(normalizedId);
+      return {
+        ...previous,
+        selectedIds: isSelected
+          ? previous.selectedIds.filter((item) => item !== normalizedId)
+          : [...previous.selectedIds, normalizedId],
+      };
+    });
+  }, []);
+
+  const { selectedIds: deleteSelectedIds } = deleteModal;
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (isDeleting) return;
+
+    if (deleteSelectedIds.length === 0) {
+      toast.error("Selecione ao menos um agendamento para excluir.");
+      return;
+    }
+
+    const normalizedReason = deleteModal.reason.trim();
+    if (!normalizedReason) {
+      toast.error("Informe o motivo da exclusao.");
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const response = await axios.post("/sessions/soft-delete", {
+        session_ids: deleteSelectedIds.map((id) => Number(id)),
+        reason: normalizedReason,
+        scope: deleteModal.mode,
+      });
+      const successCount = Number(response?.data?.total_deleted || deleteSelectedIds.length);
+
+      if (view === "day") {
+        await loadSessions(startOfDay(selectedDate), startOfNextDay(selectedDate));
+      } else {
+        await loadSessions();
+      }
+      await loadPendingSessions();
+
+      toast.success(
+        successCount === 1
+          ? "Agendamento excluido com historico."
+          : `${successCount} agendamento(s) excluido(s) com historico.`,
+      );
+      setDeleteModal(emptyDeleteModal);
+    } catch (error) {
+      const message =
+        error?.response?.data?.error ||
+        "Nao foi possivel excluir os agendamentos selecionados.";
+      toast.error(message);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [
+    deleteModal.mode,
+    deleteModal.reason,
+    deleteSelectedIds,
+    isDeleting,
+    loadPendingSessions,
+    loadSessions,
+    selectedDate,
+    view,
+  ]);
 
   const updateSessionStatus = useCallback(
     async ({ id, status, reason }) => {
@@ -1505,7 +1725,7 @@ export default function Agendamentos() {
           : null,
         service_id: form.service_id ? Number(form.service_id) : null,
         status: form.status || "scheduled",
-        is_initial: !!form.is_initial,
+        is_initial: editingId ? !!form.is_initial : false,
         starts_at: form.starts_at,
         ends_at: form.ends_at || null,
         notes: normalizeText(form.notes),
@@ -1517,11 +1737,28 @@ export default function Agendamentos() {
           ? repeatWeekdays
           : [toIsoWeekday(startsAtDate)];
         let untilDate = null;
+        let recurrenceStartsAt = new Date(startsAtDate);
+        if (repeatMode === "month" && !/^\d{4}-\d{2}$/.test(repeatMonth)) {
+          toast.error("Selecione o mes e o ano.");
+          return;
+        }
         if (repeatMode === "weeks") {
           const weeks = Math.max(1, Number(repeatWeeks) || 1);
           const endDate = new Date(startsAtDate);
           endDate.setHours(0, 0, 0, 0);
           endDate.setDate(endDate.getDate() + weeks * 7 - 1);
+          untilDate = formatDateParam(endDate);
+        }
+        if (repeatMode === "month") {
+          const [yearString, monthString] = repeatMonth.split("-");
+          const year = Number(yearString);
+          const monthIndex = Number(monthString) - 1;
+          recurrenceStartsAt = new Date(startsAtDate);
+          recurrenceStartsAt.setFullYear(year, monthIndex, 1);
+          recurrenceStartsAt.setSeconds(0, 0);
+
+          const endDate = new Date(year, monthIndex + 1, 0);
+          endDate.setHours(0, 0, 0, 0);
           untilDate = formatDateParam(endDate);
         }
 
@@ -1531,11 +1768,12 @@ export default function Agendamentos() {
           service_type: payload.service_type,
           service_id: payload.service_id,
           status: payload.status,
-          starts_at: startsAtDate.toISOString(),
+          starts_at: recurrenceStartsAt.toISOString(),
           duration_minutes: durationMinutes,
           repeat_interval: 1,
           weekdays,
-          until_date: repeatMode === "weeks" ? untilDate : null,
+          until_date:
+            repeatMode === "weeks" || repeatMode === "month" ? untilDate : null,
           occurrence_count: repeatMode === "count" ? Number(repeatCount) : null,
           notes: payload.notes,
         };
@@ -1694,6 +1932,7 @@ export default function Agendamentos() {
       repeatEnabled,
       repeatMode,
       repeatCount,
+      repeatMonth,
       repeatWeeks,
       repeatWeekdays,
       resetForm,
@@ -1738,6 +1977,13 @@ export default function Agendamentos() {
     [formAvailability],
   );
 
+  const formAvailabilityHasHolidayBlock = useMemo(
+    () =>
+      formAvailabilityLevel === "block"
+      && formAvailabilityEvents.some((event) => SPECIAL_HOLIDAY_SOURCES.has(event.source_type)),
+    [formAvailabilityEvents, formAvailabilityLevel],
+  );
+
   const formAvailabilityTitle = useMemo(() => {
     if (!formAvailability) return "";
     if (formAvailability?.error) return formAvailability.error;
@@ -1773,6 +2019,17 @@ export default function Agendamentos() {
     if (selectedDaySpecialSummary.severity === "warn") return "Dia com alerta";
     return "Dia com evento especial";
   }, [selectedDaySpecialSummary]);
+
+  const deleteSeriesCandidates = useMemo(() => {
+    if (!deleteModal.session || !hasRecurringSeries(deleteModal.session)) return [];
+    return buildDeleteCandidates(deleteModal.session, "series");
+  }, [buildDeleteCandidates, deleteModal.session]);
+
+  const deleteSelectedSessions = useMemo(() => {
+    if (deleteModal.selectedIds.length === 0) return [];
+    const selectedIdSet = new Set(deleteModal.selectedIds);
+    return deleteModal.candidates.filter((item) => selectedIdSet.has(String(item.id)));
+  }, [deleteModal.candidates, deleteModal.selectedIds]);
 
   let drawerTitle = "Novo agendamento";
   if (drawerMode === "pending") {
@@ -2181,6 +2438,12 @@ export default function Agendamentos() {
                                         >
                                           Editar
                                         </DayEditButton>
+                                        <DayDeleteButton
+                                          type="button"
+                                          onClick={() => handleOpenDelete(session)}
+                                        >
+                                          Excluir
+                                        </DayDeleteButton>
                                       </DaySessionActions>
                                     </DaySessionTop>
                                   </DaySessionBody>
@@ -2385,6 +2648,12 @@ export default function Agendamentos() {
                                                   >
                                                     Editar
                                                   </DayEditButton>
+                                                  <DayDeleteButton
+                                                    type="button"
+                                                    onClick={() => handleOpenDelete(session)}
+                                                  >
+                                                    Excluir
+                                                  </DayDeleteButton>
                                                 </DaySessionActions>
                                               </DaySessionTop>
                                             </DaySessionBody>
@@ -2511,6 +2780,12 @@ export default function Agendamentos() {
                             >
                               Editar
                             </SmallEdit>
+                            <SmallDeleteButton
+                              type="button"
+                              onClick={() => handleOpenDelete(session)}
+                            >
+                              Excluir
+                            </SmallDeleteButton>
                           </GroupActions>
                         </GroupItem>
                       ))}
@@ -2525,22 +2800,28 @@ export default function Agendamentos() {
                   <Field className="span-2">
                     Paciente *
                     <AutoComplete>
-                      <SearchInput
-                        type="text"
-                        placeholder="Buscar paciente"
-                        value={formPatientQuery}
-                        onChange={(event) => {
-                          setFormPatientQuery(event.target.value);
-                          setIsFormPatientListOpen(true);
-                          if (form.patient_id) {
-                            setForm((prev) => ({ ...prev, patient_id: "" }));
-                          }
-                        }}
-                        onFocus={() => setIsFormPatientListOpen(true)}
-                        onBlur={() => {
-                          setTimeout(() => setIsFormPatientListOpen(false), 150);
-                        }}
-                      />
+                      <PatientInputShell>
+                        <PatientSearchInput
+                          type="text"
+                          placeholder="Buscar paciente"
+                          value={formPatientQuery}
+                          $selected={!!selectedPatient}
+                          onChange={(event) => {
+                            setFormPatientQuery(event.target.value);
+                            setIsFormPatientListOpen(true);
+                            if (form.patient_id) {
+                              setForm((prev) => ({ ...prev, patient_id: "" }));
+                            }
+                          }}
+                          onFocus={() => setIsFormPatientListOpen(true)}
+                          onBlur={() => {
+                            setTimeout(() => setIsFormPatientListOpen(false), 150);
+                          }}
+                        />
+                        {selectedPatient && (
+                          <SelectionIndicator aria-hidden="true" />
+                        )}
+                      </PatientInputShell>
                       {isFormPatientListOpen &&
                         filteredFormPatientOptions.length > 0 &&
                         formPatientQuery && (
@@ -2557,64 +2838,71 @@ export default function Agendamentos() {
                             ))}
                           </AutoList>
                         )}
-                      {selectedPatient && (
-                        <SelectedHint>
-                          Selecionado: <strong>{selectedPatient.name}</strong>
-                        </SelectedHint>
-                      )}
                     </AutoComplete>
                   </Field>
                   <Field className="span-2">
                     Profissional
-                    <select
-                      name="professional_user_id"
-                      value={form.professional_user_id}
-                      onChange={handleFormChange}
-                    >
-                      <option value="" disabled hidden>
-                        Selecionar
-                      </option>
-                      {professionalOptions.map((professional) => (
-                        <option key={professional.id} value={professional.id}>
-                          {professional.name}
+                    <SelectionFieldShell>
+                      <SelectionNativeField
+                        name="professional_user_id"
+                        value={form.professional_user_id}
+                        $selected={!!form.professional_user_id}
+                        onChange={handleFormChange}
+                      >
+                        <option value="" disabled hidden>
+                          Selecionar
                         </option>
-                      ))}
-                    </select>
+                        {professionalOptions.map((professional) => (
+                          <option key={professional.id} value={professional.id}>
+                            {professional.name}
+                          </option>
+                        ))}
+                      </SelectionNativeField>
+                      {form.professional_user_id && (
+                        <SelectionIndicator aria-hidden="true" $right="38px" />
+                      )}
+                    </SelectionFieldShell>
                   </Field>
                   <Field>
                     Tipo de atendimento
-                    <select
-                      name="service_id"
-                      value={form.service_id}
-                      onChange={(event) => {
-                        const selectedId = event.target.value;
-                        const service = serviceOptions.find(
-                          (item) => String(item.id) === selectedId,
-                        );
-                        setForm((prev) => ({
-                          ...prev,
-                          service_id: selectedId,
-                          service_type: service?.code || "",
-                        }));
-                      }}
-                    >
-                      <option value="" disabled hidden>
-                        Selecionar
-                      </option>
-                      {serviceOptions.length === 0 && (
-                        <>
-                          <option value="fisioterapia">Fisioterapia</option>
-                          <option value="funcional">Funcional</option>
-                          <option value="pilates">Pilates</option>
-                          <option value="outro">Outro</option>
-                        </>
-                      )}
-                      {serviceOptions.map((service) => (
-                        <option key={service.id} value={service.id}>
-                          {service.name}
+                    <SelectionFieldShell>
+                      <SelectionNativeField
+                        name="service_id"
+                        value={form.service_id}
+                        $selected={!!form.service_id}
+                        onChange={(event) => {
+                          const selectedId = event.target.value;
+                          const service = serviceOptions.find(
+                            (item) => String(item.id) === selectedId,
+                          );
+                          setForm((prev) => ({
+                            ...prev,
+                            service_id: selectedId,
+                            service_type: service?.code || "",
+                          }));
+                        }}
+                      >
+                        <option value="" disabled hidden>
+                          Selecionar
                         </option>
-                      ))}
-                    </select>
+                        {serviceOptions.length === 0 && (
+                          <>
+                            <option value="fisioterapia">Fisioterapia</option>
+                            <option value="funcional">Funcional</option>
+                            <option value="pilates">Pilates</option>
+                            <option value="outro">Outro</option>
+                          </>
+                        )}
+                        {serviceOptions.map((service) => (
+                          <option key={service.id} value={service.id}>
+                            {service.name}
+                          </option>
+                        ))}
+                      </SelectionNativeField>
+                      {form.service_id && (
+                        <SelectionIndicator aria-hidden="true" $right="38px" />
+                      )}
+                    </SelectionFieldShell>
                   </Field>
                   <Field>
                     Status
@@ -2656,7 +2944,7 @@ export default function Agendamentos() {
                       onChange={handleFormChange}
                     />
                   </Field>
-                  {form.starts_at && (
+                  {form.starts_at && formAvailabilityHasHolidayBlock && (
                     <ScheduleContextCard className="span-2" $severity={formAvailabilityLevel}>
                       {isCheckingFormAvailability ? (
                         <span>Validando disponibilidade...</span>
@@ -2667,17 +2955,6 @@ export default function Agendamentos() {
                             <span>
                               Sem atendimento para esta data/periodo.
                             </span>
-                          )}
-                          {formAvailabilityLevel === "warn" && (
-                            <span>
-                              Esta data exige confirmacao explicita antes de salvar.
-                            </span>
-                          )}
-                          {formAvailabilityLevel === "info" && (
-                            <span>Evento informativo ativo nesta data.</span>
-                          )}
-                          {formAvailabilityLevel === "available" && (
-                            <span>Nenhum bloqueio ativo para este horario.</span>
                           )}
                           {formAvailabilityEvents.length > 0 && (
                             <ScheduleContextList>
@@ -2699,26 +2976,10 @@ export default function Agendamentos() {
                       )}
                     </ScheduleContextCard>
                   )}
-                  <Field className="span-2">
-                    Tipo da sessÃ£o
-                    <select
-                      name="is_initial"
-                      value={form.is_initial ? "true" : "false"}
-                      onChange={(event) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          is_initial: event.target.value === "true",
-                        }))
-                      }
-                    >
-                      <option value="false">SessÃ£o normal</option>
-                      <option value="true">1a avaliaÃ§Ã£o</option>
-                    </select>
-                  </Field>
                   <RepeatCard className="span-2">
                     <RepeatHeader>
                       <div>
-                        <strong>RepetiÃ§Ã£o</strong>
+                        <strong>Repetição</strong>
                       </div>
                       <RepeatToggle>
                         <input
@@ -2728,6 +2989,12 @@ export default function Agendamentos() {
                           onChange={(event) => {
                             const { checked } = event.target;
                             setRepeatEnabled(checked);
+                            if (checked && form.starts_at) {
+                              const start = new Date(form.starts_at);
+                              if (!Number.isNaN(start.getTime())) {
+                                setRepeatMonth(formatMonthValue(start));
+                              }
+                            }
                             if (
                               checked &&
                               repeatWeekdays.length === 0 &&
@@ -2743,16 +3010,10 @@ export default function Agendamentos() {
                         <span>{repeatEnabled ? "Ativo" : "Inativo"}</span>
                       </RepeatToggle>
                     </RepeatHeader>
-                    {!repeatEnabled && (
-                      <RepeatHint>
-                        {editingId ? "RepetiÃ§Ã£o sÃ³ em novos agendamentos." : "Ative para repetir."}
-                      </RepeatHint>
-                    )}
                     {repeatEnabled && (
                       <RepeatBody>
                         <RepeatRow>
                           <RepeatField className="full">
-                            <RepeatLabel>Modo</RepeatLabel>
                             <RepeatModes>
                               <RepeatModeButton
                                 type="button"
@@ -2768,11 +3029,18 @@ export default function Agendamentos() {
                               >
                                 Por semanas
                               </RepeatModeButton>
+                              <RepeatModeButton
+                                type="button"
+                                $active={repeatMode === "month"}
+                                onClick={() => setRepeatMode("month")}
+                              >
+                                Por mes
+                              </RepeatModeButton>
                             </RepeatModes>
                           </RepeatField>
                         </RepeatRow>
                         <RepeatRow>
-                          {repeatMode === "count" ? (
+                          {repeatMode === "count" && (
                             <RepeatField className="full">
                               <RepeatLabel>Quantas sessoes?</RepeatLabel>
                               <RepeatInline>
@@ -2787,9 +3055,19 @@ export default function Agendamentos() {
                                 />
                                 <span>sessoes</span>
                               </RepeatInline>
-                              <RepeatHelper>Ex.: 10 sessoes, Seg/Qua/Sex.</RepeatHelper>
                             </RepeatField>
-                          ) : (
+                          )}
+                          {repeatMode === "month" && (
+                            <RepeatField className="full">
+                              <RepeatLabel>Mes e ano</RepeatLabel>
+                              <input
+                                type="month"
+                                value={repeatMonth}
+                                onChange={(event) => setRepeatMonth(event.target.value)}
+                              />
+                            </RepeatField>
+                          )}
+                          {repeatMode === "weeks" && (
                             <RepeatField className="full">
                               <RepeatLabel>Por quantas semanas?</RepeatLabel>
                               <RepeatInline>
@@ -2804,16 +3082,12 @@ export default function Agendamentos() {
                                 />
                                 <span>semanas</span>
                               </RepeatInline>
-                              <RepeatHelper>
-                                Ex.: Seg/Qua/Sex nas proximas 4 semanas.
-                              </RepeatHelper>
                             </RepeatField>
                           )}
                         </RepeatRow>
                         <RepeatRow>
                           <RepeatField className="full">
                             <RepeatLabel>Quais dias?</RepeatLabel>
-                            <RepeatHelper>Toque para selecionar.</RepeatHelper>
                             <WeekdayGrid>
                               {WEEKDAY_OPTIONS.map((option) => (
                                 <WeekdayButton
@@ -2832,7 +3106,7 @@ export default function Agendamentos() {
                     )}
                   </RepeatCard>
                   <Field className="span-2">
-                    ObservaÃ§Ãµes
+                    Observações
                     <textarea
                       name="notes"
                       value={form.notes}
@@ -3037,6 +3311,199 @@ export default function Agendamentos() {
                 </ModalSaveButton>
               </ModalActions>
             </ModalCard>
+          </ModalOverlay>
+        )}
+        {deleteModal.open && deleteModal.session && (
+          <ModalOverlay>
+            <DeleteFlowCard>
+              <ModalHeader>
+                <h3>
+                  {deleteModal.step === "choice" ? "Excluir agendamento" : "Revisar exclusao"}
+                </h3>
+                <IconButton
+                  type="button"
+                  disabled={isDeletePreviewing || isDeleting}
+                  onClick={handleCloseDelete}
+                >
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <DeleteFlowBody>
+                {deleteModal.step === "choice" ? (
+                  <>
+                    <RecurrenceSummaryGrid>
+                      <RecurrenceSummaryItem>
+                        <small>Paciente</small>
+                        <strong>
+                          {deleteModal.session?.Patient?.full_name ||
+                            deleteModal.session?.Patient?.name ||
+                            "Paciente"}
+                        </strong>
+                      </RecurrenceSummaryItem>
+                      <RecurrenceSummaryItem>
+                        <small>Data</small>
+                        <strong>{formatDateTime(deleteModal.session?.starts_at)}</strong>
+                      </RecurrenceSummaryItem>
+                      <RecurrenceSummaryItem>
+                        <small>Servico</small>
+                        <strong>
+                          {deleteModal.session?.Service?.name ||
+                            serviceName(
+                              deleteModal.session?.service_type ||
+                              deleteModal.session?.Service?.code,
+                            )}
+                        </strong>
+                      </RecurrenceSummaryItem>
+                      <RecurrenceSummaryItem>
+                        <small>Status</small>
+                        <strong>{sessionStatusLabel(deleteModal.session?.status)}</strong>
+                      </RecurrenceSummaryItem>
+                    </RecurrenceSummaryGrid>
+                    <DeleteChoiceGrid>
+                      <DeleteChoiceButton
+                        type="button"
+                        disabled={isDeletePreviewing}
+                        onClick={() => handleDeleteModeSelection("single")}
+                      >
+                        <strong>Apenas este agendamento</strong>
+                        <FaChevronRight aria-hidden="true" />
+                      </DeleteChoiceButton>
+                      <DeleteChoiceButton
+                        type="button"
+                        disabled={isDeletePreviewing || deleteSeriesCandidates.length <= 1}
+                        onClick={() => handleDeleteModeSelection("series")}
+                        title={
+                          deleteSeriesCandidates.length <= 1
+                            ? "Nao ha outros agendamentos desta sequencia para revisar."
+                            : undefined
+                        }
+                      >
+                        <strong>Revisar exclusao de varios</strong>
+                        <FaChevronRight aria-hidden="true" />
+                      </DeleteChoiceButton>
+                    </DeleteChoiceGrid>
+                  </>
+                ) : (
+                  <>
+                    <RecurrenceSummaryGrid>
+                      <RecurrenceSummaryItem>
+                        <small>Total na revisao</small>
+                        <strong>{deleteModal.candidates.length}</strong>
+                      </RecurrenceSummaryItem>
+                      <RecurrenceSummaryItem>
+                        <small>Selecionados</small>
+                        <strong>{deleteSelectedSessions.length}</strong>
+                      </RecurrenceSummaryItem>
+                      <RecurrenceSummaryItem>
+                        <small>Primeiro</small>
+                        <strong>
+                          {deleteModal.candidates[0]
+                            ? formatDate(deleteModal.candidates[0].starts_at)
+                            : "--/--/----"}
+                        </strong>
+                      </RecurrenceSummaryItem>
+                      <RecurrenceSummaryItem>
+                        <small>Ultimo</small>
+                        <strong>
+                          {deleteModal.candidates[deleteModal.candidates.length - 1]
+                            ? formatDate(
+                              deleteModal.candidates[deleteModal.candidates.length - 1].starts_at,
+                            )
+                            : "--/--/----"}
+                        </strong>
+                      </RecurrenceSummaryItem>
+                    </RecurrenceSummaryGrid>
+                    <RecurrenceHint>
+                      Revise os itens marcados abaixo. Voce pode desmarcar qualquer agendamento
+                      antes de confirmar.
+                    </RecurrenceHint>
+                    <DeleteReviewList>
+                      {deleteModal.candidates.map((session) => {
+                        const isSelected = deleteModal.selectedIds.includes(String(session.id));
+                        return (
+                          <DeleteReviewRow key={`delete-${session.id}`} $selected={isSelected}>
+                            <DeleteReviewSelect>
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                disabled={isDeleting || session.can_delete === false}
+                                onChange={() => handleToggleDeleteCandidate(session.id)}
+                              />
+                            </DeleteReviewSelect>
+                            <DeleteReviewInfo>
+                              <strong>{formatDateTime(session.starts_at)}</strong>
+                              <span>
+                                {session?.Service?.name ||
+                                  serviceName(session?.service_type || session?.Service?.code)}{" "}
+                                - {session?.professional?.name || "Profissional"}
+                              </span>
+                              <small>
+                                {session?.Patient?.full_name || session?.Patient?.name || "Paciente"}
+                              </small>
+                              {session?.blocked_reason && (
+                                <DeleteBlockedReason>
+                                  {session.blocked_reason}
+                                </DeleteBlockedReason>
+                              )}
+                            </DeleteReviewInfo>
+                            <DeleteStatusPill $status={session.status}>
+                              {sessionStatusLabel(session.status)}
+                            </DeleteStatusPill>
+                          </DeleteReviewRow>
+                        );
+                      })}
+                    </DeleteReviewList>
+                    <RecurrenceOverrideField>
+                      <span>Motivo da exclusao</span>
+                      <textarea
+                        rows={3}
+                        placeholder="Descreva o motivo da exclusao"
+                        value={deleteModal.reason}
+                        onChange={(event) =>
+                          setDeleteModal((previous) => ({
+                            ...previous,
+                            reason: event.target.value,
+                          }))
+                        }
+                      />
+                    </RecurrenceOverrideField>
+                  </>
+                )}
+              </DeleteFlowBody>
+              <ModalActions>
+                {deleteModal.step === "choice" ? (
+                  <SecondaryButton
+                    type="button"
+                    onClick={handleCloseDelete}
+                    disabled={isDeletePreviewing || isDeleting}
+                  >
+                    Fechar
+                  </SecondaryButton>
+                ) : (
+                  <>
+                    <SecondaryButton
+                      type="button"
+                      onClick={handleBackDeleteChoice}
+                      disabled={isDeletePreviewing || isDeleting}
+                    >
+                      Voltar
+                    </SecondaryButton>
+                    <DeleteConfirmButton
+                      type="button"
+                      onClick={handleConfirmDelete}
+                      disabled={
+                        isDeletePreviewing ||
+                        isDeleting ||
+                        deleteSelectedSessions.length === 0 ||
+                        !deleteModal.reason.trim()
+                      }
+                    >
+                      {isDeleting ? <ButtonSpinner aria-hidden="true" /> : "Excluir selecionados"}
+                    </DeleteConfirmButton>
+                  </>
+                )}
+              </ModalActions>
+            </DeleteFlowCard>
           </ModalOverlay>
         )}
       </Content>
@@ -4029,6 +4496,16 @@ const SmallEdit = styled.button`
   }
 `;
 
+const SmallDeleteButton = styled(SmallEdit)`
+  border-color: rgba(189, 85, 85, 0.28);
+  background: rgba(247, 234, 234, 0.9);
+  color: #8c3737;
+
+  &:hover {
+    background: rgba(247, 226, 226, 0.98);
+  }
+`;
+
 const DayActionButton = styled(StatusAction)`
   padding: 3px 8px;
   border-radius: 999px;
@@ -4045,6 +4522,13 @@ const DayActionButton = styled(StatusAction)`
 `;
 
 const DayEditButton = styled(SmallEdit)`
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+`;
+
+const DayDeleteButton = styled(SmallDeleteButton)`
   padding: 3px 8px;
   border-radius: 999px;
   font-size: 0.72rem;
@@ -4254,6 +4738,195 @@ const RecurrenceOverrideField = styled.div`
   }
 `;
 
+const DeleteFlowCard = styled(ModalCard)`
+  width: min(760px, 96vw);
+  max-height: 88vh;
+`;
+
+const DeleteFlowBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+`;
+
+const DeleteChoiceGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+`;
+
+const DeleteChoiceButton = styled.button`
+  border: 1px solid rgba(106, 121, 92, 0.22);
+  background: linear-gradient(180deg, #ffffff 0%, #f8faf5 100%);
+  border-radius: 14px;
+  padding: 16px 18px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(42, 52, 35, 0.05);
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+
+  strong {
+    color: #1b1b1b;
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
+
+  svg {
+    flex: 0 0 auto;
+    color: #6a795c;
+    font-size: 0.95rem;
+  }
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 26px rgba(42, 52, 35, 0.1);
+    border-color: rgba(106, 121, 92, 0.4);
+    background: linear-gradient(180deg, #ffffff 0%, #eef4e8 100%);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+    box-shadow: none;
+  }
+`;
+
+const DeleteReviewList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
+const DeleteReviewRow = styled.div`
+  border-radius: 12px;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  background: ${(props) => (props.$selected ? "rgba(162, 177, 144, 0.12)" : "#fff")};
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+
+  @media (max-width: 680px) {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+`;
+
+const DeleteReviewSelect = styled.div`
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+
+  input {
+    width: 18px;
+    height: 18px;
+    accent-color: #8c3737;
+  }
+`;
+
+const DeleteReviewInfo = styled.div`
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+
+  strong {
+    color: #1b1b1b;
+    font-size: 0.9rem;
+  }
+
+  span,
+  small {
+    color: #5f6d53;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  span {
+    font-size: 0.84rem;
+    font-weight: 600;
+  }
+
+  small {
+    font-size: 0.8rem;
+  }
+`;
+
+const DeleteBlockedReason = styled.small`
+  color: #8c3737;
+  font-weight: 600;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+`;
+
+const DeleteStatusPill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  border: 1px solid
+    ${(props) => {
+    if (props.$status === "done") return "rgba(94, 135, 90, 0.32)";
+    if (props.$status === "canceled") return "rgba(199, 102, 102, 0.3)";
+    if (props.$status === "no_show") return "rgba(214, 170, 104, 0.34)";
+    return "rgba(106, 121, 92, 0.24)";
+  }};
+  background: ${(props) => {
+    if (props.$status === "done") return "rgba(94, 135, 90, 0.12)";
+    if (props.$status === "canceled") return "rgba(199, 102, 102, 0.11)";
+    if (props.$status === "no_show") return "rgba(214, 170, 104, 0.14)";
+    return "#f8faf5";
+  }};
+  color: ${(props) => {
+    if (props.$status === "done") return "#2f5a33";
+    if (props.$status === "canceled") return "#7b3a3a";
+    if (props.$status === "no_show") return "#8a5718";
+    return "#516046";
+  }};
+
+  @media (max-width: 680px) {
+    grid-column: 2;
+    justify-self: flex-start;
+  }
+`;
+
+const DeleteConfirmButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 170px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: none;
+  background: #a83f3f;
+  color: #fff;
+  font-weight: 700;
+  transition: filter 0.2s ease;
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.95);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+`;
+
 const Form = styled.form`
   display: flex;
   flex-direction: column;
@@ -4388,11 +5061,6 @@ const RepeatToggle = styled.label`
   }
 `;
 
-const RepeatHint = styled.div`
-  font-size: 0.85rem;
-  color: #6a795c;
-`;
-
 const RepeatBody = styled.div`
   display: flex;
   flex-direction: column;
@@ -4433,11 +5101,6 @@ const RepeatLabel = styled.span`
   font-size: 0.85rem;
   font-weight: 600;
   color: #1b1b1b;
-`;
-
-const RepeatHelper = styled.span`
-  font-size: 0.8rem;
-  color: #6a795c;
 `;
 
 const RepeatInline = styled.div`
@@ -4482,12 +5145,13 @@ const RepeatModeButton = styled.button`
 `;
 
 const WeekdayGrid = styled.div`
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
 `;
 
 const WeekdayButton = styled.button`
+  width: 100%;
   border: 1px solid rgba(106, 121, 92, 0.25);
   background: ${(props) => (props.$active ? "#6a795c" : "#fff")};
   color: ${(props) => (props.$active ? "#fff" : "#6a795c")};
@@ -4522,6 +5186,59 @@ const AutoComplete = styled.div`
   gap: 6px;
 `;
 
+const PatientInputShell = styled.div`
+  position: relative;
+`;
+
+const PatientSearchInput = styled(SearchInput)`
+  padding-right: ${(props) => (props.$selected ? "44px" : "10px")};
+  border-color: ${(props) =>
+    props.$selected ? "rgba(106, 121, 92, 0.48)" : "rgba(106, 121, 92, 0.2)"};
+  background: ${(props) => (props.$selected ? "#fbfcf9" : "#fff")};
+  box-shadow: ${(props) =>
+    props.$selected ? "0 0 0 3px rgba(106, 121, 92, 0.08)" : "none"};
+`;
+
+const SelectionFieldShell = styled.div`
+  position: relative;
+`;
+
+const SelectionNativeField = styled.select`
+  width: 100%;
+  padding-right: ${(props) => (props.$selected ? "72px" : "40px")};
+  border-color: ${(props) =>
+    props.$selected ? "rgba(106, 121, 92, 0.48)" : "rgba(106, 121, 92, 0.2)"};
+  background: ${(props) => (props.$selected ? "#fbfcf9" : "#fff")};
+  box-shadow: ${(props) =>
+    props.$selected ? "0 0 0 3px rgba(106, 121, 92, 0.08)" : "none"};
+`;
+
+const SelectionIndicator = styled.span`
+  position: absolute;
+  top: 50%;
+  right: ${(props) => props.$right || "10px"};
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(106, 121, 92, 0.24);
+  background: rgba(106, 121, 92, 0.12);
+  pointer-events: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 6px;
+    height: 10px;
+    border-right: 2px solid #5b6f50;
+    border-bottom: 2px solid #5b6f50;
+    transform: translate(-50%, -62%) rotate(45deg);
+  }
+`;
+
 const AutoList = styled.div`
   position: absolute;
   top: 46px;
@@ -4551,18 +5268,6 @@ const AutoItem = styled.button`
 
   &:hover {
     background: rgba(162, 177, 144, 0.2);
-  }
-`;
-
-const SelectedHint = styled.div`
-  font-size: 0.85rem;
-  color: #6a795c;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-
-  strong {
-    color: #1b1b1b;
   }
 `;
 

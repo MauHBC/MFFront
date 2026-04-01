@@ -12,6 +12,49 @@ const api = axios.create({
 
 let responseInterceptorId = null;
 let isHandlingUnauthorized = false;
+let isToastErrorPatched = false;
+let suppressErrorToastsUntil = 0;
+const AUTH_TOAST_SUPPRESSION_MS = 2000;
+
+function normalizeToastMessage(content) {
+  if (typeof content === "string") return content.toLowerCase();
+  if (content === null || content === undefined) return "";
+  return String(content).toLowerCase();
+}
+
+function isAuthRelatedToast(content) {
+  const message = normalizeToastMessage(content);
+  return (
+    message.includes("sess") ||
+    message.includes("login novamente") ||
+    message.includes("fazer login")
+  );
+}
+
+function shouldSuppressErrorToast(content) {
+  if (Date.now() >= suppressErrorToastsUntil) return false;
+  return !isAuthRelatedToast(content);
+}
+
+function suppressRequestErrorToasts() {
+  suppressErrorToastsUntil = Date.now() + AUTH_TOAST_SUPPRESSION_MS;
+}
+
+function patchToastError() {
+  if (isToastErrorPatched) return;
+
+  const originalToastError = toast.error.bind(toast);
+
+  toast.error = (content, options) => {
+    if (shouldSuppressErrorToast(content)) {
+      return null;
+    }
+
+    return originalToastError(content, options);
+  };
+
+  isToastErrorPatched = true;
+}
 
 function isLoginRequest(url = "") {
   return /\/tokens\/?$/.test(url);
@@ -25,6 +68,8 @@ function getAuthMessage(error) {
 
 export function setupAxiosInterceptors({ store, persistor, history }) {
   if (responseInterceptorId !== null) return;
+
+  patchToastError();
 
   responseInterceptorId = api.interceptors.response.use(
     (response) => response,
@@ -42,6 +87,8 @@ export function setupAxiosInterceptors({ store, persistor, history }) {
       if (!shouldHandleUnauthorized) {
         return Promise.reject(error);
       }
+
+      suppressRequestErrorToasts();
 
       if (isHandlingUnauthorized) {
         return Promise.reject(error);

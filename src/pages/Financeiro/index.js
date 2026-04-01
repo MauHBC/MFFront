@@ -240,6 +240,76 @@ const SHOW_FINANCIAL_MANAGEMENT = false;
 const SHOW_FINANCIAL_REPORTS = false;
 const SHOW_MANUAL_ENTRIES = false;
 
+const ATTENDANCE_UI = {
+  colors: {
+    background: "#f6f8fb",
+    surface: "#ffffff",
+    surfaceMuted: "#f8fafc",
+    border: "#e3e8ef",
+    borderStrong: "#d6dde8",
+    textPrimary: "#111827",
+    textSecondary: "#4b5563",
+    textTertiary: "#6b7280",
+    textMuted: "#8a94a6",
+    action: "#5f7957",
+    actionHover: "#536b4d",
+    actionSoft: "#edf4ec",
+    actionBorder: "#c9d6c6",
+    rowStripe: "#fbfcfe",
+    rowHover: "#f7f9fc",
+    successSoft: "#edf7f1",
+    successText: "#1f6a3b",
+    infoSoft: "#eef3ff",
+    infoText: "#3559a6",
+    neutralSoft: "#f3f5f8",
+    neutralText: "#475467",
+    dangerSoft: "#fff4f0",
+    dangerSoftHover: "#feebe4",
+    dangerBorder: "#f0c8bb",
+    dangerAccent: "#d16a56",
+    dangerText: "#a33d2f",
+  },
+  radius: {
+    sm: "10px",
+    md: "14px",
+    lg: "18px",
+    xl: "22px",
+    pill: "999px",
+  },
+  spacing: {
+    1: "8px",
+    2: "16px",
+    3: "24px",
+    4: "32px",
+    5: "40px",
+    6: "48px",
+    7: "56px",
+    8: "64px",
+  },
+  font: {
+    size: {
+      xs: "12px",
+      sm: "13px",
+      md: "14px",
+      lg: "18px",
+      xl: "20px",
+    },
+    lineHeight: {
+      xs: "16px",
+      sm: "18px",
+      md: "20px",
+      lg: "24px",
+      xl: "28px",
+    },
+    weight: {
+      regular: 400,
+      medium: 500,
+      semibold: 600,
+      bold: 700,
+    },
+  },
+};
+
 const slugifyCode = (value) => {
   if (!value) return "";
   return value
@@ -486,6 +556,11 @@ export default function Financeiro() {
     if (!patientId) return null;
     return patientMap.get(patientId) || null;
   }, [attendanceFilters.patient_id, patientMap]);
+
+  const selectedAttendancePatientId = useMemo(
+    () => normalizeId(attendanceFilters.patient_id),
+    [attendanceFilters.patient_id],
+  );
 
   const servicePriceMap = useMemo(() => {
     const map = new Map();
@@ -779,10 +854,6 @@ export default function Financeiro() {
       }
       if (attendanceFilters.start) params.from = attendanceFilters.start;
       if (attendanceFilters.end) params.to = attendanceFilters.end;
-      if (attendanceFilters.patient_id) params.patient_id = attendanceFilters.patient_id;
-      if (attendanceFilters.professional_id) {
-        params.professional_user_id = attendanceFilters.professional_id;
-      }
       const response = await axios.get("/sessions", { params });
       setAttendanceSessions(response.data || []);
       setHasAttendanceLoaded(true);
@@ -797,8 +868,6 @@ export default function Financeiro() {
     attendanceFilters.end,
     attendanceFilters.start,
     attendanceFilters.status,
-    attendanceFilters.patient_id,
-    attendanceFilters.professional_id,
   ]);
 
   useEffect(() => {
@@ -984,6 +1053,9 @@ export default function Financeiro() {
     setAttendanceFilters((prev) => ({ ...prev, [name]: value }));
     if (name === "patient_id") {
       setAttendanceDrilldownPatientId(null);
+      if (!value) {
+        setAttendanceView("patients");
+      }
     }
   }, []);
 
@@ -1090,6 +1162,7 @@ export default function Financeiro() {
 
   const handleAttendanceViewChange = useCallback(
     (view) => {
+      if (view === "sessions" && !attendanceFilters.patient_id) return;
       setAttendanceView(view);
       if (
         view === "patients" &&
@@ -1580,6 +1653,8 @@ export default function Financeiro() {
           starts_at: session.starts_at,
           patientId: session.patient_id,
           patientName,
+          professionalId:
+            Number(session?.professional?.id || session?.professional_user_id || 0) || null,
           professionalName,
           serviceName,
           recurrence: formatRecurrence(session),
@@ -1635,6 +1710,23 @@ export default function Financeiro() {
     servicePriceMap,
   ]);
 
+  const attendanceVisibleRows = useMemo(() => {
+    const selectedPatientId = normalizeId(attendanceFilters.patient_id);
+    const selectedProfessionalId = normalizeId(attendanceFilters.professional_id);
+
+    return attendanceRows.filter((row) => {
+      if (selectedPatientId && Number(row.patientId || 0) !== selectedPatientId) return false;
+      if (selectedProfessionalId && Number(row.professionalId || 0) !== selectedProfessionalId) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    attendanceFilters.patient_id,
+    attendanceFilters.professional_id,
+    attendanceRows,
+  ]);
+
   const attendanceSessionRows = useMemo(() => {
     const startDate = attendanceFilters.start
       ? new Date(`${attendanceFilters.start}T00:00:00`)
@@ -1665,7 +1757,7 @@ export default function Financeiro() {
     };
 
     const existingEntryIds = new Set(
-      attendanceRows
+      attendanceVisibleRows
         .map((row) => Number(row.entry?.id || 0))
         .filter((value) => value > 0),
     );
@@ -1767,6 +1859,7 @@ export default function Financeiro() {
           starts_at: dueInstallment.due_date,
           patientId,
           patientName: patient?.full_name || patient?.name || "Paciente",
+          professionalId,
           professionalName:
             linkedSession?.professional?.name ||
             linkedSession?.professional?.email ||
@@ -1799,7 +1892,7 @@ export default function Financeiro() {
       });
     });
 
-    return [...attendanceRows, ...supplementalRows]
+    return [...attendanceVisibleRows, ...supplementalRows]
       .sort((a, b) => new Date(a.starts_at || 0) - new Date(b.starts_at || 0));
   }, [
     attendanceFilters.end,
@@ -1808,7 +1901,7 @@ export default function Financeiro() {
     attendanceFilters.professional_id,
     attendanceFilters.search,
     attendanceFilters.start,
-    attendanceRows,
+    attendanceVisibleRows,
     entries,
     entryFinancialMap,
     patientMap,
@@ -1820,7 +1913,7 @@ export default function Financeiro() {
 
   const attendanceByPatient = useMemo(() => {
     const map = new Map();
-    attendanceRows.forEach((row) => {
+    attendanceVisibleRows.forEach((row) => {
       if (!row.patientId) return;
       const existing = map.get(row.patientId);
       const base = existing || {
@@ -1850,7 +1943,38 @@ export default function Financeiro() {
         };
       })
       .sort((a, b) => new Date(b.lastSession || 0) - new Date(a.lastSession || 0));
-  }, [attendanceRows, creditBalanceByPatient]);
+  }, [attendanceVisibleRows, creditBalanceByPatient]);
+
+  const attendanceSelectedPatientSummary = useMemo(() => {
+    if (!selectedAttendancePatientId) return null;
+
+    const patientSummary =
+      attendanceByPatient.find((item) => item.patientId === selectedAttendancePatientId) || null;
+    const sessionRows = attendanceSessionRows.filter(
+      (row) => Number(row.patientId || 0) === selectedAttendancePatientId,
+    );
+
+    const patientName =
+      activeAttendancePatient?.full_name
+      || activeAttendancePatient?.name
+      || patientSummary?.patientName
+      || "Paciente";
+
+    return {
+      patientId: selectedAttendancePatientId,
+      patientName,
+      sessions: patientSummary?.sessions || 0,
+      openCents: sessionRows.reduce((sum, row) => sum + Math.max(0, Number(row.openCents || 0)), 0),
+      creditsAvailable:
+        creditBalanceByPatient.get(selectedAttendancePatientId) || patientSummary?.creditsAvailable || 0,
+    };
+  }, [
+    activeAttendancePatient,
+    attendanceByPatient,
+    attendanceSessionRows,
+    creditBalanceByPatient,
+    selectedAttendancePatientId,
+  ]);
 
   const attendanceSummary = useMemo(() => {
     const openPatients = new Set();
@@ -1882,6 +2006,9 @@ export default function Financeiro() {
 
     return data;
   }, [attendanceRows, creditBalanceByPatient]);
+
+  const isAttendancePatientRequired = attendanceView === "sessions" && !selectedAttendancePatientId;
+  const canOpenAttendanceSessionsView = !!selectedAttendancePatientId;
 
   const attendancePeriodLabel = useMemo(() => {
     if (attendancePeriodMode === "year") {
@@ -2720,12 +2847,15 @@ export default function Financeiro() {
     const attendanceTitle =
       attendanceView === "patients" ? "Resumo por paciente" : "Detalhe por sessao";
 
-    let attendanceContent = <EmptyState>Sem atendimentos no periodo.</EmptyState>;
+    let attendanceContent = (
+      <AttendanceEmptyState>Sem atendimentos no periodo.</AttendanceEmptyState>
+    );
 
     if (attendanceView === "patients" && attendanceByPatient.length > 0) {
       attendanceContent = (
-        <TableScroll>
-          <SimpleTable>
+        <AttendanceTableCard>
+          <AttendanceTableScroll>
+            <AttendanceOverviewTable>
             <thead>
               <tr>
                 <th>Cliente</th>
@@ -2741,38 +2871,65 @@ export default function Financeiro() {
               {attendanceByPatient.map((row) => (
                 <PatientSummaryRow key={row.patientId} $hasOpen={row.openCents > 0}>
                   <td>
-                    <CellStack>
-                      <strong>{row.patientName}</strong>
-                    </CellStack>
+                    <AttendanceCellStack>
+                      <AttendancePatientSummaryName $hasOpen={row.openCents > 0}>
+                        {row.patientName}
+                      </AttendancePatientSummaryName>
+                    </AttendanceCellStack>
                   </td>
-                  <td>{row.sessions}</td>
-                  <td>{formatCurrency(row.totalCents)}</td>
                   <td>
-                    <OpenAmountValue $hasOpen={row.openCents > 0}>
+                    <AttendancePrimaryText>{row.sessions}</AttendancePrimaryText>
+                  </td>
+                  <td>
+                    <AttendanceMoneyText>{formatCurrency(row.totalCents)}</AttendanceMoneyText>
+                  </td>
+                  <td>
+                    <AttendanceOpenAmountValue $hasOpen={row.openCents > 0}>
                       {formatCurrency(row.openCents)}
-                    </OpenAmountValue>
+                    </AttendanceOpenAmountValue>
                   </td>
-                  <td>{formatCurrency(row.paidCents)}</td>
-                  <td>{formatCurrency(row.creditsAvailable)}</td>
                   <td>
-                    <RowActions>
-                      <SmallButton type="button" onClick={() => handleViewPatientSessions(row.patientId)}>
+                    <AttendanceMoneyText>{formatCurrency(row.paidCents)}</AttendanceMoneyText>
+                  </td>
+                  <td>
+                    <AttendanceMoneyText>{formatCurrency(row.creditsAvailable)}</AttendanceMoneyText>
+                  </td>
+                  <td>
+                    <AttendanceRowActions>
+                      <AttendanceSmallAction
+                        type="button"
+                        onClick={() => handleViewPatientSessions(row.patientId)}
+                      >
                         Ver sessoes
-                      </SmallButton>
-                    </RowActions>
+                      </AttendanceSmallAction>
+                    </AttendanceRowActions>
                   </td>
                 </PatientSummaryRow>
               ))}
             </tbody>
-          </SimpleTable>
-        </TableScroll>
+            </AttendanceOverviewTable>
+          </AttendanceTableScroll>
+        </AttendanceTableCard>
       );
     }
 
-    if (attendanceView === "sessions" && attendanceSessionRows.length > 0) {
+    if (attendanceView === "sessions" && isAttendancePatientRequired) {
       attendanceContent = (
-        <TableScroll>
-          <AttendanceTable>
+        <AttendanceEmptyState>
+          Selecione um paciente nos filtros para visualizar o detalhe por sessao.
+        </AttendanceEmptyState>
+      );
+    }
+
+    if (
+      attendanceView === "sessions"
+      && !isAttendancePatientRequired
+      && attendanceSessionRows.length > 0
+    ) {
+      attendanceContent = (
+        <AttendanceTableCard>
+          <AttendanceTableScroll>
+            <AttendanceDataTable>
             <thead>
               <tr>
                 <th>Data</th>
@@ -2829,69 +2986,70 @@ export default function Financeiro() {
                 return (
                   <tr key={row.id}>
                     <td>
-                      <CellStack>
-                        <strong>{formatDate(row.starts_at)}</strong>
-                        <MutedText>{formatWeekday(row.starts_at)}</MutedText>
-                      </CellStack>
+                      <AttendanceCellStack>
+                        <AttendancePrimaryText>{formatDate(row.starts_at)}</AttendancePrimaryText>
+                        <AttendanceSecondaryText>{formatWeekday(row.starts_at)}</AttendanceSecondaryText>
+                      </AttendanceCellStack>
                     </td>
                     <td>
-                      <CellStack>
-                        <strong>{row.patientName}</strong>
-                        <MutedText>
-                          Creditos: {formatCurrency(creditBalanceByPatient.get(row.patientId) || 0)}
-                        </MutedText>
-                      </CellStack>
-                    </td>
-                    <td>{row.professionalName}</td>
-                    <td>{row.serviceName}</td>
-                    <td>
-                      <CellStack>
-                        <strong>{formatCurrency(row.amountCents)}</strong>
-                        {row.openCents > 0 && (
-                          <MutedText>Em aberto: {formatCurrency(row.openCents)}</MutedText>
-                        )}
-                      </CellStack>
+                      <AttendanceCellStack>
+                        <AttendancePrimaryText>{row.patientName}</AttendancePrimaryText>
+                      </AttendanceCellStack>
                     </td>
                     <td>
-                      <CellStack>
-                        <strong>{installmentSummary}</strong>
+                      <AttendancePrimaryText>{row.professionalName}</AttendancePrimaryText>
+                    </td>
+                    <td>
+                      <AttendancePrimaryText>{row.serviceName}</AttendancePrimaryText>
+                    </td>
+                    <td>
+                      <AttendanceCellStack>
+                        <AttendanceMoneyText>{formatCurrency(row.amountCents)}</AttendanceMoneyText>
+                      </AttendanceCellStack>
+                    </td>
+                    <td>
+                      <AttendanceCellStack>
+                        <AttendancePrimaryText>{installmentSummary}</AttendancePrimaryText>
                         {row.isInstallmentPlan && row.installmentAgreementTotalCents > 0 && (
-                          <MutedText>
+                          <AttendanceSecondaryText>
                             Acordo: {formatCurrency(row.installmentAgreementTotalCents)}
-                          </MutedText>
+                          </AttendanceSecondaryText>
                         )}
                         {row.isInstallmentPlan
                           && !row.isProjectedInstallmentRow
                           && row.firstInstallmentOpenCents > 0 && (
-                          <MutedText>
+                          <AttendanceSecondaryText>
                             Residual em aberto: {formatCurrency(row.firstInstallmentOpenCents)}
-                          </MutedText>
+                          </AttendanceSecondaryText>
                         )}
-                      </CellStack>
+                      </AttendanceCellStack>
                     </td>
                     <td>
-                      <StatusPill $status={status}>
+                      <AttendanceStatusBadge $status={status}>
                         {statusLabel}
-                      </StatusPill>
+                      </AttendanceStatusBadge>
                     </td>
                     <td>
-                      <NotesText>
+                      <AttendanceNoteText>
                         {installmentNote || row.entry?.notes || row.payment?.note || "-"}
-                      </NotesText>
+                      </AttendanceNoteText>
                     </td>
                     <td>
-                      <RowActions>
+                      <AttendanceRowActions>
                         {!row.entry && (
-                          <SmallButton type="button" onClick={() => handleCreateSessionEntry(row.id)}>
+                          <AttendanceSmallAction
+                            type="button"
+                            onClick={() => handleCreateSessionEntry(row.id)}
+                          >
                             Gerar lancamento
-                          </SmallButton>
+                          </AttendanceSmallAction>
                         )}
                         {canShowActions && (
                           <ActionMenu onToggle={handleActionMenuToggle}>
                             <ActionMenuTrigger>Ações</ActionMenuTrigger>
-                            <ActionMenuList>
+                            <AttendanceActionList>
                               {status !== "paid" && row.openCents > 0 && availableCreditCents > 0 && (
-                                <ActionMenuItem
+                                <AttendanceActionItem
                                   type="button"
                                   onClick={(event) => {
                                     closeActionMenu(event);
@@ -2899,10 +3057,10 @@ export default function Financeiro() {
                                   }}
                                 >
                                   Usar credito
-                                </ActionMenuItem>
+                                </AttendanceActionItem>
                               )}
                               {status !== "paid" && (
-                                <ActionMenuItem
+                                <AttendanceActionItem
                                   type="button"
                                   onClick={(event) => {
                                     closeActionMenu(event);
@@ -2910,39 +3068,42 @@ export default function Financeiro() {
                                   }}
                                 >
                                   Registrar recebimento
-                                </ActionMenuItem>
+                                </AttendanceActionItem>
                               )}
-                            </ActionMenuList>
+                            </AttendanceActionList>
                           </ActionMenu>
                         )}
-                      </RowActions>
+                      </AttendanceRowActions>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
-          </AttendanceTable>
-        </TableScroll>
+            </AttendanceDataTable>
+          </AttendanceTableScroll>
+        </AttendanceTableCard>
       );
     }
 
     return (
-      <Section>
-        <SectionHeader>
+      <AttendanceSectionSurface>
+        <AttendanceSectionHeader>
           <div>
-            <SectionTitle>Atendimentos</SectionTitle>
-            <SectionSubtitle>O que foi atendido, o que gerou cobranca e o que ainda falta receber.</SectionSubtitle>
+            <AttendanceHeadingTitle>Atendimentos</AttendanceHeadingTitle>
+            <AttendanceHeadingSubtitle>
+              O que foi atendido, o que gerou cobranca e o que ainda falta receber.
+            </AttendanceHeadingSubtitle>
           </div>
-          <HeaderActions>
-            <GhostButton type="button" onClick={loadAttendance}>
+          <AttendanceHeaderActions>
+            <AttendanceGhostAction type="button" onClick={loadAttendance}>
               Atualizar
-            </GhostButton>
-            <PrimaryButton type="button" onClick={openCreditModal}>
+            </AttendanceGhostAction>
+            <AttendancePrimaryAction type="button" onClick={openCreditModal}>
               <FaPlus />
               Registrar recebimento
-            </PrimaryButton>
-          </HeaderActions>
-        </SectionHeader>
+            </AttendancePrimaryAction>
+          </AttendanceHeaderActions>
+        </AttendanceSectionHeader>
 
         {isAttendanceBusy ? (
           <SectionLoader>
@@ -2951,38 +3112,38 @@ export default function Financeiro() {
           </SectionLoader>
         ) : (
           <>
-            <Panel>
-              <PanelHeader>
-                <PanelTitle>Resumo de cobranca</PanelTitle>
-              </PanelHeader>
-              <SummaryGrid>
-                <SummaryCard>
-                  <SummaryLabel>Sessoes concluidas</SummaryLabel>
-                  <SummaryValue>{attendanceSummary.total}</SummaryValue>
-                </SummaryCard>
-                <SummaryCard>
-                  <SummaryLabel>Pacientes em aberto</SummaryLabel>
-                  <SummaryValue>{attendanceSummary.openPatients}</SummaryValue>
-                </SummaryCard>
-                <SummaryCard>
-                  <SummaryLabel>Pendente de pagamento</SummaryLabel>
-                  <SummaryValue>{formatCurrency(attendanceSummary.pendingAmount)}</SummaryValue>
-                </SummaryCard>
-                <SummaryCard>
-                  <SummaryLabel>Credito antecipado</SummaryLabel>
-                  <SummaryValue>{formatCurrency(attendanceSummary.creditsAvailable)}</SummaryValue>
-                </SummaryCard>
-              </SummaryGrid>
-            </Panel>
+            <AttendanceCard>
+              <AttendanceCardHeader>
+                <AttendanceCardTitle>Resumo de cobranca</AttendanceCardTitle>
+              </AttendanceCardHeader>
+              <AttendanceMetricsGrid>
+                <AttendanceMetricCard>
+                  <AttendanceMetricLabel>Sessoes concluidas</AttendanceMetricLabel>
+                  <AttendanceMetricValue>{attendanceSummary.total}</AttendanceMetricValue>
+                </AttendanceMetricCard>
+                <AttendanceMetricCard>
+                  <AttendanceMetricLabel>Pacientes em aberto</AttendanceMetricLabel>
+                  <AttendanceMetricValue>{attendanceSummary.openPatients}</AttendanceMetricValue>
+                </AttendanceMetricCard>
+                <AttendanceMetricCard>
+                  <AttendanceMetricLabel>Pendente de pagamento</AttendanceMetricLabel>
+                  <AttendanceMetricValue>{formatCurrency(attendanceSummary.pendingAmount)}</AttendanceMetricValue>
+                </AttendanceMetricCard>
+                <AttendanceMetricCard>
+                  <AttendanceMetricLabel>Credito antecipado</AttendanceMetricLabel>
+                  <AttendanceMetricValue>{formatCurrency(attendanceSummary.creditsAvailable)}</AttendanceMetricValue>
+                </AttendanceMetricCard>
+              </AttendanceMetricsGrid>
+            </AttendanceCard>
 
-            <Panel>
-              <PanelHeader>
-                <PanelTitle>Filtros</PanelTitle>
-              </PanelHeader>
-              <FiltersRow>
-                <FilterField>
-                  <Label htmlFor="attendance-status">Status financeiro</Label>
-                  <Select
+            <AttendanceCard>
+              <AttendanceCardHeader>
+                <AttendanceCardTitle>Filtros</AttendanceCardTitle>
+              </AttendanceCardHeader>
+              <AttendanceFilterGrid>
+                <AttendanceFilterField>
+                  <AttendanceFilterLabel htmlFor="attendance-status">Status financeiro</AttendanceFilterLabel>
+                  <AttendanceFilterSelect
                     id="attendance-status"
                     name="financial"
                     value={attendanceFilters.financial}
@@ -2992,27 +3153,29 @@ export default function Financeiro() {
                     <option value="pending">Pendentes</option>
                     <option value="partial">Parciais</option>
                     <option value="paid">Pagos</option>
-                  </Select>
-                </FilterField>
-                <FilterField>
-                  <Label htmlFor="attendance-patient">Paciente</Label>
-                  <Select
+                  </AttendanceFilterSelect>
+                </AttendanceFilterField>
+                <AttendanceFilterField>
+                  <AttendanceFilterLabel htmlFor="attendance-patient">Paciente</AttendanceFilterLabel>
+                  <AttendanceFilterSelect
                     id="attendance-patient"
                     name="patient_id"
                     value={attendanceFilters.patient_id}
                     onChange={handleAttendanceFilterChange}
                   >
-                    <option value="">Todos</option>
+                    <option value="">
+                      {attendanceView === "sessions" ? "Selecione um paciente" : "Todos"}
+                    </option>
                     {patients.map((patient) => (
                       <option key={patient.id} value={patient.id}>
                         {patient.full_name || patient.name}
                       </option>
                     ))}
-                  </Select>
-                </FilterField>
-                <FilterField>
-                  <Label htmlFor="attendance-professional">Profissional</Label>
-                  <Select
+                  </AttendanceFilterSelect>
+                </AttendanceFilterField>
+                <AttendanceFilterField>
+                  <AttendanceFilterLabel htmlFor="attendance-professional">Profissional</AttendanceFilterLabel>
+                  <AttendanceFilterSelect
                     id="attendance-professional"
                     name="professional_id"
                     value={attendanceFilters.professional_id}
@@ -3024,81 +3187,84 @@ export default function Financeiro() {
                         {professional.name || professional.email}
                       </option>
                     ))}
-                  </Select>
-                </FilterField>
-                <FilterField>
-                  <Label htmlFor="attendance-search">Busca</Label>
-                  <Input
+                  </AttendanceFilterSelect>
+                </AttendanceFilterField>
+                <AttendanceFilterField>
+                  <AttendanceFilterLabel htmlFor="attendance-search">Busca</AttendanceFilterLabel>
+                  <AttendanceFilterInput
                     id="attendance-search"
                     name="search"
                     placeholder="Paciente, profissional, servico..."
                     value={attendanceFilters.search}
                     onChange={handleAttendanceFilterChange}
                   />
-                </FilterField>
-              </FiltersRow>
+                </AttendanceFilterField>
+              </AttendanceFilterGrid>
               {attendanceFilters.patient_id && (
-                <ActiveFilterBar>
-                  <FilterSummary>
+                <AttendanceFilterMeta>
+                  <AttendanceFilterMetaText>
                     Filtro ativo de paciente:{" "}
                     <strong>
                       {activeAttendancePatient?.full_name ||
                         activeAttendancePatient?.name ||
                         "Paciente selecionado"}
                     </strong>
-                  </FilterSummary>
-                  <GhostButton type="button" onClick={handleClearAttendancePatientFilter}>
+                  </AttendanceFilterMetaText>
+                  <AttendanceClearAction type="button" onClick={handleClearAttendancePatientFilter}>
                     Limpar filtro
-                  </GhostButton>
-                </ActiveFilterBar>
+                  </AttendanceClearAction>
+                </AttendanceFilterMeta>
               )}
-            </Panel>
+            </AttendanceCard>
 
-            <Panel>
-              <InlineViewToggle>
-                <SegmentedControl $prominent>
-                  <SegmentButton
+            <AttendanceCard>
+              <AttendanceControlsRow>
+                <AttendanceTabsRow>
+                  <AttendanceTabGroup>
+                  <AttendanceTabButton
                     type="button"
                     $active={attendanceView === "patients"}
-                    $prominent
                     onClick={() => handleAttendanceViewChange("patients")}
                   >
                     Por paciente
-                  </SegmentButton>
-                  <SegmentButton
+                  </AttendanceTabButton>
+                  <AttendanceTabButton
                     type="button"
                     $active={attendanceView === "sessions"}
-                    $prominent
-                    onClick={() => handleAttendanceViewChange("sessions")}
+	                    disabled={!canOpenAttendanceSessionsView}
+	                    onClick={() => handleAttendanceViewChange("sessions")}
+	                    title={
+	                      canOpenAttendanceSessionsView
+	                        ? undefined
+	                        : "Selecione um paciente para ver por sessao"
+	                    }
                   >
                     Por sessão
-                  </SegmentButton>
-                </SegmentedControl>
-                <SegmentedControl $prominent>
-                  <SegmentButton
+	                  </AttendanceTabButton>
+                  </AttendanceTabGroup>
+		                <AttendanceTabGroup>
+                  <AttendanceTabButton
                     type="button"
                     $active={attendancePeriodMode === "month"}
-                    $prominent
-                    onClick={() => handleAttendancePeriodModeChange("month")}
+	                    onClick={() => handleAttendancePeriodModeChange("month")}
                   >
                     Mes
-                  </SegmentButton>
-                  <SegmentButton
+	                  </AttendanceTabButton>
+	                  <AttendanceTabButton
                     type="button"
                     $active={attendancePeriodMode === "year"}
-                    $prominent
-                    onClick={() => handleAttendancePeriodModeChange("year")}
+	                    onClick={() => handleAttendancePeriodModeChange("year")}
                   >
                     Visao anual
-                  </SegmentButton>
-                </SegmentedControl>
-              </InlineViewToggle>
-              {attendancePeriodLabel && (
-                <AttendancePeriodNav>
-                  <PeriodNavButton type="button" onClick={handleAttendancePreviousMonth}>
+	                  </AttendanceTabButton>
+	                </AttendanceTabGroup>
+                </AttendanceTabsRow>
+		              {attendancePeriodLabel && (
+		                <AttendancePeriodControls>
+		                  <AttendancePeriodButton type="button" onClick={handleAttendancePreviousMonth}>
                     {attendancePeriodMode === "year" ? "Ano anterior" : "Mes anterior"}
-                  </PeriodNavButton>
-                  <AttendancePeriodTag
+	                  </AttendancePeriodButton>
+		                  <AttendancePeriodChip
                     role="button"
                     tabIndex={0}
                     onClick={handleAttendancePeriodTagClick}
@@ -3131,20 +3297,42 @@ export default function Financeiro() {
                         onChange={handleAttendanceMonthPickerChange}
                       />
                     )}
-                  </AttendancePeriodTag>
-                  <PeriodNavButton type="button" onClick={handleAttendanceNextMonth}>
+	                  </AttendancePeriodChip>
+		                  <AttendancePeriodButton type="button" onClick={handleAttendanceNextMonth}>
                     {attendancePeriodMode === "year" ? "Ano seguinte" : "Mes seguinte"}
-                  </PeriodNavButton>
-                </AttendancePeriodNav>
-              )}
-              <PanelHeader>
-                <PanelTitle>{attendanceTitle}</PanelTitle>
-              </PanelHeader>
+	                  </AttendancePeriodButton>
+		                </AttendancePeriodControls>
+		              )}
+              </AttendanceControlsRow>
+		              {attendanceView === "sessions" && attendanceSelectedPatientSummary && (
+		                <AttendancePatientStrip>
+		                  <AttendancePatientName>{attendanceSelectedPatientSummary.patientName}</AttendancePatientName>
+		                  <AttendancePatientStats>
+		                    <AttendancePatientStat>
+		                      <span>Sessoes</span>
+		                      <strong>{attendanceSelectedPatientSummary.sessions}</strong>
+		                    </AttendancePatientStat>
+		                    <AttendancePatientStat>
+		                      <span>Em aberto</span>
+		                      <strong>{formatCurrency(attendanceSelectedPatientSummary.openCents)}</strong>
+		                    </AttendancePatientStat>
+		                    <AttendancePatientStat>
+		                      <span>Creditos</span>
+		                      <strong>
+		                        {formatCurrency(attendanceSelectedPatientSummary.creditsAvailable)}
+		                      </strong>
+		                    </AttendancePatientStat>
+		                  </AttendancePatientStats>
+		                </AttendancePatientStrip>
+		              )}
+		              <AttendanceDetailHeader>
+		                <AttendanceDetailTitle>{attendanceTitle}</AttendanceDetailTitle>
+		              </AttendanceDetailHeader>
               {attendanceContent}
-            </Panel>
+            </AttendanceCard>
           </>
         )}
-      </Section>
+      </AttendanceSectionSurface>
     );
   };
 
@@ -4235,8 +4423,8 @@ export default function Financeiro() {
                   <PaymentPreviewBox>
                     <PaymentPreviewTitle>Resumo da operacao</PaymentPreviewTitle>
                     <PaymentPreviewRow>
-                      <span>Valor recebido</span>
-                      <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
+                      <span>Valor da cobranca</span>
+                      <strong>{formatCurrency(selectedChargeAmountCents)}</strong>
                     </PaymentPreviewRow>
                     {paymentPreview.discountCents > 0 && (
                       <PaymentPreviewRow>
@@ -4250,12 +4438,30 @@ export default function Financeiro() {
                         <strong>+ {formatCurrency(paymentPreview.surchargeCents)}</strong>
                       </PaymentPreviewRow>
                     )}
-                    {paymentPreview.hasAdjustment && (
-                      <PaymentPreviewRow>
-                        <span>Valor final cobrado</span>
-                        <strong>{formatCurrency(paymentPreview.finalChargedCents)}</strong>
-                      </PaymentPreviewRow>
-                    )}
+                    <PaymentPreviewDivider />
+                    <PaymentPreviewRow>
+                      <span>Valor final cobrado</span>
+                      <strong>{formatCurrency(paymentPreview.finalChargedCents)}</strong>
+                    </PaymentPreviewRow>
+                    <PaymentPreviewRow>
+                      <span>Valor recebido</span>
+                      <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
+                    </PaymentPreviewRow>
+                    <PaymentPreviewDivider />
+                    <PaymentPreviewRow>
+                      <span>
+                        {paymentPreview.creditAfterCents > 0
+                          ? "Saldo em credito"
+                          : "Valor pendente"}
+                      </span>
+                      <strong>
+                        {formatCurrency(
+                          paymentPreview.creditAfterCents > 0
+                            ? paymentPreview.creditAfterCents
+                            : paymentPreview.openAfterCents,
+                        )}
+                      </strong>
+                    </PaymentPreviewRow>
                     {(paymentPreview.installmentsCount > 1 || paymentForm.convert_entry_to_installments) && (
                       <>
                         <PaymentPreviewRow>
@@ -4831,7 +5037,7 @@ const Section = styled.section`
 const Panel = styled.div`
   background: #f7f8f4;
   border-radius: 16px;
-  padding: 18px;
+  padding: ${(props) => (props.$compact ? "14px" : "18px")};
   border: 1px solid rgba(0, 0, 0, 0.06);
   margin-bottom: 16px;
 `;
@@ -4840,77 +5046,15 @@ const PanelHeader = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: ${(props) => (props.$compact ? "8px" : "12px")};
+  margin-bottom: ${(props) => (props.$compact ? "10px" : "12px")};
   flex-wrap: wrap;
 `;
 
 const PanelTitle = styled.h3`
   margin: 0;
-  font-size: 16px;
+  font-size: ${(props) => (props.$compact ? "14px" : "16px")};
   color: #2b2b2b;
-`;
-
-const SegmentedControl = styled.div`
-  display: inline-flex;
-  align-items: center;
-  padding: ${(props) => (props.$prominent ? "6px" : "4px")};
-  border-radius: 999px;
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  box-shadow: ${(props) => (props.$prominent ? "0 10px 22px rgba(0, 0, 0, 0.08)" : "none")};
-`;
-
-const SegmentButton = styled.button`
-  border: none;
-  background: ${(props) => (props.$active ? "#6a795c" : "transparent")};
-  color: ${(props) => (props.$active ? "#fff" : "#4a4a4a")};
-  padding: ${(props) => (props.$prominent ? "10px 18px" : "6px 12px")};
-  border-radius: 999px;
-  font-size: ${(props) => (props.$prominent ? "14px" : "12px")};
-  font-weight: 700;
-  cursor: pointer;
-`;
-
-const InlineViewToggle = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-`;
-
-const AttendancePeriodNav = styled.div`
-  margin: -4px auto 12px;
-  width: fit-content;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  flex-wrap: wrap;
-`;
-
-const AttendancePeriodTag = styled.div`
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(106, 121, 92, 0.25);
-  background: rgba(106, 121, 92, 0.12);
-  color: #42523a;
-  font-size: 0.9rem;
-  font-weight: 700;
-  text-align: center;
-  text-transform: capitalize;
-  cursor: pointer;
-
-  &:focus-visible {
-    outline: 2px solid rgba(106, 121, 92, 0.6);
-    outline-offset: 2px;
-  }
 `;
 
 const AttendancePeriodMonthInput = styled.input`
@@ -4927,23 +5071,6 @@ const AttendancePeriodYearSelect = styled.select`
   inset: 0;
   opacity: 0;
   cursor: pointer;
-`;
-
-const PeriodNavButton = styled.button`
-  border: 1px solid rgba(106, 121, 92, 0.35);
-  background: #eef2e9;
-  color: #46533f;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-
-  &:hover {
-    background: #e1e7da;
-    border-color: rgba(106, 121, 92, 0.6);
-  }
 `;
 
 const SectionHeader = styled.div`
@@ -4973,9 +5100,9 @@ const SectionSubtitle = styled.p`
 
 const FiltersRow = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(${(props) => (props.$compact ? "160px" : "180px")}, 1fr));
+  gap: ${(props) => (props.$compact ? "10px" : "12px")};
+  margin-bottom: ${(props) => (props.$compact ? "10px" : "16px")};
 `;
 
 const FilterField = styled.div`
@@ -5027,12 +5154,27 @@ const TableScroll = styled.div`
 `;
 
 const PatientSummaryRow = styled.tr`
-  background: ${(props) => (props.$hasOpen ? "rgba(199, 102, 102, 0.05)" : "transparent")};
-`;
+  &&& td {
+    transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  }
 
-const OpenAmountValue = styled.span`
-  color: ${(props) => (props.$hasOpen ? "#a25a5a" : "inherit")};
-  font-weight: ${(props) => (props.$hasOpen ? 700 : 500)};
+  ${(props) =>
+    props.$hasOpen
+      ? `
+        &&& td {
+          background: ${ATTENDANCE_UI.colors.dangerSoft};
+          border-bottom-color: ${ATTENDANCE_UI.colors.dangerBorder};
+        }
+
+        &&& td:first-child {
+          box-shadow: inset 4px 0 0 ${ATTENDANCE_UI.colors.dangerAccent};
+        }
+
+        &&&:hover td {
+          background: ${ATTENDANCE_UI.colors.dangerSoftHover};
+        }
+      `
+      : ""}
 `;
 
 const AttendanceTable = styled.table`
@@ -5053,20 +5195,6 @@ const AttendanceTable = styled.table`
     font-weight: 700;
     color: #555;
   }
-`;
-
-const ActiveFilterBar = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-`;
-
-const FilterSummary = styled.p`
-  margin: 0;
-  color: #5b6453;
-  font-size: 14px;
 `;
 
 const StatusPill = styled.span`
@@ -5193,13 +5321,6 @@ const MutedText = styled.span`
   color: #7a7a7a;
 `;
 
-const NotesText = styled.div`
-  min-width: 220px;
-  max-width: 260px;
-  white-space: normal;
-  word-break: break-word;
-`;
-
 const SmallButton = styled.button`
   background: #eef2e9;
   border: 1px solid rgba(106, 121, 92, 0.35);
@@ -5252,9 +5373,10 @@ const GhostButton = styled.button`
   background: #f0f3ec;
   color: #4f6b45;
   border: 1px solid rgba(106, 121, 92, 0.35);
-  padding: 10px 16px;
+  padding: ${(props) => (props.$small ? "8px 12px" : "10px 16px")};
   border-radius: 12px;
   font-weight: 700;
+  font-size: ${(props) => (props.$small ? "12px" : "14px")};
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 
@@ -5330,14 +5452,14 @@ const ButtonSpinner = styled(Spinner)`
 
 const SummaryGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 14px;
-  margin-bottom: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(${(props) => (props.$compact ? "150px" : "180px")}, 1fr));
+  gap: ${(props) => (props.$compact ? "10px" : "14px")};
+  margin-bottom: ${(props) => (props.$compact ? "10px" : "18px")};
 `;
 
 const SummaryCard = styled.div`
-  padding: 16px;
-  border-radius: 14px;
+  padding: ${(props) => (props.$compact ? "12px" : "16px")};
+  border-radius: ${(props) => (props.$compact ? "12px" : "14px")};
   background: #f5f7f1;
   border: 1px solid rgba(0, 0, 0, 0.08);
 `;
@@ -5351,9 +5473,601 @@ const SummaryLabel = styled.div`
 
 const SummaryValue = styled.div`
   margin-top: 6px;
-  font-size: 20px;
+  font-size: ${(props) => (props.$compact ? "17px" : "20px")};
   font-weight: 800;
   color: #2b2b2b;
+`;
+
+const AttendanceSectionSurface = styled(Section)`
+  background: ${ATTENDANCE_UI.colors.background};
+  border: 1px solid ${ATTENDANCE_UI.colors.border};
+  border-radius: ${ATTENDANCE_UI.radius.xl};
+  box-shadow: none;
+`;
+
+const AttendanceSectionHeader = styled(SectionHeader)`
+  margin-bottom: ${ATTENDANCE_UI.spacing[3]};
+  align-items: flex-start;
+`;
+
+const AttendanceHeadingTitle = styled(SectionTitle)`
+  font-size: ${ATTENDANCE_UI.font.size.lg};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.lg};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  letter-spacing: -0.01em;
+`;
+
+const AttendanceHeadingSubtitle = styled(SectionSubtitle)`
+  margin-top: ${ATTENDANCE_UI.spacing[1]};
+  max-width: 720px;
+  font-size: ${ATTENDANCE_UI.font.size.md};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.md};
+  color: ${ATTENDANCE_UI.colors.textSecondary};
+`;
+
+const AttendanceHeaderActions = styled(HeaderActions)`
+  gap: ${ATTENDANCE_UI.spacing[1]};
+`;
+
+const AttendanceGhostAction = styled(GhostButton)`
+  background: ${ATTENDANCE_UI.colors.surface};
+  color: ${ATTENDANCE_UI.colors.textSecondary};
+  border: 1px solid ${ATTENDANCE_UI.colors.borderStrong};
+  border-radius: ${ATTENDANCE_UI.radius.md};
+  padding: 10px 14px;
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  font-weight: ${ATTENDANCE_UI.font.weight.medium};
+  box-shadow: none;
+
+  &:hover {
+    background: ${ATTENDANCE_UI.colors.surfaceMuted};
+    border-color: ${ATTENDANCE_UI.colors.borderStrong};
+    color: ${ATTENDANCE_UI.colors.textPrimary};
+  }
+`;
+
+const AttendancePrimaryAction = styled(PrimaryButton)`
+  background: ${ATTENDANCE_UI.colors.action};
+  border-radius: ${ATTENDANCE_UI.radius.md};
+  padding: 10px 16px;
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  box-shadow: none;
+
+  &:hover {
+    background: ${ATTENDANCE_UI.colors.actionHover};
+  }
+`;
+
+const AttendanceCard = styled.div`
+  background: ${ATTENDANCE_UI.colors.surface};
+  border: 1px solid ${ATTENDANCE_UI.colors.border};
+  border-radius: ${ATTENDANCE_UI.radius.lg};
+  padding: ${ATTENDANCE_UI.spacing[2]};
+  margin-bottom: ${ATTENDANCE_UI.spacing[2]};
+`;
+
+const AttendanceCardHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${ATTENDANCE_UI.spacing[1]};
+  margin-bottom: ${ATTENDANCE_UI.spacing[2]};
+  flex-wrap: wrap;
+`;
+
+const AttendanceCardTitle = styled.h3`
+  margin: 0;
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+`;
+
+const AttendanceMetricsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+  gap: ${ATTENDANCE_UI.spacing[2]};
+`;
+
+const AttendanceMetricCard = styled.div`
+  padding: ${ATTENDANCE_UI.spacing[2]};
+  border-radius: ${ATTENDANCE_UI.radius.md};
+  border: 1px solid ${ATTENDANCE_UI.colors.border};
+  background: ${ATTENDANCE_UI.colors.surfaceMuted};
+`;
+
+const AttendanceMetricLabel = styled.span`
+  display: block;
+  color: ${ATTENDANCE_UI.colors.textTertiary};
+  font-size: ${ATTENDANCE_UI.font.size.xs};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+  font-weight: ${ATTENDANCE_UI.font.weight.medium};
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+`;
+
+const AttendanceMetricValue = styled.strong`
+  display: block;
+  margin-top: ${ATTENDANCE_UI.spacing[1]};
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  font-size: ${ATTENDANCE_UI.font.size.lg};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.lg};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+`;
+
+const AttendanceFilterGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: ${ATTENDANCE_UI.spacing[2]};
+`;
+
+const AttendanceFilterField = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${ATTENDANCE_UI.spacing[1]};
+`;
+
+const AttendanceFilterLabel = styled.label`
+  color: ${ATTENDANCE_UI.colors.textSecondary};
+  font-size: ${ATTENDANCE_UI.font.size.xs};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+  font-weight: ${ATTENDANCE_UI.font.weight.medium};
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+`;
+
+const AttendanceFilterInput = styled.input`
+  height: 44px;
+  border-radius: ${ATTENDANCE_UI.radius.md};
+  border: 1px solid ${ATTENDANCE_UI.colors.borderStrong};
+  background: ${ATTENDANCE_UI.colors.surface};
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  padding: 0 14px;
+  font-size: ${ATTENDANCE_UI.font.size.md};
+  box-shadow: none;
+
+  &::placeholder {
+    color: ${ATTENDANCE_UI.colors.textMuted};
+  }
+
+  &:focus {
+    outline: none;
+    border-color: ${ATTENDANCE_UI.colors.action};
+    box-shadow: 0 0 0 3px rgba(95, 121, 87, 0.12);
+  }
+`;
+
+const AttendanceFilterSelect = styled.select`
+  height: 44px;
+  border-radius: ${ATTENDANCE_UI.radius.md};
+  border: 1px solid ${ATTENDANCE_UI.colors.borderStrong};
+  background: ${ATTENDANCE_UI.colors.surface};
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  padding: 0 14px;
+  font-size: ${ATTENDANCE_UI.font.size.md};
+  box-shadow: none;
+
+  &:focus {
+    outline: none;
+    border-color: ${ATTENDANCE_UI.colors.action};
+    box-shadow: 0 0 0 3px rgba(95, 121, 87, 0.12);
+  }
+`;
+
+const AttendanceFilterMeta = styled.div`
+  margin-top: ${ATTENDANCE_UI.spacing[2]};
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${ATTENDANCE_UI.spacing[1]};
+  flex-wrap: wrap;
+`;
+
+const AttendanceFilterMetaText = styled.p`
+  margin: 0;
+  color: ${ATTENDANCE_UI.colors.textSecondary};
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+
+  strong {
+    color: ${ATTENDANCE_UI.colors.textPrimary};
+    font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  }
+`;
+
+const AttendanceClearAction = styled(AttendanceGhostAction)`
+  padding: 8px 12px;
+  font-size: ${ATTENDANCE_UI.font.size.xs};
+`;
+
+const AttendanceControlsRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${ATTENDANCE_UI.spacing[2]};
+  flex-wrap: wrap;
+  margin-bottom: ${ATTENDANCE_UI.spacing[2]};
+`;
+
+const AttendanceTabsRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${ATTENDANCE_UI.spacing[1]};
+  flex-wrap: wrap;
+`;
+
+const AttendanceTabGroup = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: ${ATTENDANCE_UI.radius.xl};
+  background: ${ATTENDANCE_UI.colors.surfaceMuted};
+  border: 1px solid ${ATTENDANCE_UI.colors.border};
+`;
+
+const AttendanceTabButton = styled.button`
+  border: none;
+  border-radius: ${ATTENDANCE_UI.radius.xl};
+  padding: 10px 14px;
+  background: ${(props) => (props.$active ? ATTENDANCE_UI.colors.action : "transparent")};
+  color: ${(props) => (props.$active ? "#fff" : ATTENDANCE_UI.colors.textSecondary)};
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+  font-weight: ${(props) =>
+    props.$active ? ATTENDANCE_UI.font.weight.semibold : ATTENDANCE_UI.font.weight.medium};
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+
+  &:hover:not(:disabled) {
+    background: ${(props) =>
+      props.$active ? ATTENDANCE_UI.colors.actionHover : ATTENDANCE_UI.colors.neutralSoft};
+    color: ${(props) => (props.$active ? "#fff" : ATTENDANCE_UI.colors.textPrimary)};
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+`;
+
+const AttendancePeriodControls = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: ${ATTENDANCE_UI.spacing[1]};
+  flex-wrap: wrap;
+`;
+
+const AttendancePeriodButton = styled.button`
+  border: 1px solid ${ATTENDANCE_UI.colors.borderStrong};
+  background: ${ATTENDANCE_UI.colors.surface};
+  color: ${ATTENDANCE_UI.colors.textSecondary};
+  border-radius: ${ATTENDANCE_UI.radius.pill};
+  padding: 8px 12px;
+  font-size: ${ATTENDANCE_UI.font.size.xs};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+  font-weight: ${ATTENDANCE_UI.font.weight.medium};
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+
+  &:hover {
+    background: ${ATTENDANCE_UI.colors.surfaceMuted};
+    border-color: ${ATTENDANCE_UI.colors.borderStrong};
+    color: ${ATTENDANCE_UI.colors.textPrimary};
+  }
+`;
+
+const AttendancePeriodChip = styled.div`
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border-radius: ${ATTENDANCE_UI.radius.pill};
+  border: 1px solid ${ATTENDANCE_UI.colors.borderStrong};
+  background: ${ATTENDANCE_UI.colors.surface};
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  cursor: pointer;
+`;
+
+const AttendancePatientStrip = styled.div`
+  margin-bottom: ${ATTENDANCE_UI.spacing[2]};
+  padding: 12px 14px;
+  border-radius: ${ATTENDANCE_UI.radius.md};
+  background: ${ATTENDANCE_UI.colors.surfaceMuted};
+  border: 1px solid ${ATTENDANCE_UI.colors.border};
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${ATTENDANCE_UI.spacing[1]};
+  flex-wrap: wrap;
+`;
+
+const AttendancePatientName = styled.strong`
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  font-size: ${ATTENDANCE_UI.font.size.xl};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.xl};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+`;
+
+const AttendancePatientStats = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${ATTENDANCE_UI.spacing[1]};
+  flex-wrap: wrap;
+`;
+
+const AttendancePatientStat = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: ${ATTENDANCE_UI.spacing[1]};
+  padding: 8px 12px;
+  border-radius: ${ATTENDANCE_UI.radius.pill};
+  background: ${ATTENDANCE_UI.colors.surface};
+  border: 1px solid ${ATTENDANCE_UI.colors.border};
+
+  span {
+    color: ${ATTENDANCE_UI.colors.textTertiary};
+    font-size: ${ATTENDANCE_UI.font.size.xs};
+    line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+    font-weight: ${ATTENDANCE_UI.font.weight.medium};
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  strong {
+    color: ${ATTENDANCE_UI.colors.textPrimary};
+    font-size: ${ATTENDANCE_UI.font.size.sm};
+    line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+    font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  }
+`;
+
+const AttendanceDetailHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${ATTENDANCE_UI.spacing[1]};
+  margin-bottom: ${ATTENDANCE_UI.spacing[2]};
+`;
+
+const AttendanceDetailTitle = styled.h3`
+  margin: 0;
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  font-size: ${ATTENDANCE_UI.font.size.lg};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.lg};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+`;
+
+const AttendanceTableCard = styled.div`
+  background: ${ATTENDANCE_UI.colors.surface};
+  border: 1px solid ${ATTENDANCE_UI.colors.border};
+  border-radius: ${ATTENDANCE_UI.radius.lg};
+  overflow: hidden;
+`;
+
+const AttendanceTableScroll = styled(TableScroll)`
+  background: ${ATTENDANCE_UI.colors.surface};
+`;
+
+const AttendanceOverviewTable = styled(SimpleTable)`
+  th,
+  td {
+    padding: 18px 16px;
+    border-bottom: 1px solid ${ATTENDANCE_UI.colors.border};
+    vertical-align: middle;
+  }
+
+  th {
+    background: ${ATTENDANCE_UI.colors.surfaceMuted};
+    color: ${ATTENDANCE_UI.colors.textTertiary};
+    font-size: ${ATTENDANCE_UI.font.size.xs};
+    line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+    font-weight: ${ATTENDANCE_UI.font.weight.medium};
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  tbody tr:nth-child(even) td {
+    background: ${ATTENDANCE_UI.colors.rowStripe};
+  }
+
+  tbody tr:hover td {
+    background: ${ATTENDANCE_UI.colors.rowHover};
+  }
+
+  th:last-child,
+  td:last-child {
+    text-align: right;
+  }
+`;
+
+const AttendanceDataTable = styled(AttendanceTable)`
+  min-width: 1220px;
+
+  th,
+  td {
+    padding: 18px 16px;
+    border-bottom: 1px solid ${ATTENDANCE_UI.colors.border};
+  }
+
+  th {
+    background: ${ATTENDANCE_UI.colors.surfaceMuted};
+    color: ${ATTENDANCE_UI.colors.textTertiary};
+    font-size: ${ATTENDANCE_UI.font.size.xs};
+    line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+    font-weight: ${ATTENDANCE_UI.font.weight.medium};
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  tbody tr:nth-child(even) td {
+    background: ${ATTENDANCE_UI.colors.rowStripe};
+  }
+
+  tbody tr:hover td {
+    background: ${ATTENDANCE_UI.colors.rowHover};
+  }
+
+  th:last-child,
+  td:last-child {
+    text-align: right;
+  }
+`;
+
+const AttendanceCellStack = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const AttendancePrimaryText = styled.span`
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  font-size: ${ATTENDANCE_UI.font.size.md};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.md};
+  font-weight: ${ATTENDANCE_UI.font.weight.medium};
+`;
+
+const AttendancePatientSummaryName = styled(AttendancePrimaryText)`
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding-left: ${(props) => (props.$hasOpen ? "14px" : "0")};
+  font-weight: ${(props) =>
+    props.$hasOpen ? ATTENDANCE_UI.font.weight.semibold : ATTENDANCE_UI.font.weight.medium};
+
+  &::before {
+    content: "";
+    display: ${(props) => (props.$hasOpen ? "block" : "none")};
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 6px;
+    height: 18px;
+    border-radius: ${ATTENDANCE_UI.radius.pill};
+    transform: translateY(-50%);
+    background: ${ATTENDANCE_UI.colors.dangerAccent};
+    box-shadow: 0 0 0 4px rgba(209, 106, 86, 0.12);
+  }
+`;
+
+const AttendanceSecondaryText = styled.span`
+  color: ${ATTENDANCE_UI.colors.textTertiary};
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+  font-weight: ${ATTENDANCE_UI.font.weight.regular};
+`;
+
+const AttendanceMoneyText = styled.strong`
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  font-size: ${ATTENDANCE_UI.font.size.md};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.md};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+`;
+
+const AttendanceOpenAmountValue = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: ${(props) => (props.$hasOpen ? "32px" : "auto")};
+  padding: ${(props) => (props.$hasOpen ? "6px 10px" : "0")};
+  border-radius: ${ATTENDANCE_UI.radius.pill};
+  border: 1px solid
+    ${(props) => (props.$hasOpen ? ATTENDANCE_UI.colors.dangerBorder : "transparent")};
+  background: ${(props) => (props.$hasOpen ? ATTENDANCE_UI.colors.surface : "transparent")};
+  color: ${(props) =>
+    props.$hasOpen ? ATTENDANCE_UI.colors.dangerText : ATTENDANCE_UI.colors.textPrimary};
+  font-size: ${ATTENDANCE_UI.font.size.md};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.md};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  box-shadow: ${(props) =>
+    props.$hasOpen ? "inset 0 1px 0 rgba(255, 255, 255, 0.7)" : "none"};
+`;
+
+const AttendanceStatusBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: ${ATTENDANCE_UI.radius.pill};
+  font-size: ${ATTENDANCE_UI.font.size.xs};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: ${(props) => {
+    if (props.$status === "paid" || props.$status === "done") return ATTENDANCE_UI.colors.successSoft;
+    if (props.$status === "partial") return ATTENDANCE_UI.colors.infoSoft;
+    return ATTENDANCE_UI.colors.neutralSoft;
+  }};
+  color: ${(props) => {
+    if (props.$status === "paid" || props.$status === "done") return ATTENDANCE_UI.colors.successText;
+    if (props.$status === "partial") return ATTENDANCE_UI.colors.infoText;
+    return ATTENDANCE_UI.colors.neutralText;
+  }};
+`;
+
+const AttendanceRowActions = styled(RowActions)`
+  width: 100%;
+  justify-content: flex-end;
+`;
+
+const AttendanceActionList = styled(ActionMenuList)`
+  border-radius: ${ATTENDANCE_UI.radius.md};
+  border: 1px solid ${ATTENDANCE_UI.colors.border};
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+`;
+
+const AttendanceActionItem = styled(ActionMenuItem)`
+  background: ${ATTENDANCE_UI.colors.surfaceMuted};
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  border-radius: ${ATTENDANCE_UI.radius.sm};
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+  font-weight: ${ATTENDANCE_UI.font.weight.medium};
+
+  &:hover {
+    background: ${ATTENDANCE_UI.colors.neutralSoft};
+  }
+`;
+
+const AttendanceSmallAction = styled(SmallButton)`
+  background: ${ATTENDANCE_UI.colors.surface};
+  color: ${ATTENDANCE_UI.colors.textSecondary};
+  border: 1px solid ${ATTENDANCE_UI.colors.borderStrong};
+  border-radius: ${ATTENDANCE_UI.radius.md};
+  padding: 8px 12px;
+  font-size: ${ATTENDANCE_UI.font.size.xs};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+  font-weight: ${ATTENDANCE_UI.font.weight.medium};
+
+  &:hover {
+    background: ${ATTENDANCE_UI.colors.surfaceMuted};
+    color: ${ATTENDANCE_UI.colors.textPrimary};
+    border-color: ${ATTENDANCE_UI.colors.borderStrong};
+  }
+`;
+
+const AttendanceNoteText = styled.div`
+  min-width: 220px;
+  max-width: 260px;
+  white-space: normal;
+  word-break: break-word;
+  color: ${ATTENDANCE_UI.colors.textTertiary};
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+`;
+
+const AttendanceEmptyState = styled(EmptyState)`
+  background: ${ATTENDANCE_UI.colors.surface};
+  border: 1px dashed ${ATTENDANCE_UI.colors.borderStrong};
+  border-radius: ${ATTENDANCE_UI.radius.md};
+  color: ${ATTENDANCE_UI.colors.textTertiary};
 `;
 
 const ReportGrid = styled.div`
@@ -5465,6 +6179,12 @@ const PaymentPreviewRow = styled.div`
   gap: 10px;
   font-size: 14px;
   color: #2f2f2f;
+`;
+
+const PaymentPreviewDivider = styled.div`
+  height: 1px;
+  background: rgba(47, 59, 38, 0.14);
+  margin: 2px 0;
 `;
 
 const ChargeAmountBanner = styled.div`
