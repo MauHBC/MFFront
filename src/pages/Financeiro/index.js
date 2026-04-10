@@ -2418,6 +2418,19 @@ export default function Financeiro() {
       map.set(row.patientId, base);
     });
 
+    attendanceManualPaymentRows.forEach((row) => {
+      if (!row.patientId || map.has(row.patientId)) return;
+      map.set(row.patientId, {
+        patientId: row.patientId,
+        patientName: row.patientName,
+        sessions: 0,
+        totalCents: 0,
+        openCents: 0,
+        paidCents: 0,
+        lastSession: row.starts_at,
+      });
+    });
+
     return Array.from(map.values())
       .map((item) => {
         return {
@@ -2426,7 +2439,7 @@ export default function Financeiro() {
         };
       })
       .sort((a, b) => collator.compare(a.patientName || "", b.patientName || ""));
-  }, [attendanceVisibleRows, creditBalanceByPatient]);
+  }, [attendanceVisibleRows, attendanceManualPaymentRows, creditBalanceByPatient]);
 
   const attendanceSelectedPatientSummary = useMemo(() => {
     if (!selectedAttendancePatientId) return null;
@@ -2447,7 +2460,10 @@ export default function Financeiro() {
       patientId: selectedAttendancePatientId,
       patientName,
       sessions: patientSummary?.sessions || 0,
-      openCents: sessionRows.reduce((sum, row) => sum + Math.max(0, Number(row.openCents || 0)), 0),
+      openCents: sessionRows.reduce(
+        (sum, row) => sum + (row.isManualReceiptRow ? 0 : Math.max(0, Number(row.openCents || 0))),
+        0,
+      ),
       creditsAvailable:
         creditBalanceByPatient.get(selectedAttendancePatientId) || patientSummary?.creditsAvailable || 0,
     };
