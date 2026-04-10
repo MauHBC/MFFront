@@ -434,6 +434,24 @@ const parseDateInputBoundary = (value, boundary = "start") => {
   return new Date(year, monthIndex, day, 0, 0, 0, 0);
 };
 
+const toDateTimeLocalInputValue = (value = new Date()) => {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const pad = (item) => String(item).padStart(2, "0");
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+};
+
+const normalizeSearchText = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const getPatientDisplayName = (patient) => patient?.full_name || patient?.name || "Paciente";
+
 const getMonthRangeFromInputValue = (value) => {
   const parsed = parseMonthInputValue(value);
   if (!parsed) return null;
@@ -543,6 +561,8 @@ export default function Financeiro() {
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
   const [paymentModalContext, setPaymentModalContext] = useState(null);
   const [paymentAllocations, setPaymentAllocations] = useState({});
+  const [paymentPatientQuery, setPaymentPatientQuery] = useState("");
+  const [isPaymentPatientSearchFocused, setIsPaymentPatientSearchFocused] = useState(false);
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState({ name: "", type: "income", color: "" });
   const [editingCategoryId, setEditingCategoryId] = useState(null);
@@ -639,6 +659,31 @@ export default function Financeiro() {
     () => new Map(patients.map((item) => [item.id, item])),
     [patients],
   );
+
+  const sortedPatients = useMemo(() => {
+    const collator = new Intl.Collator("pt-BR", {
+      sensitivity: "base",
+      ignorePunctuation: true,
+      numeric: true,
+    });
+    return [...patients].sort((first, second) =>
+      collator.compare(getPatientDisplayName(first), getPatientDisplayName(second)),
+    );
+  }, [patients]);
+
+  const paymentPatientNormalizedQuery = useMemo(
+    () => normalizeSearchText(paymentPatientQuery),
+    [paymentPatientQuery],
+  );
+
+  const paymentPatientOptions = useMemo(() => {
+    if (!paymentPatientNormalizedQuery) return [];
+    return sortedPatients
+      .filter((patient) =>
+        normalizeSearchText(getPatientDisplayName(patient)).includes(paymentPatientNormalizedQuery),
+      )
+      .slice(0, 12);
+  }, [paymentPatientNormalizedQuery, sortedPatients]);
 
   const serviceMap = useMemo(
     () => new Map(services.map((item) => [item.id, item])),
@@ -801,7 +846,7 @@ export default function Financeiro() {
   }, [entries, paidByEntryId]);
 
   const filteredEntries = useMemo(() => {
-    const search = filters.search.trim().toLowerCase();
+    const search = normalizeSearchText(filters.search);
     return entries.filter((entry) => {
       const entryStatus = entryFinancialMap.get(entry.id)?.status || entry.status;
       if (filters.status !== "all" && entryStatus !== filters.status) return false;
@@ -821,15 +866,14 @@ export default function Financeiro() {
       if (search) {
         const category = entry.category_id ? categoryMap.get(entry.category_id) : null;
         const patient = entry.patient_id ? patientMap.get(entry.patient_id) : null;
-        const haystack = [
+        const haystack = normalizeSearchText([
           entry.description,
           entryStatus,
           category?.name,
-          patient?.full_name,
+          getPatientDisplayName(patient),
         ]
           .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
+          .join(" "));
         if (!haystack.includes(search)) return false;
       }
 
@@ -1052,17 +1096,17 @@ export default function Financeiro() {
     }
     if (hasOpenAmountOverride) {
       openAmountCents = openAmountOverrideCents;
-    }
-    if (isSimplifiedInstallment) {
-      openAmountCents = installmentOpenCents;
-    }
-    const paidAt = (hasInstallmentTarget && dueInstallment?.due_date)
-      ? `${String(dueInstallment.due_date).slice(0, 10)}T09:00`
-      : new Date().toISOString().slice(0, 16);
-    const paymentMethodId = isSimplifiedInstallment
-      ? String(options?.payment_method_id || "")
-      : "";
-    setPaymentForm({
+	    }
+	    if (isSimplifiedInstallment) {
+	      openAmountCents = installmentOpenCents;
+	    }
+	    const paidAt = (hasInstallmentTarget && dueInstallment?.due_date)
+	      ? `${String(dueInstallment.due_date).slice(0, 10)}T09:00`
+	      : toDateTimeLocalInputValue(new Date());
+	    const paymentMethodId = isSimplifiedInstallment
+	      ? String(options?.payment_method_id || "")
+	      : "";
+	    setPaymentForm({
       ...emptyPayment,
       entry_id: entry.id,
       patient_id: entry.patient_id || "",
@@ -1073,8 +1117,8 @@ export default function Financeiro() {
       entry_installments_count: String(Math.max(2, existingInstallmentsCount)),
       paid_at: paidAt,
     });
-    setPaymentModalContext({
-      simplifiedInstallment: isSimplifiedInstallment,
+	    setPaymentModalContext({
+	      simplifiedInstallment: isSimplifiedInstallment,
       installmentId: dueInstallment?.id || null,
       installmentNumber: Number(dueInstallment?.installment_number || 0) || null,
       installmentDueDate: dueInstallment?.due_date || null,
@@ -1082,31 +1126,37 @@ export default function Financeiro() {
       installmentCount: existingInstallmentsCount,
       paymentMethodId: paymentMethodId || "",
       paymentMethodName: options?.payment_method_name || "",
-    });
-    setPaymentAllocations({});
-    setIsPaymentOpen(true);
-  }, [entryFinancialMap, paidByEntryId]);
+	    });
+	    setPaymentPatientQuery("");
+	    setIsPaymentPatientSearchFocused(false);
+	    setPaymentAllocations({});
+	    setIsPaymentOpen(true);
+	  }, [entryFinancialMap, paidByEntryId]);
 
-  const closePaymentModal = useCallback(() => {
-    setIsPaymentOpen(false);
-    setIsPaymentSaving(false);
-    setPaymentModalContext(null);
-    setPaymentAllocations({});
-  }, []);
+	  const closePaymentModal = useCallback(() => {
+	    setIsPaymentOpen(false);
+	    setIsPaymentSaving(false);
+	    setPaymentModalContext(null);
+	    setPaymentAllocations({});
+	    setPaymentPatientQuery("");
+	    setIsPaymentPatientSearchFocused(false);
+	  }, []);
 
-  const openCreditModal = useCallback(() => {
-    setPaymentForm({
-      ...emptyPayment,
-      entry_id: null,
-      patient_id: "",
-      allocation_mode: "credit",
-      amount: "",
-      paid_at: new Date().toISOString().slice(0, 16),
-    });
-    setPaymentAllocations({});
-    setPaymentModalContext(null);
-    setIsPaymentOpen(true);
-  }, []);
+	  const openCreditModal = useCallback(() => {
+	    setPaymentForm({
+	      ...emptyPayment,
+	      entry_id: null,
+	      patient_id: "",
+	      allocation_mode: "credit",
+	      amount: "",
+	      paid_at: toDateTimeLocalInputValue(new Date()),
+	    });
+	    setPaymentAllocations({});
+	    setPaymentModalContext(null);
+	    setPaymentPatientQuery("");
+	    setIsPaymentPatientSearchFocused(false);
+	    setIsPaymentOpen(true);
+	  }, []);
 
   useEffect(() => {
     if (!isPaymentOpen || typeof document === "undefined") return () => { };
@@ -1154,6 +1204,48 @@ export default function Financeiro() {
     }
     setPaymentForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   }, []);
+
+  const handlePaymentPatientSearchChange = useCallback((event) => {
+    const { value } = event.target;
+    setPaymentPatientQuery(value);
+    setPaymentForm((prev) => ({
+      ...prev,
+      patient_id: "",
+    }));
+  }, []);
+
+  const handleSelectPaymentPatient = useCallback((patient) => {
+    const patientName = getPatientDisplayName(patient);
+    setPaymentPatientQuery(patientName);
+    setPaymentForm((prev) => ({
+      ...prev,
+      patient_id: String(patient.id),
+    }));
+    setIsPaymentPatientSearchFocused(false);
+  }, []);
+
+  const handlePaymentPatientSearchBlur = useCallback(() => {
+    if (!paymentPatientNormalizedQuery) {
+      setIsPaymentPatientSearchFocused(false);
+      return;
+    }
+
+    const exactMatch = sortedPatients.find(
+      (patient) =>
+        normalizeSearchText(getPatientDisplayName(patient)) === paymentPatientNormalizedQuery,
+    );
+
+    if (exactMatch) {
+      handleSelectPaymentPatient(exactMatch);
+      return;
+    }
+
+    setIsPaymentPatientSearchFocused(false);
+  }, [
+    handleSelectPaymentPatient,
+    paymentPatientNormalizedQuery,
+    sortedPatients,
+  ]);
 
   const handlePaymentCurrencyBlur = useCallback((event) => {
     const { name } = event.target;
@@ -1852,7 +1944,7 @@ export default function Financeiro() {
   );
 
   const attendanceRows = useMemo(() => {
-    const search = attendanceFilters.search.trim().toLowerCase();
+    const search = normalizeSearchText(attendanceFilters.search);
     return attendanceSessions
       .map((session) => {
         const entry = entryBySessionId.get(session.id) || null;
@@ -1951,14 +2043,13 @@ export default function Financeiro() {
       })
       .filter((row) => {
         if (!search) return true;
-        const haystack = [
+        const haystack = normalizeSearchText([
           row.patientName,
           row.professionalName,
           row.serviceName,
         ]
           .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
+          .join(" "));
         return haystack.includes(search);
       })
       .filter((row) => {
@@ -2010,7 +2101,7 @@ export default function Financeiro() {
     const hasEnd = !!endDate && !Number.isNaN(endDate.getTime());
     const selectedPatientId = normalizeId(attendanceFilters.patient_id);
     const selectedProfessionalId = normalizeId(attendanceFilters.professional_id);
-    const search = attendanceFilters.search.trim().toLowerCase();
+    const search = normalizeSearchText(attendanceFilters.search);
 
     const matchesFinancial = (statusValue) => {
       const normalizedStatus = String(statusValue || "pending").toLowerCase();
@@ -2081,7 +2172,7 @@ export default function Financeiro() {
         };
 
         if (search) {
-          const haystack = [
+          const haystack = normalizeSearchText([
             row.patientName,
             row.serviceName,
             row.paymentMethod,
@@ -2089,8 +2180,7 @@ export default function Financeiro() {
             row.manualNote,
           ]
             .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
+            .join(" "));
           if (!haystack.includes(search)) return null;
         }
 
@@ -2122,14 +2212,15 @@ export default function Financeiro() {
       : null;
     const hasStart = !!startDate && !Number.isNaN(startDate.getTime());
     const hasEnd = !!endDate && !Number.isNaN(endDate.getTime());
-    const search = attendanceFilters.search.trim().toLowerCase();
+    const search = normalizeSearchText(attendanceFilters.search);
 
     const matchesSearch = (row) => {
       if (!search) return true;
-      const haystack = [row.patientName, row.professionalName, row.serviceName]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+      const haystack = normalizeSearchText(
+        [row.patientName, row.professionalName, row.serviceName]
+          .filter(Boolean)
+          .join(" "),
+      );
       return haystack.includes(search);
     };
 
@@ -2300,6 +2391,11 @@ export default function Financeiro() {
 
   const attendanceByPatient = useMemo(() => {
     const map = new Map();
+    const collator = new Intl.Collator("pt-BR", {
+      sensitivity: "base",
+      ignorePunctuation: true,
+      numeric: true,
+    });
     attendanceVisibleRows.forEach((row) => {
       if (!row.patientId) return;
       const existing = map.get(row.patientId);
@@ -2329,7 +2425,7 @@ export default function Financeiro() {
           creditsAvailable: creditBalanceByPatient.get(item.patientId) || 0,
         };
       })
-      .sort((a, b) => new Date(b.lastSession || 0) - new Date(a.lastSession || 0));
+      .sort((a, b) => collator.compare(a.patientName || "", b.patientName || ""));
   }, [attendanceVisibleRows, creditBalanceByPatient]);
 
   const attendanceSelectedPatientSummary = useMemo(() => {
@@ -2580,7 +2676,7 @@ export default function Financeiro() {
   ]);
 
   const filteredPayments = useMemo(() => {
-    const search = paymentFilters.search.trim().toLowerCase();
+    const search = normalizeSearchText(paymentFilters.search);
     return payments.filter((payment) => {
       if (paymentFilters.patient_id && Number(payment.patient_id) !== Number(paymentFilters.patient_id)) {
         return false;
@@ -2603,16 +2699,14 @@ export default function Financeiro() {
         const method = payment.payment_method_id
           ? paymentMethodMap.get(payment.payment_method_id)
           : null;
-        const haystack = [
-          patient?.full_name,
-          patient?.name,
+        const haystack = normalizeSearchText([
+          getPatientDisplayName(patient),
           method?.name,
           payment.note,
           payment.origin,
         ]
           .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
+          .join(" "));
         if (!haystack.includes(search)) return false;
       }
       return true;
@@ -4733,24 +4827,40 @@ export default function Financeiro() {
                   </ChargeAmountBanner>
                 )}
                 <FormGrid>
-                  {!paymentForm.entry_id && (
-                    <Field>
-                      <Label htmlFor="payment-patient">Paciente</Label>
-                      <Select
-                        id="payment-patient"
-                        name="patient_id"
-                        value={paymentForm.patient_id}
-                        onChange={handlePaymentChange}
-                      >
-                        <option value="">Selecione</option>
-                        {patients.map((patient) => (
-                          <option key={patient.id} value={patient.id}>
-                            {patient.full_name || patient.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                  )}
+	                  {!paymentForm.entry_id && (
+	                    <Field>
+	                      <Label htmlFor="payment-patient">Paciente</Label>
+	                      <SearchFieldWrapper>
+	                        <Input
+	                          id="payment-patient"
+	                          value={paymentPatientQuery}
+	                          onChange={handlePaymentPatientSearchChange}
+	                          onFocus={() => setIsPaymentPatientSearchFocused(true)}
+	                          onBlur={handlePaymentPatientSearchBlur}
+	                          placeholder="Digite o nome do paciente"
+	                          autoComplete="off"
+	                        />
+	                        {isPaymentPatientSearchFocused
+	                          && paymentPatientNormalizedQuery
+	                          && paymentPatientOptions.length > 0 && (
+	                          <SearchSuggestions role="listbox" aria-label="Sugestoes de pacientes">
+	                            {paymentPatientOptions.map((patient) => (
+	                              <SearchSuggestionButton
+	                                key={patient.id}
+	                                type="button"
+	                                onMouseDown={(event) => {
+	                                  event.preventDefault();
+	                                  handleSelectPaymentPatient(patient);
+	                                }}
+	                              >
+	                                {getPatientDisplayName(patient)}
+	                              </SearchSuggestionButton>
+	                            ))}
+	                          </SearchSuggestions>
+	                        )}
+	                      </SearchFieldWrapper>
+	                    </Field>
+	                  )}
                   <Field>
                     <Label htmlFor="payment-amount">Valor recebido</Label>
                     <CurrencyInputGroup>
@@ -6927,6 +7037,42 @@ const Select = styled.select`
   border-radius: 10px;
   border: 1px solid rgba(0, 0, 0, 0.15);
   background: #fff;
+`;
+
+const SearchFieldWrapper = styled.div`
+  position: relative;
+`;
+
+const SearchSuggestions = styled.div`
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #fff;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12);
+  z-index: 2100;
+`;
+
+const SearchSuggestionButton = styled.button`
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: #333;
+  padding: 10px 12px;
+  border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: #f4f6f1;
+  }
 `;
 
 const TextArea = styled.textarea`
