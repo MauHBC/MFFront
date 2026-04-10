@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import styled from "styled-components";
 import {
   FaBars,
+  FaCalendarAlt,
   FaChartLine,
   FaChevronLeft,
   FaCoins,
@@ -15,7 +16,7 @@ import {
 import { toast } from "react-toastify";
 
 import Loading from "../../components/Loading";
-import axios from "../../services/axios";
+import axios, { getUserFacingApiError } from "../../services/axios";
 import {
   listFinancialEntries,
   createFinancialEntry,
@@ -36,6 +37,11 @@ import {
   updateFinancialRecurringExpense,
   createSessionFinancialEntry,
 } from "../../services/financial";
+import {
+  createSpecialSchedulingEvent,
+  inactivateSpecialSchedulingEvent,
+  listSpecialSchedulingEvents,
+} from "../../services/scheduling";
 
 const emptyEntry = {
   type: "income",
@@ -62,6 +68,53 @@ const emptyPayment = {
   paid_at: "",
   note: "",
   allocation_mode: "entry",
+};
+
+const STANDALONE_PAYMENT_ANCHOR_DESCRIPTION = "Recebimento avulso (sistema)";
+const STANDALONE_PAYMENT_ANCHOR_NOTE =
+  "Entrada tecnica automatica para viabilizar recebimento avulso.";
+
+const isManualReceiptEntry = (entry) =>
+  Boolean(entry && entry.type === "income" && !entry.session_id);
+
+const resolveManualReceiptLabel = (entry) => {
+  const description = String(entry?.description || "").trim();
+  if (!description || description === STANDALONE_PAYMENT_ANCHOR_DESCRIPTION) {
+    return "Recebimento manual";
+  }
+  return description;
+};
+
+const resolveManualReceiptStatus = (amountCents, allocatedCents) => {
+  const amount = Number(amountCents || 0);
+  const allocated = Number(allocatedCents || 0);
+  const remaining = Math.max(0, amount - allocated);
+
+  if (allocated <= 0) return "credit";
+  if (remaining <= 0) return "paid";
+  return "partial";
+};
+
+const HOLIDAY_SOURCE_OPTIONS = [
+  { value: "national", label: "Feriado nacional" },
+  { value: "state", label: "Feriado estadual" },
+  { value: "city", label: "Feriado municipal" },
+  { value: "optional_point", label: "Ponto facultativo" },
+];
+
+const HOLIDAY_SOURCE_LABELS = HOLIDAY_SOURCE_OPTIONS.reduce((acc, option) => {
+  acc[option.value] = option.label;
+  return acc;
+}, {});
+
+const HOLIDAY_SOURCE_SET = new Set(HOLIDAY_SOURCE_OPTIONS.map((option) => option.value));
+
+const emptyHolidayForm = {
+  name: "",
+  date: "",
+  source_type: "national",
+  state_code: "",
+  city_name: "",
 };
 
 const formatCurrency = (cents) => {
@@ -131,6 +184,28 @@ const formatMonthYear = (value) => {
     year: "numeric",
   });
   return label ? label.charAt(0).toUpperCase() + label.slice(1) : "";
+};
+
+const formatHolidayDate = (value) => {
+  if (!value) return "-";
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("pt-BR");
+};
+
+const formatHolidayLocation = (item) => {
+  if (!item) return "";
+  if (item.source_type === "city") {
+    const city = String(item.city_name || "").trim();
+    const state = String(item.state_code || "").trim().toUpperCase();
+    if (city && state) return `${city}/${state}`;
+    if (city) return city;
+  }
+  if (item.source_type === "state") {
+    const state = String(item.state_code || "").trim().toUpperCase();
+    if (state) return state;
+  }
+  return "";
 };
 
 const closeActionMenu = (event) => {
@@ -239,6 +314,8 @@ const SIDEBAR_COLLAPSED_WIDTH = 86;
 const SHOW_FINANCIAL_MANAGEMENT = false;
 const SHOW_FINANCIAL_REPORTS = false;
 const SHOW_MANUAL_ENTRIES = false;
+// Mantemos a view antiga disponivel no codigo, mas fora da navegacao para simplificar a UX.
+const SHOW_DEDICATED_PAYMENTS_VIEW = false;
 
 const ATTENDANCE_UI = {
   colors: {
@@ -338,6 +415,25 @@ const parseMonthInputValue = (value) => {
   return { year, month };
 };
 
+const parseDateInputBoundary = (value, boundary = "start") => {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(monthIndex) ||
+    !Number.isInteger(day)
+  ) {
+    return null;
+  }
+  if (boundary === "end") {
+    return new Date(year, monthIndex, day, 23, 59, 59, 999);
+  }
+  return new Date(year, monthIndex, day, 0, 0, 0, 0);
+};
+
 const getMonthRangeFromInputValue = (value) => {
   const parsed = parseMonthInputValue(value);
   if (!parsed) return null;
@@ -389,6 +485,11 @@ export default function Financeiro() {
   const [payments, setPayments] = useState([]);
   const [recurringExpenses, setRecurringExpenses] = useState([]);
   const [attendanceSessions, setAttendanceSessions] = useState([]);
+  const [holidays, setHolidays] = useState([]);
+  const [isHolidayLoading, setIsHolidayLoading] = useState(false);
+  const [isHolidaySaving, setIsHolidaySaving] = useState(false);
+  const [isHolidayOpen, setIsHolidayOpen] = useState(false);
+  const [holidayForm, setHolidayForm] = useState(emptyHolidayForm);
 
   const [filters, setFilters] = useState(() => {
     const range = getCurrentMonthRange();
@@ -487,8 +588,9 @@ export default function Financeiro() {
       setIsMobile(media.matches);
       if (!media.matches) {
         setIsSidebarOpen(false);
-      }
-    };
+  }
+};
+
     handleChange();
     if (media.addEventListener) {
       media.addEventListener("change", handleChange);
@@ -786,6 +888,7 @@ export default function Financeiro() {
   }, []);
 
   const formatFinancialStatus = useCallback((status) => {
+    if (status === "credit") return "Credito";
     if (status === "paid") return "Pago";
     if (status === "partial") return "Parcial";
     if (status === "canceled") return "Cancelado";
@@ -802,6 +905,17 @@ export default function Financeiro() {
     if (remaining <= 0) return "Usado em cobrancas";
     return "Parte usada, parte em credito";
   }, []);
+
+  const holidayRows = useMemo(
+    () =>
+      [...holidays].sort((first, second) => {
+        const firstDate = String(first.start_date || "");
+        const secondDate = String(second.start_date || "");
+        if (firstDate !== secondDate) return firstDate.localeCompare(secondDate);
+        return String(first.name || "").localeCompare(String(second.name || ""));
+      }),
+    [holidays],
+  );
 
   const loadData = useCallback(async () => {
     try {
@@ -870,11 +984,30 @@ export default function Financeiro() {
     attendanceFilters.status,
   ]);
 
+  const loadHolidays = useCallback(async () => {
+    try {
+      setIsHolidayLoading(true);
+      const response = await listSpecialSchedulingEvents({});
+      const items = Array.isArray(response.data) ? response.data : [];
+      setHolidays(items.filter((item) => HOLIDAY_SOURCE_SET.has(item.source_type)));
+    } catch (error) {
+      toast.error("Nao foi possivel carregar os feriados.");
+    } finally {
+      setIsHolidayLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeSection === "receitas") {
       loadAttendance();
     }
   }, [activeSection, loadAttendance]);
+
+  useEffect(() => {
+    if (activeSection === "holidays") {
+      loadHolidays();
+    }
+  }, [activeSection, loadHolidays]);
 
   const openEntryModal = useCallback(() => {
     setEntryForm(emptyEntry);
@@ -1248,6 +1381,101 @@ export default function Financeiro() {
     [closeSidebar, isMobile],
   );
 
+  const openHolidayModal = useCallback(() => {
+    setHolidayForm(emptyHolidayForm);
+    setIsHolidayOpen(true);
+  }, []);
+
+  const closeHolidayModal = useCallback(() => {
+    if (isHolidaySaving) return;
+    setIsHolidayOpen(false);
+  }, [isHolidaySaving]);
+
+  const handleHolidayChange = useCallback((event) => {
+    const { name, value } = event.target;
+    setHolidayForm((prev) => {
+      const next = { ...prev, [name]: value };
+      if (name === "source_type") {
+        if (value !== "state" && value !== "city") {
+          next.state_code = "";
+        }
+        if (value !== "city") {
+          next.city_name = "";
+        }
+      }
+      if (name === "state_code") {
+        next.state_code = String(value || "").toUpperCase().slice(0, 2);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSaveHoliday = useCallback(async () => {
+    if (!holidayForm.name.trim()) {
+      toast.error("Informe o nome do feriado.");
+      return;
+    }
+    if (!holidayForm.date) {
+      toast.error("Informe a data do feriado.");
+      return;
+    }
+    if (holidayForm.source_type === "state" && !holidayForm.state_code.trim()) {
+      toast.error("Informe a UF do feriado estadual.");
+      return;
+    }
+    if (holidayForm.source_type === "city") {
+      if (!holidayForm.state_code.trim()) {
+        toast.error("Informe a UF do feriado municipal.");
+        return;
+      }
+      if (!holidayForm.city_name.trim()) {
+        toast.error("Informe a cidade do feriado municipal.");
+        return;
+      }
+    }
+
+    try {
+      setIsHolidaySaving(true);
+      await createSpecialSchedulingEvent({
+        source_type: holidayForm.source_type,
+        behavior_type: "BLOCK",
+        name: holidayForm.name.trim(),
+        description: null,
+        start_date: holidayForm.date,
+        end_date: holidayForm.date,
+        all_day: true,
+        start_time: null,
+        end_time: null,
+        affects_scheduling: true,
+        professional_id: null,
+        state_code: holidayForm.state_code.trim() || null,
+        city_name: holidayForm.city_name.trim() || null,
+      });
+      toast.success("Feriado adicionado.");
+      setHolidayForm(emptyHolidayForm);
+      setIsHolidayOpen(false);
+      await loadHolidays();
+    } catch (error) {
+      toast.error(error?.response?.data?.error || "Nao foi possivel salvar o feriado.");
+    } finally {
+      setIsHolidaySaving(false);
+    }
+  }, [holidayForm, loadHolidays]);
+
+  const handleDeleteHoliday = useCallback(
+    async (holiday) => {
+      if (!holiday?.id) return;
+      try {
+        await inactivateSpecialSchedulingEvent(holiday.id);
+        toast.success("Feriado excluido.");
+        await loadHolidays();
+      } catch (error) {
+        toast.error(error?.response?.data?.error || "Nao foi possivel excluir o feriado.");
+      }
+    },
+    [loadHolidays],
+  );
+
   const openCategoryModal = useCallback((category = null) => {
     if (category) {
       setCategoryForm({
@@ -1372,6 +1600,29 @@ export default function Financeiro() {
     }
   }, [entryForm, closeEntryModal, loadData]);
 
+  const createStandalonePaymentAnchor = useCallback(
+    async ({ patientId, referenceDate }) => {
+      const normalizedReferenceDate =
+        String(referenceDate || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
+      const response = await createFinancialEntry({
+        type: "income",
+        description: STANDALONE_PAYMENT_ANCHOR_DESCRIPTION,
+        patient_id: patientId,
+        amount_cents: 0,
+        currency: "BRL",
+        reference_date: normalizedReferenceDate,
+        due_date: normalizedReferenceDate,
+        notes: STANDALONE_PAYMENT_ANCHOR_NOTE,
+      });
+      const createdEntryId = Number(response?.data?.id || 0);
+      if (!createdEntryId) {
+        throw new Error("Nao foi possivel preparar o recebimento avulso.");
+      }
+      return createdEntryId;
+    },
+    [],
+  );
+
   const handleSavePayment = useCallback(async () => {
     if (isPaymentSaving) return;
     const amountValue = parseCurrencyInputToNumber(paymentForm.amount);
@@ -1470,9 +1721,14 @@ export default function Financeiro() {
 
     try {
       setIsPaymentSaving(true);
+      const selectedPatientId = normalizeId(paymentForm.patient_id);
+      const selectedPaymentMethodId = normalizeId(paymentForm.payment_method_id);
       const allocationMode = paymentForm.entry_id
         ? "entry"
         : paymentForm.allocation_mode || "none";
+      const paymentReferenceDate = isSimplifiedInstallmentPayment
+        ? String(paymentModalContext?.installmentDueDate || "").slice(0, 10)
+        : String(paymentForm.paid_at || "").slice(0, 10);
       const allocationItems = Object.entries(paymentAllocations)
         .map(([allocationEntryId, value]) => {
           const parsed = parseCurrencyInputToNumber(value);
@@ -1502,16 +1758,28 @@ export default function Financeiro() {
       const paidAtIso = isSimplifiedInstallmentPayment && paymentModalContext?.installmentDueDate
         ? new Date(`${String(paymentModalContext.installmentDueDate).slice(0, 10)}T09:00:00`).toISOString()
         : new Date(paymentForm.paid_at).toISOString();
+      let paymentEntryId = paymentForm.entry_id || null;
+      let paymentAllocationMode = allocationMode;
+
+      if (!paymentEntryId) {
+        paymentEntryId = await createStandalonePaymentAnchor({
+          patientId: selectedPatientId,
+          referenceDate: paymentReferenceDate,
+        });
+        if (allocationMode === "credit") {
+          paymentAllocationMode = "entry";
+        }
+      }
 
       await createFinancialPayment({
-        entry_id: paymentForm.entry_id || null,
-        patient_id: normalizeId(paymentForm.patient_id),
-        payment_method_id: normalizeId(paymentForm.payment_method_id),
+        entry_id: paymentEntryId,
+        patient_id: selectedPatientId,
+        payment_method_id: selectedPaymentMethodId,
         amount_cents: effectiveAmountCents,
         paid_at: paidAtIso,
         note: isSimplifiedInstallmentPayment ? null : paymentForm.note.trim() || null,
-        allocation_mode: allocationMode,
-        allocations: allocationMode === "manual" ? allocationItems : undefined,
+        allocation_mode: paymentAllocationMode,
+        allocations: paymentAllocationMode === "manual" ? allocationItems : undefined,
         discount_cents: hasAdjustment ? discountCents : undefined,
         surcharge_cents: hasAdjustment ? surchargeCents : undefined,
         adjustment_reason: hasAdjustment ? paymentForm.adjustment_reason.trim() : undefined,
@@ -1535,7 +1803,10 @@ export default function Financeiro() {
       loadData();
     } catch (error) {
       toast.error(
-        error?.response?.data?.error || "Nao foi possivel registrar o pagamento.",
+        getUserFacingApiError(
+          error,
+          "Nao foi possivel registrar o recebimento. Tente novamente em instantes.",
+        ),
       );
     } finally {
       setIsPaymentSaving(false);
@@ -1547,6 +1818,7 @@ export default function Financeiro() {
     entryFinancialMap,
     entryMap,
     paymentModalContext,
+    createStandalonePaymentAnchor,
     closePaymentModal,
     loadData,
   ]);
@@ -1727,6 +1999,120 @@ export default function Financeiro() {
     attendanceRows,
   ]);
 
+  const attendanceManualPaymentRows = useMemo(() => {
+    const startDate = attendanceFilters.start
+      ? parseDateInputBoundary(attendanceFilters.start, "start")
+      : null;
+    const endDate = attendanceFilters.end
+      ? parseDateInputBoundary(attendanceFilters.end, "end")
+      : null;
+    const hasStart = !!startDate && !Number.isNaN(startDate.getTime());
+    const hasEnd = !!endDate && !Number.isNaN(endDate.getTime());
+    const selectedPatientId = normalizeId(attendanceFilters.patient_id);
+    const selectedProfessionalId = normalizeId(attendanceFilters.professional_id);
+    const search = attendanceFilters.search.trim().toLowerCase();
+
+    const matchesFinancial = (statusValue) => {
+      const normalizedStatus = String(statusValue || "pending").toLowerCase();
+      if (attendanceFilters.financial === "pending") {
+        return normalizedStatus === "pending" || normalizedStatus === "credit";
+      }
+      if (attendanceFilters.financial === "partial") return normalizedStatus === "partial";
+      if (attendanceFilters.financial === "paid") return normalizedStatus === "paid";
+      return true;
+    };
+
+    return payments
+      .map((payment) => {
+        const paymentEntryId = Number(payment.entry_id || 0) || null;
+        const entry = paymentEntryId ? entryMap.get(paymentEntryId) : null;
+        if (entry && !isManualReceiptEntry(entry)) return null;
+        if (selectedProfessionalId) return null;
+
+        const patientId = Number(payment.patient_id || entry?.patient_id || 0) || null;
+        if (!patientId) return null;
+        if (selectedPatientId && patientId !== selectedPatientId) return null;
+
+        const paidAt = new Date(payment.paid_at || 0);
+        if (Number.isNaN(paidAt.getTime())) return null;
+        if (hasStart && paidAt < startDate) return null;
+        if (hasEnd && paidAt > endDate) return null;
+
+        const patient = patientMap.get(patientId) || null;
+        const paymentMethod = payment.payment_method_id
+          ? paymentMethodMap.get(payment.payment_method_id)
+          : null;
+        const allocatedCents = allocatedByPaymentId.get(payment.id) || 0;
+        const status = resolveManualReceiptStatus(payment.amount_cents, allocatedCents);
+        if (!matchesFinancial(status)) return null;
+
+        const noteParts = [
+          payment.note,
+          entry?.notes && entry.notes !== STANDALONE_PAYMENT_ANCHOR_NOTE ? entry.notes : null,
+        ].filter(Boolean);
+        const row = {
+          id: `manual-payment-${payment.id}`,
+          starts_at: payment.paid_at,
+          patientId,
+          patientName: patient?.full_name || patient?.name || "Paciente",
+          professionalId: null,
+          professionalName: "-",
+          serviceName: resolveManualReceiptLabel(entry),
+          recurrence: "-",
+          amountCents: Number(payment.amount_cents || 0),
+          paidCents: allocatedCents,
+          openCents: Math.max(0, Number(payment.amount_cents || 0) - allocatedCents),
+          entry,
+          financialStatus: status,
+          payment,
+          paymentCount: 1,
+          totalReceivedCents: Number(payment.amount_cents || 0),
+          paymentMethod: paymentMethod?.name || "-",
+          isInstallmentPlan: false,
+          installmentCount: 0,
+          installmentUnitCents: 0,
+          installmentAgreementTotalCents: 0,
+          paidInstallments: 0,
+          nextOpenInstallment: null,
+          installments: [],
+          isManualReceiptRow: true,
+          manualUsageLabel: formatPaymentUsage(payment, allocatedCents),
+          manualNote: noteParts.join(" | ") || "-",
+        };
+
+        if (search) {
+          const haystack = [
+            row.patientName,
+            row.serviceName,
+            row.paymentMethod,
+            row.manualUsageLabel,
+            row.manualNote,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          if (!haystack.includes(search)) return null;
+        }
+
+        return row;
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(a.starts_at || 0) - new Date(b.starts_at || 0));
+  }, [
+    attendanceFilters.end,
+    attendanceFilters.financial,
+    attendanceFilters.patient_id,
+    attendanceFilters.professional_id,
+    attendanceFilters.search,
+    attendanceFilters.start,
+    allocatedByPaymentId,
+    entryMap,
+    formatPaymentUsage,
+    patientMap,
+    paymentMethodMap,
+    payments,
+  ]);
+
   const attendanceSessionRows = useMemo(() => {
     const startDate = attendanceFilters.start
       ? new Date(`${attendanceFilters.start}T00:00:00`)
@@ -1892,9 +2278,10 @@ export default function Financeiro() {
       });
     });
 
-    return [...attendanceVisibleRows, ...supplementalRows]
+    return [...attendanceVisibleRows, ...supplementalRows, ...attendanceManualPaymentRows]
       .sort((a, b) => new Date(a.starts_at || 0) - new Date(b.starts_at || 0));
   }, [
+    attendanceManualPaymentRows,
     attendanceFilters.end,
     attendanceFilters.financial,
     attendanceFilters.patient_id,
@@ -2202,14 +2589,14 @@ export default function Financeiro() {
         return false;
       }
       if (paymentFilters.start) {
-        const startDate = new Date(paymentFilters.start);
+        const startDate = parseDateInputBoundary(paymentFilters.start, "start");
         const paidAt = new Date(payment.paid_at || 0);
-        if (paidAt < startDate) return false;
+        if (startDate && paidAt < startDate) return false;
       }
       if (paymentFilters.end) {
-        const endDate = new Date(paymentFilters.end);
+        const endDate = parseDateInputBoundary(paymentFilters.end, "end");
         const paidAt = new Date(payment.paid_at || 0);
-        if (paidAt > endDate) return false;
+        if (endDate && paidAt > endDate) return false;
       }
       if (search) {
         const patient = payment.patient_id ? patientMap.get(payment.patient_id) : null;
@@ -2845,7 +3232,7 @@ export default function Financeiro() {
   const renderAttendance = () => {
     const isAttendanceBusy = isAttendanceLoading || (loading && !hasAttendanceLoaded);
     const attendanceTitle =
-      attendanceView === "patients" ? "Resumo por paciente" : "Detalhe por sessao";
+      attendanceView === "patients" ? "Resumo por paciente" : "Detalhe financeiro";
 
     let attendanceContent = (
       <AttendanceEmptyState>Sem atendimentos no periodo.</AttendanceEmptyState>
@@ -2937,7 +3324,7 @@ export default function Financeiro() {
                 <th>Profissional</th>
                 <th>Servico</th>
                 <th>Valor</th>
-                <th>Parcelamento</th>
+	                <th>Detalhe</th>
                 <th>Status</th>
                 <th>Obs.</th>
                 <th>Ações</th>
@@ -2954,20 +3341,26 @@ export default function Financeiro() {
                   && status === "partial"
                   && Number(row.firstInstallmentOpenCents || 0) <= 0,
                 );
-                const canShowActions = Boolean(
-                  row.entry
-                  && status !== "canceled"
-                  && status !== "paid"
-                  && !hideActionsForInstallmentAgreement,
-                );
-                const installmentSummary = row.isInstallmentPlan
-                  ? `${row.installmentCount}x de ${formatCurrency(row.installmentUnitCents)}`
-                  : "-";
-                let installmentNote = null;
-                if (row.isProjectedInstallmentRow && row.dueInstallment) {
-                  installmentNote = `Parcela ${row.dueInstallment.installment_number} de ${row.installmentCount}`;
-                } else if (row.isInstallmentPlan) {
-                  installmentNote = `Parcela 1/${row.installmentCount}`;
+	                const canShowActions = Boolean(
+	                  !row.isManualReceiptRow
+	                  && row.entry
+	                  && status !== "canceled"
+	                  && status !== "paid"
+	                  && !hideActionsForInstallmentAgreement,
+	                );
+	                let installmentSummary = "-";
+	                if (row.isManualReceiptRow) {
+	                  installmentSummary = row.paymentMethod || "-";
+	                } else if (row.isInstallmentPlan) {
+	                  installmentSummary = `${row.installmentCount}x de ${formatCurrency(row.installmentUnitCents)}`;
+	                }
+	                let installmentNote = null;
+	                if (row.isManualReceiptRow) {
+	                  installmentNote = row.manualUsageLabel || null;
+	                } else if (row.isProjectedInstallmentRow && row.dueInstallment) {
+	                  installmentNote = `Parcela ${row.dueInstallment.installment_number} de ${row.installmentCount}`;
+	                } else if (row.isInstallmentPlan) {
+	                  installmentNote = `Parcela 1/${row.installmentCount}`;
                 }
                 let paymentModalOptions = null;
                 if (row.isProjectedInstallmentRow && row.dueInstallment) {
@@ -2999,21 +3392,29 @@ export default function Financeiro() {
                     <td>
                       <AttendancePrimaryText>{row.professionalName}</AttendancePrimaryText>
                     </td>
-                    <td>
-                      <AttendancePrimaryText>{row.serviceName}</AttendancePrimaryText>
-                    </td>
+	                    <td>
+	                      <AttendanceCellStack>
+	                        <AttendancePrimaryText>{row.serviceName}</AttendancePrimaryText>
+	                        {row.isManualReceiptRow && (
+	                          <AttendanceOriginBadge>Lancamento manual</AttendanceOriginBadge>
+	                        )}
+	                      </AttendanceCellStack>
+	                    </td>
                     <td>
                       <AttendanceCellStack>
                         <AttendanceMoneyText>{formatCurrency(row.amountCents)}</AttendanceMoneyText>
                       </AttendanceCellStack>
                     </td>
-                    <td>
-                      <AttendanceCellStack>
-                        <AttendancePrimaryText>{installmentSummary}</AttendancePrimaryText>
-                        {row.isInstallmentPlan && row.installmentAgreementTotalCents > 0 && (
-                          <AttendanceSecondaryText>
-                            Acordo: {formatCurrency(row.installmentAgreementTotalCents)}
-                          </AttendanceSecondaryText>
+	                    <td>
+	                      <AttendanceCellStack>
+	                        <AttendancePrimaryText>{installmentSummary}</AttendancePrimaryText>
+	                        {row.isManualReceiptRow && installmentNote && (
+	                          <AttendanceSecondaryText>{installmentNote}</AttendanceSecondaryText>
+	                        )}
+	                        {row.isInstallmentPlan && row.installmentAgreementTotalCents > 0 && (
+	                          <AttendanceSecondaryText>
+	                            Acordo: {formatCurrency(row.installmentAgreementTotalCents)}
+	                          </AttendanceSecondaryText>
                         )}
                         {row.isInstallmentPlan
                           && !row.isProjectedInstallmentRow
@@ -3029,18 +3430,20 @@ export default function Financeiro() {
                         {statusLabel}
                       </AttendanceStatusBadge>
                     </td>
-                    <td>
-                      <AttendanceNoteText>
-                        {installmentNote || row.entry?.notes || row.payment?.note || "-"}
-                      </AttendanceNoteText>
-                    </td>
-                    <td>
-                      <AttendanceRowActions>
-                        {!row.entry && (
-                          <AttendanceSmallAction
-                            type="button"
-                            onClick={() => handleCreateSessionEntry(row.id)}
-                          >
+	                    <td>
+	                      <AttendanceNoteText>
+	                        {row.isManualReceiptRow
+	                          ? row.manualNote || "-"
+	                          : installmentNote || row.entry?.notes || row.payment?.note || "-"}
+	                      </AttendanceNoteText>
+	                    </td>
+	                    <td>
+	                      <AttendanceRowActions>
+	                        {!row.isManualReceiptRow && !row.entry && (
+	                          <AttendanceSmallAction
+	                            type="button"
+	                            onClick={() => handleCreateSessionEntry(row.id)}
+	                          >
                             Gerar lancamento
                           </AttendanceSmallAction>
                         )}
@@ -3091,7 +3494,8 @@ export default function Financeiro() {
           <div>
             <AttendanceHeadingTitle>Atendimentos</AttendanceHeadingTitle>
             <AttendanceHeadingSubtitle>
-              O que foi atendido, o que gerou cobranca e o que ainda falta receber.
+              O que foi atendido, o que gerou cobranca, recebimentos manuais e o que ainda falta
+              receber.
             </AttendanceHeadingSubtitle>
           </div>
           <AttendanceHeaderActions>
@@ -3548,24 +3952,26 @@ export default function Financeiro() {
   const renderReceitasTabs = () => (
     <TabsWrapper>
       <TabsRow>
-        <TabButton
-          type="button"
-          $active={receitasView === "atendimentos"}
-          onClick={() => setReceitasView("atendimentos")}
-        >
-          Atendimentos
-        </TabButton>
-        <TabButton
-          type="button"
-          $active={receitasView === "recebimentos"}
-          onClick={() => setReceitasView("recebimentos")}
-        >
-          Recebimentos
-        </TabButton>
-        {SHOW_MANUAL_ENTRIES && (
-          <TabButton
-            type="button"
-            $active={receitasView === "manuais"}
+	        <TabButton
+	          type="button"
+	          $active={receitasView === "atendimentos"}
+	          onClick={() => setReceitasView("atendimentos")}
+	        >
+	          Atendimentos
+	        </TabButton>
+	        {SHOW_DEDICATED_PAYMENTS_VIEW && (
+	          <TabButton
+	            type="button"
+	            $active={receitasView === "recebimentos"}
+	            onClick={() => setReceitasView("recebimentos")}
+	          >
+	            Recebimentos
+	          </TabButton>
+	        )}
+	        {SHOW_MANUAL_ENTRIES && (
+	          <TabButton
+	            type="button"
+	            $active={receitasView === "manuais"}
             onClick={() => setReceitasView("manuais")}
           >
             Lancamentos manuais
@@ -3578,11 +3984,11 @@ export default function Financeiro() {
   const renderReceitas = () => {
     let receitasContent = renderAttendance();
 
-    if (receitasView === "recebimentos") {
-      receitasContent = renderPayments();
-    } else if (receitasView === "manuais" && SHOW_MANUAL_ENTRIES) {
-      receitasContent = renderEntries();
-    }
+	    if (SHOW_DEDICATED_PAYMENTS_VIEW && receitasView === "recebimentos") {
+	      receitasContent = renderPayments();
+	    } else if (receitasView === "manuais" && SHOW_MANUAL_ENTRIES) {
+	      receitasContent = renderEntries();
+	    }
 
     return (
       <>
@@ -3716,6 +4122,78 @@ export default function Financeiro() {
             Nova forma
           </PrimaryButton>
         </SectionHeader>
+        {content}
+      </Section>
+    );
+  };
+
+  const renderHolidays = () => {
+    let content = (
+      <SimpleTable>
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Data</th>
+            <th>Tipo</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          {holidayRows.map((holiday) => {
+            const location = formatHolidayLocation(holiday);
+            return (
+              <tr key={holiday.id}>
+                <td>
+                  <CellStack>
+                    <span>{holiday.name || "Feriado"}</span>
+                    {location ? <MutedText>{location}</MutedText> : null}
+                  </CellStack>
+                </td>
+                <td>{formatHolidayDate(holiday.start_date)}</td>
+                <td>{HOLIDAY_SOURCE_LABELS[holiday.source_type] || holiday.source_type || "-"}</td>
+                <td>
+                  <RowActions>
+                    <SmallButton type="button" onClick={() => handleDeleteHoliday(holiday)}>
+                      Excluir
+                    </SmallButton>
+                  </RowActions>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </SimpleTable>
+    );
+
+    if (isHolidayLoading) {
+      content = (
+        <SectionLoader>
+          <Spinner />
+          Carregando feriados...
+        </SectionLoader>
+      );
+    } else if (holidayRows.length === 0) {
+      content = <EmptyState>Sem feriados cadastrados.</EmptyState>;
+    }
+
+    return (
+      <Section>
+        <SectionHeader>
+          <div>
+            <SectionTitle>Feriados</SectionTitle>
+            <SectionSubtitle>Cadastre e remova feriados da agenda com o minimo necessario.</SectionSubtitle>
+          </div>
+          <HeaderActions>
+            <GhostButton type="button" onClick={loadHolidays}>
+              Atualizar
+            </GhostButton>
+            <PrimaryButton type="button" onClick={openHolidayModal}>
+              <FaPlus />
+              Novo feriado
+            </PrimaryButton>
+          </HeaderActions>
+        </SectionHeader>
+
         {content}
       </Section>
     );
@@ -4021,6 +4499,18 @@ export default function Financeiro() {
               </SidebarIcon>
               <SidebarLabel $collapsed={isSidebarCollapsed}>Formas de pagamento</SidebarLabel>
             </SidebarButton>
+            <SidebarButton
+              type="button"
+              $active={activeSection === "holidays"}
+              $collapsed={isSidebarCollapsed}
+              onClick={() => handleSectionChange("holidays")}
+              title="Feriados"
+            >
+              <SidebarIcon $active={activeSection === "holidays"}>
+                <FaCalendarAlt />
+              </SidebarIcon>
+              <SidebarLabel $collapsed={isSidebarCollapsed}>Feriados</SidebarLabel>
+            </SidebarButton>
             {SHOW_FINANCIAL_MANAGEMENT && (
               <SidebarButton
                 type="button"
@@ -4055,6 +4545,7 @@ export default function Financeiro() {
             {SHOW_FINANCIAL_MANAGEMENT && activeSection === "recurring" && renderRecurring()}
             {SHOW_FINANCIAL_MANAGEMENT && activeSection === "categories" && renderCategories()}
             {activeSection === "methods" && renderMethods()}
+            {activeSection === "holidays" && renderHolidays()}
             {activeSection === "prices" && renderPrices()}
             {SHOW_FINANCIAL_REPORTS && activeSection === "reports" && renderReports()}
           </>
@@ -4793,6 +5284,97 @@ export default function Financeiro() {
             </ModalCard>
           </ModalOverlay>
           <Backdrop onClick={closeRecurringModal} />
+        </>
+      )}
+
+      {isHolidayOpen && (
+        <>
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <div>
+                  <ModalTitle>Novo feriado</ModalTitle>
+                  <ModalSubtitle>Informe apenas os dados essenciais do feriado.</ModalSubtitle>
+                </div>
+                <IconButton type="button" onClick={closeHolidayModal}>
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                <FormGrid>
+                  <Field>
+                    <Label htmlFor="holiday-name">Nome</Label>
+                    <Input
+                      id="holiday-name"
+                      name="name"
+                      placeholder="Ex.: Tiradentes"
+                      value={holidayForm.name}
+                      onChange={handleHolidayChange}
+                    />
+                  </Field>
+                  <Field>
+                    <Label htmlFor="holiday-date">Data</Label>
+                    <Input
+                      id="holiday-date"
+                      type="date"
+                      name="date"
+                      value={holidayForm.date}
+                      onChange={handleHolidayChange}
+                    />
+                  </Field>
+                  <Field>
+                    <Label htmlFor="holiday-source">Tipo</Label>
+                    <Select
+                      id="holiday-source"
+                      name="source_type"
+                      value={holidayForm.source_type}
+                      onChange={handleHolidayChange}
+                    >
+                      {HOLIDAY_SOURCE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  {(holidayForm.source_type === "state" || holidayForm.source_type === "city") && (
+                    <Field>
+                      <Label htmlFor="holiday-state">UF</Label>
+                      <Input
+                        id="holiday-state"
+                        name="state_code"
+                        placeholder="SP"
+                        maxLength={2}
+                        value={holidayForm.state_code}
+                        onChange={handleHolidayChange}
+                      />
+                    </Field>
+                  )}
+                  {holidayForm.source_type === "city" && (
+                    <Field>
+                      <Label htmlFor="holiday-city">Cidade</Label>
+                      <Input
+                        id="holiday-city"
+                        name="city_name"
+                        placeholder="Sao Paulo"
+                        value={holidayForm.city_name}
+                        onChange={handleHolidayChange}
+                      />
+                    </Field>
+                  )}
+                </FormGrid>
+              </ModalBody>
+              <ModalActions>
+                <SecondaryButton type="button" onClick={closeHolidayModal} disabled={isHolidaySaving}>
+                  Cancelar
+                </SecondaryButton>
+                <PrimaryButton type="button" onClick={handleSaveHoliday} disabled={isHolidaySaving}>
+                  {isHolidaySaving ? <ButtonSpinner /> : "Adicionar feriado"}
+                </PrimaryButton>
+              </ModalActions>
+            </ModalCard>
+          </ModalOverlay>
+          <Backdrop onClick={closeHolidayModal} />
         </>
       )}
     </Wrapper>
@@ -6001,15 +6583,32 @@ const AttendanceStatusBadge = styled.span`
   letter-spacing: 0.04em;
   text-transform: uppercase;
   background: ${(props) => {
+    if (props.$status === "credit") return ATTENDANCE_UI.colors.actionSoft;
     if (props.$status === "paid" || props.$status === "done") return ATTENDANCE_UI.colors.successSoft;
     if (props.$status === "partial") return ATTENDANCE_UI.colors.infoSoft;
     return ATTENDANCE_UI.colors.neutralSoft;
   }};
   color: ${(props) => {
+    if (props.$status === "credit") return ATTENDANCE_UI.colors.action;
     if (props.$status === "paid" || props.$status === "done") return ATTENDANCE_UI.colors.successText;
     if (props.$status === "partial") return ATTENDANCE_UI.colors.infoText;
     return ATTENDANCE_UI.colors.neutralText;
   }};
+`;
+
+const AttendanceOriginBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: ${ATTENDANCE_UI.radius.pill};
+  background: ${ATTENDANCE_UI.colors.neutralSoft};
+  color: ${ATTENDANCE_UI.colors.textSecondary};
+  font-size: ${ATTENDANCE_UI.font.size.xs};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 `;
 
 const AttendanceRowActions = styled(RowActions)`

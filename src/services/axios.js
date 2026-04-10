@@ -15,6 +15,24 @@ let isHandlingUnauthorized = false;
 let isToastErrorPatched = false;
 let suppressErrorToastsUntil = 0;
 const AUTH_TOAST_SUPPRESSION_MS = 2000;
+const GENERIC_OPERATION_ERROR_MESSAGE =
+  "Nao foi possivel concluir a operacao. Tente novamente em instantes.";
+const TECHNICAL_ERROR_PATTERNS = [
+  /sqlstate/i,
+  /insert into/i,
+  /update [`'"]/i,
+  /delete from/i,
+  /column ['"`]/i,
+  /conn=/i,
+  /traceback/i,
+  /stack trace/i,
+  /sequelize/i,
+  /mariadb/i,
+  /mysql/i,
+  /not-?null/i,
+  /foreign key/i,
+  /duplicate (entry|key)/i,
+];
 
 function normalizeToastMessage(content) {
   if (typeof content === "string") return content.toLowerCase();
@@ -40,17 +58,53 @@ function suppressRequestErrorToasts() {
   suppressErrorToastsUntil = Date.now() + AUTH_TOAST_SUPPRESSION_MS;
 }
 
+export function sanitizeUserFacingErrorMessage(
+  message,
+  fallback = GENERIC_OPERATION_ERROR_MESSAGE,
+) {
+  const normalizedMessage = String(message || "").trim();
+  if (!normalizedMessage) return fallback;
+
+  const isTechnicalMessage = TECHNICAL_ERROR_PATTERNS.some((pattern) =>
+    pattern.test(normalizedMessage),
+  );
+
+  if (isTechnicalMessage) {
+    return fallback;
+  }
+
+  return normalizedMessage;
+}
+
+function getRawApiErrorMessage(error) {
+  const apiErrors = error?.response?.data?.errors;
+  if (Array.isArray(apiErrors) && apiErrors.length > 0) return apiErrors[0];
+  return error?.response?.data?.error || error?.response?.data?.message || "";
+}
+
+export function getUserFacingApiError(
+  error,
+  fallback = GENERIC_OPERATION_ERROR_MESSAGE,
+) {
+  return sanitizeUserFacingErrorMessage(getRawApiErrorMessage(error), fallback);
+}
+
 function patchToastError() {
   if (isToastErrorPatched) return;
 
   const originalToastError = toast.error.bind(toast);
 
   toast.error = (content, options) => {
-    if (shouldSuppressErrorToast(content)) {
+    const sanitizedContent =
+      typeof content === "string"
+        ? sanitizeUserFacingErrorMessage(content, GENERIC_OPERATION_ERROR_MESSAGE)
+        : content;
+
+    if (shouldSuppressErrorToast(sanitizedContent)) {
       return null;
     }
 
-    return originalToastError(content, options);
+    return originalToastError(sanitizedContent, options);
   };
 
   isToastErrorPatched = true;
@@ -61,9 +115,7 @@ function isLoginRequest(url = "") {
 }
 
 function getAuthMessage(error) {
-  const apiErrors = error?.response?.data?.errors;
-  if (Array.isArray(apiErrors) && apiErrors.length > 0) return apiErrors[0];
-  return error?.response?.data?.error || "";
+  return getRawApiErrorMessage(error);
 }
 
 export function setupAxiosInterceptors({ store, persistor, history }) {

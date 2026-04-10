@@ -11,7 +11,10 @@ import {
   FaTimes,
 } from "react-icons/fa";
 
-import axios from "../../services/axios";
+import axios, {
+  getUserFacingApiError,
+  sanitizeUserFacingErrorMessage,
+} from "../../services/axios";
 import Loading from "../../components/Loading";
 import {
   checkSchedulingAvailability,
@@ -168,24 +171,40 @@ const normalizeText = (value) => {
 const resolveSchedulingErrorMessage = (error) => {
   const responseData = error?.response?.data || {};
   const code = responseData?.code || "";
+  const safeErrorMessage = sanitizeUserFacingErrorMessage(
+    responseData?.error,
+    "Nao foi possivel salvar o agendamento.",
+  );
   if (code === "SCHEDULING_OVERRIDE_REASON_REQUIRED") {
-    return responseData.error || "Informe um motivo para forcar o encaixe.";
+    return safeErrorMessage || "Informe um motivo para forcar o encaixe.";
   }
   if (code === "SCHEDULING_BLOCKED") {
     const totalBlocked = Number(responseData?.total_blocked || 0);
     if (totalBlocked > 0) {
-      return `${responseData.error || "Horario bloqueado."} (${totalBlocked} ocorrencia(s) bloqueada(s)).`;
+      return `${sanitizeUserFacingErrorMessage(
+        responseData?.error,
+        "Horario bloqueado.",
+      )} (${totalBlocked} ocorrencia(s) bloqueada(s)).`;
     }
-    return responseData.error || "Horario bloqueado por evento operacional.";
+    return sanitizeUserFacingErrorMessage(
+      responseData?.error,
+      "Horario bloqueado por evento operacional.",
+    );
   }
   if (code === "SCHEDULING_CONFIRMATION_REQUIRED") {
     const totalWarnings = Number(responseData?.total_warnings || 0);
     if (totalWarnings > 0) {
-      return `${responseData.error || "Horario com alerta operacional."} (${totalWarnings} ocorrencia(s) com alerta).`;
+      return `${sanitizeUserFacingErrorMessage(
+        responseData?.error,
+        "Horario com alerta operacional.",
+      )} (${totalWarnings} ocorrencia(s) com alerta).`;
     }
-    return responseData.error || "Horario com alerta operacional.";
+    return sanitizeUserFacingErrorMessage(
+      responseData?.error,
+      "Horario com alerta operacional.",
+    );
   }
-  return responseData?.error || "Nao foi possivel salvar o agendamento.";
+  return safeErrorMessage;
 };
 
 const toIsoWeekday = (date) => {
@@ -245,16 +264,6 @@ const formatPendingDayLabel = (value) => {
     day: "2-digit",
     month: "2-digit",
   });
-};
-
-const formatPendingTimeLabel = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return `${date.toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}hrs`;
 };
 
 const formatMonthName = (value) => {
@@ -1089,9 +1098,10 @@ export default function Agendamentos() {
       } catch (error) {
         if (!cancelled) {
           setFormAvailability({
-            error:
-              error?.response?.data?.error ||
+            error: getUserFacingApiError(
+              error,
               "Nao foi possivel validar a disponibilidade desta data.",
+            ),
             matched_events: [],
           });
         }
@@ -1626,25 +1636,6 @@ export default function Agendamentos() {
       reason: "",
     });
   }, []);
-
-  const handlePendingStatusChange = useCallback(
-    async (id, status) => {
-      if (!id || !status) return;
-
-      if (status === "no_show" || status === "canceled") {
-        setAbsenceModal({
-          open: true,
-          id,
-          status,
-          reason: "",
-        });
-        return;
-      }
-
-      await updateSessionStatus({ id, status });
-    },
-    [updateSessionStatus],
-  );
 
   const handleConfirmAbsence = useCallback(async () => {
     if (!absenceModal.id || !absenceModal.status) return;
@@ -2527,7 +2518,12 @@ export default function Agendamentos() {
                 ) : (
                   <PendingGroupList>
                     {pendingConfirmationGroups.map((group) => (
-                      <PendingGroup key={group.key}>
+                      <PendingGroup
+                        key={group.key}
+                        as="button"
+                        type="button"
+                        onClick={() => handleOpenPendingDay(group.date)}
+                      >
                         <PendingGroupHeader>
                           <div>
                             <PendingGroupTitle>
@@ -2538,135 +2534,10 @@ export default function Agendamentos() {
                               {group.sessionCount > 1 ? "s" : ""}
                             </PendingGroupMeta>
                           </div>
-                          <SecondaryButton
-                            type="button"
-                            onClick={() => handleOpenPendingDay(group.date)}
-                          >
-                            Abrir dia
-                          </SecondaryButton>
+                          <PendingServiceCount>
+                            {group.sessionCount}
+                          </PendingServiceCount>
                         </PendingGroupHeader>
-                        <PendingTimeList>
-                          {group.timeGroups.map((timeGroup) => (
-                            <PendingTimeGroup key={timeGroup.key}>
-                              <PendingTimeHeader>
-                                <div>
-                                  <PendingTimeTitle>
-                                    {formatPendingTimeLabel(timeGroup.startsAt)}
-                                  </PendingTimeTitle>
-                                  <PendingTimeMeta>
-                                    {timeGroup.sessionCount} pendencia
-                                    {timeGroup.sessionCount > 1 ? "s" : ""}
-                                  </PendingTimeMeta>
-                                </div>
-                              </PendingTimeHeader>
-                              <PendingServiceList>
-                                {timeGroup.serviceGroups.map((serviceGroup) => (
-                                  <PendingServiceGroup
-                                    key={serviceGroup.key}
-                                    $color={serviceGroup.serviceColor}
-                                  >
-                                    <PendingServiceHeader $color={serviceGroup.serviceColor}>
-                                      <PendingServiceTitle>
-                                        {serviceGroup.serviceLabel} - {serviceGroup.professionalName}
-                                      </PendingServiceTitle>
-                                      <PendingServiceCount>
-                                        {serviceGroup.sessions.length}
-                                      </PendingServiceCount>
-                                    </PendingServiceHeader>
-                                    <PendingList>
-                                      {serviceGroup.sessions.map((session) => {
-                                        const tone = statusStyle(session.status);
-                                        return (
-                                          <DaySessionCard key={session.id} $status={tone}>
-                                            <DayServiceBar $color={serviceGroup.serviceColor} />
-                                            <DaySessionBody>
-                                              <DaySessionTop>
-                                                <DaySessionPatient>
-                                                  {session?.Patient?.full_name || "Paciente"}
-                                                </DaySessionPatient>
-                                                <DaySessionActions>
-                                                  <DayActionButton
-                                                    type="button"
-                                                    $status="scheduled"
-                                                    $active={
-                                                      session.status === "scheduled" ||
-                                                      session.status === "open" ||
-                                                      !session.status
-                                                    }
-                                                    onClick={() =>
-                                                      handlePendingStatusChange(
-                                                        String(session.id),
-                                                        "scheduled",
-                                                      )
-                                                    }
-                                                  >
-                                                    Agendado
-                                                  </DayActionButton>
-                                                  <DayActionButton
-                                                    type="button"
-                                                    $status="done"
-                                                    $active={session.status === "done"}
-                                                    onClick={() =>
-                                                      handlePendingStatusChange(
-                                                        String(session.id),
-                                                        "done",
-                                                      )
-                                                    }
-                                                  >
-                                                    Concluido
-                                                  </DayActionButton>
-                                                  <DayActionButton
-                                                    type="button"
-                                                    $status="no_show"
-                                                    $active={session.status === "no_show"}
-                                                    onClick={() =>
-                                                      handlePendingStatusChange(
-                                                        String(session.id),
-                                                        "no_show",
-                                                      )
-                                                    }
-                                                  >
-                                                    Falta
-                                                  </DayActionButton>
-                                                  <DayActionButton
-                                                    type="button"
-                                                    $status="canceled"
-                                                    $active={session.status === "canceled"}
-                                                    onClick={() =>
-                                                      handlePendingStatusChange(
-                                                        String(session.id),
-                                                        "canceled",
-                                                      )
-                                                    }
-                                                  >
-                                                    Cancelar
-                                                  </DayActionButton>
-                                                  <DayEditButton
-                                                    type="button"
-                                                    data-id={session.id}
-                                                    onClick={handleEdit}
-                                                  >
-                                                    Editar
-                                                  </DayEditButton>
-                                                  <DayDeleteButton
-                                                    type="button"
-                                                    onClick={() => handleOpenDelete(session)}
-                                                  >
-                                                    Excluir
-                                                  </DayDeleteButton>
-                                                </DaySessionActions>
-                                              </DaySessionTop>
-                                            </DaySessionBody>
-                                          </DaySessionCard>
-                                        );
-                                      })}
-                                    </PendingList>
-                                  </PendingServiceGroup>
-                                ))}
-                              </PendingServiceList>
-                            </PendingTimeGroup>
-                          ))}
-                        </PendingTimeList>
                       </PendingGroup>
                     ))}
                   </PendingGroupList>
@@ -3668,11 +3539,6 @@ const NotificationBadge = styled.span`
   font-size: 0.72rem;
 `;
 
-const PendingList = styled.div`
-  display: grid;
-  gap: 12px;
-`;
-
 const PendingDrawerPanel = styled.div`
   display: flex;
   flex-direction: column;
@@ -3686,9 +3552,23 @@ const PendingGroupList = styled.div`
 `;
 
 const PendingGroup = styled.section`
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  background: #fbfcf8;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+
+  &:hover {
+    background: #f6f9f2;
+    border-color: rgba(106, 121, 92, 0.28);
+    transform: translateY(-1px);
+  }
 `;
 
 const PendingGroupHeader = styled.div`
@@ -3696,9 +3576,7 @@ const PendingGroupHeader = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(106, 121, 92, 0.14);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 `;
 
 const PendingGroupTitle = styled.h3`
@@ -3713,78 +3591,6 @@ const PendingGroupMeta = styled.span`
   margin-top: 4px;
   color: #6a795c;
   font-size: 0.84rem;
-`;
-
-const PendingTimeList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-`;
-
-const PendingTimeGroup = styled.section`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px;
-  border-radius: 12px;
-  background: #fbfcf8;
-  border: 1px solid rgba(106, 121, 92, 0.12);
-`;
-
-const PendingTimeHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-`;
-
-const PendingTimeTitle = styled.h4`
-  margin: 0;
-  color: #1b1b1b;
-  font-size: 0.95rem;
-`;
-
-const PendingTimeMeta = styled.span`
-  display: inline-block;
-  margin-top: 4px;
-  color: #6a795c;
-  font-size: 0.8rem;
-`;
-
-const PendingServiceList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-`;
-
-const PendingServiceGroup = styled.section`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 12px;
-  border: 1px solid
-    ${(props) =>
-    props.$color ? `${props.$color}55` : "rgba(106, 121, 92, 0.16)"};
-  background: ${(props) =>
-    props.$color ? `${props.$color}12` : "rgba(255, 255, 255, 0.92)"};
-`;
-
-const PendingServiceHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: ${(props) =>
-    props.$color ? `${props.$color}22` : "rgba(106, 121, 92, 0.1)"};
-`;
-
-const PendingServiceTitle = styled.h5`
-  margin: 0;
-  color: #1b1b1b;
-  font-size: 0.88rem;
 `;
 
 const PendingServiceCount = styled.span`
