@@ -41,6 +41,7 @@ import {
   createSpecialSchedulingEvent,
   inactivateSpecialSchedulingEvent,
   listSpecialSchedulingEvents,
+  updateSpecialSchedulingEvent,
 } from "../../services/scheduling";
 
 const emptyEntry = {
@@ -73,6 +74,10 @@ const emptyPayment = {
 const STANDALONE_PAYMENT_ANCHOR_DESCRIPTION = "Recebimento avulso (sistema)";
 const STANDALONE_PAYMENT_ANCHOR_NOTE =
   "Entrada tecnica automatica para viabilizar recebimento avulso.";
+const ENABLE_SESSION_BATCH_PAYMENT =
+  String(process.env.REACT_APP_FINANCIAL_SESSION_BATCH_PAYMENT_ENABLED || "")
+    .trim()
+    .toLowerCase() === "true";
 
 const isManualReceiptEntry = (entry) =>
   Boolean(entry && entry.type === "income" && !entry.session_id);
@@ -95,6 +100,18 @@ const resolveManualReceiptStatus = (amountCents, allocatedCents) => {
   return "partial";
 };
 
+const isSessionBatchEligibleRow = (row) => {
+  if (!ENABLE_SESSION_BATCH_PAYMENT || !row) return false;
+  if (row.isManualReceiptRow || row.isProjectedInstallmentRow) return false;
+  if (!row.entry || row.isInstallmentPlan) return false;
+
+  const status = String(row.financialStatus || "").toLowerCase();
+  if (!["pending", "partial"].includes(status)) return false;
+  if (Number(row.openCents || 0) <= 0) return false;
+
+  return Number(row.id || 0) > 0 && Number(row.patientId || row.entry?.patient_id || 0) > 0;
+};
+
 const HOLIDAY_SOURCE_OPTIONS = [
   { value: "national", label: "Feriado nacional" },
   { value: "state", label: "Feriado estadual" },
@@ -109,12 +126,26 @@ const HOLIDAY_SOURCE_LABELS = HOLIDAY_SOURCE_OPTIONS.reduce((acc, option) => {
 
 const HOLIDAY_SOURCE_SET = new Set(HOLIDAY_SOURCE_OPTIONS.map((option) => option.value));
 
+const HOLIDAY_SCHEDULING_OPTIONS = [
+  {
+    value: "block",
+    label: "Clinica nao funciona e a agenda fica bloqueada",
+    help: "Mantem o comportamento atual de bloqueio e avisos de feriado na agenda.",
+  },
+  {
+    value: "open",
+    label: "Clinica funciona normalmente",
+    help: "O feriado fica apenas informativo e a agenda continua liberada.",
+  },
+];
+
 const emptyHolidayForm = {
   name: "",
   date: "",
   source_type: "national",
   state_code: "",
   city_name: "",
+  scheduling_mode: "block",
 };
 
 const formatCurrency = (cents) => {
@@ -207,6 +238,33 @@ const formatHolidayLocation = (item) => {
   }
   return "";
 };
+
+const getHolidaySchedulingMode = (item) =>
+  item?.affects_scheduling === false ? "open" : "block";
+
+const getHolidaySchedulingPayload = (mode) => {
+  if (mode === "open") {
+    return {
+      behavior_type: "INFO",
+      affects_scheduling: false,
+    };
+  }
+
+  return {
+    behavior_type: "BLOCK",
+    affects_scheduling: true,
+  };
+};
+
+const getHolidaySchedulingLabel = (item) =>
+  getHolidaySchedulingMode(item) === "open"
+    ? "Clinica funciona"
+    : "Clinica fechada";
+
+const getHolidaySchedulingDescription = (item) =>
+  getHolidaySchedulingMode(item) === "open"
+    ? "Agenda liberada"
+    : "Agenda bloqueada";
 
 const closeActionMenu = (event) => {
   const container = event.currentTarget.closest("details");
@@ -506,6 +564,7 @@ export default function Financeiro() {
   const [holidays, setHolidays] = useState([]);
   const [isHolidayLoading, setIsHolidayLoading] = useState(false);
   const [isHolidaySaving, setIsHolidaySaving] = useState(false);
+  const [holidayUpdatingId, setHolidayUpdatingId] = useState(null);
   const [isHolidayOpen, setIsHolidayOpen] = useState(false);
   const [holidayForm, setHolidayForm] = useState(emptyHolidayForm);
 
@@ -563,6 +622,7 @@ export default function Financeiro() {
   const [paymentAllocations, setPaymentAllocations] = useState({});
   const [paymentPatientQuery, setPaymentPatientQuery] = useState("");
   const [isPaymentPatientSearchFocused, setIsPaymentPatientSearchFocused] = useState(false);
+  const [selectedAttendanceSessionIds, setSelectedAttendanceSessionIds] = useState([]);
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState({ name: "", type: "income", color: "" });
   const [editingCategoryId, setEditingCategoryId] = useState(null);
@@ -1530,7 +1590,6 @@ export default function Financeiro() {
       setIsHolidaySaving(true);
       await createSpecialSchedulingEvent({
         source_type: holidayForm.source_type,
-        behavior_type: "BLOCK",
         name: holidayForm.name.trim(),
         description: null,
         start_date: holidayForm.date,
@@ -1538,17 +1597,17 @@ export default function Financeiro() {
         all_day: true,
         start_time: null,
         end_time: null,
-        affects_scheduling: true,
         professional_id: null,
         state_code: holidayForm.state_code.trim() || null,
         city_name: holidayForm.city_name.trim() || null,
+        ...getHolidaySchedulingPayload(holidayForm.scheduling_mode),
       });
       toast.success("Feriado adicionado.");
       setHolidayForm(emptyHolidayForm);
       setIsHolidayOpen(false);
       await loadHolidays();
     } catch (error) {
-      toast.error(error?.response?.data?.error || "Nao foi possivel salvar o feriado.");
+      toast.error(getUserFacingApiError(error, "Nao foi possivel salvar o feriado."));
     } finally {
       setIsHolidaySaving(false);
     }
@@ -1562,7 +1621,35 @@ export default function Financeiro() {
         toast.success("Feriado excluido.");
         await loadHolidays();
       } catch (error) {
-        toast.error(error?.response?.data?.error || "Nao foi possivel excluir o feriado.");
+        toast.error(getUserFacingApiError(error, "Nao foi possivel excluir o feriado."));
+      }
+    },
+    [loadHolidays],
+  );
+
+  const handleToggleHolidayScheduling = useCallback(
+    async (holiday) => {
+      if (!holiday?.id) return;
+      const currentMode = getHolidaySchedulingMode(holiday);
+      const nextMode = currentMode === "block" ? "open" : "block";
+
+      try {
+        setHolidayUpdatingId(holiday.id);
+        await updateSpecialSchedulingEvent(holiday.id, {
+          ...getHolidaySchedulingPayload(nextMode),
+        });
+        toast.success(
+          nextMode === "block"
+            ? "Feriado configurado para bloquear a agenda."
+            : "Feriado configurado como informativo.",
+        );
+        await loadHolidays();
+      } catch (error) {
+        toast.error(
+          getUserFacingApiError(error, "Nao foi possivel atualizar o comportamento do feriado."),
+        );
+      } finally {
+        setHolidayUpdatingId(null);
       }
     },
     [loadHolidays],
@@ -1721,6 +1808,10 @@ export default function Financeiro() {
     const discountValue = parseCurrencyInputToNumber(paymentForm.discount);
     const surchargeValue = parseCurrencyInputToNumber(paymentForm.surcharge);
     const amountCents = Math.round(amountValue * 100);
+    const isSessionBatchPayment = Boolean(paymentModalContext?.sessionBatch);
+    const sessionBatchSessionIds = Array.isArray(paymentModalContext?.sessionBatch?.sessionIds)
+      ? paymentModalContext.sessionBatch.sessionIds
+      : [];
     const isSimplifiedInstallmentPayment = Boolean(paymentModalContext?.simplifiedInstallment);
     const simplifiedInstallmentAmountCents = isSimplifiedInstallmentPayment
       ? Math.max(0, Number(paymentModalContext?.installmentAmountCents || 0))
@@ -1733,6 +1824,7 @@ export default function Financeiro() {
     const surchargeCents =
       Number.isFinite(surchargeValue) && surchargeValue > 0 ? Math.round(surchargeValue * 100) : 0;
     const hasAdjustment = !isSimplifiedInstallmentPayment
+      && !isSessionBatchPayment
       && paymentForm.entry_id
       && (discountCents > 0 || surchargeCents > 0);
     const entryId = Number(paymentForm.entry_id || 0);
@@ -1782,6 +1874,10 @@ export default function Financeiro() {
     }
     if (!normalizeId(paymentForm.payment_method_id)) {
       toast.error("Selecione a forma de pagamento.");
+      return;
+    }
+    if (isSessionBatchPayment && !sessionBatchSessionIds.length) {
+      toast.error("Selecione as sessoes do lote.");
       return;
     }
     if (Number.isFinite(discountValue) && discountValue < 0) {
@@ -1836,7 +1932,7 @@ export default function Financeiro() {
         0,
       );
 
-      if (allocationMode === "manual") {
+      if (allocationMode === "manual" && !isSessionBatchPayment) {
         if (!allocationItems.length) {
           toast.error("Informe as cobrancas para alocar.");
           return;
@@ -1850,6 +1946,27 @@ export default function Financeiro() {
       const paidAtIso = isSimplifiedInstallmentPayment && paymentModalContext?.installmentDueDate
         ? new Date(`${String(paymentModalContext.installmentDueDate).slice(0, 10)}T09:00:00`).toISOString()
         : new Date(paymentForm.paid_at).toISOString();
+
+      if (isSessionBatchPayment) {
+        await createFinancialPayment({
+          patient_id: selectedPatientId,
+          origin: "session_batch",
+          payment_method_id: selectedPaymentMethodId,
+          amount_cents: effectiveAmountCents,
+          paid_at: paidAtIso,
+          note: paymentForm.note.trim() || null,
+          allocation_mode: "manual",
+          session_batch_session_ids: sessionBatchSessionIds,
+        });
+
+        toast.success("Recebimento em lote registrado.");
+        closePaymentModal();
+        setPaymentAllocations({});
+        setSelectedAttendanceSessionIds([]);
+        loadData();
+        return;
+      }
+
       let paymentEntryId = paymentForm.entry_id || null;
       let paymentAllocationMode = allocationMode;
 
@@ -1913,6 +2030,7 @@ export default function Financeiro() {
     createStandalonePaymentAnchor,
     closePaymentModal,
     loadData,
+    setSelectedAttendanceSessionIds,
   ]);
 
   const handleCreateSessionEntry = useCallback(
@@ -2113,10 +2231,11 @@ export default function Financeiro() {
       return true;
     };
 
-    return payments
-      .map((payment) => {
-        const paymentEntryId = Number(payment.entry_id || 0) || null;
-        const entry = paymentEntryId ? entryMap.get(paymentEntryId) : null;
+	    return payments
+	      .map((payment) => {
+	        if (String(payment.origin || "").toLowerCase() === "session_batch") return null;
+	        const paymentEntryId = Number(payment.entry_id || 0) || null;
+	        const entry = paymentEntryId ? entryMap.get(paymentEntryId) : null;
         if (entry && !isManualReceiptEntry(entry)) return null;
         if (selectedProfessionalId) return null;
 
@@ -2389,6 +2508,132 @@ export default function Financeiro() {
     sessionById,
   ]);
 
+  const attendanceBatchSelectableRows = useMemo(() => {
+    if (!ENABLE_SESSION_BATCH_PAYMENT) return [];
+    return attendanceSessionRows.filter((row) => isSessionBatchEligibleRow(row));
+  }, [attendanceSessionRows]);
+
+  const attendanceBatchSelectableIds = useMemo(
+    () => new Set(attendanceBatchSelectableRows.map((row) => Number(row.id || 0)).filter(Boolean)),
+    [attendanceBatchSelectableRows],
+  );
+
+  const attendanceBatchSelectedRows = useMemo(() => {
+    if (!selectedAttendanceSessionIds.length) return [];
+    const selectedIds = new Set(
+      selectedAttendanceSessionIds.map((value) => Number(value || 0)).filter(Boolean),
+    );
+    return attendanceBatchSelectableRows.filter((row) => selectedIds.has(Number(row.id || 0)));
+  }, [attendanceBatchSelectableRows, selectedAttendanceSessionIds]);
+
+  const attendanceBatchSelectedOpenCents = useMemo(
+    () => attendanceBatchSelectedRows.reduce(
+      (sum, row) => sum + Math.max(0, Number(row.openCents || 0)),
+      0,
+    ),
+    [attendanceBatchSelectedRows],
+  );
+
+  const attendanceBatchSelectedPatientIds = useMemo(
+    () => [...new Set(
+      attendanceBatchSelectedRows
+        .map((row) => Number(row.patientId || row.entry?.patient_id || 0))
+        .filter(Boolean),
+    )],
+    [attendanceBatchSelectedRows],
+  );
+
+  const areAllAttendanceBatchRowsSelected = attendanceBatchSelectableRows.length > 0
+    && attendanceBatchSelectableRows.length === selectedAttendanceSessionIds.length;
+
+  useEffect(() => {
+    if (!ENABLE_SESSION_BATCH_PAYMENT || attendanceView !== "sessions") {
+      setSelectedAttendanceSessionIds((prev) => (prev.length ? [] : prev));
+      return;
+    }
+
+    setSelectedAttendanceSessionIds((prev) => {
+      const next = prev.filter((value) => attendanceBatchSelectableIds.has(Number(value || 0)));
+      if (next.length === prev.length) return prev;
+      return next;
+    });
+  }, [attendanceBatchSelectableIds, attendanceView]);
+
+  const handleAttendanceSessionSelectionChange = useCallback((event) => {
+    const normalizedSessionId = Number(event.target.value || 0);
+    if (!normalizedSessionId) return;
+
+    setSelectedAttendanceSessionIds((prev) => {
+      if (prev.includes(normalizedSessionId)) {
+        return prev.filter((value) => value !== normalizedSessionId);
+      }
+      return [...prev, normalizedSessionId];
+    });
+  }, []);
+
+  const handleToggleAllAttendanceSessionSelections = useCallback(() => {
+    setSelectedAttendanceSessionIds((prev) => {
+      if (
+        attendanceBatchSelectableRows.length > 0
+        && prev.length === attendanceBatchSelectableRows.length
+      ) {
+        return [];
+      }
+      return attendanceBatchSelectableRows.map((row) => Number(row.id || 0)).filter(Boolean);
+    });
+  }, [attendanceBatchSelectableRows]);
+
+  const openSelectedSessionsPaymentModal = useCallback(() => {
+    if (!attendanceBatchSelectedRows.length) {
+      toast.error("Selecione as sessoes para receber.");
+      return;
+    }
+
+    if (attendanceBatchSelectedPatientIds.length !== 1) {
+      toast.error("Selecione apenas sessoes do mesmo paciente.");
+      return;
+    }
+
+    const orderedRows = [...attendanceBatchSelectedRows].sort(
+      (left, right) => new Date(left.starts_at || 0) - new Date(right.starts_at || 0),
+    );
+    const patientName = orderedRows[0]?.patientName || "Paciente";
+    const patientId = attendanceBatchSelectedPatientIds[0];
+
+    setPaymentForm({
+      ...emptyPayment,
+      entry_id: null,
+      patient_id: String(patientId),
+      payment_method_id: "",
+      allocation_mode: "manual",
+      amount: formatCurrencyInput(attendanceBatchSelectedOpenCents / 100),
+      paid_at: toDateTimeLocalInputValue(new Date()),
+    });
+    setPaymentModalContext({
+      sessionBatch: {
+        patientId,
+        patientName,
+        sessionIds: orderedRows.map((row) => Number(row.id || 0)).filter(Boolean),
+        totalOpenCents: attendanceBatchSelectedOpenCents,
+        sessions: orderedRows.map((row) => ({
+          id: Number(row.id || 0),
+          starts_at: row.starts_at,
+          serviceName: row.serviceName,
+          professionalName: row.professionalName,
+          openCents: Math.max(0, Number(row.openCents || 0)),
+        })),
+      },
+    });
+    setPaymentAllocations({});
+    setPaymentPatientQuery(patientName);
+    setIsPaymentPatientSearchFocused(false);
+    setIsPaymentOpen(true);
+  }, [
+    attendanceBatchSelectedOpenCents,
+    attendanceBatchSelectedPatientIds,
+    attendanceBatchSelectedRows,
+  ]);
+
   const attendanceByPatient = useMemo(() => {
     const map = new Map();
     const collator = new Intl.Collator("pt-BR", {
@@ -2557,6 +2802,10 @@ export default function Financeiro() {
     const amountNumber = parseCurrencyInputToNumber(paymentForm.amount);
     const discountNumber = parseCurrencyInputToNumber(paymentForm.discount);
     const surchargeNumber = parseCurrencyInputToNumber(paymentForm.surcharge);
+    const sessionBatchTotalOpenCents = Math.max(
+      0,
+      Number(paymentModalContext?.sessionBatch?.totalOpenCents || 0),
+    );
 
     const receivedCents =
       Number.isFinite(amountNumber) && amountNumber > 0 ? Math.round(amountNumber * 100) : 0;
@@ -2630,6 +2879,8 @@ export default function Financeiro() {
         paidInstallments = 0;
         openInstallments = requestedInstallmentsCount;
       }
+    } else if (sessionBatchTotalOpenCents > 0) {
+      baseCents = sessionBatchTotalOpenCents;
     } else if (paymentForm.allocation_mode === "manual" && manualAllocationTotal > 0) {
       baseCents = manualAllocationTotal;
     }
@@ -2666,9 +2917,11 @@ export default function Financeiro() {
     paymentForm.entry_id,
     paymentForm.entry_installments_count,
     paymentForm.surcharge,
+    paymentModalContext,
   ]);
 
   const isSimplifiedInstallmentPayment = Boolean(paymentModalContext?.simplifiedInstallment);
+  const isSessionBatchPayment = Boolean(paymentModalContext?.sessionBatch);
   const selectedChargeAmountCents = useMemo(() => {
     if (!paymentForm.entry_id) return 0;
     const entryId = Number(paymentForm.entry_id);
@@ -2681,12 +2934,16 @@ export default function Financeiro() {
     if (isSimplifiedInstallmentPayment) {
       return "Confirmacao simples da parcela pendente.";
     }
+    if (isSessionBatchPayment) {
+      return "Recebimento unico com distribuicao nas sessoes selecionadas.";
+    }
     if (paymentForm.entry_id && paymentPreview.originalInstallmentsCount > 1) {
       return "";
     }
     return "";
   }, [
     isSimplifiedInstallmentPayment,
+    isSessionBatchPayment,
     paymentForm.entry_id,
     paymentPreview.originalInstallmentsCount,
   ]);
@@ -3425,10 +3682,47 @@ export default function Financeiro() {
     ) {
       attendanceContent = (
         <AttendanceTableCard>
+          {ENABLE_SESSION_BATCH_PAYMENT && (
+            <AttendanceBatchToolbar>
+              <AttendanceBatchSummary>
+                <strong>{attendanceBatchSelectedRows.length}</strong>
+                {" "}
+                selecionada(s)
+                {attendanceBatchSelectedRows.length > 0 && (
+                  <>
+                    {" "}
+                    com
+                    {" "}
+                    <strong>{formatCurrency(attendanceBatchSelectedOpenCents)}</strong>
+                    {" "}
+                    em aberto
+                  </>
+                )}
+              </AttendanceBatchSummary>
+              <AttendancePrimaryAction
+                type="button"
+                onClick={openSelectedSessionsPaymentModal}
+                disabled={attendanceBatchSelectedRows.length === 0}
+              >
+                Receber selecionadas
+              </AttendancePrimaryAction>
+            </AttendanceBatchToolbar>
+          )}
           <AttendanceTableScroll>
             <AttendanceDataTable>
             <thead>
               <tr>
+                {ENABLE_SESSION_BATCH_PAYMENT && (
+                  <th>
+                    <AttendanceSelectionCheckbox
+                      type="checkbox"
+                      checked={areAllAttendanceBatchRowsSelected}
+                      onChange={handleToggleAllAttendanceSessionSelections}
+                      disabled={attendanceBatchSelectableRows.length === 0}
+                      aria-label="Selecionar todas as sessoes elegiveis"
+                    />
+                  </th>
+                )}
                 <th>Data</th>
                 <th>Cliente</th>
                 <th>Profissional</th>
@@ -3451,11 +3745,13 @@ export default function Financeiro() {
                   && status === "partial"
                   && Number(row.firstInstallmentOpenCents || 0) <= 0,
                 );
-	                const canShowActions = Boolean(
-	                  !row.isManualReceiptRow
-	                  && row.entry
-	                  && status !== "canceled"
-	                  && status !== "paid"
+                const isBatchSelectable = isSessionBatchEligibleRow(row);
+                const isBatchSelected = selectedAttendanceSessionIds.includes(Number(row.id || 0));
+                const canShowActions = Boolean(
+                  !row.isManualReceiptRow
+                  && row.entry
+                  && status !== "canceled"
+                  && status !== "paid"
 	                  && !hideActionsForInstallmentAgreement,
 	                );
 	                let installmentSummary = "-";
@@ -3488,6 +3784,21 @@ export default function Financeiro() {
 
                 return (
                   <tr key={row.id}>
+                    {ENABLE_SESSION_BATCH_PAYMENT && (
+                      <td>
+	                        {isBatchSelectable ? (
+	                          <AttendanceSelectionCheckbox
+	                            type="checkbox"
+	                            value={row.id}
+	                            checked={isBatchSelected}
+	                            onChange={handleAttendanceSessionSelectionChange}
+	                            aria-label={`Selecionar sessao ${row.patientName} ${formatDate(row.starts_at)}`}
+	                          />
+                        ) : (
+                          <AttendanceSelectionPlaceholder>-</AttendanceSelectionPlaceholder>
+                        )}
+                      </td>
+                    )}
                     <td>
                       <AttendanceCellStack>
                         <AttendancePrimaryText>{formatDate(row.starts_at)}</AttendancePrimaryText>
@@ -4245,12 +4556,15 @@ export default function Financeiro() {
             <th>Nome</th>
             <th>Data</th>
             <th>Tipo</th>
+            <th>Funcionamento</th>
             <th>Ações</th>
           </tr>
         </thead>
         <tbody>
           {holidayRows.map((holiday) => {
             const location = formatHolidayLocation(holiday);
+            const schedulingMode = getHolidaySchedulingMode(holiday);
+            const isUpdatingThisHoliday = holidayUpdatingId === holiday.id;
             return (
               <tr key={holiday.id}>
                 <td>
@@ -4262,8 +4576,27 @@ export default function Financeiro() {
                 <td>{formatHolidayDate(holiday.start_date)}</td>
                 <td>{HOLIDAY_SOURCE_LABELS[holiday.source_type] || holiday.source_type || "-"}</td>
                 <td>
+                  <CellStack>
+                    <HolidaySchedulingBadge $mode={schedulingMode}>
+                      {getHolidaySchedulingLabel(holiday)}
+                    </HolidaySchedulingBadge>
+                    <MutedText>{getHolidaySchedulingDescription(holiday)}</MutedText>
+                  </CellStack>
+                </td>
+                <td>
                   <RowActions>
-                    <SmallButton type="button" onClick={() => handleDeleteHoliday(holiday)}>
+                    <SmallButton
+                      type="button"
+                      onClick={() => handleToggleHolidayScheduling(holiday)}
+                      disabled={isUpdatingThisHoliday}
+                    >
+                      {schedulingMode === "block" ? "Liberar agenda" : "Bloquear agenda"}
+                    </SmallButton>
+                    <SmallButton
+                      type="button"
+                      onClick={() => handleDeleteHoliday(holiday)}
+                      disabled={isUpdatingThisHoliday}
+                    >
                       Excluir
                     </SmallButton>
                   </RowActions>
@@ -4291,7 +4624,9 @@ export default function Financeiro() {
         <SectionHeader>
           <div>
             <SectionTitle>Feriados</SectionTitle>
-            <SectionSubtitle>Cadastre e remova feriados da agenda com o minimo necessario.</SectionSubtitle>
+            <SectionSubtitle>
+              Defina os feriados e se a clinica vai funcionar ou bloquear a agenda em cada data.
+            </SectionSubtitle>
           </div>
           <HeaderActions>
             <GhostButton type="button" onClick={loadHolidays}>
@@ -4842,8 +5177,14 @@ export default function Financeiro() {
                     <strong>{formatCurrency(selectedChargeAmountCents)}</strong>
                   </ChargeAmountBanner>
                 )}
+                {isSessionBatchPayment && (
+                  <ChargeAmountBanner>
+                    <span>Total selecionado</span>
+                    <strong>{formatCurrency(paymentModalContext?.sessionBatch?.totalOpenCents || 0)}</strong>
+                  </ChargeAmountBanner>
+                )}
                 <FormGrid>
-	                  {!paymentForm.entry_id && (
+		                  {!paymentForm.entry_id && !isSessionBatchPayment && (
 	                    <Field>
 	                      <Label htmlFor="payment-patient">Paciente</Label>
 	                      <SearchFieldWrapper>
@@ -4992,8 +5333,8 @@ export default function Financeiro() {
                       </CurrencyInputGroup>
                     </Field>
                   )}
-                  {!paymentForm.entry_id && (
-                    <Field>
+                  {!paymentForm.entry_id && !isSessionBatchPayment && (
+	                    <Field>
                       <Label htmlFor="payment-allocation">Destino do valor</Label>
                       <Select
                         id="payment-allocation"
@@ -5006,9 +5347,47 @@ export default function Financeiro() {
                         <option value="manual">Escolher cobrancas manualmente</option>
                       </Select>
                     </Field>
-                  )}
-                </FormGrid>
-                {!isSimplifiedInstallmentPayment && paymentForm.entry_id && paymentPreview.originalInstallmentsCount > 1 && (
+	                  )}
+	                </FormGrid>
+	                {isSessionBatchPayment && (
+	                  <PaymentPreviewBox>
+	                    <PaymentPreviewTitle>Lote selecionado</PaymentPreviewTitle>
+	                    <PaymentPreviewRow>
+	                      <span>Paciente</span>
+	                      <strong>{paymentModalContext?.sessionBatch?.patientName || "Paciente"}</strong>
+	                    </PaymentPreviewRow>
+	                    <PaymentPreviewRow>
+	                      <span>Sessoes</span>
+	                      <strong>{paymentModalContext?.sessionBatch?.sessions?.length || 0}</strong>
+	                    </PaymentPreviewRow>
+	                    <PaymentPreviewRow>
+	                      <span>Total em aberto</span>
+	                      <strong>{formatCurrency(paymentModalContext?.sessionBatch?.totalOpenCents || 0)}</strong>
+	                    </PaymentPreviewRow>
+	                    <PaymentPreviewRow>
+	                      <span>Valor recebido</span>
+	                      <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
+	                    </PaymentPreviewRow>
+	                    <PaymentPreviewRow>
+	                      <span>
+	                        {paymentPreview.creditAfterCents > 0
+	                          ? "Saldo em credito"
+	                          : "Saldo ainda em aberto"}
+	                      </span>
+	                      <strong>
+	                        {formatCurrency(
+	                          paymentPreview.creditAfterCents > 0
+	                            ? paymentPreview.creditAfterCents
+	                            : paymentPreview.openAfterCents,
+	                        )}
+	                      </strong>
+	                    </PaymentPreviewRow>
+	                    <MutedText>
+	                      O valor sera distribuido por ordem cronologica das sessoes selecionadas.
+	                    </MutedText>
+	                  </PaymentPreviewBox>
+	                )}
+	                {!isSimplifiedInstallmentPayment && paymentForm.entry_id && paymentPreview.originalInstallmentsCount > 1 && (
                   <MutedText>
                     Esta cobranca ja esta parcelada. Neste fluxo, registre apenas a quitacao da parcela em aberto.
                   </MutedText>
@@ -5034,9 +5413,34 @@ export default function Financeiro() {
                     rows="2"
                     value={paymentForm.note}
                     onChange={handlePaymentChange}
-                  />
-                </Field>
-                {paymentForm.entry_id && (
+	                  />
+	                </Field>
+	                {isSessionBatchPayment && Array.isArray(paymentModalContext?.sessionBatch?.sessions) && (
+	                  <Field>
+	                    <Label>Sessoes do lote</Label>
+	                    <SimpleTable>
+	                      <thead>
+	                        <tr>
+	                          <th>Data</th>
+	                          <th>Servico</th>
+	                          <th>Profissional</th>
+	                          <th>Em aberto</th>
+	                        </tr>
+	                      </thead>
+	                      <tbody>
+	                        {paymentModalContext.sessionBatch.sessions.map((session) => (
+	                          <tr key={session.id}>
+	                            <td>{formatDate(session.starts_at)}</td>
+	                            <td>{session.serviceName || "-"}</td>
+	                            <td>{session.professionalName || "-"}</td>
+	                            <td>{formatCurrency(session.openCents)}</td>
+	                          </tr>
+	                        ))}
+	                      </tbody>
+	                    </SimpleTable>
+	                  </Field>
+	                )}
+	                {paymentForm.entry_id && (
                   <PaymentPreviewBox>
                     <PaymentPreviewTitle>Resumo da operacao</PaymentPreviewTitle>
                     <PaymentPreviewRow>
@@ -5097,7 +5501,7 @@ export default function Financeiro() {
                     )}
                   </PaymentPreviewBox>
                 )}
-                {!paymentForm.entry_id && paymentForm.allocation_mode === "manual" && (
+	                {!paymentForm.entry_id && !isSessionBatchPayment && paymentForm.allocation_mode === "manual" && (
                   <Field>
                     <Label>Escolher cobrancas</Label>
                     {openEntriesForPayment.length === 0 ? (
@@ -5420,7 +5824,9 @@ export default function Financeiro() {
               <ModalHeader>
                 <div>
                   <ModalTitle>Novo feriado</ModalTitle>
-                  <ModalSubtitle>Informe apenas os dados essenciais do feriado.</ModalSubtitle>
+                  <ModalSubtitle>
+                    Informe o feriado e como a agenda da clinica deve se comportar nessa data.
+                  </ModalSubtitle>
                 </div>
                 <IconButton type="button" onClick={closeHolidayModal}>
                   <FaTimes />
@@ -5462,6 +5868,26 @@ export default function Financeiro() {
                         </option>
                       ))}
                     </Select>
+                  </Field>
+                  <Field>
+                    <Label htmlFor="holiday-scheduling-mode">Funcionamento da clinica</Label>
+                    <Select
+                      id="holiday-scheduling-mode"
+                      name="scheduling_mode"
+                      value={holidayForm.scheduling_mode}
+                      onChange={handleHolidayChange}
+                    >
+                      {HOLIDAY_SCHEDULING_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <MutedText>
+                      {HOLIDAY_SCHEDULING_OPTIONS.find(
+                        (option) => option.value === holidayForm.scheduling_mode,
+                      )?.help || ""}
+                    </MutedText>
                   </Field>
                   {(holidayForm.source_type === "state" || holidayForm.source_type === "city") && (
                     <Field>
@@ -5935,6 +6361,17 @@ const TypePill = styled.span`
   font-weight: 700;
   background: ${(props) => (props.$type === "income" ? "#e3f1e0" : "#f7e7dc")};
   color: ${(props) => (props.$type === "income" ? "#4f6b45" : "#9a6a3a")};
+`;
+
+const HolidaySchedulingBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: ${(props) => (props.$mode === "open" ? "#e3f1e0" : "#f7e7dc")};
+  color: ${(props) => (props.$mode === "open" ? "#4f6b45" : "#9a6a3a")};
 `;
 
 const ColorRow = styled.div`
@@ -6550,6 +6987,48 @@ const AttendanceDetailTitle = styled.h3`
   font-size: ${ATTENDANCE_UI.font.size.lg};
   line-height: ${ATTENDANCE_UI.font.lineHeight.lg};
   font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+`;
+
+const AttendanceBatchToolbar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${ATTENDANCE_UI.spacing[2]};
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-bottom: 1px solid ${ATTENDANCE_UI.colors.border};
+  background: ${ATTENDANCE_UI.colors.surfaceMuted};
+`;
+
+const AttendanceBatchSummary = styled.div`
+  color: ${ATTENDANCE_UI.colors.textSecondary};
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+
+  strong {
+    color: ${ATTENDANCE_UI.colors.textPrimary};
+    font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  }
+`;
+
+const AttendanceSelectionCheckbox = styled.input`
+  width: 16px;
+  height: 16px;
+  accent-color: ${ATTENDANCE_UI.colors.action};
+  cursor: pointer;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+`;
+
+const AttendanceSelectionPlaceholder = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  color: ${ATTENDANCE_UI.colors.textMuted};
 `;
 
 const AttendanceTableCard = styled.div`

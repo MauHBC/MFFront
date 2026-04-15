@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styled, { keyframes } from "styled-components";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -235,17 +235,78 @@ const formatDateParam = (value) => {
   return `${year}-${month}-${day}`;
 };
 
-const formatMonthValue = (value) => {
+const toDateInputValue = (value) => {
   if (!value) return "";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const parseDateInputValue = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+  const [yearString, monthString, dayString] = String(value).split("-");
+  const year = Number(yearString);
+  const monthIndex = Number(monthString) - 1;
+  const day = Number(dayString);
+  const date = new Date(year, monthIndex, day);
+  if (
+    Number.isNaN(date.getTime())
+    || date.getFullYear() !== year
+    || date.getMonth() !== monthIndex
+    || date.getDate() !== day
+  ) {
+    return null;
+  }
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const buildMonthlyValidityRange = (value) => {
+  const startDate = parseDateInputValue(toDateInputValue(value));
+  if (!startDate) {
+    return {
+      start: "",
+      end: "",
+    };
+  }
+
+  const firstDayOfNextMonth = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 1);
+  const daysInNextMonth = new Date(
+    firstDayOfNextMonth.getFullYear(),
+    firstDayOfNextMonth.getMonth() + 1,
+    0,
+  ).getDate();
+  const nextMonthSameDay = new Date(
+    firstDayOfNextMonth.getFullYear(),
+    firstDayOfNextMonth.getMonth(),
+    Math.min(startDate.getDate(), daysInNextMonth),
+  );
+  const endDate = new Date(nextMonthSameDay);
+  endDate.setDate(endDate.getDate() - 1);
+
+  return {
+    start: formatDateParam(startDate),
+    end: formatDateParam(endDate),
+  };
 };
 
 const formatDate = (value) => {
   if (!value) return "";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const parsedDate = parseDateInputValue(value);
+    if (!parsedDate) return "";
+    return parsedDate.toLocaleDateString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString("pt-BR", {
@@ -351,11 +412,43 @@ const getMonthDays = (baseDate) => {
   return days;
 };
 
+const getVisibleDateRange = (view, baseDate) => {
+  if (view === "month") {
+    const firstDayOfMonth = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+    const lastDayOfMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0);
+    return {
+      sessionsFrom: startOfDay(firstDayOfMonth),
+      // The sessions API treats the date-only `to` boundary as exclusive.
+      sessionsTo: startOfNextDay(lastDayOfMonth),
+      specialEventsFrom: startOfDay(firstDayOfMonth),
+      specialEventsTo: endOfDay(lastDayOfMonth),
+    };
+  }
+
+  if (view === "week") {
+    const weekDays = getWeekDays(baseDate);
+    return {
+      sessionsFrom: startOfDay(weekDays[0]),
+      sessionsTo: startOfNextDay(weekDays[6]),
+      specialEventsFrom: startOfDay(weekDays[0]),
+      specialEventsTo: endOfDay(weekDays[6]),
+    };
+  }
+
+  return {
+    sessionsFrom: startOfDay(baseDate),
+    sessionsTo: startOfNextDay(baseDate),
+    specialEventsFrom: startOfDay(baseDate),
+    specialEventsTo: endOfDay(baseDate),
+  };
+};
+
 
 
 export default function Agendamentos() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const submitLockRef = useRef(false);
   const [sessions, setSessions] = useState([]);
   const [specialEvents, setSpecialEvents] = useState([]);
   const [pendingSessionsSource, setPendingSessionsSource] = useState([]);
@@ -392,13 +485,12 @@ export default function Agendamentos() {
   const [repeatMode, setRepeatMode] = useState("count");
   const [repeatCount, setRepeatCount] = useState("10");
   const [repeatWeeks, setRepeatWeeks] = useState("4");
-  const [repeatMonth, setRepeatMonth] = useState(() => formatMonthValue(new Date()));
   const [formAvailability, setFormAvailability] = useState(null);
-  const [isCheckingFormAvailability, setIsCheckingFormAvailability] = useState(false);
   const [recurrencePreview, setRecurrencePreview] = useState(null);
   const [deleteModal, setDeleteModal] = useState(emptyDeleteModal);
   const [isDeletePreviewing, setIsDeletePreviewing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const visibleRange = useMemo(() => getVisibleDateRange(view, selectedDate), [selectedDate, view]);
 
   const loadBaseData = useCallback(async () => {
     try {
@@ -467,6 +559,11 @@ export default function Agendamentos() {
     }
   }, []);
 
+  const reloadVisibleSessions = useCallback(
+    () => loadSessions(visibleRange.sessionsFrom, visibleRange.sessionsTo),
+    [loadSessions, visibleRange.sessionsFrom, visibleRange.sessionsTo],
+  );
+
   useEffect(() => {
     loadBaseData();
   }, [loadBaseData]);
@@ -476,22 +573,9 @@ export default function Agendamentos() {
   }, [loadPendingSessions]);
 
   useEffect(() => {
-    if (view === "month") {
-      const from = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-      const to = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0);
-      loadSessions(from, to);
-      loadSpecialEvents(from, to);
-      return;
-    }
-    if (view === "day") {
-      loadSessions(startOfDay(selectedDate), startOfNextDay(selectedDate));
-      loadSpecialEvents(startOfDay(selectedDate), endOfDay(selectedDate));
-      return;
-    }
-    const weekDays = getWeekDays(selectedDate);
-    loadSessions(startOfDay(weekDays[0]), endOfDay(weekDays[6]));
-    loadSpecialEvents(startOfDay(weekDays[0]), endOfDay(weekDays[6]));
-  }, [loadSessions, loadSpecialEvents, selectedDate, view]);
+    loadSessions(visibleRange.sessionsFrom, visibleRange.sessionsTo);
+    loadSpecialEvents(visibleRange.specialEventsFrom, visibleRange.specialEventsTo);
+  }, [loadSessions, loadSpecialEvents, visibleRange]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -873,6 +957,14 @@ export default function Agendamentos() {
     return specialEventsByDay.get(key) || null;
   }, [selectedDate, specialEventsByDay]);
 
+  const formLocalSpecialSummary = useMemo(() => {
+    if (!form.starts_at) return null;
+    const date = new Date(form.starts_at);
+    if (Number.isNaN(date.getTime())) return null;
+    const key = startOfDay(date).toISOString();
+    return specialEventsByDay.get(key) || null;
+  }, [form.starts_at, specialEventsByDay]);
+
   const pendingConfirmationSessions = useMemo(() => {
     const queue = pendingSessionsSource.filter((session) =>
       needsAttendanceConfirmation(session),
@@ -1036,7 +1128,7 @@ export default function Agendamentos() {
   const handleStartsAtChange = useCallback((event) => {
     const { value } = event.target;
     if (!value) {
-      setForm((prev) => ({ ...prev, starts_at: value }));
+      setForm((prev) => ({ ...prev, starts_at: value, ends_at: "" }));
       return;
     }
     const startDate = new Date(value);
@@ -1044,44 +1136,55 @@ export default function Agendamentos() {
       setForm((prev) => ({ ...prev, starts_at: value }));
       return;
     }
-    const endsAt = new Date(startDate);
-    endsAt.setHours(endsAt.getHours() + 1);
-    setForm((prev) => ({
-      ...prev,
-      starts_at: value,
-      ends_at: toInputValue(endsAt),
-    }));
-    if (repeatMode !== "month") {
-      setRepeatMonth(formatMonthValue(startDate));
-    }
+    setForm((prev) => {
+      const previousStartsAt = prev.starts_at ? new Date(prev.starts_at) : null;
+      const previousEndsAt = prev.ends_at ? new Date(prev.ends_at) : null;
+      const hasValidPreviousDuration =
+        previousStartsAt &&
+        !Number.isNaN(previousStartsAt.getTime()) &&
+        previousEndsAt &&
+        !Number.isNaN(previousEndsAt.getTime()) &&
+        previousEndsAt > previousStartsAt;
+
+      const nextEndsAt = new Date(startDate);
+      if (hasValidPreviousDuration) {
+        nextEndsAt.setTime(
+          startDate.getTime() + (previousEndsAt.getTime() - previousStartsAt.getTime()),
+        );
+      } else {
+        nextEndsAt.setHours(nextEndsAt.getHours() + 1);
+      }
+
+      return {
+        ...prev,
+        starts_at: value,
+        ends_at: toInputValue(nextEndsAt),
+      };
+    });
     if (repeatEnabled && repeatWeekdays.length === 0) {
       setRepeatWeekdays([toIsoWeekday(startDate)]);
     }
-  }, [repeatEnabled, repeatMode, repeatWeekdays.length]);
+  }, [repeatEnabled, repeatWeekdays.length]);
 
   useEffect(() => {
     if (!isDrawerOpen || drawerMode !== "form") {
       setFormAvailability(null);
-      setIsCheckingFormAvailability(false);
       return undefined;
     }
 
     if (!form.starts_at) {
       setFormAvailability(null);
-      setIsCheckingFormAvailability(false);
       return undefined;
     }
 
     const startsAtDate = new Date(form.starts_at);
     if (Number.isNaN(startsAtDate.getTime())) {
       setFormAvailability(null);
-      setIsCheckingFormAvailability(false);
       return undefined;
     }
 
     let cancelled = false;
     const timerId = window.setTimeout(async () => {
-      setIsCheckingFormAvailability(true);
       try {
         const response = await checkSchedulingAvailability({
           starts_at: form.starts_at,
@@ -1106,9 +1209,7 @@ export default function Agendamentos() {
           });
         }
       } finally {
-        if (!cancelled) {
-          setIsCheckingFormAvailability(false);
-        }
+        // noop
       }
     }, 280);
 
@@ -1229,7 +1330,6 @@ export default function Agendamentos() {
     setRepeatMode("count");
     setRepeatCount("10");
     setRepeatWeeks("4");
-    setRepeatMonth(formatMonthValue(new Date()));
     setFormAvailability(null);
     setRecurrencePreview(null);
   }, []);
@@ -1277,11 +1377,7 @@ export default function Agendamentos() {
       setRecurrencePreview(null);
       resetForm();
       closeDrawer();
-      if (view === "day") {
-        await loadSessions(startOfDay(selectedDate), startOfNextDay(selectedDate));
-      } else {
-        await loadSessions();
-      }
+      await reloadVisibleSessions();
       await loadPendingSessions();
     } catch (error) {
       const responseData = error?.response?.data || {};
@@ -1317,11 +1413,9 @@ export default function Agendamentos() {
   }, [
     closeDrawer,
     loadPendingSessions,
-    loadSessions,
+    reloadVisibleSessions,
     recurrencePreview,
     resetForm,
-    selectedDate,
-    view,
   ]);
 
   const handleCreateAt = useCallback(
@@ -1336,7 +1430,6 @@ export default function Agendamentos() {
         starts_at: toInputValue(date),
         ends_at: toInputValue(endsAt),
       }));
-      setRepeatMonth(formatMonthValue(date));
       setIsDrawerOpen(true);
     },
     [resetForm],
@@ -1381,11 +1474,7 @@ export default function Agendamentos() {
       try {
         await axios.put(`/sessions/${id}`, payload);
         toast.success("Agendamento reagendado.");
-        if (view === "day") {
-          await loadSessions(startOfDay(selectedDate), startOfNextDay(selectedDate));
-        } else {
-          await loadSessions();
-        }
+        await reloadVisibleSessions();
         await loadPendingSessions();
       } catch (error) {
         const message =
@@ -1396,7 +1485,7 @@ export default function Agendamentos() {
         setIsSaving(false);
       }
     },
-    [filteredSessions, loadPendingSessions, loadSessions, selectedDate, view],
+    [filteredSessions, loadPendingSessions, reloadVisibleSessions],
   );
 
   const handleDragOver = useCallback((event) => {
@@ -1428,7 +1517,6 @@ export default function Agendamentos() {
       setRepeatMode("count");
       setRepeatCount("10");
       setRepeatWeeks("4");
-      setRepeatMonth(session?.starts_at ? formatMonthValue(session.starts_at) : formatMonthValue(new Date()));
       setForm({
         patient_id: session.patient_id ? String(session.patient_id) : "",
         professional_user_id: session.professional_user_id
@@ -1556,11 +1644,7 @@ export default function Agendamentos() {
       });
       const successCount = Number(response?.data?.total_deleted || deleteSelectedIds.length);
 
-      if (view === "day") {
-        await loadSessions(startOfDay(selectedDate), startOfNextDay(selectedDate));
-      } else {
-        await loadSessions();
-      }
+      await reloadVisibleSessions();
       await loadPendingSessions();
 
       toast.success(
@@ -1583,9 +1667,7 @@ export default function Agendamentos() {
     deleteSelectedIds,
     isDeleting,
     loadPendingSessions,
-    loadSessions,
-    selectedDate,
-    view,
+    reloadVisibleSessions,
   ]);
 
   const updateSessionStatus = useCallback(
@@ -1599,11 +1681,7 @@ export default function Agendamentos() {
       try {
         await axios.put(`/sessions/${id}`, payload);
         toast.success("Agendamento atualizado.");
-        if (view === "day") {
-          await loadSessions(startOfDay(selectedDate), startOfNextDay(selectedDate));
-        } else {
-          await loadSessions();
-        }
+        await reloadVisibleSessions();
         await loadPendingSessions();
       } catch (error) {
         const message =
@@ -1614,7 +1692,7 @@ export default function Agendamentos() {
         setIsSaving(false);
       }
     },
-    [loadPendingSessions, loadSessions, selectedDate, view],
+    [loadPendingSessions, reloadVisibleSessions],
   );
 
   const handleQuickStatus = useCallback(
@@ -1663,6 +1741,7 @@ export default function Agendamentos() {
   const handleSubmit = useCallback(
     async (event) => {
       event.preventDefault();
+      if (submitLockRef.current || isSaving) return;
       if (!form.patient_id) {
         toast.error("Selecione o paciente.");
         return;
@@ -1683,11 +1762,26 @@ export default function Agendamentos() {
 
       const isRecurring = repeatEnabled && !editingId;
       const endsAtDate = form.ends_at ? new Date(form.ends_at) : null;
-      const hasValidEnd =
-        endsAtDate && !Number.isNaN(endsAtDate.getTime()) && endsAtDate > startsAtDate;
+      if (form.ends_at && (!endsAtDate || Number.isNaN(endsAtDate.getTime()))) {
+        toast.error("Data de termino invalida.");
+        return;
+      }
+      if (endsAtDate && endsAtDate <= startsAtDate) {
+        toast.error("O campo Termina as deve ser posterior ao Inicio.");
+        return;
+      }
+      const hasValidEnd = endsAtDate && !Number.isNaN(endsAtDate.getTime());
       const durationMinutes = hasValidEnd
         ? Math.max(15, Math.round((endsAtDate - startsAtDate) / 60000))
         : 60;
+      const hasLocalHolidayBlock =
+        formLocalSpecialSummary?.severity === "block"
+        && Array.isArray(formLocalSpecialSummary?.events)
+        && formLocalSpecialSummary.events.some(
+          (matchedEvent) =>
+            SPECIAL_HOLIDAY_SOURCES.has(matchedEvent.source_type)
+            && matchedEvent.affects_scheduling !== false,
+        );
 
       if (isRecurring) {
         if (repeatMode === "count") {
@@ -1705,6 +1799,13 @@ export default function Agendamentos() {
           }
         }
       }
+
+      submitLockRef.current = true;
+      setIsSaving(true);
+      const releaseSubmitState = () => {
+        setIsSaving(false);
+        submitLockRef.current = false;
+      };
 
       const payload = {
         patient_id: Number(form.patient_id),
@@ -1724,15 +1825,8 @@ export default function Agendamentos() {
       };
 
       if (isRecurring) {
-        const weekdays = repeatWeekdays.length
-          ? repeatWeekdays
-          : [toIsoWeekday(startsAtDate)];
         let untilDate = null;
-        let recurrenceStartsAt = new Date(startsAtDate);
-        if (repeatMode === "month" && !/^\d{4}-\d{2}$/.test(repeatMonth)) {
-          toast.error("Selecione o mes e o ano.");
-          return;
-        }
+        const recurrenceStartsAt = new Date(startsAtDate);
         if (repeatMode === "weeks") {
           const weeks = Math.max(1, Number(repeatWeeks) || 1);
           const endDate = new Date(startsAtDate);
@@ -1741,17 +1835,18 @@ export default function Agendamentos() {
           untilDate = formatDateParam(endDate);
         }
         if (repeatMode === "month") {
-          const [yearString, monthString] = repeatMonth.split("-");
-          const year = Number(yearString);
-          const monthIndex = Number(monthString) - 1;
-          recurrenceStartsAt = new Date(startsAtDate);
-          recurrenceStartsAt.setFullYear(year, monthIndex, 1);
+          const monthlyValidity = buildMonthlyValidityRange(startsAtDate);
+          if (!monthlyValidity.end) {
+            releaseSubmitState();
+            toast.error("Nao foi possivel calcular a vigencia mensal.");
+            return;
+          }
           recurrenceStartsAt.setSeconds(0, 0);
-
-          const endDate = new Date(year, monthIndex + 1, 0);
-          endDate.setHours(0, 0, 0, 0);
-          untilDate = formatDateParam(endDate);
+          untilDate = monthlyValidity.end;
         }
+        const weekdays = repeatWeekdays.length
+          ? repeatWeekdays
+          : [toIsoWeekday(recurrenceStartsAt)];
 
         const seriesPayload = {
           patient_id: payload.patient_id,
@@ -1769,7 +1864,6 @@ export default function Agendamentos() {
           notes: payload.notes,
         };
 
-        setIsSaving(true);
         try {
           const previewResponse = await previewSchedulingOccurrences(seriesPayload);
           const occurrences = Array.isArray(previewResponse?.data?.occurrences_preview)
@@ -1801,7 +1895,7 @@ export default function Agendamentos() {
             "Nao foi possivel gerar a pre-visualizacao das ocorrencias.";
           toast.error(message);
         } finally {
-          setIsSaving(false);
+          releaseSubmitState();
         }
         return;
       }
@@ -1829,6 +1923,7 @@ export default function Agendamentos() {
               availability.blocking_reason ||
               "Data bloqueada por evento operacional.",
             );
+            releaseSubmitState();
             return;
           }
 
@@ -1836,20 +1931,31 @@ export default function Agendamentos() {
           const shouldForce = window.confirm(
             `${availability.blocking_reason || "Data bloqueada."}\n\nVoce tem permissao para forcar encaixe. Deseja continuar?`,
           );
-          if (!shouldForce) return;
+          if (!shouldForce) {
+            releaseSubmitState();
+            return;
+          }
           // eslint-disable-next-line no-alert
           const typedReason = window.prompt(
             "Informe o motivo do encaixe em data bloqueada:",
             "Encaixe autorizado pelo administrador.",
           );
-          if (typedReason === null) return;
+          if (typedReason === null) {
+            releaseSubmitState();
+            return;
+          }
           const normalizedReason = typedReason.trim();
           if (!normalizedReason) {
             toast.error("Informe o motivo para forcar o encaixe.");
+            releaseSubmitState();
             return;
           }
           forceOverride = true;
           overrideReason = normalizedReason;
+        } else if (hasLocalHolidayBlock) {
+          toast.error("Data bloqueada por feriado.");
+          releaseSubmitState();
+          return;
         }
 
         if (availability.requires_confirmation) {
@@ -1862,7 +1968,10 @@ export default function Agendamentos() {
           const shouldConfirm = window.confirm(
             `Data com alerta operacional${eventNames ? ` (${eventNames})` : ""}. Deseja confirmar o agendamento?`,
           );
-          if (!shouldConfirm) return;
+          if (!shouldConfirm) {
+            releaseSubmitState();
+            return;
+          }
           confirmScheduleWarning = true;
         }
 
@@ -1877,10 +1986,10 @@ export default function Agendamentos() {
           error?.response?.data?.error ||
           "Nao foi possivel validar disponibilidade.";
         toast.error(message);
+        releaseSubmitState();
         return;
       }
 
-      setIsSaving(true);
       try {
         const schedulingPayload = {
           confirm_schedule_warning: confirmScheduleWarning,
@@ -1902,33 +2011,29 @@ export default function Agendamentos() {
         }
         resetForm();
         closeDrawer();
-        if (view === "day") {
-          await loadSessions(startOfDay(selectedDate), startOfNextDay(selectedDate));
-        } else {
-          await loadSessions();
-        }
+        await reloadVisibleSessions();
         await loadPendingSessions();
       } catch (error) {
         toast.error(resolveSchedulingErrorMessage(error));
       } finally {
-        setIsSaving(false);
+        releaseSubmitState();
       }
     },
     [
       closeDrawer,
       editingId,
       form,
-      loadSessions,
+      formLocalSpecialSummary,
+      isSaving,
       loadPendingSessions,
+      reloadVisibleSessions,
       repeatEnabled,
       repeatMode,
       repeatCount,
-      repeatMonth,
       repeatWeeks,
       repeatWeekdays,
       resetForm,
-      selectedDate,
-      view,
+      submitLockRef,
     ],
   );
 
@@ -1963,33 +2068,54 @@ export default function Agendamentos() {
     [formAvailability],
   );
 
-  const formAvailabilityLevel = useMemo(
-    () => availabilityStatus(formAvailability),
-    [formAvailability],
+  const formContextEvents = useMemo(() => {
+    if (formAvailabilityEvents.length > 0) return formAvailabilityEvents;
+    return Array.isArray(formLocalSpecialSummary?.events)
+      ? formLocalSpecialSummary.events
+      : [];
+  }, [formAvailabilityEvents, formLocalSpecialSummary]);
+
+  const formAvailabilityLevel = useMemo(() => {
+    const serverLevel = availabilityStatus(formAvailability);
+    const localLevel = formLocalSpecialSummary?.severity || "available";
+    if (formAvailability?.error) return "block";
+    return severityWeight(localLevel) > severityWeight(serverLevel)
+      ? localLevel
+      : serverLevel;
+  }, [formAvailability, formLocalSpecialSummary]);
+
+  const formBlockedHolidayEvents = useMemo(
+    () =>
+      formContextEvents.filter(
+        (event) =>
+          SPECIAL_HOLIDAY_SOURCES.has(event.source_type)
+          && event.affects_scheduling !== false,
+      ),
+    [formContextEvents],
   );
 
-  const formAvailabilityHasHolidayBlock = useMemo(
+  const shouldShowFormContext = useMemo(
     () =>
-      formAvailabilityLevel === "block"
-      && formAvailabilityEvents.some((event) => SPECIAL_HOLIDAY_SOURCES.has(event.source_type)),
-    [formAvailabilityEvents, formAvailabilityLevel],
+      Boolean(
+        form.starts_at
+          && formAvailabilityLevel === "block"
+          && formBlockedHolidayEvents.length > 0,
+      ),
+    [form.starts_at, formAvailabilityLevel, formBlockedHolidayEvents.length],
   );
 
   const formAvailabilityTitle = useMemo(() => {
-    if (!formAvailability) return "";
-    if (formAvailability?.error) return formAvailability.error;
     const baseDate = form.starts_at ? formatDate(form.starts_at) : "Data selecionada";
-    if (formAvailabilityLevel === "block") {
-      return `${baseDate} - Dia bloqueado para agendamento.`;
+    return `${baseDate} - Data bloqueada por feriado.`;
+  }, [form.starts_at]);
+
+  const monthlyValiditySummary = useMemo(() => {
+    const monthlyValidity = buildMonthlyValidityRange(form.starts_at);
+    if (!monthlyValidity.start || !monthlyValidity.end) {
+      return "Defina o campo Inicio acima.";
     }
-    if (formAvailabilityLevel === "warn") {
-      return `${baseDate} - Data com alerta operacional.`;
-    }
-    if (formAvailabilityLevel === "info" && formAvailabilityEvents.length > 0) {
-      return `${baseDate} - Evento especial informativo.`;
-    }
-    return `${baseDate} - Disponivel para agendamento.`;
-  }, [form.starts_at, formAvailability, formAvailabilityEvents.length, formAvailabilityLevel]);
+    return `${formatDate(monthlyValidity.start)} ate ${formatDate(monthlyValidity.end)}`;
+  }, [form.starts_at]);
 
   const recurrenceSelectedSet = useMemo(
     () => new Set(recurrencePreview?.selected_indexes || []),
@@ -2036,6 +2162,13 @@ export default function Agendamentos() {
     drawerSubtitle = "Confirme quem veio, faltou ou precisa de ajuste.";
   } else if (drawerMode === "group") {
     drawerSubtitle = "Gerencie os pacientes deste horario.";
+  }
+
+  let submitButtonLabel = "Criar agendamento";
+  if (isSaving) {
+    submitButtonLabel = "Processando...";
+  } else if (editingId) {
+    submitButtonLabel = "Salvar";
   }
 
   return (
@@ -2110,7 +2243,13 @@ export default function Agendamentos() {
                 {pendingConfirmationSessions.length}
               </NotificationBadge>
             </NotificationButton>
-            <PrimaryButton type="button" onClick={openDrawer}>
+            <PrimaryButton
+              type="button"
+              onClick={() => {
+                resetForm();
+                openDrawer();
+              }}
+            >
               <FaPlus /> Novo agendamento
             </PrimaryButton>
             <ToolbarLink to="/agendamentos/eventos">
@@ -2807,7 +2946,7 @@ export default function Agendamentos() {
                     />
                   </Field>
                   <Field className="span-2">
-                    Fim
+                    Termina as
                     <input
                       type="datetime-local"
                       name="ends_at"
@@ -2815,36 +2954,10 @@ export default function Agendamentos() {
                       onChange={handleFormChange}
                     />
                   </Field>
-                  {form.starts_at && formAvailabilityHasHolidayBlock && (
-                    <ScheduleContextCard className="span-2" $severity={formAvailabilityLevel}>
-                      {isCheckingFormAvailability ? (
-                        <span>Validando disponibilidade...</span>
-                      ) : (
-                        <>
-                          <strong>{formAvailabilityTitle}</strong>
-                          {formAvailabilityLevel === "block" && (
-                            <span>
-                              Sem atendimento para esta data/periodo.
-                            </span>
-                          )}
-                          {formAvailabilityEvents.length > 0 && (
-                            <ScheduleContextList>
-                              {formAvailabilityEvents.map((event) => (
-                                <li
-                                  key={`${event.id || "event"}-${event.source_type || "source"}-${event.name || "nome"}`}
-                                >
-                                  <span>{event.name || "Evento especial"}</span>
-                                  <small>
-                                    {SPECIAL_SOURCE_LABELS[event.source_type] || event.source_type}
-                                    {" - "}
-                                    {eventBehaviorLabel(event)}
-                                  </small>
-                                </li>
-                              ))}
-                            </ScheduleContextList>
-                          )}
-                        </>
-                      )}
+                  {shouldShowFormContext && (
+                    <ScheduleContextCard className="span-2" $severity="block">
+                      <strong>{formAvailabilityTitle}</strong>
+                      <span>A agenda esta bloqueada por feriado.</span>
                     </ScheduleContextCard>
                   )}
                   <RepeatCard className="span-2">
@@ -2860,12 +2973,6 @@ export default function Agendamentos() {
                           onChange={(event) => {
                             const { checked } = event.target;
                             setRepeatEnabled(checked);
-                            if (checked && form.starts_at) {
-                              const start = new Date(form.starts_at);
-                              if (!Number.isNaN(start.getTime())) {
-                                setRepeatMonth(formatMonthValue(start));
-                              }
-                            }
                             if (
                               checked &&
                               repeatWeekdays.length === 0 &&
@@ -2930,12 +3037,13 @@ export default function Agendamentos() {
                           )}
                           {repeatMode === "month" && (
                             <RepeatField className="full">
-                              <RepeatLabel>Mes e ano</RepeatLabel>
-                              <input
-                                type="month"
-                                value={repeatMonth}
-                                onChange={(event) => setRepeatMonth(event.target.value)}
-                              />
+                              <RepeatLabel>Vigencia mensal</RepeatLabel>
+                              <RepeatReadonlyValue>
+                                {monthlyValiditySummary}
+                              </RepeatReadonlyValue>
+                              <small>
+                                Atualizado automaticamente com base na data de inicio.
+                              </small>
                             </RepeatField>
                           )}
                           {repeatMode === "weeks" && (
@@ -2987,11 +3095,12 @@ export default function Agendamentos() {
                   </Field>
                 </FormGrid>
                 <DrawerActions>
-                  <SecondaryButton type="button" onClick={closeDrawer}>
+                  <SecondaryButton type="button" onClick={closeDrawer} disabled={isSaving}>
                     Cancelar
                   </SecondaryButton>
                   <PrimaryButton type="submit" disabled={isSaving}>
-                    {editingId ? "Salvar" : "Criar agendamento"}
+                    {isSaving ? <ButtonSpinner aria-hidden="true" /> : null}
+                    {submitButtonLabel}
                   </PrimaryButton>
                 </DrawerActions>
               </Form>
@@ -4802,29 +4911,6 @@ const ScheduleContextCard = styled.div`
   }
 `;
 
-const ScheduleContextList = styled.ul`
-  margin: 0;
-  padding-left: 16px;
-  display: grid;
-  gap: 3px;
-
-  li {
-    display: grid;
-    gap: 1px;
-  }
-
-  span {
-    color: #1b1b1b;
-    font-size: 0.82rem;
-    font-weight: 600;
-  }
-
-  small {
-    color: #5f6d53;
-    font-size: 0.76rem;
-  }
-`;
-
 const RepeatCard = styled.div`
   border: 1px solid rgba(106, 121, 92, 0.18);
   border-radius: 14px;
@@ -4907,6 +4993,16 @@ const RepeatLabel = styled.span`
   font-size: 0.85rem;
   font-weight: 600;
   color: #1b1b1b;
+`;
+
+const RepeatReadonlyValue = styled.div`
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  background: #f8faf5;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  color: #2f3a26;
+  font-weight: 600;
 `;
 
 const RepeatInline = styled.div`
@@ -5088,10 +5184,26 @@ const PrimaryButton = styled.button`
   background: #6a795c;
   color: #fff;
   font-weight: 700;
-  transition: filter 0.2s ease;
+  box-shadow: 0 10px 22px rgba(73, 90, 63, 0.16);
+  transition:
+    transform 120ms ease,
+    filter 120ms ease,
+    box-shadow 120ms ease;
 
   &:hover:not(:disabled) {
+    transform: translateY(-1px);
     filter: brightness(0.95);
+    box-shadow: 0 14px 28px rgba(73, 90, 63, 0.22);
+  }
+
+  &:focus-visible {
+    outline: 3px solid rgba(106, 121, 92, 0.24);
+    outline-offset: 2px;
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 8px 18px rgba(73, 90, 63, 0.18);
   }
 
   &:disabled {
@@ -5126,6 +5238,35 @@ const SecondaryButton = styled.button`
   color: #6a795c;
   border: 1px solid rgba(106, 121, 92, 0.3);
   font-weight: 600;
+
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    background: #f6f8f3;
+    border-color: rgba(106, 121, 92, 0.45);
+    box-shadow: 0 10px 22px rgba(73, 90, 63, 0.08);
+  }
+
+  &:focus-visible {
+    outline: 3px solid rgba(106, 121, 92, 0.18);
+    outline-offset: 2px;
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 6px 14px rgba(73, 90, 63, 0.06);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
 `;
 
 const ToolbarLink = styled(Link)`
