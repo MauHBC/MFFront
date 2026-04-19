@@ -6,6 +6,12 @@ import { FaInfoCircle, FaListAlt, FaPhoneAlt, FaUserAlt } from "react-icons/fa";
 
 import Loading from "../../components/Loading";
 import axios from "../../services/axios";
+import { PageWrapper, PageContent } from "../../components/AppLayout";
+import { LinkGhostButton } from "../../components/AppButton";
+import {
+  ModuleHeader,
+  ModuleTitle,
+} from "../../components/AppModuleShell";
 import {
   calculateAgeFromBirthDate,
   formatBirthDateForApi,
@@ -55,6 +61,58 @@ const REFERRAL_SOURCE_OPTIONS = [
   { value: "Amigo", label: "Amigo" },
   { value: "Outro", label: "Outro" },
 ];
+
+const ATTENTION_LEVEL_OPTIONS = [
+  { value: "", label: "Selecionar" },
+  { value: "low", label: "Baixa" },
+  { value: "medium", label: "Media" },
+  { value: "high", label: "Alta" },
+];
+
+const ATTENTION_LEVEL_LABELS = {
+  low: "Baixa",
+  medium: "Media",
+  high: "Alta",
+};
+
+const ATTENTION_LEVEL_STYLES = {
+  default: {
+    color: "#55644c",
+    border: "rgba(106, 121, 92, 0.22)",
+    background: "#fff",
+  },
+  low: {
+    color: "#4f7c42",
+    border: "rgba(79, 124, 66, 0.34)",
+    background: "rgba(79, 124, 66, 0.09)",
+  },
+  medium: {
+    color: "#a56a00",
+    border: "rgba(165, 106, 0, 0.34)",
+    background: "rgba(165, 106, 0, 0.1)",
+  },
+  high: {
+    color: "#c53b32",
+    border: "rgba(197, 59, 50, 0.34)",
+    background: "rgba(197, 59, 50, 0.1)",
+  },
+};
+
+function resolveAttentionLevelStyles(level) {
+  return ATTENTION_LEVEL_STYLES[level] || ATTENTION_LEVEL_STYLES.default;
+}
+
+function buildAttentionOptionStyle(level) {
+  const styles = resolveAttentionLevelStyles(level);
+  return {
+    color: styles.color,
+    backgroundColor: styles.background,
+  };
+}
+
+function formatAttentionLevel(value) {
+  return ATTENTION_LEVEL_LABELS[value] || "-";
+}
 
 const TREATMENT_GOAL_OPTIONS = [
   { value: "reduce_pain", label: "Reduzir dor" },
@@ -219,6 +277,7 @@ function buildPatientForm(patient) {
     rg: patient?.rg || "",
     marital_status: patient?.marital_status || "",
     profession: patient?.profession || "",
+    attention_level: patient?.attention_level || "",
     referral_source: patient?.referral_source || "",
     email: patient?.email || "",
     phone: patient?.phone || "",
@@ -332,6 +391,9 @@ export default function PatientDetails() {
     "other",
   );
   const isPersonalEditing = editingSection === EDIT_SECTIONS.personal;
+  const isAttentionLevelMissing = isPersonalEditing
+    ? !cleanText(editForm.attention_level)
+    : !cleanText(patient?.attention_level);
   const isContactEditing = editingSection === EDIT_SECTIONS.contact;
   const isAddressEditing = editingSection === EDIT_SECTIONS.address;
   const isEmergencyEditing = editingSection === EDIT_SECTIONS.emergency;
@@ -417,6 +479,7 @@ export default function PatientDetails() {
         rg: cleanText(editForm.rg),
         marital_status: cleanText(editForm.marital_status),
         profession: cleanText(editForm.profession),
+        attention_level: cleanText(editForm.attention_level),
         referral_source: cleanText(editForm.referral_source),
       };
     }
@@ -556,20 +619,28 @@ export default function PatientDetails() {
   );
 
   return (
-    <Wrapper>
-      <Content>
+    <PageWrapper $paddingTop="90px" $paddingBottom="60px">
+      <PageContent
+        $maxWidth="1220px"
+        $paddingTop="0"
+        $paddingX="30px"
+        $paddingBottom="0"
+        $mobileBreakpoint="859px"
+        $mobilePaddingX="15px"
+        $mobilePaddingTop="0"
+        $mobilePaddingBottom="0"
+      >
         <Header>
           <div>
-            <h1 className="font40 extraBold">
+            <HeaderTitle>
               {patient?.full_name || patient?.name || "Paciente"}
-            </h1>
-            <p className="font15">Detalhes do paciente</p>
+            </HeaderTitle>
           </div>
           <HeaderActions>
             <AddLink to={`/pacientes/${id}/avaliacoes/nova`}>
               Adicionar registro
             </AddLink>
-            <BackLink to="/pacientes/consultar">Voltar</BackLink>
+            <LinkGhostButton to="/pacientes/consultar">Voltar</LinkGhostButton>
           </HeaderActions>
         </Header>
 
@@ -655,13 +726,10 @@ export default function PatientDetails() {
         {!isLoading && activeTab === TABS.dados && (
           <Section>
             <InfoCard>
-              <CardTitle>Cadastro</CardTitle>
-              <DataList>
-                <DataRow>
-                  <DataLabel>Criado em</DataLabel>
-                  <DataValue>{createdAtLabel}</DataValue>
-                </DataRow>
-              </DataList>
+              <CardTitle>
+                Cadastro
+                <CardTitleMeta>Criado em {createdAtLabel}</CardTitleMeta>
+              </CardTitle>
             </InfoCard>
 
             <InfoCard $editing={isPersonalEditing}>
@@ -670,6 +738,9 @@ export default function PatientDetails() {
                   <CardTitle>
                     <FaUserAlt /> Informacoes pessoais
                   </CardTitle>
+                  {isAttentionLevelMissing && (
+                    <AttentionMissingPill>Atenção não definida</AttentionMissingPill>
+                  )}
                   {isPersonalEditing && <EditingBadge>Em edicao</EditingBadge>}
                 </CardHeaderInfo>
                 {renderSectionActions(EDIT_SECTIONS.personal)}
@@ -713,6 +784,18 @@ export default function PatientDetails() {
                   <DataRow>
                     <DataLabel>Profissao</DataLabel>
                     <DataValue>{valueOrDash(patient?.profession)}</DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Atenção do paciente</DataLabel>
+                    <DataValue>
+                      {patient?.attention_level ? (
+                        <AttentionBadge $level={patient.attention_level}>
+                          {formatAttentionLevel(patient.attention_level)}
+                        </AttentionBadge>
+                      ) : (
+                        "-"
+                      )}
+                    </DataValue>
                   </DataRow>
                   <DataRow>
                     <DataLabel>Origem</DataLabel>
@@ -814,6 +897,27 @@ export default function PatientDetails() {
                         onChange={handleEditFieldChange}
                         placeholder="Profissao"
                       />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Atenção do paciente</DataLabel>
+                    <DataValue>
+                      <AttentionInlineSelect
+                        name="attention_level"
+                        value={editForm.attention_level}
+                        onChange={handleEditFieldChange}
+                        $level={editForm.attention_level}
+                      >
+                        {ATTENTION_LEVEL_OPTIONS.map((option) => (
+                          <option
+                            key={option.value || "empty"}
+                            value={option.value}
+                            style={buildAttentionOptionStyle(option.value)}
+                          >
+                            {option.label}
+                          </option>
+                        ))}
+                      </AttentionInlineSelect>
                     </DataValue>
                   </DataRow>
                   <DataRow>
@@ -1314,47 +1418,25 @@ export default function PatientDetails() {
             </InfoCard>
           </Section>
         )}
-      </Content>
-    </Wrapper>
+      </PageContent>
+    </PageWrapper>
   );
 }
 
-const Wrapper = styled.section`
-  min-height: 100vh;
-  background: #f7f8f4;
-  padding: 90px 0 60px;
-`;
-
-const Content = styled.div`
-  width: 100%;
-  max-width: 1220px;
-  margin: 0 auto;
-  padding: 0 30px;
-
-  @media only screen and (max-width: 859px) {
-    padding: 0 15px;
-  }
-`;
-
-const Header = styled.div`
+const Header = styled(ModuleHeader)`
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 20px;
 
-  h1 {
-    color: #1b1b1b;
-    margin-bottom: 6px;
-  }
-
-  p {
-    color: #6a795c;
-  }
-
   @media (max-width: 720px) {
     flex-direction: column;
   }
+`;
+
+const HeaderTitle = styled(ModuleTitle)`
+  margin-bottom: 0;
 `;
 
 const HeaderActions = styled.div`
@@ -1373,19 +1455,6 @@ const AddLink = styled(Link)`
   color: #fff;
   text-decoration: none;
   font-weight: 700;
-`;
-
-const BackLink = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 18px;
-  border-radius: 10px;
-  background: #fff;
-  color: #6a795c;
-  text-decoration: none;
-  font-weight: 600;
-  border: 1px solid rgba(106, 121, 92, 0.3);
 `;
 
 const Tabs = styled.div`
@@ -1446,8 +1515,15 @@ const CardTitle = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   font-weight: 700;
   color: #1b1b1b;
+`;
+
+const CardTitleMeta = styled.span`
+  color: #6a795c;
+  font-size: 0.82rem;
+  font-weight: 600;
 `;
 
 const EditingBadge = styled.span`
@@ -1458,6 +1534,20 @@ const EditingBadge = styled.span`
   border-radius: 999px;
   background: rgba(106, 121, 92, 0.12);
   color: #55644c;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+`;
+
+const AttentionMissingPill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(165, 106, 0, 0.12);
+  color: #8a5a00;
+  border: 1px solid rgba(165, 106, 0, 0.22);
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -1561,6 +1651,37 @@ const InlineInput = styled.input`
 
 const InlineSelect = styled.select`
   ${fieldStyles}
+`;
+
+const AttentionInlineSelect = styled(InlineSelect)`
+  ${({ $level }) => {
+    const styles = resolveAttentionLevelStyles($level);
+    return `
+      color: ${styles.color};
+      border-color: ${styles.border};
+      background: ${styles.background};
+      font-weight: 600;
+    `;
+  }}
+`;
+
+const AttentionBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+
+  ${({ $level }) => {
+    const styles = resolveAttentionLevelStyles($level);
+    return `
+      color: ${styles.color};
+      background: ${styles.background};
+      border: 1px solid ${styles.border};
+    `;
+  }}
 `;
 
 const InlineTextarea = styled.textarea`

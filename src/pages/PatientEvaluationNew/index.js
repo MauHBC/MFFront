@@ -1,10 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useHistory, useParams } from "react-router-dom";
+import { useHistory, useParams } from "react-router-dom";
 import styled from "styled-components";
 import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
 import Loading from "../../components/Loading";
+import { PageWrapper, PageContent } from "../../components/AppLayout";
+import { LinkGhostButton } from "../../components/AppButton";
+import {
+  ModuleHeader,
+  ModuleTitle,
+  ModuleSubtitle,
+} from "../../components/AppModuleShell";
 
 const normalizeLabel = (value) =>
   String(value || "")
@@ -520,18 +527,27 @@ export default function PatientEvaluationNew() {
   );
 
   return (
-    <Wrapper>
-      <Content>
+    <PageWrapper $paddingTop="90px" $paddingBottom="60px">
+      <PageContent
+        $maxWidth="1220px"
+        $paddingTop="0"
+        $paddingX="30px"
+        $paddingBottom="0"
+        $mobileBreakpoint="859px"
+        $mobilePaddingX="15px"
+        $mobilePaddingTop="0"
+        $mobilePaddingBottom="0"
+      >
         <Header>
           <div>
-            <h1 className="font40 extraBold">Novo registro</h1>
-            <p className="font15">
+            <HeaderTitle>Novo registro</HeaderTitle>
+            <HeaderSubtitle>
               {selectedTemplate
                 ? `Formulario: ${selectedTemplate.title}`
                 : "Selecione um formulario e preencha."}
-            </p>
+            </HeaderSubtitle>
           </div>
-          <BackLink to={`/pacientes/${patientId}`}>Voltar</BackLink>
+          <LinkGhostButton to={`/pacientes/${patientId}`}>Voltar</LinkGhostButton>
         </Header>
 
         <Loading isLoading={isLoading || isSaving} />
@@ -605,7 +621,7 @@ export default function PatientEvaluationNew() {
                   </SectionCard>
                 )}
                 <Actions>
-                  <BackLink to={`/pacientes/${patientId}`}>Cancelar</BackLink>
+                  <LinkGhostButton to={`/pacientes/${patientId}`}>Cancelar</LinkGhostButton>
                   <SubmitButton type="submit" disabled={isSaving}>
                     Salvar registro
                   </SubmitButton>
@@ -659,59 +675,29 @@ export default function PatientEvaluationNew() {
 
           </Form>
         )}
-      </Content>
-    </Wrapper>
+      </PageContent>
+    </PageWrapper>
   );
 }
 
-const Wrapper = styled.section`
-  min-height: 100vh;
-  background: #f7f8f4;
-  padding: 90px 0 60px;
-`;
-
-const Content = styled.div`
-  width: 100%;
-  max-width: 1220px;
-  margin: 0 auto;
-  padding: 0 30px;
-  @media only screen and (max-width: 859px) {
-    padding: 0 15px;
-  }
-`;
-
-const Header = styled.div`
+const Header = styled(ModuleHeader)`
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 20px;
 
-  h1 {
-    color: #1b1b1b;
-    margin-bottom: 6px;
-  }
-
-  p {
-    color: #6a795c;
-  }
-
   @media (max-width: 720px) {
     flex-direction: column;
   }
 `;
 
-const BackLink = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 18px;
-  border-radius: 10px;
-  background: #fff;
-  color: #6a795c;
-  text-decoration: none;
-  font-weight: 600;
-  border: 1px solid rgba(106, 121, 92, 0.3);
+const HeaderTitle = styled(ModuleTitle)`
+  margin-bottom: 6px;
+`;
+
+const HeaderSubtitle = styled(ModuleSubtitle)`
+  margin-top: 0;
 `;
 
 const TemplatesGrid = styled.div`

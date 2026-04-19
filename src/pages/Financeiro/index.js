@@ -16,6 +16,28 @@ import {
 import { toast } from "react-toastify";
 
 import Loading from "../../components/Loading";
+import { FinancialStatusPill } from "../../components/AppFinancialStatus";
+import {
+  SidebarShellWrapper,
+  SidebarShellLayout,
+  SidebarMainArea,
+} from "../../components/AppSidebarShell";
+import {
+  AppSidebar,
+  AppSidebarHeader,
+  AppSidebarSectionTitle,
+  AppSidebarToggle,
+  AppSidebarSection,
+  AppSidebarButton,
+  AppSidebarIcon,
+  AppSidebarLabel,
+  AppSidebarOverlay,
+} from "../../components/AppSidebar";
+import {
+  PrimaryButton as SharedPrimaryButton,
+  GhostButton as SharedGhostButton,
+} from "../../components/AppButton";
+import { DataTable as SharedDataTable } from "../../components/AppTable";
 import axios, { getUserFacingApiError } from "../../services/axios";
 import {
   listFinancialEntries,
@@ -36,6 +58,7 @@ import {
   createFinancialRecurringExpense,
   updateFinancialRecurringExpense,
   createSessionFinancialEntry,
+  listBillingCycles,
 } from "../../services/financial";
 import {
   createSpecialSchedulingEvent,
@@ -104,6 +127,7 @@ const isSessionBatchEligibleRow = (row) => {
   if (!ENABLE_SESSION_BATCH_PAYMENT || !row) return false;
   if (row.isManualReceiptRow || row.isProjectedInstallmentRow) return false;
   if (!row.entry || row.isInstallmentPlan) return false;
+  if (row.billing_mode === "covered_by_plan") return false;
 
   const status = String(row.financialStatus || "").toLowerCase();
   if (!["pending", "partial"].includes(status)) return false;
@@ -366,9 +390,6 @@ const resolveInstallmentAgreement = (
   };
 };
 
-const TOPBAR_HEIGHT = 80;
-const SIDEBAR_WIDTH = 240;
-const SIDEBAR_COLLAPSED_WIDTH = 86;
 const SHOW_FINANCIAL_MANAGEMENT = false;
 const SHOW_FINANCIAL_REPORTS = false;
 const SHOW_MANUAL_ENTRIES = false;
@@ -612,6 +633,11 @@ export default function Financeiro() {
     String(new Date().getFullYear()),
   );
   const attendanceMonthPickerRef = useRef(null);
+
+  const [billingCycles, setBillingCycles] = useState([]);
+  const [isBillingCyclesLoading, setIsBillingCyclesLoading] = useState(false);
+  const [hasBillingCyclesLoaded, setHasBillingCyclesLoaded] = useState(false);
+  const [billingCyclesStatusFilter, setBillingCyclesStatusFilter] = useState("all");
 
   const [isEntryOpen, setIsEntryOpen] = useState(false);
   const [entryForm, setEntryForm] = useState(emptyEntry);
@@ -991,12 +1017,20 @@ export default function Financeiro() {
     return "Recorrente";
   }, []);
 
+  const formatDateOnlyBR = useCallback((dateStr) => {
+    if (!dateStr) return "-";
+    const parts = String(dateStr).split("-");
+    if (parts.length !== 3) return dateStr;
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }, []);
+
   const formatFinancialStatus = useCallback((status) => {
     if (status === "credit") return "Credito";
     if (status === "paid") return "Pago";
     if (status === "partial") return "Parcial";
     if (status === "canceled") return "Cancelado";
     if (status === "missing") return "Sem lancamento";
+    if (status === "covered_by_plan") return "Coberto pelo plano";
     return "Pendente";
   }, []);
 
@@ -1063,6 +1097,22 @@ export default function Financeiro() {
     loadData();
   }, [loadData]);
 
+  const loadBillingCycles = useCallback(async () => {
+    try {
+      setIsBillingCyclesLoading(true);
+      const params = {};
+      if (attendanceFilters.start) params.from = attendanceFilters.start;
+      if (attendanceFilters.end) params.to = attendanceFilters.end;
+      const response = await listBillingCycles(params);
+      setBillingCycles(response.data || []);
+      setHasBillingCyclesLoaded(true);
+    } catch (error) {
+      toast.error("Nao foi possivel carregar as mensalidades.");
+    } finally {
+      setIsBillingCyclesLoading(false);
+    }
+  }, [attendanceFilters.start, attendanceFilters.end]);
+
   const loadAttendance = useCallback(async () => {
     try {
       setIsAttendanceLoading(true);
@@ -1112,6 +1162,12 @@ export default function Financeiro() {
       loadHolidays();
     }
   }, [activeSection, loadHolidays]);
+
+  useEffect(() => {
+    if (activeSection === "receitas" && receitasView === "mensalidades") {
+      loadBillingCycles();
+    }
+  }, [activeSection, receitasView, loadBillingCycles]);
 
   const openEntryModal = useCallback(() => {
     setEntryForm(emptyEntry);
@@ -1964,6 +2020,7 @@ export default function Financeiro() {
         setPaymentAllocations({});
         setSelectedAttendanceSessionIds([]);
         loadData();
+        if (hasBillingCyclesLoaded) loadBillingCycles();
         return;
       }
 
@@ -2010,6 +2067,7 @@ export default function Financeiro() {
       closePaymentModal();
       setPaymentAllocations({});
       loadData();
+      if (hasBillingCyclesLoaded) loadBillingCycles();
     } catch (error) {
       toast.error(
         getUserFacingApiError(
@@ -2030,6 +2088,8 @@ export default function Financeiro() {
     createStandalonePaymentAnchor,
     closePaymentModal,
     loadData,
+    loadBillingCycles,
+    hasBillingCyclesLoaded,
     setSelectedAttendanceSessionIds,
   ]);
 
@@ -2130,6 +2190,8 @@ export default function Financeiro() {
           ) || null
           : null;
 
+        const isCoveredByPlan = !entry && session.billing_mode === "covered_by_plan";
+
         return {
           id: session.id,
           starts_at: session.starts_at,
@@ -2140,11 +2202,12 @@ export default function Financeiro() {
           professionalName,
           serviceName,
           recurrence: formatRecurrence(session),
-          amountCents,
-          paidCents,
-          openCents: effectiveOpenCents,
+          billing_mode: session.billing_mode || "per_session",
+          amountCents: isCoveredByPlan ? 0 : amountCents,
+          paidCents: isCoveredByPlan ? 0 : paidCents,
+          openCents: isCoveredByPlan ? 0 : effectiveOpenCents,
           entry,
-          financialStatus: status,
+          financialStatus: isCoveredByPlan ? "covered_by_plan" : status,
           payment: latestPayment,
           paymentCount,
           totalReceivedCents,
@@ -2733,6 +2796,7 @@ export default function Financeiro() {
 
     attendanceRows.forEach((row) => {
       const status = row.financialStatus || "missing";
+      if (status === "covered_by_plan") return;
       if (status === "paid") {
         data.paidAmount += Number(row.paidCents || 0);
       } else {
@@ -3542,7 +3606,7 @@ export default function Financeiro() {
                         </CellStack>
                       </td>
                       <td>
-                        <StatusPill $status={status}>{formatFinancialStatus(status)}</StatusPill>
+                        <FinancialStatusPill $status={status}>{formatFinancialStatus(status)}</FinancialStatusPill>
                       </td>
                       <td>
                         <RowActions>
@@ -3860,7 +3924,10 @@ export default function Financeiro() {
 	                    </td>
 	                    <td>
 	                      <AttendanceRowActions>
-	                        {!row.isManualReceiptRow && !row.entry && (
+	                        {!row.isManualReceiptRow && !row.entry && row.billing_mode === "covered_by_plan" && (
+	                          <CoveredByPlanBadge>Coberto pelo plano</CoveredByPlanBadge>
+	                        )}
+	                        {!row.isManualReceiptRow && !row.entry && row.billing_mode !== "covered_by_plan" && (
 	                          <AttendanceSmallAction
 	                            type="button"
 	                            onClick={() => handleCreateSessionEntry(row.id)}
@@ -4370,6 +4437,118 @@ export default function Financeiro() {
     </Section>
   );
 
+  const renderMensalidades = () => {
+    const filteredCycles = billingCyclesStatusFilter === "all"
+      ? billingCycles
+      : billingCycles.filter((c) => c.status === billingCyclesStatusFilter);
+
+    return (
+      <AttendanceSectionSurface>
+        <AttendanceTableCard>
+          <AttendanceTableScroll>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 16px 4px" }}>
+              {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+              <label style={{ fontSize: "13px", color: ATTENDANCE_UI.colors.textSecondary, fontWeight: 500 }}>
+                Status:
+                <select
+                  value={billingCyclesStatusFilter}
+                  onChange={(e) => setBillingCyclesStatusFilter(e.target.value)}
+                  style={{
+                    marginLeft: "8px",
+                    fontSize: "13px",
+                    padding: "4px 8px",
+                    borderRadius: ATTENDANCE_UI.radius.sm,
+                    border: `1px solid ${ATTENDANCE_UI.colors.border}`,
+                    background: ATTENDANCE_UI.colors.surface,
+                    color: ATTENDANCE_UI.colors.textPrimary,
+                  }}
+                >
+                  <option value="all">Todos</option>
+                  <option value="pending">Pendente</option>
+                  <option value="paid">Pago</option>
+                  <option value="canceled">Cancelado</option>
+                </select>
+              </label>
+            </div>
+            {isBillingCyclesLoading && (
+              <div style={{ padding: "32px 16px", textAlign: "center", color: ATTENDANCE_UI.colors.textSecondary }}>
+                Carregando...
+              </div>
+            )}
+            {!isBillingCyclesLoading && filteredCycles.length === 0 && (
+              <div style={{ padding: "32px 16px", textAlign: "center", color: ATTENDANCE_UI.colors.textSecondary }}>
+                Nenhuma mensalidade encontrada no periodo.
+              </div>
+            )}
+            {!isBillingCyclesLoading && filteredCycles.length > 0 && (
+              <AttendanceDataTable>
+                <thead>
+                  <tr>
+                    <th>Paciente</th>
+                    <th>Plano</th>
+                    <th>Periodo</th>
+                    <th>Valor</th>
+                    <th>Status</th>
+                    <th>Acao</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCycles.map((cycle) => {
+                    const entry = cycle.FinancialEntry;
+                    const patientName = cycle.Patient?.full_name || "-";
+                    const planName = cycle.ServicePlan?.name || "-";
+                    const periodStart = formatDateOnlyBR(cycle.cycle_start);
+                    const periodEnd = formatDateOnlyBR(cycle.cycle_end);
+                    const amountCents = Number(cycle.amount_cents || 0);
+                    const cycleStatus = entry?.status || cycle.status || "pending";
+
+                    return (
+                      <tr key={cycle.id}>
+                        <td>
+                          <AttendancePrimaryText>{patientName}</AttendancePrimaryText>
+                        </td>
+                        <td>
+                          <AttendanceOriginBadge>{planName}</AttendanceOriginBadge>
+                        </td>
+                        <td>
+                          <AttendancePrimaryText>
+                            {periodStart}{cycle.cycle_end ? ` — ${periodEnd}` : ""}
+                          </AttendancePrimaryText>
+                        </td>
+                        <td>
+                          <AttendanceMoneyText>{formatCurrency(amountCents)}</AttendanceMoneyText>
+                        </td>
+                        <td>
+                          <AttendanceStatusBadge $status={cycleStatus}>
+                            {formatFinancialStatus(cycleStatus)}
+                          </AttendanceStatusBadge>
+                        </td>
+                        <td>
+                          <AttendanceRowActions>
+                            {entry ? (
+                              <AttendanceSmallAction
+                                type="button"
+                                onClick={() => openPaymentModal({ ...entry, patient_id: cycle.patient_id })}
+                              >
+                                Registrar recebimento
+                              </AttendanceSmallAction>
+                            ) : (
+                              <AttendanceOriginBadge>Sem cobranca</AttendanceOriginBadge>
+                            )}
+                          </AttendanceRowActions>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </AttendanceDataTable>
+            )}
+          </AttendanceTableScroll>
+        </AttendanceTableCard>
+      </AttendanceSectionSurface>
+    );
+  };
+
   const renderReceitasTabs = () => (
     <TabsWrapper>
       <TabsRow>
@@ -4398,6 +4577,13 @@ export default function Financeiro() {
             Lancamentos manuais
           </TabButton>
         )}
+        <TabButton
+          type="button"
+          $active={receitasView === "mensalidades"}
+          onClick={() => setReceitasView("mensalidades")}
+        >
+          Mensalidades
+        </TabButton>
       </TabsRow>
     </TabsWrapper>
   );
@@ -4409,6 +4595,8 @@ export default function Financeiro() {
 	      receitasContent = renderPayments();
 	    } else if (receitasView === "manuais" && SHOW_MANUAL_ENTRIES) {
 	      receitasContent = renderEntries();
+	    } else if (receitasView === "mensalidades") {
+	      receitasContent = renderMensalidades();
 	    }
 
     return (
@@ -4852,128 +5040,128 @@ export default function Financeiro() {
   }
 
   return (
-    <Wrapper $collapsed={isSidebarCollapsed}>
-      <Layout $collapsed={isSidebarCollapsed}>
-        <Sidebar $collapsed={isSidebarCollapsed} $mobileOpen={isSidebarOpen}>
-          <SidebarHeader>
-            <SidebarTitle $collapsed={isSidebarCollapsed}>Menu</SidebarTitle>
-            <SidebarToggle
+    <SidebarShellWrapper $collapsed={isSidebarCollapsed}>
+      <SidebarShellLayout $collapsed={isSidebarCollapsed}>
+        <AppSidebar $collapsed={isSidebarCollapsed} $mobileOpen={isSidebarOpen}>
+          <AppSidebarHeader>
+            <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Menu</AppSidebarSectionTitle>
+            <AppSidebarToggle
               type="button"
               onClick={handleSidebarToggle}
               aria-label={sidebarToggleLabel}
             >
               {sidebarToggleIcon}
-            </SidebarToggle>
-          </SidebarHeader>
+            </AppSidebarToggle>
+          </AppSidebarHeader>
 
-          <SidebarSection $collapsed={isSidebarCollapsed}>
-            <SidebarTitle $collapsed={isSidebarCollapsed}>Operacao</SidebarTitle>
-            <SidebarButton
+          <AppSidebarSection $collapsed={isSidebarCollapsed}>
+            <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Operacao</AppSidebarSectionTitle>
+            <AppSidebarButton
               type="button"
               $active={activeSection === "receitas"}
               $collapsed={isSidebarCollapsed}
               onClick={() => handleSectionChange("receitas")}
               title="Receitas"
             >
-              <SidebarIcon $active={activeSection === "receitas"}>
+              <AppSidebarIcon $active={activeSection === "receitas"}>
                 <FaMoneyBillWave />
-              </SidebarIcon>
-              <SidebarLabel $collapsed={isSidebarCollapsed}>Receitas</SidebarLabel>
-            </SidebarButton>
-          </SidebarSection>
+              </AppSidebarIcon>
+              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Receitas</AppSidebarLabel>
+            </AppSidebarButton>
+          </AppSidebarSection>
 
           {SHOW_FINANCIAL_MANAGEMENT && (
-            <SidebarSection $collapsed={isSidebarCollapsed}>
-              <SidebarTitle $collapsed={isSidebarCollapsed}>Gestao</SidebarTitle>
-              <SidebarButton
+            <AppSidebarSection $collapsed={isSidebarCollapsed}>
+              <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Gestao</AppSidebarSectionTitle>
+              <AppSidebarButton
                 type="button"
                 $active={activeSection === "recurring"}
                 $collapsed={isSidebarCollapsed}
                 onClick={() => handleSectionChange("recurring")}
                 title="Despesas fixas"
               >
-                <SidebarIcon $active={activeSection === "recurring"}>
+                <AppSidebarIcon $active={activeSection === "recurring"}>
                   <FaWallet />
-                </SidebarIcon>
-                <SidebarLabel $collapsed={isSidebarCollapsed}>Despesas fixas</SidebarLabel>
-              </SidebarButton>
-            </SidebarSection>
+                </AppSidebarIcon>
+                <AppSidebarLabel $collapsed={isSidebarCollapsed}>Despesas fixas</AppSidebarLabel>
+              </AppSidebarButton>
+            </AppSidebarSection>
           )}
 
           {SHOW_FINANCIAL_REPORTS && (
-            <SidebarSection $collapsed={isSidebarCollapsed}>
-              <SidebarTitle $collapsed={isSidebarCollapsed}>Relatorios</SidebarTitle>
-              <SidebarButton
+            <AppSidebarSection $collapsed={isSidebarCollapsed}>
+              <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Relatorios</AppSidebarSectionTitle>
+              <AppSidebarButton
                 type="button"
                 $active={activeSection === "reports"}
                 $collapsed={isSidebarCollapsed}
                 onClick={() => handleSectionChange("reports")}
                 title="Relatorios"
               >
-                <SidebarIcon $active={activeSection === "reports"}>
+                <AppSidebarIcon $active={activeSection === "reports"}>
                   <FaChartLine />
-                </SidebarIcon>
-                <SidebarLabel $collapsed={isSidebarCollapsed}>Relatorios</SidebarLabel>
-              </SidebarButton>
-            </SidebarSection>
+                </AppSidebarIcon>
+                <AppSidebarLabel $collapsed={isSidebarCollapsed}>Relatorios</AppSidebarLabel>
+              </AppSidebarButton>
+            </AppSidebarSection>
           )}
 
-          <SidebarSection $collapsed={isSidebarCollapsed}>
-            <SidebarTitle $collapsed={isSidebarCollapsed}>Configurações</SidebarTitle>
-            <SidebarButton
+          <AppSidebarSection $collapsed={isSidebarCollapsed}>
+            <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Configurações</AppSidebarSectionTitle>
+            <AppSidebarButton
               type="button"
               $active={activeSection === "prices"}
               $collapsed={isSidebarCollapsed}
               onClick={() => handleSectionChange("prices")}
               title="Servicos"
             >
-              <SidebarIcon $active={activeSection === "prices"}>
+              <AppSidebarIcon $active={activeSection === "prices"}>
                 <FaCoins />
-              </SidebarIcon>
-              <SidebarLabel $collapsed={isSidebarCollapsed}>Servicos</SidebarLabel>
-            </SidebarButton>
-            <SidebarButton
+              </AppSidebarIcon>
+              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Servicos</AppSidebarLabel>
+            </AppSidebarButton>
+            <AppSidebarButton
               type="button"
               $active={activeSection === "methods"}
               $collapsed={isSidebarCollapsed}
               onClick={() => handleSectionChange("methods")}
               title="Formas de pagamento"
             >
-              <SidebarIcon $active={activeSection === "methods"}>
+              <AppSidebarIcon $active={activeSection === "methods"}>
                 <FaRegCreditCard />
-              </SidebarIcon>
-              <SidebarLabel $collapsed={isSidebarCollapsed}>Formas de pagamento</SidebarLabel>
-            </SidebarButton>
-            <SidebarButton
+              </AppSidebarIcon>
+              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Formas de pagamento</AppSidebarLabel>
+            </AppSidebarButton>
+            <AppSidebarButton
               type="button"
               $active={activeSection === "holidays"}
               $collapsed={isSidebarCollapsed}
               onClick={() => handleSectionChange("holidays")}
               title="Feriados"
             >
-              <SidebarIcon $active={activeSection === "holidays"}>
+              <AppSidebarIcon $active={activeSection === "holidays"}>
                 <FaCalendarAlt />
-              </SidebarIcon>
-              <SidebarLabel $collapsed={isSidebarCollapsed}>Feriados</SidebarLabel>
-            </SidebarButton>
+              </AppSidebarIcon>
+              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Feriados</AppSidebarLabel>
+            </AppSidebarButton>
             {SHOW_FINANCIAL_MANAGEMENT && (
-              <SidebarButton
+              <AppSidebarButton
                 type="button"
                 $active={activeSection === "categories"}
                 $collapsed={isSidebarCollapsed}
                 onClick={() => handleSectionChange("categories")}
                 title="Categorias"
               >
-                <SidebarIcon $active={activeSection === "categories"}>
+                <AppSidebarIcon $active={activeSection === "categories"}>
                   <FaTags />
-                </SidebarIcon>
-                <SidebarLabel $collapsed={isSidebarCollapsed}>Categorias</SidebarLabel>
-              </SidebarButton>
+                </AppSidebarIcon>
+                <AppSidebarLabel $collapsed={isSidebarCollapsed}>Categorias</AppSidebarLabel>
+              </AppSidebarButton>
             )}
-          </SidebarSection>
-        </Sidebar>
+          </AppSidebarSection>
+        </AppSidebar>
 
-        <MainArea>
+        <SidebarMainArea>
           <Header>
             <HeaderText>
               <Title>Financeiro</Title>
@@ -4994,10 +5182,10 @@ export default function Financeiro() {
             {activeSection === "prices" && renderPrices()}
             {SHOW_FINANCIAL_REPORTS && activeSection === "reports" && renderReports()}
           </>
-        </MainArea>
-      </Layout>
+        </SidebarMainArea>
+      </SidebarShellLayout>
 
-      {isMobile && isSidebarOpen && <SidebarOverlay onClick={closeSidebar} />}
+      {isMobile && isSidebarOpen && <AppSidebarOverlay onClick={closeSidebar} />}
 
       {isEntryOpen && (
         <>
@@ -5929,18 +6117,10 @@ export default function Financeiro() {
           <Backdrop onClick={closeHolidayModal} />
         </>
       )}
-    </Wrapper>
+    </SidebarShellWrapper>
   );
 }
 
-const Wrapper = styled.div`
-  min-height: 100vh;
-  background: #f6f7f2;
-  --topbar-height: ${TOPBAR_HEIGHT}px;
-  --sidebar-width: ${(props) =>
-    props.$collapsed ? `${SIDEBAR_COLLAPSED_WIDTH}px` : `${SIDEBAR_WIDTH}px`};
-  padding-top: var(--topbar-height);
-`;
 
 const Header = styled.div`
   margin-bottom: 24px;
@@ -5996,170 +6176,8 @@ const TabButton = styled.button`
   font-size: 14px;
 `;
 
-const Layout = styled.div`
-  display: flex;
-  align-items: stretch;
-  width: 100%;
-  min-height: calc(100vh - var(--topbar-height));
-  box-sizing: border-box;
-  padding-left: var(--sidebar-width);
 
-  @media (max-width: 960px) {
-    flex-direction: column;
-    padding-left: 0;
-  }
-`;
 
-const Sidebar = styled.aside`
-  background: #fff;
-  border-radius: 0 18px 18px 0;
-  padding: 18px 16px;
-  box-shadow: 6px 0 18px rgba(0, 0, 0, 0.04);
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  height: calc(100vh - var(--topbar-height));
-  position: fixed;
-  top: var(--topbar-height);
-  left: 0;
-  border-right: 1px solid rgba(0, 0, 0, 0.06);
-  transition: width 0.2s ease, padding 0.2s ease;
-  width: var(--sidebar-width);
-  z-index: 60;
-
-  @media (max-width: 960px) {
-    position: fixed;
-    left: 0;
-    top: var(--topbar-height);
-    height: calc(100vh - var(--topbar-height));
-    width: min(280px, 84vw);
-    transform: translateX(${(props) => (props.$mobileOpen ? "0" : "-100%")});
-    transition: transform 0.25s ease;
-    z-index: 70;
-    border-radius: 0 18px 18px 0;
-    box-shadow: 12px 0 28px rgba(0, 0, 0, 0.18);
-    border-right: none;
-  }
-`;
-
-const SidebarHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-
-  @media (max-width: 960px) {
-    width: 100%;
-  }
-`;
-
-const SidebarSection = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-`;
-
-const SidebarTitle = styled.span`
-  font-size: 12px;
-  color: #8a8a8a;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 700;
-  display: ${(props) => (props.$collapsed ? "none" : "block")};
-
-  @media (max-width: 960px) {
-    width: 100%;
-    display: block;
-  }
-`;
-
-const SidebarToggle = styled.button`
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  background: #fff;
-  color: #42523a;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  @media (max-width: 960px) {
-    margin-left: auto;
-  }
-`;
-
-const SidebarButton = styled.button`
-  border: 1px solid ${(props) => (props.$active ? "#6a795c" : "rgba(0,0,0,0.1)")};
-  background: ${(props) => (props.$active ? "#6a795c" : "#fff")};
-  color: ${(props) => (props.$active ? "#fff" : "#2b2b2b")};
-  padding: 10px 14px;
-  border-radius: 12px;
-  font-weight: 700;
-  text-align: left;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  justify-content: ${(props) => (props.$collapsed ? "center" : "flex-start")};
-
-  @media (max-width: 960px) {
-    width: 100%;
-    justify-content: flex-start;
-  }
-`;
-
-const SidebarIcon = styled.span`
-  display: inline-flex;
-  align-items: center;
-  font-size: 16px;
-  color: ${(props) => (props.$active ? "#fff" : "#6a795c")};
-`;
-
-const SidebarLabel = styled.span`
-  display: ${(props) => (props.$collapsed ? "none" : "inline")};
-
-  @media (max-width: 960px) {
-    display: inline;
-  }
-`;
-
-const MobileMenuButton = styled.button`
-  display: none;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  background: #fff;
-  color: #2b2b2b;
-  font-weight: 700;
-
-  @media (max-width: 960px) {
-    display: inline-flex;
-  }
-`;
-
-const SidebarOverlay = styled.div`
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  z-index: 40;
-`;
-
-const MainArea = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  flex: 1;
-  padding: 24px 32px 64px;
-  min-width: 0;
-
-  @media (max-width: 960px) {
-    padding: 24px 20px 64px;
-  }
-`;
 
 const Section = styled.section`
   background: #fff;
@@ -6245,10 +6263,8 @@ const FilterField = styled.div`
   gap: 6px;
 `;
 
-const EntriesTable = styled.table`
-  width: 100%;
-  border-collapse: collapse;
-
+// Financeiro usa estilo visual próprio de tabela — override sobre SharedDataTable para manter pixel-perfect.
+const tableOverrides = `
   th,
   td {
     padding: 12px 8px;
@@ -6263,22 +6279,12 @@ const EntriesTable = styled.table`
   }
 `;
 
-const SimpleTable = styled.table`
-  width: 100%;
-  border-collapse: collapse;
+const EntriesTable = styled(SharedDataTable)`
+  ${tableOverrides}
+`;
 
-  th,
-  td {
-    padding: 12px 8px;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-    text-align: left;
-    font-size: 14px;
-  }
-
-  th {
-    font-weight: 700;
-    color: #555;
-  }
+const SimpleTable = styled(SharedDataTable)`
+  ${tableOverrides}
 `;
 
 const TableScroll = styled.div`
@@ -6331,26 +6337,6 @@ const AttendanceTable = styled.table`
   }
 `;
 
-const StatusPill = styled.span`
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  background: ${(props) => {
-    if (props.$status === "paid") return "#e6efe0";
-    if (props.$status === "partial") return "#eef2ff";
-    if (props.$status === "canceled") return "#f3f3f3";
-    return "#f6ece3";
-  }};
-  color: ${(props) => {
-    if (props.$status === "paid") return "#4f6b45";
-    if (props.$status === "partial") return "#4257a6";
-    if (props.$status === "canceled") return "#6b6b6b";
-    return "#9a6a3a";
-  }};
-`;
 
 const TypePill = styled.span`
   display: inline-flex;
@@ -6466,6 +6452,23 @@ const MutedText = styled.span`
   color: #7a7a7a;
 `;
 
+// Botão de abertura da sidebar no mobile — específico do layout do Financeiro.
+const MobileMenuButton = styled.button`
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #fff;
+  color: #2b2b2b;
+  font-weight: 700;
+
+  @media (max-width: 960px) {
+    display: inline-flex;
+  }
+`;
+
 const SmallButton = styled.button`
   background: #eef2e9;
   border: 1px solid rgba(106, 121, 92, 0.35);
@@ -6488,41 +6491,34 @@ const SmallButton = styled.button`
   }
 `;
 
-const PrimaryButton = styled.button`
-  display: inline-flex;
-  align-items: center;
+// Financeiro usa visual próprio — overrides sobre o SharedPrimaryButton para manter pixel-perfect.
+const PrimaryButton = styled(SharedPrimaryButton)`
   gap: 8px;
-  background: #6a795c;
-  color: #fff;
-  border: none;
-  padding: 10px 16px;
   border-radius: 12px;
-  font-weight: 700;
-  cursor: pointer;
+  padding: 10px 16px;
+  font-size: inherit;
+  white-space: normal;
   transition: background 0.15s ease, transform 0.15s ease;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: #5a684e;
   }
 
   &:disabled {
     opacity: 0.7;
-    cursor: not-allowed;
   }
 `;
 
-const GhostButton = styled.button`
-  display: inline-flex;
-  align-items: center;
+// Financeiro usa visual próprio — overrides sobre o SharedGhostButton para manter pixel-perfect.
+const GhostButton = styled(SharedGhostButton)`
   gap: 8px;
   background: #f0f3ec;
   color: #4f6b45;
   border: 1px solid rgba(106, 121, 92, 0.35);
-  padding: ${(props) => (props.$small ? "8px 12px" : "10px 16px")};
+  padding: 10px 16px;
   border-radius: 12px;
   font-weight: 700;
-  font-size: ${(props) => (props.$small ? "12px" : "14px")};
-  cursor: pointer;
+  font-size: 14px;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 
   &:hover {
@@ -6532,7 +6528,6 @@ const GhostButton = styled.button`
 
   &:disabled {
     opacity: 0.7;
-    cursor: not-allowed;
   }
 `;
 
@@ -7191,12 +7186,14 @@ const AttendanceStatusBadge = styled.span`
     if (props.$status === "credit") return ATTENDANCE_UI.colors.actionSoft;
     if (props.$status === "paid" || props.$status === "done") return ATTENDANCE_UI.colors.successSoft;
     if (props.$status === "partial") return ATTENDANCE_UI.colors.infoSoft;
+    if (props.$status === "covered_by_plan") return ATTENDANCE_UI.colors.neutralSoft;
     return ATTENDANCE_UI.colors.neutralSoft;
   }};
   color: ${(props) => {
     if (props.$status === "credit") return ATTENDANCE_UI.colors.action;
     if (props.$status === "paid" || props.$status === "done") return ATTENDANCE_UI.colors.successText;
     if (props.$status === "partial") return ATTENDANCE_UI.colors.infoText;
+    if (props.$status === "covered_by_plan") return ATTENDANCE_UI.colors.textSecondary;
     return ATTENDANCE_UI.colors.neutralText;
   }};
 `;
@@ -7214,6 +7211,22 @@ const AttendanceOriginBadge = styled.span`
   font-weight: ${ATTENDANCE_UI.font.weight.semibold};
   letter-spacing: 0.04em;
   text-transform: uppercase;
+`;
+
+const CoveredByPlanBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: ${ATTENDANCE_UI.radius.pill};
+  background: ${ATTENDANCE_UI.colors.infoSoft};
+  color: ${ATTENDANCE_UI.colors.infoText};
+  font-size: ${ATTENDANCE_UI.font.size.xs};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
 `;
 
 const AttendanceRowActions = styled(RowActions)`

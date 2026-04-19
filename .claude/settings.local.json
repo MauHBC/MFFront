@@ -3,7 +3,35 @@
     "allow": [
       "Bash(ls -la c:/Users/mauri/Desktop/multifisio/MFFrontend/.env*)",
       "Bash(awk '{print $6, $7, $8, $9}')",
-      "Bash(xargs -I {} basename {})"
+      "Bash(xargs -I {} basename {})",
+      "Bash(node -e \"require\\('./src/database'\\).authenticate\\(\\).then\\(\\(\\)=>console.log\\('OK'\\)\\).catch\\(e=>console.error\\('ERRO:',e.message\\)\\)\")",
+      "Bash(node -r sucrase/register -e \"import\\('./src/database/index.js'\\).then\\(\\(\\)=>console.log\\('OK'\\)\\).catch\\(e=>console.error\\('ERRO:',e.message\\)\\)\")",
+      "Bash(npm run *)",
+      "Bash(npx sequelize-cli *)",
+      "Bash(node -r sucrase/register -e ' *)",
+      "Bash(mysql -h 127.0.0.1 -P 3307 -u root -pminha_senha_forte multifisio -e \"SELECT 1 AS ok;\")",
+      "Bash(node -r sucrase/register src/scripts/validateBillingCycleIntegration.js)",
+      "Read(//c/Users/mauri/.claude/projects/c--Users-mauri-Desktop-multifisio-MFFrontend/bff3eeec-9103-44e2-b9ea-13dbcc24495a/tool-results/**)",
+      "Bash(node -r sucrase/register src/scripts/verifySessionBillingColumns.js)",
+      "Bash(node -r sucrase/register src/scripts/validateBillingMicrostepB.js)",
+      "Bash(node -e ' *)",
+      "Bash(python3 -c ' *)",
+      "Bash(npm test *)",
+      "Bash(npx sucrase-node *)",
+      "Bash(curl -s http://localhost:3001/api/billing-cycles)",
+      "Read(//c/Users/mauri/Desktop/multifisio/MFBackend/**)",
+      "Bash(grep -n \"const.*=.*styled\\\\.table\\\\|const.*=.*styled\\\\.div.*\\\\`\" /c/Users/mauri/Desktop/multifisio/MFFrontend/src/pages/Agendamentos/index.js)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\mauri\\Desktop\\multifisio\\MFBackend\\src\\database\\migrations",
+      "C:\\Users\\mauri\\Desktop\\multifisio\\MFBackend\\src\\models",
+      "C:\\Users\\mauri\\Desktop\\multifisio\\MFBackend\\src\\database",
+      "C:\\Users\\mauri\\Desktop\\multifisio\\MFBackend\\src\\services",
+      "C:\\Users\\mauri\\Desktop\\multifisio\\MFBackend\\src\\controllers",
+      "C:\\Users\\mauri\\Desktop\\multifisio\\MFBackend\\src\\routes",
+      "C:\\Users\\mauri\\Desktop\\multifisio\\MFBackend\\src\\tests",
+      "C:\\Users\\mauri\\Desktop\\multifisio\\MFBackend\\src\\scripts",
+      "C:\\Users\\mauri\\Desktop\\multifisio\\MFBackend"
     ]
   }
 }

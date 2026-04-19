@@ -24,6 +24,8 @@ import PatientEvaluationDetails from "../pages/PatientEvaluationDetails";
 import ImobNavbar from "../components/ImobNavbar/TopNavbar";
 import Financeiro from "../pages/Financeiro";
 import SchedulingEvents from "../pages/SchedulingEvents";
+import Planos from "../pages/Planos";
+import { isPlansModuleEnabled } from "../config/features";
 
 export default function Routes() {
   const location = useLocation();
@@ -55,6 +57,12 @@ export default function Routes() {
         <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed />
         <MyRoute exact path="/agendamentos/eventos" component={SchedulingEvents} isClosed />
         <MyRoute exact path="/financeiro" component={Financeiro} isClosed />
+        <MyRoute
+          exact
+          path="/planos"
+          component={isPlansModuleEnabled ? Planos : Page404}
+          isClosed={isPlansModuleEnabled}
+        />
 
         {/* Rota para páginas não encontradas ou sem acesso */}
         <MyRoute exact path="/semAcesso/" component={SemAcesso} isClosed={false} />

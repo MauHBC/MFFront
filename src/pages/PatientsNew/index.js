@@ -1,10 +1,18 @@
-import React, { useCallback, useState } from "react";
-import { Link, useHistory } from "react-router-dom";
+import React, { useCallback, useRef, useState } from "react";
+import { useHistory } from "react-router-dom";
 import styled from "styled-components";
 import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
 import Loading from "../../components/Loading";
+import { PageWrapper, PageContent } from "../../components/AppLayout";
+import { LinkGhostButton } from "../../components/AppButton";
+import { Field as SharedField } from "../../components/AppForm";
+import {
+  ModuleHeader,
+  ModuleTitle,
+  ModuleSubtitle,
+} from "../../components/AppModuleShell";
 import {
   formatBirthDateForApi,
   isBirthDateFilled,
@@ -24,6 +32,46 @@ const TREATMENT_GOAL_OPTIONS = [
   { value: "strength_flex_mob", label: "Forca/Flex/Mob" },
 ];
 
+const ATTENTION_LEVEL_OPTIONS = [
+  { value: "low", label: "Baixa" },
+  { value: "medium", label: "Media" },
+  { value: "high", label: "Alta" },
+];
+
+const ATTENTION_LEVEL_STYLES = {
+  default: {
+    color: "#55644c",
+    border: "rgba(106, 121, 92, 0.22)",
+    background: "#fff",
+  },
+  low: {
+    color: "#4f7c42",
+    border: "rgba(79, 124, 66, 0.34)",
+    background: "rgba(79, 124, 66, 0.09)",
+  },
+  medium: {
+    color: "#a56a00",
+    border: "rgba(165, 106, 0, 0.34)",
+    background: "rgba(165, 106, 0, 0.1)",
+  },
+  high: {
+    color: "#c53b32",
+    border: "rgba(197, 59, 50, 0.34)",
+    background: "rgba(197, 59, 50, 0.1)",
+  },
+};
+
+const resolveAttentionLevelStyles = (level) =>
+  ATTENTION_LEVEL_STYLES[level] || ATTENTION_LEVEL_STYLES.default;
+
+const buildAttentionOptionStyle = (level) => {
+  const styles = resolveAttentionLevelStyles(level);
+  return {
+    color: styles.color,
+    backgroundColor: styles.background,
+  };
+};
+
 const buildTreatmentGoalPayload = (selectedValues = [], otherText = "") => {
   const labels = TREATMENT_GOAL_OPTIONS
     .filter((option) => selectedValues.includes(option.value))
@@ -35,6 +83,7 @@ const buildTreatmentGoalPayload = (selectedValues = [], otherText = "") => {
 
 export default function PatientsNew() {
   const history = useHistory();
+  const attentionLevelRef = useRef(null);
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({
     full_name: "",
@@ -46,6 +95,7 @@ export default function PatientsNew() {
     cpf: "",
     rg: "",
     profession: "",
+    attention_level: "",
     marital_status: "",
     instagram: "",
     emergency_contact_name: "",
@@ -116,6 +166,12 @@ export default function PatientsNew() {
         return;
       }
 
+      if (!clean(form.attention_level)) {
+        toast.error("Selecione a atenção do paciente antes de salvar.");
+        attentionLevelRef.current?.focus();
+        return;
+      }
+
       const hasTreatmentGoalOther = form.treatment_goal_options.includes("other");
       const treatmentGoalOther = clean(form.treatment_goal_other || "");
       if (hasTreatmentGoalOther && !treatmentGoalOther) {
@@ -138,6 +194,7 @@ export default function PatientsNew() {
         cpf: clean(form.cpf),
         rg: clean(form.rg),
         profession: clean(form.profession),
+        attention_level: clean(form.attention_level),
         marital_status: clean(form.marital_status),
         instagram: clean(form.instagram),
         emergency_contact_name: clean(form.emergency_contact_name),
@@ -187,11 +244,20 @@ export default function PatientsNew() {
   const isTreatmentGoalOtherSelected = form.treatment_goal_options.includes("other");
 
   return (
-    <Wrapper>
-      <Content>
+    <PageWrapper $paddingTop="90px" $paddingBottom="60px">
+      <PageContent
+        $maxWidth="1220px"
+        $paddingTop="0"
+        $paddingX="30px"
+        $paddingBottom="0"
+        $mobileBreakpoint="859px"
+        $mobilePaddingX="15px"
+        $mobilePaddingTop="0"
+        $mobilePaddingBottom="0"
+      >
         <Header>
-          <h1 className="font40 extraBold">Novo paciente</h1>
-          <p className="font15">Cadastre os dados do paciente manualmente.</p>
+          <HeaderTitle>Novo paciente</HeaderTitle>
+          <HeaderSubtitle>Cadastre os dados do paciente manualmente.</HeaderSubtitle>
         </Header>
 
         <Card>
@@ -275,6 +341,28 @@ export default function PatientsNew() {
                   placeholder="Profissão"
                 />
               </Field>
+              <AttentionField>
+                Atenção do paciente *
+                <AttentionSelect
+                  ref={attentionLevelRef}
+                  name="attention_level"
+                  value={form.attention_level}
+                  onChange={handleChange}
+                  $level={form.attention_level}
+                  required
+                >
+                  <option value="" style={buildAttentionOptionStyle("")}>Selecionar</option>
+                  {ATTENTION_LEVEL_OPTIONS.map((option) => (
+                    <option
+                      key={option.value}
+                      value={option.value}
+                      style={buildAttentionOptionStyle(option.value)}
+                    >
+                      {option.label}
+                    </option>
+                  ))}
+                </AttentionSelect>
+              </AttentionField>
             </FormGrid>
 
             <SectionTitle>Contato</SectionTitle>
@@ -544,43 +632,28 @@ export default function PatientsNew() {
             </CheckboxGroup>
 
             <Actions>
-              <BackLink to="/pacientes">Voltar</BackLink>
+              <LinkGhostButton to="/pacientes">Voltar</LinkGhostButton>
               <SubmitButton type="submit" disabled={isSaving}>
                 {isSaving ? "Salvando..." : "Salvar paciente"}
               </SubmitButton>
             </Actions>
           </Form>
         </Card>
-      </Content>
-    </Wrapper>
+      </PageContent>
+    </PageWrapper>
   );
 }
 
-const Wrapper = styled.section`
-  min-height: 100vh;
-  background: #f7f8f4;
-  padding: 90px 0 60px;
-`;
-
-const Content = styled.div`
-  width: 100%;
-  max-width: 1220px;
-  margin: 0 auto;
-  padding: 0 30px;
-  @media only screen and (max-width: 859px) {
-    padding: 0 15px;
-  }
-`;
-
-const Header = styled.div`
+const Header = styled(ModuleHeader)`
   margin-bottom: 24px;
-  h1 {
-    color: #1b1b1b;
-    margin-bottom: 6px;
-  }
-  p {
-    color: #6a795c;
-  }
+`;
+
+const HeaderTitle = styled(ModuleTitle)`
+  margin-bottom: 6px;
+`;
+
+const HeaderSubtitle = styled(ModuleSubtitle)`
+  margin-top: 0;
 `;
 
 const Card = styled.div`
@@ -608,28 +681,23 @@ const FormGrid = styled.div`
   }
 `;
 
-const Field = styled.label`
-  display: flex;
-  flex-direction: column;
+const Field = styled(SharedField)`
   gap: 6px;
   font-size: 0.95rem;
-  color: #1b1b1b;
+  margin-bottom: 0;
 
   input,
   select,
   textarea {
     height: 42px;
     border-radius: 10px;
-    border: 1px solid rgba(106, 121, 92, 0.2);
     padding: 0 12px;
     font-size: 0.95rem;
-    color: #1b1b1b;
   }
 
   textarea {
     height: auto;
     padding: 10px 12px;
-    resize: vertical;
   }
 `;
 
@@ -637,6 +705,24 @@ const SectionTitle = styled.h2`
   font-size: 1.05rem;
   color: #6a795c;
   margin: 6px 0 0;
+`;
+
+const AttentionField = styled(Field)`
+  min-width: 0;
+`;
+
+const AttentionSelect = styled.select`
+  && {
+    ${({ $level }) => {
+      const styles = resolveAttentionLevelStyles($level);
+      return `
+        color: ${styles.color};
+        border-color: ${styles.border};
+        background: ${styles.background};
+        font-weight: 600;
+      `;
+    }}
+  }
 `;
 
 const TreatmentGoalField = styled.div`
@@ -711,19 +797,6 @@ const CheckboxField = styled.label`
     font-size: 0.8rem;
     margin-top: 4px;
   }
-`;
-
-const BackLink = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 18px;
-  border-radius: 10px;
-  background: #fff;
-  color: #6a795c;
-  text-decoration: none;
-  font-weight: 600;
-  border: 1px solid rgba(106, 121, 92, 0.3);
 `;
 
 const SubmitButton = styled.button`

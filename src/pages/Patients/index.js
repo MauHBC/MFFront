@@ -5,6 +5,12 @@ import { FaLink, FaSearch, FaUserPlus } from "react-icons/fa";
 import styled from "styled-components";
 
 import axios from "../../services/axios";
+import { PageWrapper, PageContent } from "../../components/AppLayout";
+import {
+  ModuleHeader,
+  ModuleTitle,
+  ModuleSubtitle,
+} from "../../components/AppModuleShell";
 
 export default function PatientsMenu() {
   const [inviteLink, setInviteLink] = useState("");
@@ -45,11 +51,20 @@ export default function PatientsMenu() {
   }, [inviteLink]);
 
   return (
-    <Wrapper>
-      <Content>
+    <PageWrapper $paddingTop="80px" $paddingBottom="60px">
+      <PageContent
+        $maxWidth="1220px"
+        $paddingTop="0"
+        $paddingX="30px"
+        $paddingBottom="0"
+        $mobileBreakpoint="859px"
+        $mobilePaddingX="15px"
+        $mobilePaddingTop="0"
+        $mobilePaddingBottom="0"
+      >
         <Header>
-          <h1 className="font40 extraBold">Pacientes</h1>
-          <p className="font15">Gerencie cadastros e consultas.</p>
+          <HeaderTitle>Pacientes</HeaderTitle>
+          <HeaderSubtitle>Gerencie cadastros e consultas.</HeaderSubtitle>
         </Header>
 
         <Grid>
@@ -99,36 +114,21 @@ export default function PatientsMenu() {
             <CardSubtitle>Buscar pacientes cadastrados.</CardSubtitle>
           </CardLink>
         </Grid>
-      </Content>
-    </Wrapper>
+      </PageContent>
+    </PageWrapper>
   );
 }
 
-const Wrapper = styled.section`
-  min-height: 100vh;
-  background: #f7f8f4;
-  padding: 80px 0 60px;
-`;
-
-const Content = styled.div`
-  width: 100%;
-  max-width: 1220px;
-  margin: 0 auto;
-  padding: 0 30px;
-  @media only screen and (max-width: 859px) {
-    padding: 0 15px;
-  }
-`;
-
-const Header = styled.div`
+const Header = styled(ModuleHeader)`
   margin-bottom: 30px;
-  h1 {
-    color: #1b1b1b;
-    margin-bottom: 8px;
-  }
-  p {
-    color: #6a795c;
-  }
+`;
+
+const HeaderTitle = styled(ModuleTitle)`
+  margin-bottom: 8px;
+`;
+
+const HeaderSubtitle = styled(ModuleSubtitle)`
+  margin-top: 0;
 `;
 
 const Grid = styled.div`

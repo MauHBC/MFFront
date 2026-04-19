@@ -21,11 +21,69 @@ import {
   listSpecialSchedulingEvents,
   previewSchedulingOccurrences,
 } from "../../services/scheduling";
+import { listPatientPlans } from "../../services/financial";
+import { AppDrawer, DrawerBackdrop } from "../../components/AppDrawer";
+import { PageWrapper, PageContent } from "../../components/AppLayout";
+import {
+  SessionStatusPill,
+  SessionStatusButton,
+} from "../../components/AppSessionStatus";
 
 const START_HOUR = 7;
 const END_HOUR = 20;
 const PROFESSIONAL_GROUP_SLUG = "profissional";
 const ATTENDANCE_CONFIRMATION_TOLERANCE_MINUTES = 15;
+const MAX_WEEK_SLOT_VISIBLE = 3;
+const WEEK_PERIODS = [
+  { key: "morning", label: "Manhã", startHour: 7, endHour: 12 },
+  { key: "afternoon", label: "Tarde", startHour: 13, endHour: END_HOUR },
+];
+
+const PATIENT_ATTENTION_INDICATOR_META = {
+  high: {
+    label: "Atencao alta",
+    tone: "high",
+  },
+  medium: {
+    label: "Atencao media",
+    tone: "medium",
+  },
+  undefined: {
+    label: "Atencao nao definida",
+    tone: "undefined",
+  },
+};
+
+const normalizeAttentionLevel = (value) => String(value || "").trim().toLowerCase();
+
+const getPatientAttentionIndicatorMeta = (value) => {
+  const normalized = normalizeAttentionLevel(value);
+  if (normalized === "high") return PATIENT_ATTENTION_INDICATOR_META.high;
+  if (normalized === "medium") return PATIENT_ATTENTION_INDICATOR_META.medium;
+  if (!normalized) return PATIENT_ATTENTION_INDICATOR_META.undefined;
+  return null;
+};
+
+const renderPatientAttentionIndicator = (level) => {
+  const meta = getPatientAttentionIndicatorMeta(level);
+  if (!meta) return null;
+
+  return (
+    <PatientAttentionDot
+      role="img"
+      aria-label={meta.label}
+      title={meta.label}
+      $tone={meta.tone}
+    />
+  );
+};
+
+const statusLabel = (status) => {
+  if (status === "done") return "Concluído";
+  if (status === "no_show") return "Falta";
+  if (status === "canceled") return "Cancelado";
+  return "Agendado";
+};
 const SPECIAL_SOURCE_LABELS = {
   national: "Feriado nacional",
   state: "Feriado estadual",
@@ -85,6 +143,8 @@ const buildSpecialEventsTooltip = (events = []) =>
     })
     .join("\n");
 
+const formatHourLabel = (hour) => `${String(hour).padStart(2, "0")}:00`;
+
 const availabilityStatus = (availability) => {
   if (!availability) return "available";
   if (availability?.has_blocking_events) return "block";
@@ -140,6 +200,7 @@ const emptyForm = {
   ends_at: "",
   notes: "",
   absence_reason: "",
+  billing_mode: "",
 };
 
 const emptyDeleteModal = {
@@ -391,7 +452,7 @@ const getWeekDays = (baseDate) => {
   const day = start.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   start.setDate(start.getDate() + diff);
-  return Array.from({ length: 7 }).map((_, index) => {
+  return Array.from({ length: 5 }).map((_, index) => {
     const d = new Date(start);
     d.setDate(start.getDate() + index);
     return d;
@@ -429,9 +490,9 @@ const getVisibleDateRange = (view, baseDate) => {
     const weekDays = getWeekDays(baseDate);
     return {
       sessionsFrom: startOfDay(weekDays[0]),
-      sessionsTo: startOfNextDay(weekDays[6]),
+      sessionsTo: startOfNextDay(weekDays[weekDays.length - 1]),
       specialEventsFrom: startOfDay(weekDays[0]),
-      specialEventsTo: endOfDay(weekDays[6]),
+      specialEventsTo: endOfDay(weekDays[weekDays.length - 1]),
     };
   }
 
@@ -490,6 +551,14 @@ export default function Agendamentos() {
   const [deleteModal, setDeleteModal] = useState(emptyDeleteModal);
   const [isDeletePreviewing, setIsDeletePreviewing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [activePlansForPatient, setActivePlansForPatient] = useState([]);
+  const [expandedHours, setExpandedHours] = useState(new Set());
+  const [expandedPeriods, setExpandedPeriods] = useState({
+    morning: true,
+    afternoon: true,
+  });
+  const [popover, setPopover] = useState(null);
+  const [openActionMenu, setOpenActionMenu] = useState(null);
   const visibleRange = useMemo(() => getVisibleDateRange(view, selectedDate), [selectedDate, view]);
 
   const loadBaseData = useCallback(async () => {
@@ -564,6 +633,46 @@ export default function Agendamentos() {
     [loadSessions, visibleRange.sessionsFrom, visibleRange.sessionsTo],
   );
 
+  const loadActivePlansForPatient = useCallback(async (patientId) => {
+    if (!patientId) {
+      setActivePlansForPatient([]);
+      return;
+    }
+    try {
+      const response = await listPatientPlans({ patient_id: patientId, status: "active" });
+      setActivePlansForPatient(Array.isArray(response.data) ? response.data : []);
+    } catch (_err) {
+      setActivePlansForPatient([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadActivePlansForPatient(form.patient_id);
+  }, [form.patient_id, loadActivePlansForPatient]);
+
+  // Derived: plano elegível para cobertura mensal — considera serviço E data da sessão
+  const eligiblePlan = useMemo(() => {
+    if (!activePlansForPatient.length || !form.service_id || !form.starts_at) return null;
+    const dateStr = String(form.starts_at).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+    return activePlansForPatient.find((p) => {
+      if (String(p.ServicePlan?.service_id) !== String(form.service_id)) return false;
+      if (dateStr < String(p.starts_at).slice(0, 10)) return false;
+      if (p.ends_at && dateStr > String(p.ends_at).slice(0, 10)) return false;
+      return true;
+    }) || null;
+  }, [activePlansForPatient, form.service_id, form.starts_at]);
+
+  // Auto-seleciona billing_mode apenas em modo criação (não edição)
+  useEffect(() => {
+    if (editingId) return;
+    if (!form.patient_id || !form.service_id || !form.starts_at) return;
+    setForm((prev) => ({
+      ...prev,
+      billing_mode: eligiblePlan ? "covered_by_plan" : "per_session",
+    }));
+  }, [eligiblePlan, editingId, form.patient_id, form.service_id, form.starts_at]);
+
   useEffect(() => {
     loadBaseData();
   }, [loadBaseData]);
@@ -585,6 +694,29 @@ export default function Agendamentos() {
     return () => window.clearInterval(intervalId);
   }, []);
 
+  useEffect(() => {
+    if (!openActionMenu) return undefined;
+    const handler = () => setOpenActionMenu(null);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [openActionMenu]);
+
+  const toggleExpandedHour = useCallback((hour) => {
+    setExpandedHours((prev) => {
+      const next = new Set(prev);
+      if (next.has(hour)) next.delete(hour);
+      else next.add(hour);
+      return next;
+    });
+  }, []);
+
+  const toggleExpandedPeriod = useCallback((periodKey) => {
+    setExpandedPeriods((prev) => ({
+      ...prev,
+      [periodKey]: !prev[periodKey],
+    }));
+  }, []);
+
   const patientOptions = useMemo(
     () =>
       patients.map((patient) => ({
@@ -592,6 +724,32 @@ export default function Agendamentos() {
         name: patient.full_name || patient.name || "Paciente",
       })),
     [patients],
+  );
+
+  const patientDirectory = useMemo(
+    () =>
+      new Map(
+        patients.map((patient) => [String(patient.id), patient]),
+      ),
+    [patients],
+  );
+
+  const getSessionPatientName = useCallback(
+    (session) => session?.Patient?.full_name || session?.Patient?.name || "Paciente",
+    [],
+  );
+
+  const getSessionPatientAttentionLevel = useCallback(
+    (session) => {
+      const directLevel = normalizeAttentionLevel(session?.Patient?.attention_level);
+      if (directLevel) return directLevel;
+
+      const fallbackPatient = patientDirectory.get(
+        String(session?.patient_id || session?.Patient?.id || ""),
+      );
+      return normalizeAttentionLevel(fallbackPatient?.attention_level);
+    },
+    [patientDirectory],
   );
 
   const filterPatientList = useCallback(
@@ -1530,6 +1688,7 @@ export default function Agendamentos() {
         ends_at: toInputValue(session.ends_at),
         notes: session.notes || "",
         absence_reason: session.absence_reason || "",
+        billing_mode: session.billing_mode || "per_session",
       });
       setFormPatientQuery(patientName);
       setIsFormPatientListOpen(false);
@@ -1794,7 +1953,7 @@ export default function Agendamentos() {
         if (repeatMode === "weeks") {
           const weeks = Number(repeatWeeks);
           if (!Number.isFinite(weeks) || weeks <= 0) {
-            toast.error("Informe o NÃºmero de semanas.");
+            toast.error("Informe o número de semanas.");
             return;
           }
         }
@@ -1822,6 +1981,7 @@ export default function Agendamentos() {
         ends_at: form.ends_at || null,
         notes: normalizeText(form.notes),
         absence_reason: normalizeText(form.absence_reason),
+        ...(eligiblePlan ? { billing_mode: form.billing_mode || "per_session" } : {}),
       };
 
       if (isRecurring) {
@@ -2022,6 +2182,7 @@ export default function Agendamentos() {
     [
       closeDrawer,
       editingId,
+      eligiblePlan,
       form,
       formLocalSpecialSummary,
       isSaving,
@@ -2152,7 +2313,7 @@ export default function Agendamentos() {
   if (drawerMode === "pending") {
     drawerTitle = "Pendencias";
   } else if (drawerMode === "group") {
-    drawerTitle = "Detalhes do horario";
+    drawerTitle = "Detalhes do horário";
   } else if (editingId) {
     drawerTitle = `Editar #${editingId}`;
   }
@@ -2161,7 +2322,7 @@ export default function Agendamentos() {
   if (drawerMode === "pending") {
     drawerSubtitle = "Confirme quem veio, faltou ou precisa de ajuste.";
   } else if (drawerMode === "group") {
-    drawerSubtitle = "Gerencie os pacientes deste horario.";
+    drawerSubtitle = groupContext ? formatDateTime(groupContext.date) : "";
   }
 
   let submitButtonLabel = "Criar agendamento";
@@ -2172,8 +2333,8 @@ export default function Agendamentos() {
   }
 
   return (
-    <Wrapper>
-      <Content>
+    <PageWrapper $paddingTop="90px" $paddingBottom="60px">
+      <PageContent $maxWidth="1280px" $paddingX="30px" $paddingTop="0" $paddingBottom="0" $mobileBreakpoint="859px" $mobilePaddingX="15px" $mobilePaddingTop="0" $mobilePaddingBottom="0">
         <Header>
           <div>
             <h1 className="font40 extraBold">Agendamentos</h1>
@@ -2214,7 +2375,7 @@ export default function Agendamentos() {
             </NavButton>
             <DateLabel>
               {view === "day" && formatDate(selectedDate)}
-              {view === "week" && formatWeekRange(weekDays[0], weekDays[6])}
+              {view === "week" && formatWeekRange(weekDays[0], weekDays[weekDays.length - 1])}
               {view === "month" && formatMonthName(selectedDate)}
             </DateLabel>
             <NavButton type="button" onClick={handleNext}>
@@ -2397,48 +2558,148 @@ export default function Agendamentos() {
             <WeekBody>
               {Array.from({ length: END_HOUR - START_HOUR + 1 }).map((_, index) => {
                 const hour = START_HOUR + index;
+                const startingPeriod =
+                  WEEK_PERIODS.find((period) => period.startHour === hour) || null;
+                const currentPeriod =
+                  WEEK_PERIODS.find(
+                    (period) => hour >= period.startHour && hour <= period.endHour,
+                  ) || WEEK_PERIODS[WEEK_PERIODS.length - 1];
+                const isPeriodExpanded = expandedPeriods[currentPeriod.key] !== false;
+                const isHourExpanded = expandedHours.has(hour);
+                const rowHasMore = weekDays.some((day) => {
+                  const groups = getSlotGroups(day, hour);
+                  const totalActive = groups.reduce(
+                    (sum, g) =>
+                      sum +
+                      g.sessions.filter(
+                        (s) => s.status !== "canceled" && s.status !== "no_show",
+                      ).length,
+                    0,
+                  );
+                  return totalActive > MAX_WEEK_SLOT_VISIBLE;
+                });
                 return (
-                  <WeekRow key={hour}>
-                    <TimeCell>{`${hour.toString().padStart(2, "0")}:00`}</TimeCell>
+                  <React.Fragment key={hour}>
+                    {startingPeriod && (
+                      <WeekPeriodRow>
+                        <WeekPeriodSpacer />
+                        <WeekPeriodToggle
+                          type="button"
+                          $expanded={isPeriodExpanded}
+                          onClick={() => toggleExpandedPeriod(startingPeriod.key)}
+                          aria-label={
+                            isPeriodExpanded
+                              ? `Recolher período ${startingPeriod.label}`
+                              : `Expandir período ${startingPeriod.label}`
+                          }
+                        >
+                          <WeekPeriodLabel>{startingPeriod.label}</WeekPeriodLabel>
+                          <WeekPeriodMeta>
+                            {formatHourLabel(startingPeriod.startHour)} às{" "}
+                            {formatHourLabel(startingPeriod.endHour)}
+                          </WeekPeriodMeta>
+                          <WeekPeriodArrow>{isPeriodExpanded ? "▲" : "▾"}</WeekPeriodArrow>
+                        </WeekPeriodToggle>
+                      </WeekPeriodRow>
+                    )}
+                    {isPeriodExpanded && (
+                      <WeekRow key={`row-${hour}`} $striped={hour % 2 === 0}>
+                    <TimeCell $striped={hour % 2 === 0}>
+                      <span>{`${hour.toString().padStart(2, "0")}:00`}</span>
+                      {rowHasMore && (
+                        <HourExpandToggle
+                          type="button"
+                          $expanded={isHourExpanded}
+                          aria-label={
+                            isHourExpanded
+                              ? `Recolher agendamentos das ${hour
+                                  .toString()
+                                  .padStart(2, "0")}:00`
+                              : `Expandir agendamentos das ${hour
+                                  .toString()
+                                  .padStart(2, "0")}:00`
+                          }
+                          title={
+                            isHourExpanded
+                              ? `Recolher agendamentos das ${hour
+                                  .toString()
+                                  .padStart(2, "0")}:00`
+                              : `Expandir agendamentos das ${hour
+                                  .toString()
+                                  .padStart(2, "0")}:00`
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleExpandedHour(hour);
+                          }}
+                        >
+                          {isHourExpanded ? "▲" : "▾"}
+                        </HourExpandToggle>
+                      )}
+                    </TimeCell>
                     {weekDays.map((day) => {
                       const slotDate = new Date(day);
                       slotDate.setHours(hour, 0, 0, 0);
                       const groups = getSlotGroups(day, hour);
+                      const allActive = groups.flatMap((group) => {
+                        const color =
+                          group.service?.color || serviceColor(group.service_type);
+                        return group.sessions
+                          .filter(
+                            (s) => s.status !== "canceled" && s.status !== "no_show",
+                          )
+                          .map((session) => ({ session, group, color }));
+                      });
+                      const visibleItems = isHourExpanded
+                        ? allActive
+                        : allActive.slice(0, MAX_WEEK_SLOT_VISIBLE);
+                      const hiddenItems = isHourExpanded
+                        ? []
+                        : allActive.slice(MAX_WEEK_SLOT_VISIBLE);
                       return (
                         <SlotCell
                           key={`${day.toISOString()}-${hour}`}
+                          $striped={hour % 2 === 0}
                           onClick={() => handleCreateAt(slotDate)}
                           onDragOver={handleDragOver}
                           onDrop={(event) => handleDropAt(event, slotDate)}
                         >
-                          {groups.length === 0 && (
-                            <SlotHint>+ Adicionar</SlotHint>
-                          )}
-                          {groups.map((group) => {
-                            const { limit } = group;
-                            const label = serviceName(group.service_type);
-                            const countLabel = limit && limit > 0
-                              ? `${group.count}/${limit}`
-                              : `${group.count}`;
+                          {visibleItems.map(({ session, group, color }) => {
+                            const patientName = getSessionPatientName(session);
+                            const attentionLevel = getSessionPatientAttentionLevel(session);
                             return (
                               <GroupPill
-                                key={`${group.service_type}-${day.toISOString()}-${hour}`}
+                                key={`${session.id}-${day.toISOString()}-${hour}`}
                                 $type={group.service_type}
-                                $color={group.service?.color || serviceColor(group.service_type)}
+                                $color={color}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   handleOpenGroup(slotDate);
                                 }}
                               >
-                                <span>{label}</span>
-                                <strong>{countLabel}</strong>
+                                <GroupPillPatient>
+                                  <PatientInlineText>{patientName}</PatientInlineText>
+                                  {renderPatientAttentionIndicator(attentionLevel)}
+                                </GroupPillPatient>
                               </GroupPill>
                             );
                           })}
+                          {hiddenItems.length > 0 && (
+                            <OverflowPill
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleOpenGroup(slotDate);
+                              }}
+                            >
+                              Detalhes
+                            </OverflowPill>
+                          )}
                         </SlotCell>
                       );
                     })}
                   </WeekRow>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </WeekBody>
@@ -2469,7 +2730,7 @@ export default function Agendamentos() {
                     <strong>{event.name}</strong>
                     <span>
                       {SPECIAL_SOURCE_LABELS[event.source_type] || event.source_type}
-                      {" Â· "}
+                      {" · "}
                       {eventSeverityLabel(event.severity)}
                     </span>
                     <small>{eventBehaviorLabel(event)}</small>
@@ -2502,6 +2763,8 @@ export default function Agendamentos() {
                             {serviceGroup.cards.map((card) => {
                               const { session } = card;
                               const tone = statusStyle(session.status);
+                              const patientName = getSessionPatientName(session);
+                              const attentionLevel = getSessionPatientAttentionLevel(session);
                               return (
                                 <DaySessionCard
                                   key={card.key}
@@ -2514,8 +2777,12 @@ export default function Agendamentos() {
                                   <DaySessionBody>
                                     <DaySessionTop>
                                       <DaySessionPatient>
-                                        {session?.Patient?.full_name || session?.Patient?.name || "Paciente"}
+                                        <PatientInlineText>{patientName}</PatientInlineText>
+                                        {renderPatientAttentionIndicator(attentionLevel)}
                                       </DaySessionPatient>
+                                      {session.billing_mode === "covered_by_plan" && (
+                                        <BillingModeBadge>Mensal</BillingModeBadge>
+                                      )}
                                       <DaySessionActions>
                                         <DayActionButton
                                           type="button"
@@ -2634,15 +2901,15 @@ export default function Agendamentos() {
           </MonthPanel>
         )}
 
-        <Drawer $open={isDrawerOpen}>
+        <AppDrawer $open={isDrawerOpen}>
           <DrawerHeader>
             <div>
               <h2>
                 {drawerTitle}
               </h2>
-              <span>
+              <DrawerSubtitle $prominent={drawerMode === "group"}>
                 {drawerSubtitle}
-              </span>
+              </DrawerSubtitle>
             </div>
             <IconButton type="button" onClick={closeDrawer}>
               <FaTimes />
@@ -2686,10 +2953,6 @@ export default function Agendamentos() {
             {drawerMode === "group" && (
               <GroupPanel>
                 <GroupHeader>
-                  <div>
-                    <h3>{groupContext ? formatDateTime(groupContext.date) : ""}</h3>
-                    <span>VisÃ£o completa do horÃ¡rio</span>
-                  </div>
                   <SecondaryButton
                     type="button"
                     onClick={() => {
@@ -2712,7 +2975,7 @@ export default function Agendamentos() {
                   </SecondaryButton>
                 </GroupHeader>
                 {groupSessions.length === 0 && (
-                  <EmptyState>Sem pacientes neste horÃƒÂ¡rio.</EmptyState>
+                  <EmptyState>Sem pacientes neste horário.</EmptyState>
                 )}
                 <GroupList>
                   {groupSessions.map((group) => (
@@ -2723,80 +2986,100 @@ export default function Agendamentos() {
                       <GroupSectionHeader
                         $color={group.service?.color || serviceColor(group.service_type)}
                       >
-                        <div>
-                          <GroupSectionTitle>
-                            {serviceName(group.service_type)}
-                          </GroupSectionTitle>
-                          <GroupSectionMeta>
-                            {group.count}
-                            {group.limit && group.limit > 0 ? ` / ${group.limit}` : ""} pacientes
-                          </GroupSectionMeta>
-                        </div>
-                        <GroupCountBadge>{group.count}</GroupCountBadge>
+                        <GroupSectionTitle>
+                          {serviceName(group.service_type)}
+                        </GroupSectionTitle>
+                        <GroupSectionMeta>
+                          {group.count}
+                          {group.limit && group.limit > 0 ? ` / ${group.limit}` : ""} pacientes
+                        </GroupSectionMeta>
                       </GroupSectionHeader>
                       {group.sessions.map((session) => (
                         <GroupItem key={session.id}>
                           <PatientInfo>
-                            <strong>{session?.Patient?.full_name || "Paciente"}</strong>
-                            <span>{session?.professional?.name || "Profissional"}</span>
+                            <PatientInfoName>
+                              <PatientInlineText>{getSessionPatientName(session)}</PatientInlineText>
+                              {renderPatientAttentionIndicator(getSessionPatientAttentionLevel(session))}
+                            </PatientInfoName>
+                            <PatientInfoMeta>
+                              <span>{session?.professional?.name || "Profissional"}</span>
+                              <SessionStatusPill $status={session.status}>
+                                {statusLabel(session.status)}
+                              </SessionStatusPill>
+                            </PatientInfoMeta>
                           </PatientInfo>
-                          <GroupActions>
-                            <ActionGrid>
-                              <StatusAction
-                                type="button"
-                                data-id={session.id}
-                                data-status="scheduled"
-                                $status="scheduled"
-                                $active={session.status === "scheduled" || session.status === "open"}
-                                onClick={handleQuickStatus}
-                              >
-                                Agendado
-                              </StatusAction>
-                              <StatusAction
-                                type="button"
-                                data-id={session.id}
-                                data-status="done"
-                                $status="done"
-                                $active={session.status === "done"}
-                                onClick={handleQuickStatus}
-                              >
-                                Concluido
-                              </StatusAction>
-                              <StatusAction
-                                type="button"
-                                data-id={session.id}
-                                data-status="no_show"
-                                $status="no_show"
-                                $active={session.status === "no_show"}
-                                onClick={handleAbsence}
-                              >
-                                Falta
-                              </StatusAction>
-                              <StatusAction
-                                type="button"
-                                data-id={session.id}
-                                data-status="canceled"
-                                $status="canceled"
-                                $active={session.status === "canceled"}
-                                onClick={handleAbsence}
-                              >
-                                Cancelado
-                              </StatusAction>
-                            </ActionGrid>
-                            <SmallEdit
+                          <ActionsMenuWrapper>
+                            <ActionsMenuButton
                               type="button"
-                              data-id={session.id}
-                              onClick={handleEdit}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenActionMenu(
+                                  openActionMenu === session.id ? null : session.id,
+                                );
+                              }}
                             >
-                              Editar
-                            </SmallEdit>
-                            <SmallDeleteButton
-                              type="button"
-                              onClick={() => handleOpenDelete(session)}
-                            >
-                              Excluir
-                            </SmallDeleteButton>
-                          </GroupActions>
+                              Ações ▾
+                            </ActionsMenuButton>
+                            {openActionMenu === session.id && (
+                              <ActionsDropdown onClick={(e) => e.stopPropagation()}>
+                                <GroupStatusButton
+                                  type="button"
+                                  data-id={session.id}
+                                  data-status="scheduled"
+                                  $status="scheduled"
+                                  $active={session.status === "scheduled" || session.status === "open"}
+                                  onClick={(e) => { handleQuickStatus(e); setOpenActionMenu(null); }}
+                                >
+                                  Agendado
+                                </GroupStatusButton>
+                                <GroupStatusButton
+                                  type="button"
+                                  data-id={session.id}
+                                  data-status="done"
+                                  $status="done"
+                                  $active={session.status === "done"}
+                                  onClick={(e) => { handleQuickStatus(e); setOpenActionMenu(null); }}
+                                >
+                                  Concluído
+                                </GroupStatusButton>
+                                <GroupStatusButton
+                                  type="button"
+                                  data-id={session.id}
+                                  data-status="no_show"
+                                  $status="no_show"
+                                  $active={session.status === "no_show"}
+                                  onClick={(e) => { handleAbsence(e); setOpenActionMenu(null); }}
+                                >
+                                  Falta
+                                </GroupStatusButton>
+                                <GroupStatusButton
+                                  type="button"
+                                  data-id={session.id}
+                                  data-status="canceled"
+                                  $status="canceled"
+                                  $active={session.status === "canceled"}
+                                  onClick={(e) => { handleAbsence(e); setOpenActionMenu(null); }}
+                                >
+                                  Cancelado
+                                </GroupStatusButton>
+                                <ActionsDropdownDivider />
+                                <ActionsDropdownItem
+                                  type="button"
+                                  data-id={session.id}
+                                  onClick={(e) => { handleEdit(e); setOpenActionMenu(null); }}
+                                >
+                                  Editar
+                                </ActionsDropdownItem>
+                                <ActionsDropdownItem
+                                  type="button"
+                                  $danger
+                                  onClick={() => { handleOpenDelete(session); setOpenActionMenu(null); }}
+                                >
+                                  Excluir
+                                </ActionsDropdownItem>
+                              </ActionsDropdown>
+                            )}
+                          </ActionsMenuWrapper>
                         </GroupItem>
                       ))}
                     </GroupSection>
@@ -2936,6 +3219,38 @@ export default function Agendamentos() {
                       ))}
                     </select>
                   </Field>
+                  {eligiblePlan && (
+                    <BillingModeCard className="span-2">
+                      <BillingModeHeader>
+                        <strong>Cobrança</strong>
+                        <span>{eligiblePlan.ServicePlan?.name || "Plano mensal"}</span>
+                      </BillingModeHeader>
+                      <BillingModeOptions>
+                        <BillingModeOption
+                          type="button"
+                          $active={form.billing_mode === "covered_by_plan"}
+                          disabled={!!(editingId && form.status === "done")}
+                          onClick={() =>
+                            setForm((prev) => ({ ...prev, billing_mode: "covered_by_plan" }))
+                          }
+                        >
+                          <strong>Mensal</strong>
+                          <span>Incluída no plano</span>
+                        </BillingModeOption>
+                        <BillingModeOption
+                          type="button"
+                          $active={form.billing_mode === "per_session"}
+                          disabled={!!(editingId && form.status === "done")}
+                          onClick={() =>
+                            setForm((prev) => ({ ...prev, billing_mode: "per_session" }))
+                          }
+                        >
+                          <strong>Avulso</strong>
+                          <span>Cobrança separada</span>
+                        </BillingModeOption>
+                      </BillingModeOptions>
+                    </BillingModeCard>
+                  )}
                   <Field className="span-2">
                     Inicio *
                     <input
@@ -3106,8 +3421,8 @@ export default function Agendamentos() {
               </Form>
             )}
           </DrawerBody>
-        </Drawer>
-        {isDrawerOpen && <Backdrop onClick={closeDrawer} />}
+        </AppDrawer>
+        {isDrawerOpen && <DrawerBackdrop onClick={closeDrawer} />}
         {recurrencePreview?.open && (
           <ModalOverlay>
             <RecurrencePreviewCard>
@@ -3417,9 +3732,10 @@ export default function Agendamentos() {
                                   serviceName(session?.service_type || session?.Service?.code)}{" "}
                                 - {session?.professional?.name || "Profissional"}
                               </span>
-                              <small>
-                                {session?.Patient?.full_name || session?.Patient?.name || "Paciente"}
-                              </small>
+                              <DeleteReviewPatient>
+                                <PatientInlineText>{getSessionPatientName(session)}</PatientInlineText>
+                                {renderPatientAttentionIndicator(getSessionPatientAttentionLevel(session))}
+                              </DeleteReviewPatient>
                               {session?.blocked_reason && (
                                 <DeleteBlockedReason>
                                   {session.blocked_reason}
@@ -3486,25 +3802,43 @@ export default function Agendamentos() {
             </DeleteFlowCard>
           </ModalOverlay>
         )}
-      </Content>
-    </Wrapper>
+      </PageContent>
+      {popover && (
+        <PopoverOverlay onClick={() => setPopover(null)}>
+          <PopoverCard
+            style={{
+              top: Math.min(popover.rect.bottom + 8, window.innerHeight - 280),
+              left: Math.min(popover.rect.left, window.innerWidth - 248),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <PopoverTitle>Pacientes ocultos</PopoverTitle>
+            {popover.items.map(({ session, color }) => (
+              <PopoverPatientRow key={session.id}>
+                <PopoverDot $color={color} />
+                <PopoverPatientName>
+                  <PatientInlineText>{getSessionPatientName(session)}</PatientInlineText>
+                  {renderPatientAttentionIndicator(getSessionPatientAttentionLevel(session))}
+                </PopoverPatientName>
+              </PopoverPatientRow>
+            ))}
+            <PopoverFooter>
+              <button
+                type="button"
+                onClick={() => {
+                  setPopover(null);
+                  handleOpenGroup(popover.slotDate);
+                }}
+              >
+                Ver detalhes do horário →
+              </button>
+            </PopoverFooter>
+          </PopoverCard>
+        </PopoverOverlay>
+      )}
+    </PageWrapper>
   );
 }
-const Wrapper = styled.section`
-  min-height: 100vh;
-  background: #f7f8f4;
-  padding: 90px 0 60px;
-`;
-
-const Content = styled.div`
-  width: 100%;
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 0 30px;
-  @media only screen and (max-width: 859px) {
-    padding: 0 15px;
-  }
-`;
 
 const Header = styled.div`
   display: flex;
@@ -3749,11 +4083,12 @@ const WeekGrid = styled.div`
   overflow: hidden;
   border: 1px solid rgba(106, 121, 92, 0.2);
   background: #fff;
+  box-shadow: 0 10px 24px rgba(42, 52, 35, 0.05);
 `;
 
 const WeekHeader = styled.div`
   display: grid;
-  grid-template-columns: 80px repeat(7, 1fr);
+  grid-template-columns: 80px repeat(5, 1fr);
   background: #f2f4ee;
   border-bottom: 1px solid rgba(106, 121, 92, 0.15);
 `;
@@ -3770,12 +4105,15 @@ const WeekHeaderCell = styled.div`
 
   > span {
     display: block;
-    color: #6a795c;
+    color: #42523a;
     font-size: 0.8rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
   }
   > strong {
     font-size: 1rem;
     color: #1b1b1b;
+    font-weight: 800;
   }
 `;
 
@@ -3815,21 +4153,129 @@ const DaySpecialBadge = styled.span`
 
 const WeekBody = styled.div`
   display: grid;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcf8 100%);
+`;
+
+const WeekPeriodRow = styled.div`
+  display: grid;
+  grid-template-columns: 80px repeat(5, 1fr);
+  min-height: 36px;
+  border-bottom: 1px solid rgba(106, 121, 92, 0.12);
+  background: #f7f9f4;
+`;
+
+const WeekPeriodSpacer = styled.div`
+  border-right: 1px solid rgba(106, 121, 92, 0.1);
+  background: linear-gradient(180deg, #f5f7f1 0%, #eef2e9 100%);
+`;
+
+const WeekPeriodToggle = styled.button`
+  grid-column: 2 / -1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: ${(props) => (props.$expanded ? "rgba(162, 177, 144, 0.14)" : "rgba(162, 177, 144, 0.08)")};
+  color: #42523a;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+
+  &:hover {
+    background: rgba(162, 177, 144, 0.18);
+  }
+`;
+
+const WeekPeriodLabel = styled.span`
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+`;
+
+const WeekPeriodMeta = styled.span`
+  margin-left: auto;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #6a795c;
+`;
+
+const WeekPeriodArrow = styled.strong`
+  font-size: 0.9rem;
+  line-height: 1;
 `;
 
 const WeekRow = styled.div`
   display: grid;
-  grid-template-columns: 80px repeat(7, 1fr);
+  grid-template-columns: 80px repeat(5, 1fr);
   min-height: 80px;
   border-bottom: 1px solid rgba(106, 121, 92, 0.1);
+  background: ${(props) => (props.$striped ? "rgba(106, 121, 92, 0.018)" : "#fff")};
 `;
 
 const TimeCell = styled.div`
-  padding: 10px;
+  padding: 8px 6px;
   color: #6a795c;
   font-weight: 600;
   border-right: 1px solid rgba(106, 121, 92, 0.1);
-  background: #fafbf8;
+  background: ${(props) => (props.$striped ? "#f6f8f3" : "#fafbf8")};
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  span {
+    font-size: 0.88rem;
+    font-weight: 800;
+    color: #42523a;
+    letter-spacing: 0.01em;
+  }
+`;
+
+const HourExpandToggle = styled.button`
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: ${(props) => (props.$expanded ? "rgba(106, 121, 92, 0.22)" : "#fff")};
+  border: 1px solid
+    ${(props) => (props.$expanded ? "rgba(106, 121, 92, 0.42)" : "rgba(106, 121, 92, 0.32)")};
+  border-radius: 999px;
+  color: ${(props) => (props.$expanded ? "#42523a" : "#5d7050")};
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+  line-height: 1;
+  box-shadow: 0 3px 8px rgba(42, 52, 35, 0.1);
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+
+  &:hover {
+    background: rgba(106, 121, 92, 0.14);
+    border-color: rgba(106, 121, 92, 0.46);
+    color: #42523a;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(42, 52, 35, 0.14);
+  }
+
+  &:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(42, 52, 35, 0.1);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 3px rgba(106, 121, 92, 0.18),
+      0 5px 12px rgba(42, 52, 35, 0.12);
+  }
 `;
 
 const SlotCell = styled.div`
@@ -3839,14 +4285,11 @@ const SlotCell = styled.div`
   flex-direction: column;
   gap: 6px;
   cursor: pointer;
+  background: ${(props) => (props.$striped ? "rgba(106, 121, 92, 0.022)" : "transparent")};
+  transition: background 120ms ease;
   &:hover {
     background: rgba(162, 177, 144, 0.08);
   }
-`;
-
-const SlotHint = styled.div`
-  font-size: 0.75rem;
-  color: #9aa58f;
 `;
 
 const GroupPill = styled.div`
@@ -3874,6 +4317,94 @@ const GroupPill = styled.div`
   strong {
     font-size: 0.75rem;
     color: #1b1b1b;
+  }
+`;
+
+const GroupPillPatient = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+`;
+
+const OverflowPill = styled.div`
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(106, 121, 92, 0.08);
+  border: 1px dashed rgba(106, 121, 92, 0.35);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #6a795c;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s;
+  &:hover {
+    background: rgba(106, 121, 92, 0.18);
+  }
+`;
+
+const PopoverOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+`;
+
+const PopoverCard = styled.div`
+  position: fixed;
+  z-index: 1201;
+  width: 232px;
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid rgba(106, 121, 92, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.14);
+  padding: 12px 0 8px;
+  display: flex;
+  flex-direction: column;
+`;
+
+const PopoverTitle = styled.div`
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #6a795c;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 12px 8px;
+  border-bottom: 1px solid rgba(106, 121, 92, 0.1);
+  margin-bottom: 4px;
+`;
+
+const PopoverPatientRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  &:hover {
+    background: rgba(106, 121, 92, 0.05);
+  }
+`;
+
+const PopoverDot = styled.span`
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: ${(props) => props.$color || "#6a795c"};
+`;
+
+const PopoverFooter = styled.div`
+  border-top: 1px solid rgba(106, 121, 92, 0.1);
+  margin-top: 4px;
+  padding: 8px 12px 0;
+  button {
+    background: none;
+    border: none;
+    color: #516046;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+    &:hover { color: #1b1b1b; }
   }
 `;
 
@@ -4085,11 +4616,11 @@ const DaySessionPatient = styled.strong`
   color: #1f1f1f;
   font-size: 0.96rem;
   font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 `;
 
 const DaySessionActions = styled.div`
@@ -4187,21 +4718,6 @@ const MonthHint = styled.p`
   font-size: 0.9rem;
 `;
 
-const Drawer = styled.aside`
-  position: fixed;
-  top: 80px;
-  right: 0;
-  width: 440px;
-  max-width: 90vw;
-  height: calc(100vh - 80px);
-  background: #fff;
-  box-shadow: -12px 0 24px rgba(0, 0, 0, 0.12);
-  transform: ${(props) => (props.$open ? "translateX(0)" : "translateX(100%)")};
-  transition: transform 0.3s ease;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-`;
 
 const DrawerHeader = styled.div`
   padding: 22px 20px;
@@ -4216,6 +4732,12 @@ const DrawerHeader = styled.div`
     color: #6a795c;
     font-size: 0.9rem;
   }
+`;
+
+const DrawerSubtitle = styled.span`
+  color: ${(props) => (props.$prominent ? "#1b1b1b" : "#6a795c")};
+  font-size: ${(props) => (props.$prominent ? "1rem" : "0.9rem")};
+  font-weight: ${(props) => (props.$prominent ? "600" : "400")};
 `;
 
 const DrawerBody = styled.div`
@@ -4234,49 +4756,58 @@ const DrawerActions = styled.div`
 const GroupPanel = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
 `;
 
 const GroupHeader = styled.div`
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
   h3 {
     margin: 0;
+    font-size: 0.95rem;
     color: #1b1b1b;
   }
   span {
     color: #6a795c;
+    font-size: 0.78rem;
+  }
+  > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
 `;
 
 const GroupList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 `;
 
 const GroupSection = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  border-radius: 14px;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
   background: ${(props) =>
     props.$color ? `${props.$color}10` : "#ffffff"};
   border: 1px solid
     ${(props) =>
     props.$color ? `${props.$color}44` : "rgba(106, 121, 92, 0.22)"};
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
 `;
 
 const GroupSectionHeader = styled.div`
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   justify-content: space-between;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
   background: ${(props) =>
     props.$color ? `${props.$color}22` : "rgba(106, 121, 92, 0.1)"};
 `;
@@ -4295,28 +4826,14 @@ const GroupSectionMeta = styled.span`
   font-weight: 600;
 `;
 
-const GroupCountBadge = styled.span`
-  min-width: 30px;
-  height: 30px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.8);
-  color: #1b1b1b;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.78rem;
-  font-weight: 800;
-`;
-
 const GroupItem = styled.div`
-  padding: 12px;
-  border-radius: 12px;
+  padding: 7px 8px;
+  border-radius: 8px;
   border: 1px solid rgba(106, 121, 92, 0.1);
   background: rgba(255, 255, 255, 0.92);
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
 
   @media (max-width: 720px) {
@@ -4327,31 +4844,115 @@ const GroupItem = styled.div`
 const PatientInfo = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  strong {
-    color: #1b1b1b;
-  }
+  gap: 2px;
   span {
     color: #6a795c;
-    font-size: 0.9rem;
+    font-size: 0.78rem;
   }
 `;
 
-const GroupActions = styled.div`
+const PatientInfoName = styled.strong`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #1b1b1b;
+  font-size: 0.88rem;
+`;
+
+const PatientInfoMeta = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+`;
+
+// SessionStatusBadge removido — usar SessionStatusPill de AppSessionStatus.
+
+const ActionsMenuWrapper = styled.div`
+  position: relative;
+`;
+
+const ActionsMenuButton = styled.button`
+  border: 1px solid rgba(106, 121, 92, 0.22);
+  background: #f5f7f1;
+  color: #516046;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  &:hover {
+    background: #eef2e7;
+  }
+`;
+
+/**
+ * Botão de status dentro do dropdown "Detalhes do horário".
+ * Estende SessionStatusButton (AppSessionStatus) com ajustes de layout de lista.
+ */
+const GroupStatusButton = styled(SessionStatusButton)`
+  width: 100%;
+  justify-content: flex-start;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  border-radius: 6px;
+  border: none;
+  transition: filter 120ms ease;
+
+  &:hover {
+    transform: none;
+    box-shadow: none;
+    filter: brightness(0.95);
+  }
+`;
+
+const ActionsDropdown = styled.div`
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 200;
+  background: #fff;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 6px 0;
+  min-width: 148px;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
+`;
 
-  @media (max-width: 720px) {
-    align-items: stretch;
+const ActionsDropdownItem = styled.button`
+  background: ${(props) => {
+    if (props.$active && props.$tone === "done") return "rgba(47,90,51,0.1)";
+    if (props.$active && props.$tone === "canceled") return "rgba(123,58,58,0.1)";
+    if (props.$active && props.$tone === "no_show") return "rgba(138,87,24,0.1)";
+    if (props.$active) return "rgba(106,121,92,0.1)";
+    return "none";
+  }};
+  border: none;
+  text-align: left;
+  padding: 7px 14px;
+  font-size: 0.82rem;
+  font-weight: ${(props) => (props.$active ? "700" : "500")};
+  color: ${(props) => {
+    if (props.$danger) return "#8c3737";
+    if (props.$tone === "done") return "#2f5a33";
+    if (props.$tone === "canceled") return "#7b3a3a";
+    if (props.$tone === "no_show") return "#8a5718";
+    return "#1b1b1b";
+  }};
+  cursor: pointer;
+  &:hover {
+    background: rgba(106, 121, 92, 0.07);
   }
 `;
 
-const ActionGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(2, minmax(96px, 1fr));
-  gap: 8px;
+const ActionsDropdownDivider = styled.div`
+  height: 1px;
+  background: rgba(106, 121, 92, 0.12);
+  margin: 4px 0;
 `;
 
 const StatusAction = styled.button`
@@ -4450,15 +5051,6 @@ const DayDeleteButton = styled(SmallDeleteButton)`
   font-weight: 600;
 `;
 
-const Backdrop = styled.div`
-  position: fixed;
-  top: 80px;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.2);
-  z-index: 10;
-`;
 
 const ModalOverlay = styled.div`
   position: fixed;
@@ -4776,6 +5368,53 @@ const DeleteReviewInfo = styled.div`
   }
 `;
 
+const DeleteReviewPatient = styled.small`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+`;
+
+const PatientInlineText = styled.span`
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+const PatientAttentionDot = styled.span`
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  display: inline-block;
+  background: ${(props) => {
+    if (props.$tone === "high") return "#c53b32";
+    if (props.$tone === "medium") return "#b87400";
+    return "transparent";
+  }};
+  border: 1.5px solid
+    ${(props) => {
+      if (props.$tone === "high") return "#c53b32";
+      if (props.$tone === "medium") return "#b87400";
+      return "rgba(106, 121, 92, 0.4)";
+    }};
+  box-shadow: ${(props) =>
+    props.$tone === "undefined" ? "none" : "0 0 0 2px rgba(255, 255, 255, 0.6)"};
+`;
+
+const PopoverPatientName = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+  font-size: 0.82rem;
+  color: #1b1b1b;
+  font-weight: 500;
+`;
+
 const DeleteBlockedReason = styled.small`
   color: #8c3737;
   font-weight: 600;
@@ -4909,6 +5548,81 @@ const ScheduleContextCard = styled.div`
     color: #556649;
     font-size: 0.82rem;
   }
+`;
+
+const BillingModeCard = styled.div`
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  border-radius: 14px;
+  padding: 14px;
+  background: #f9faf6;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`;
+
+const BillingModeHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  strong {
+    font-size: 0.95rem;
+    color: #1b1b1b;
+  }
+
+  span {
+    font-size: 0.82rem;
+    color: #6a795c;
+  }
+`;
+
+const BillingModeOptions = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+`;
+
+const BillingModeOption = styled.button`
+  border: 2px solid
+    ${(props) => (props.$active ? "#6a795c" : "rgba(106, 121, 92, 0.2)")};
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: ${(props) => (props.$active ? "rgba(106, 121, 92, 0.12)" : "#fff")};
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+
+  strong {
+    font-size: 0.9rem;
+    color: ${(props) => (props.$active ? "#3d5230" : "#1b1b1b")};
+  }
+
+  span {
+    font-size: 0.78rem;
+    color: #6a795c;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+`;
+
+const BillingModeBadge = styled.span`
+  display: inline-block;
+  background: rgba(106, 121, 92, 0.15);
+  color: #3d5230;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex-shrink: 0;
 `;
 
 const RepeatCard = styled.div`

@@ -66,6 +66,39 @@ export const createFinancialRecurringExpense = (payload) =>
 export const updateFinancialRecurringExpense = (id, payload) =>
   api.put(`/financial-recurring-expenses/${id}`, payload);
 
+export const listPatientPlans = (params) =>
+  api.get('/patient-plans', { params });
+
+export const listServicePlans = (params) =>
+  api.get('/service-plans', { params });
+
+export const createServicePlan = (payload) =>
+  api.post('/service-plans', payload);
+
+export const updateServicePlan = (id, payload) =>
+  api.put(`/service-plans/${id}`, payload);
+
+export const deactivateServicePlan = (id) =>
+  api.post(`/service-plans/${id}/deactivate`);
+
+export const createPatientPlan = (payload) =>
+  api.post('/patient-plans', payload);
+
+export const updatePatientPlan = (id, payload) =>
+  api.put(`/patient-plans/${id}`, payload);
+
+export const pausePatientPlan = (id) =>
+  api.post(`/patient-plans/${id}/pause`);
+
+export const resumePatientPlan = (id) =>
+  api.post(`/patient-plans/${id}/resume`);
+
+export const cancelPatientPlan = (id) =>
+  api.post(`/patient-plans/${id}/cancel`);
+
+export const listBillingCycles = (params) =>
+  api.get('/billing-cycles', { params });
+
 export default {
   listFinancialCategories,
   createFinancialCategory,
@@ -89,4 +122,15 @@ export default {
   listFinancialRecurringExpenses,
   createFinancialRecurringExpense,
   updateFinancialRecurringExpense,
+  listPatientPlans,
+  listServicePlans,
+  createServicePlan,
+  updateServicePlan,
+  deactivateServicePlan,
+  createPatientPlan,
+  updatePatientPlan,
+  pausePatientPlan,
+  resumePatientPlan,
+  cancelPatientPlan,
+  listBillingCycles,
 };

@@ -1,8 +1,9 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { FaCalendarAlt, FaUserFriends, FaMoneyBillWave } from "react-icons/fa";
+import { FaCalendarAlt, FaUserFriends, FaMoneyBillWave, FaClipboardList } from "react-icons/fa";
 // Icone para exames: FaFileMedical
 import styled from "styled-components";
+import { isPlansModuleEnabled } from "../../config/features";
 
 export default function Menu() {
   return (
@@ -44,6 +45,16 @@ export default function Menu() {
               <span>Financeiro</span>
             </div>
           </StyledLink>
+          {isPlansModuleEnabled && (
+            <StyledLink to="/planos">
+              <IconBadge $bg="#eef3ec" $color="#3d5a30">
+                <FaClipboardList size={24} />
+              </IconBadge>
+              <div>
+                <span>Planos</span>
+              </div>
+            </StyledLink>
+          )}
         </Nav>
       </Content>
     </Wrapper>

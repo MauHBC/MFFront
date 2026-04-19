@@ -6,6 +6,13 @@ import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
 import Loading from "../../components/Loading";
+import { PageWrapper, PageContent } from "../../components/AppLayout";
+import { LinkGhostButton } from "../../components/AppButton";
+import {
+  ModuleHeader,
+  ModuleTitle,
+  ModuleSubtitle,
+} from "../../components/AppModuleShell";
 
 function getPatientName(patient) {
   return (patient?.full_name || patient?.name || "Paciente").trim();
@@ -80,16 +87,25 @@ export default function PatientsSearch() {
   }, [filteredPatients]);
 
   return (
-    <Wrapper>
-      <Content>
+    <PageWrapper $paddingTop="90px" $paddingBottom="60px">
+      <PageContent
+        $maxWidth="1220px"
+        $paddingTop="0"
+        $paddingX="30px"
+        $paddingBottom="0"
+        $mobileBreakpoint="859px"
+        $mobilePaddingX="15px"
+        $mobilePaddingTop="0"
+        $mobilePaddingBottom="0"
+      >
         <Header>
           <div>
-            <h1 className="font40 extraBold">Consultar paciente</h1>
-            <p className="font15">
+            <HeaderTitle>Consultar paciente</HeaderTitle>
+            <HeaderSubtitle>
               Busque pacientes cadastrados pelo nome, email ou telefone.
-            </p>
+            </HeaderSubtitle>
           </div>
-          <BackLink to="/pacientes">Voltar</BackLink>
+          <LinkGhostButton to="/pacientes">Voltar</LinkGhostButton>
         </Header>
 
         <Controls>
@@ -186,47 +202,30 @@ export default function PatientsSearch() {
             ))}
           </Grid>
         )}
-      </Content>
-    </Wrapper>
+      </PageContent>
+    </PageWrapper>
   );
 }
 
-const Wrapper = styled.section`
-  min-height: 100vh;
-  background: #f7f8f4;
-  padding: 90px 0 60px;
-`;
-
-const Content = styled.div`
-  width: 100%;
-  max-width: 1220px;
-  margin: 0 auto;
-  padding: 0 30px;
-  @media only screen and (max-width: 859px) {
-    padding: 0 15px;
-  }
-`;
-
-const Header = styled.div`
+const Header = styled(ModuleHeader)`
   display: flex;
   flex-direction: column;
   gap: 12px;
   margin-bottom: 24px;
-
-  h1 {
-    color: #1b1b1b;
-    margin-bottom: 6px;
-  }
-
-  p {
-    color: #6a795c;
-  }
 
   @media (min-width: 720px) {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
   }
+`;
+
+const HeaderTitle = styled(ModuleTitle)`
+  margin-bottom: 6px;
+`;
+
+const HeaderSubtitle = styled(ModuleSubtitle)`
+  margin-top: 0;
 `;
 
 const Controls = styled.div`
@@ -404,19 +403,6 @@ const DetailsButton = styled(Link)`
     box-shadow: ${(props) =>
       props.$disabled ? "none" : "0 0 0 3px rgba(106, 121, 92, 0.2)"};
   }
-`;
-
-const BackLink = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 18px;
-  border-radius: 10px;
-  background: #fff;
-  color: #6a795c;
-  text-decoration: none;
-  font-weight: 600;
-  border: 1px solid rgba(106, 121, 92, 0.3);
 `;
 
 const EmptyState = styled.div`

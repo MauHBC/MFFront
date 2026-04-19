@@ -1,11 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
-import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import { FaCheckCircle, FaSave } from "react-icons/fa";
 
 import axios from "../../services/axios";
 import Loading from "../../components/Loading";
+import { LinkGhostButton } from "../../components/AppButton";
+import { PageWrapper, PageContent } from "../../components/AppLayout";
+import {
+  ModuleHeader,
+  ModulePanel,
+  ModuleTitle,
+  ModuleSubtitle,
+} from "../../components/AppModuleShell";
 import {
   acknowledgeSchedulingConflict,
   createSpecialSchedulingEvent,
@@ -254,12 +261,20 @@ export default function SchedulingEvents() {
   );
 
   return (
-    <Wrapper>
-      <Content>
+    <PageWrapper $paddingTop="90px" $paddingBottom="60px">
+      <PageContent
+        $maxWidth="1260px"
+        $paddingTop="0"
+        $paddingX="20px"
+        $paddingBottom="0"
+        $mobilePaddingX="20px"
+        $mobilePaddingTop="0"
+        $mobilePaddingBottom="0"
+      >
         <Header>
           <div>
-            <h1 className="font40 extraBold">Eventos especiais da agenda</h1>
-            <p className="font15">Gerencie bloqueios e conflitos operacionais.</p>
+            <HeaderTitle>Eventos especiais da agenda</HeaderTitle>
+            <HeaderSubtitle>Gerencie bloqueios e conflitos operacionais.</HeaderSubtitle>
           </div>
           <BackLink to="/agendamentos">Voltar</BackLink>
         </Header>
@@ -422,45 +437,32 @@ export default function SchedulingEvents() {
             ))}
           </Table>
         </Section>
-      </Content>
-    </Wrapper>
+      </PageContent>
+    </PageWrapper>
   );
 }
 
-const Wrapper = styled.section`
-  min-height: 100vh;
-  background: #f7f8f4;
-  padding: 90px 0 60px;
-`;
-
-const Content = styled.div`
-  width: 100%;
-  max-width: 1260px;
-  margin: 0 auto;
-  padding: 0 20px;
-`;
-
-const Header = styled.div`
+const Header = styled(ModuleHeader)`
   display: flex;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
 `;
 
-const BackLink = styled(Link)`
-  padding: 10px 16px;
-  border-radius: 10px;
-  background: #fff;
-  border: 1px solid rgba(106, 121, 92, 0.3);
-  text-decoration: none;
-  color: #6a795c;
-  font-weight: 600;
+const HeaderTitle = styled(ModuleTitle)`
+  margin-bottom: 6px;
 `;
 
-const Section = styled.section`
-  background: #fff;
+const HeaderSubtitle = styled(ModuleSubtitle)`
+  margin-top: 0;
+`;
+
+const BackLink = styled(LinkGhostButton)`
+  padding: 10px 16px;
+`;
+
+const Section = styled(ModulePanel).attrs({ as: "section" })`
   border: 1px solid rgba(106, 121, 92, 0.18);
-  border-radius: 12px;
   padding: 14px;
   margin-bottom: 12px;
 `;
