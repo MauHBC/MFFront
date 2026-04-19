@@ -309,6 +309,15 @@ const toDateInputValue = (value) => {
   return `${year}-${month}-${day}`;
 };
 
+const toMonthInputValue = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+};
+
 const parseDateInputValue = (value) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
   const [yearString, monthString, dayString] = String(value).split("-");
@@ -321,6 +330,23 @@ const parseDateInputValue = (value) => {
     || date.getFullYear() !== year
     || date.getMonth() !== monthIndex
     || date.getDate() !== day
+  ) {
+    return null;
+  }
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const parseMonthInputValue = (value) => {
+  if (!/^\d{4}-\d{2}$/.test(String(value || ""))) return null;
+  const [yearString, monthString] = String(value).split("-");
+  const year = Number(yearString);
+  const monthIndex = Number(monthString) - 1;
+  const date = new Date(year, monthIndex, 1);
+  if (
+    Number.isNaN(date.getTime())
+    || date.getFullYear() !== year
+    || date.getMonth() !== monthIndex
   ) {
     return null;
   }
@@ -388,13 +414,6 @@ const formatPendingDayLabel = (value) => {
   });
 };
 
-const formatMonthName = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("pt-BR", { month: "long" });
-};
-
 const formatWeekRange = (start, end) => {
   if (!start || !end) return "";
   const sameMonth = start.getMonth() === end.getMonth();
@@ -404,9 +423,23 @@ const formatWeekRange = (start, end) => {
       end.getDate(),
     ).padStart(2, "0")} de ${monthName}`;
   }
-  const startLabel = start.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
-  const endLabel = end.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  const startLabel = start.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+  });
+  const endLabel = end.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+  });
   return `Semana ${startLabel} a ${endLabel}`;
+};
+
+const formatWeekYearLabel = (start, end) => {
+  if (!start || !end) return "";
+  const startYear = start.getFullYear();
+  const endYear = end.getFullYear();
+  if (startYear === endYear) return String(startYear);
+  return `${startYear} / ${endYear}`;
 };
 
 const toInputValue = (value) => {
@@ -2203,7 +2236,10 @@ export default function Agendamentos() {
 
   const handlePrev = useCallback(() => {
     const next = new Date(selectedDate);
-    if (view === "month") next.setMonth(next.getMonth() - 1);
+    if (view === "month") {
+      next.setDate(1);
+      next.setMonth(next.getMonth() - 1);
+    }
     if (view === "week") next.setDate(next.getDate() - 7);
     if (view === "day") next.setDate(next.getDate() - 1);
     setSelectedDate(next);
@@ -2211,7 +2247,10 @@ export default function Agendamentos() {
 
   const handleNext = useCallback(() => {
     const next = new Date(selectedDate);
-    if (view === "month") next.setMonth(next.getMonth() + 1);
+    if (view === "month") {
+      next.setDate(1);
+      next.setMonth(next.getMonth() + 1);
+    }
     if (view === "week") next.setDate(next.getDate() + 7);
     if (view === "day") next.setDate(next.getDate() + 1);
     setSelectedDate(next);
@@ -2219,6 +2258,18 @@ export default function Agendamentos() {
 
   const handleToday = useCallback(() => {
     setSelectedDate(new Date());
+  }, []);
+
+  const handleDayPickerChange = useCallback((event) => {
+    const nextDate = parseDateInputValue(event.target.value);
+    if (!nextDate) return;
+    setSelectedDate(nextDate);
+  }, []);
+
+  const handleMonthPickerChange = useCallback((event) => {
+    const nextDate = parseMonthInputValue(event.target.value);
+    if (!nextDate) return;
+    setSelectedDate(nextDate);
   }, []);
 
   const formAvailabilityEvents = useMemo(
@@ -2369,18 +2420,39 @@ export default function Agendamentos() {
               Mes
             </ToggleButton>
           </ViewSwitch>
-          <DateNav>
-            <NavButton type="button" onClick={handlePrev}>
-              <FaChevronLeft />
-            </NavButton>
-            <DateLabel>
-              {view === "day" && formatDate(selectedDate)}
-              {view === "week" && formatWeekRange(weekDays[0], weekDays[weekDays.length - 1])}
-              {view === "month" && formatMonthName(selectedDate)}
-            </DateLabel>
-            <NavButton type="button" onClick={handleNext}>
-              <FaChevronRight />
-            </NavButton>
+	          <DateNav>
+	            <NavButton type="button" onClick={handlePrev}>
+	              <FaChevronLeft />
+	            </NavButton>
+	            {view === "week" && (
+	              <DateContext>
+	                <DateYearLabel>{formatWeekYearLabel(weekDays[0], weekDays[weekDays.length - 1])}</DateYearLabel>
+	                <DateLabel>
+	                  {formatWeekRange(weekDays[0], weekDays[weekDays.length - 1])}
+	                </DateLabel>
+	              </DateContext>
+	            )}
+	            {view === "day" && (
+	              <DatePickerInput
+	                type="date"
+	                value={toDateInputValue(selectedDate)}
+	                onChange={handleDayPickerChange}
+	                aria-label="Selecionar dia da agenda"
+	                $prominent
+	              />
+	            )}
+	            {view === "month" && (
+	              <DatePickerInput
+	                type="month"
+	                value={toMonthInputValue(selectedDate)}
+	                onChange={handleMonthPickerChange}
+	                aria-label="Selecionar mes e ano da agenda"
+	                $prominent
+	              />
+	            )}
+	            <NavButton type="button" onClick={handleNext}>
+	              <FaChevronRight />
+	            </NavButton>
             {view === "day" && (
               <SecondaryButton type="button" onClick={handleToday}>
                 Hoje
@@ -2685,14 +2757,13 @@ export default function Agendamentos() {
                             );
                           })}
                           {hiddenItems.length > 0 && (
-                            <OverflowPill
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleOpenGroup(slotDate);
-                              }}
+                            <OverflowIndicatorBadge
+                              aria-hidden="true"
+                              title={`${hiddenItems.length} paciente(s) a mais neste horario`}
                             >
-                              Detalhes
-                            </OverflowPill>
+                              <span>{hiddenItems.length}</span>
+                              <WeekOverflowArrow aria-hidden="true">▼</WeekOverflowArrow>
+                            </OverflowIndicatorBadge>
                           )}
                         </SlotCell>
                       );
@@ -3002,10 +3073,12 @@ export default function Agendamentos() {
                               {renderPatientAttentionIndicator(getSessionPatientAttentionLevel(session))}
                             </PatientInfoName>
                             <PatientInfoMeta>
-                              <span>{session?.professional?.name || "Profissional"}</span>
-                              <SessionStatusPill $status={session.status}>
+                              <PatientInfoProfessional>
+                                {session?.professional?.name || "Profissional"}
+                              </PatientInfoProfessional>
+                              <GroupSessionStatusPill $status={session.status}>
                                 {statusLabel(session.status)}
-                              </SessionStatusPill>
+                              </GroupSessionStatusPill>
                             </PatientInfoMeta>
                           </PatientInfo>
                           <ActionsMenuWrapper>
@@ -3906,6 +3979,22 @@ const DateNav = styled.div`
   align-items: center;
   gap: 10px;
   justify-content: center;
+  flex-wrap: wrap;
+`;
+
+const DateContext = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 180px;
+`;
+
+const DateYearLabel = styled.span`
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: #6a795c;
+  letter-spacing: 0.06em;
 `;
 
 const ToolbarActions = styled.div`
@@ -3933,6 +4022,24 @@ const DateLabel = styled.span`
   color: #1b1b1b;
   min-width: 120px;
   text-align: center;
+  text-transform: capitalize;
+`;
+
+const DatePickerInput = styled.input`
+  height: ${(props) => (props.$prominent ? "38px" : "34px")};
+  min-width: ${(props) => (props.$prominent ? "190px" : "150px")};
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.22);
+  background: #fff;
+  color: #516046;
+  font-size: ${(props) => (props.$prominent ? "1rem" : "0.84rem")};
+  font-weight: ${(props) => (props.$prominent ? "700" : "600")};
+
+  &::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.78;
+  }
 `;
 
 const FiltersRow = styled.div`
@@ -4088,7 +4195,7 @@ const WeekGrid = styled.div`
 
 const WeekHeader = styled.div`
   display: grid;
-  grid-template-columns: 80px repeat(5, 1fr);
+  grid-template-columns: 80px repeat(5, minmax(0, 1fr));
   background: #f2f4ee;
   border-bottom: 1px solid rgba(106, 121, 92, 0.15);
 `;
@@ -4098,6 +4205,7 @@ const WeekHeaderCell = styled.div`
   text-align: center;
   position: relative;
   cursor: pointer;
+  min-width: 0;
 
   &:hover {
     background: rgba(162, 177, 144, 0.12);
@@ -4158,7 +4266,7 @@ const WeekBody = styled.div`
 
 const WeekPeriodRow = styled.div`
   display: grid;
-  grid-template-columns: 80px repeat(5, 1fr);
+  grid-template-columns: 80px repeat(5, minmax(0, 1fr));
   min-height: 36px;
   border-bottom: 1px solid rgba(106, 121, 92, 0.12);
   background: #f7f9f4;
@@ -4209,22 +4317,26 @@ const WeekPeriodArrow = styled.strong`
 
 const WeekRow = styled.div`
   display: grid;
-  grid-template-columns: 80px repeat(5, 1fr);
+  grid-template-columns: 80px repeat(5, minmax(0, 1fr));
   min-height: 80px;
-  border-bottom: 1px solid rgba(106, 121, 92, 0.1);
+  border-bottom: 1px solid rgba(106, 121, 92, 0.3);
   background: ${(props) => (props.$striped ? "rgba(106, 121, 92, 0.018)" : "#fff")};
+  box-shadow:
+    inset 0 -1px 0 rgba(255, 255, 255, 0.88),
+    inset 0 -2px 0 rgba(106, 121, 92, 0.06);
 `;
 
 const TimeCell = styled.div`
   padding: 8px 6px;
   color: #6a795c;
   font-weight: 600;
-  border-right: 1px solid rgba(106, 121, 92, 0.1);
+  border-right: 1px solid rgba(106, 121, 92, 0.14);
   background: ${(props) => (props.$striped ? "#f6f8f3" : "#fafbf8")};
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  min-width: 0;
   span {
     font-size: 0.88rem;
     font-weight: 800;
@@ -4280,11 +4392,13 @@ const HourExpandToggle = styled.button`
 
 const SlotCell = styled.div`
   padding: 6px;
-  border-right: 1px solid rgba(106, 121, 92, 0.08);
+  border-right: 1px solid rgba(106, 121, 92, 0.1);
   display: flex;
   flex-direction: column;
   gap: 6px;
   cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
   background: ${(props) => (props.$striped ? "rgba(106, 121, 92, 0.022)" : "transparent")};
   transition: background 120ms ease;
   &:hover {
@@ -4308,11 +4422,16 @@ const GroupPill = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
   cursor: pointer;
   span {
-    font-size: 0.75rem;
+    font-size: 0.79rem;
     font-weight: 700;
     color: #42523a;
+    line-height: 1.2;
   }
   strong {
     font-size: 0.75rem;
@@ -4324,24 +4443,38 @@ const GroupPillPatient = styled.span`
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex: 1 1 auto;
   min-width: 0;
   width: 100%;
 `;
 
-const OverflowPill = styled.div`
-  padding: 3px 8px;
-  border-radius: 10px;
-  background: rgba(106, 121, 92, 0.08);
-  border: 1px dashed rgba(106, 121, 92, 0.35);
-  font-size: 0.7rem;
-  font-weight: 700;
+const OverflowIndicatorBadge = styled.div`
+  align-self: flex-end;
+  min-width: 26px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(106, 121, 92, 0.14);
+  background: rgba(245, 247, 241, 0.72);
   color: #6a795c;
-  cursor: pointer;
-  text-align: center;
-  transition: background 0.15s;
-  &:hover {
-    background: rgba(106, 121, 92, 0.18);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+  pointer-events: none;
+
+  span {
+    font-size: 0.64rem;
+    font-weight: 700;
+    color: inherit;
   }
+`;
+
+const WeekOverflowArrow = styled.strong`
+  font-size: 0.56rem;
+  line-height: 1;
+  color: inherit;
 `;
 
 const PopoverOverlay = styled.div`
@@ -4845,19 +4978,18 @@ const PatientInfo = styled.div`
   display: flex;
   flex-direction: column;
   gap: 2px;
-  span {
-    color: #6a795c;
-    font-size: 0.78rem;
-  }
+  min-width: 0;
 `;
 
 const PatientInfoName = styled.strong`
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   min-width: 0;
   color: #1b1b1b;
   font-size: 0.88rem;
+  line-height: 1.2;
 `;
 
 const PatientInfoMeta = styled.div`
@@ -4865,6 +4997,23 @@ const PatientInfoMeta = styled.div`
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
+`;
+
+const PatientInfoProfessional = styled.span`
+  display: inline-flex;
+  align-items: center;
+  color: #6a795c;
+  font-size: 0.78rem;
+  line-height: 1;
+  min-height: 20px;
+`;
+
+const GroupSessionStatusPill = styled(SessionStatusPill)`
+  align-self: center;
+  min-height: 20px;
+  line-height: 1;
+  white-space: nowrap;
 `;
 
 // SessionStatusBadge removido — usar SessionStatusPill de AppSessionStatus.

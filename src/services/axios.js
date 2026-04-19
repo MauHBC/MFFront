@@ -4,10 +4,10 @@ import * as authActions from "../store/modules/auth/actions";
 
 const api = axios.create({
   // testes locais
-  // baseURL: "http://localhost:3006/api",
+  baseURL: "http://localhost:3006/api",
 
   // producao
-  baseURL: "/api",
+  // baseURL: "/api",
 });
 
 let responseInterceptorId = null;

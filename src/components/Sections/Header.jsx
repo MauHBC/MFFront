@@ -14,7 +14,7 @@ export default function Header() {
             Fisioterapia Especializada 
           </h1>
           <HeaderP className="font13 semiBold" style={{ textAlign: "justify" }}>
-            subtext
+            Oferecemos um atendimento personalizado e focado nas necessidades de cada paciente.
           </HeaderP>
         </div>
       </LeftSide>
