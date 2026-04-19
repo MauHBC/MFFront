@@ -224,6 +224,18 @@ const sessionStatusLabel = (status) => {
   return "Agendado";
 };
 
+const getPatientDisplayName = (patientLike) =>
+  patientLike?.Patient?.full_name
+  || patientLike?.Patient?.name
+  || patientLike?.full_name
+  || patientLike?.name
+  || "Paciente";
+
+const comparePatientDisplayName = (first, second) =>
+  getPatientDisplayName(first).localeCompare(getPatientDisplayName(second), "pt-BR", {
+    sensitivity: "base",
+  });
+
 const normalizeText = (value) => {
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
@@ -1116,10 +1128,8 @@ export default function Agendamentos() {
         serviceGroups: Array.from(timeGroup.serviceMap.values())
           .map((serviceGroup) => {
             const cards = serviceGroup.cards.sort((first, second) => {
-              const firstPatient =
-                first.session?.Patient?.full_name || first.session?.Patient?.name || "Paciente";
-              const secondPatient =
-                second.session?.Patient?.full_name || second.session?.Patient?.name || "Paciente";
+              const firstPatient = getPatientDisplayName(first.session);
+              const secondPatient = getPatientDisplayName(second.session);
               const firstLabel = `${firstPatient}-${first.professionalName}`;
               const secondLabel = `${secondPatient}-${second.professionalName}`;
               return firstLabel.localeCompare(secondLabel, "pt-BR");
@@ -1244,13 +1254,7 @@ export default function Agendamentos() {
           serviceGroups: timeGroup.serviceGroups
             .map((serviceGroup) => ({
               ...serviceGroup,
-              sessions: serviceGroup.sessions.sort((first, second) => {
-                const firstName =
-                  first?.Patient?.full_name || first?.Patient?.name || "Paciente";
-                const secondName =
-                  second?.Patient?.full_name || second?.Patient?.name || "Paciente";
-                return firstName.localeCompare(secondName, "pt-BR");
-              }),
+              sessions: serviceGroup.sessions.sort(comparePatientDisplayName),
             }))
             .sort((first, second) => {
               const firstLabel = `${first.serviceLabel}-${first.professionalName}`;
@@ -1283,7 +1287,7 @@ export default function Agendamentos() {
         groups.get(type).sessions.push(session);
       });
       return Array.from(groups.entries()).map(([type, bucket]) => {
-        const items = bucket.sessions;
+        const items = [...bucket.sessions].sort(comparePatientDisplayName);
         const activeCount = items.filter(
           (item) => item.status !== "canceled" && item.status !== "no_show",
         ).length;
