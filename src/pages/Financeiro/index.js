@@ -694,8 +694,8 @@ export default function Financeiro() {
       setIsMobile(media.matches);
       if (!media.matches) {
         setIsSidebarOpen(false);
-  }
-};
+      }
+    };
 
     handleChange();
     if (media.addEventListener) {
@@ -1212,17 +1212,17 @@ export default function Financeiro() {
     }
     if (hasOpenAmountOverride) {
       openAmountCents = openAmountOverrideCents;
-	    }
-	    if (isSimplifiedInstallment) {
-	      openAmountCents = installmentOpenCents;
-	    }
-	    const paidAt = (hasInstallmentTarget && dueInstallment?.due_date)
-	      ? `${String(dueInstallment.due_date).slice(0, 10)}T09:00`
-	      : toDateTimeLocalInputValue(new Date());
-	    const paymentMethodId = isSimplifiedInstallment
-	      ? String(options?.payment_method_id || "")
-	      : "";
-	    setPaymentForm({
+    }
+    if (isSimplifiedInstallment) {
+      openAmountCents = installmentOpenCents;
+    }
+    const paidAt = (hasInstallmentTarget && dueInstallment?.due_date)
+      ? `${String(dueInstallment.due_date).slice(0, 10)}T09:00`
+      : toDateTimeLocalInputValue(new Date());
+    const paymentMethodId = isSimplifiedInstallment
+      ? String(options?.payment_method_id || "")
+      : "";
+    setPaymentForm({
       ...emptyPayment,
       entry_id: entry.id,
       patient_id: entry.patient_id || "",
@@ -1233,8 +1233,8 @@ export default function Financeiro() {
       entry_installments_count: String(Math.max(2, existingInstallmentsCount)),
       paid_at: paidAt,
     });
-	    setPaymentModalContext({
-	      simplifiedInstallment: isSimplifiedInstallment,
+    setPaymentModalContext({
+      simplifiedInstallment: isSimplifiedInstallment,
       installmentId: dueInstallment?.id || null,
       installmentNumber: Number(dueInstallment?.installment_number || 0) || null,
       installmentDueDate: dueInstallment?.due_date || null,
@@ -1242,37 +1242,37 @@ export default function Financeiro() {
       installmentCount: existingInstallmentsCount,
       paymentMethodId: paymentMethodId || "",
       paymentMethodName: options?.payment_method_name || "",
-	    });
-	    setPaymentPatientQuery("");
-	    setIsPaymentPatientSearchFocused(false);
-	    setPaymentAllocations({});
-	    setIsPaymentOpen(true);
-	  }, [entryFinancialMap, paidByEntryId]);
+    });
+    setPaymentPatientQuery("");
+    setIsPaymentPatientSearchFocused(false);
+    setPaymentAllocations({});
+    setIsPaymentOpen(true);
+  }, [entryFinancialMap, paidByEntryId]);
 
-	  const closePaymentModal = useCallback(() => {
-	    setIsPaymentOpen(false);
-	    setIsPaymentSaving(false);
-	    setPaymentModalContext(null);
-	    setPaymentAllocations({});
-	    setPaymentPatientQuery("");
-	    setIsPaymentPatientSearchFocused(false);
-	  }, []);
+  const closePaymentModal = useCallback(() => {
+    setIsPaymentOpen(false);
+    setIsPaymentSaving(false);
+    setPaymentModalContext(null);
+    setPaymentAllocations({});
+    setPaymentPatientQuery("");
+    setIsPaymentPatientSearchFocused(false);
+  }, []);
 
-	  const openCreditModal = useCallback(() => {
-	    setPaymentForm({
-	      ...emptyPayment,
-	      entry_id: null,
-	      patient_id: "",
-	      allocation_mode: "credit",
-	      amount: "",
-	      paid_at: toDateTimeLocalInputValue(new Date()),
-	    });
-	    setPaymentAllocations({});
-	    setPaymentModalContext(null);
-	    setPaymentPatientQuery("");
-	    setIsPaymentPatientSearchFocused(false);
-	    setIsPaymentOpen(true);
-	  }, []);
+  const openCreditModal = useCallback(() => {
+    setPaymentForm({
+      ...emptyPayment,
+      entry_id: null,
+      patient_id: "",
+      allocation_mode: "credit",
+      amount: "",
+      paid_at: toDateTimeLocalInputValue(new Date()),
+    });
+    setPaymentAllocations({});
+    setPaymentModalContext(null);
+    setPaymentPatientQuery("");
+    setIsPaymentPatientSearchFocused(false);
+    setIsPaymentOpen(true);
+  }, []);
 
   useEffect(() => {
     if (!isPaymentOpen || typeof document === "undefined") return () => { };
@@ -1890,9 +1890,9 @@ export default function Financeiro() {
       : [];
     const originalInstallmentsCountForValidation = entryId
       ? Math.max(
-          1,
-          Number(entryMap.get(entryId)?.installments_count || entryInstallments.length || 1),
-        )
+        1,
+        Number(entryMap.get(entryId)?.installments_count || entryInstallments.length || 1),
+      )
       : 1;
     const isAlreadyInstallmentCharge = originalInstallmentsCountForValidation > 1;
     const shouldConvertEntryToInstallments = Boolean(
@@ -1904,13 +1904,13 @@ export default function Financeiro() {
     const requestedInstallmentsCount = Number(paymentForm.entry_installments_count || 0);
     const baseCentsForValidation = entryId
       ? Math.max(
+        0,
+        Number(
+          entryFinancialMap.get(entryId)?.open ??
+          entryMap.get(entryId)?.amount_cents ??
           0,
-          Number(
-            entryFinancialMap.get(entryId)?.open ??
-              entryMap.get(entryId)?.amount_cents ??
-              0,
-          ),
-        )
+        ),
+      )
       : 0;
 
     if (
@@ -2051,10 +2051,10 @@ export default function Financeiro() {
         adjustment_reason: hasAdjustment ? paymentForm.adjustment_reason.trim() : undefined,
         adjustment: hasAdjustment
           ? {
-              discount_cents: discountCents,
-              surcharge_cents: surchargeCents,
-              reason: paymentForm.adjustment_reason.trim(),
-            }
+            discount_cents: discountCents,
+            surcharge_cents: surchargeCents,
+            reason: paymentForm.adjustment_reason.trim(),
+          }
           : undefined,
         convert_entry_to_installments: shouldConvertEntryToInstallments || undefined,
         entry_installments_count: shouldConvertEntryToInstallments
@@ -2294,11 +2294,11 @@ export default function Financeiro() {
       return true;
     };
 
-	    return payments
-	      .map((payment) => {
-	        if (String(payment.origin || "").toLowerCase() === "session_batch") return null;
-	        const paymentEntryId = Number(payment.entry_id || 0) || null;
-	        const entry = paymentEntryId ? entryMap.get(paymentEntryId) : null;
+    return payments
+      .map((payment) => {
+        if (String(payment.origin || "").toLowerCase() === "session_batch") return null;
+        const paymentEntryId = Number(payment.entry_id || 0) || null;
+        const entry = paymentEntryId ? entryMap.get(paymentEntryId) : null;
         if (entry && !isManualReceiptEntry(entry)) return null;
         if (selectedProfessionalId) return null;
 
@@ -3614,39 +3614,39 @@ export default function Financeiro() {
                             && status !== "canceled"
                             && status !== "paid"
                             && !hideActionsForInstallmentAgreement && (
-                            <ActionMenu onToggle={handleActionMenuToggle}>
-                              <ActionMenuTrigger>Ações</ActionMenuTrigger>
-                              <ActionMenuList>
-                                {status !== "paid" && openCents > 0 && availableCreditCents > 0 && (
-                                  <ActionMenuItem
-                                    type="button"
-                                    onClick={(event) => {
-                                      closeActionMenu(event);
-                                      handleApplyCreditToEntry(entry.id);
-                                    }}
-                                  >
-                                    Usar credito
-                                  </ActionMenuItem>
-                                )}
-                                {status !== "paid" && (
-                                  <ActionMenuItem
-                                    type="button"
-                                    onClick={(event) => {
-                                      closeActionMenu(event);
-                                      openPaymentModal(
-                                        entry,
-                                        installmentCount > 1 && firstInstallmentOpenCents > 0
-                                          ? { open_amount_cents: firstInstallmentOpenCents }
-                                          : null,
-                                      );
-                                    }}
-                                  >
-                                    Registrar recebimento
-                                  </ActionMenuItem>
-                                )}
-                              </ActionMenuList>
-                            </ActionMenu>
-                          )}
+                              <ActionMenu onToggle={handleActionMenuToggle}>
+                                <ActionMenuTrigger>Ações</ActionMenuTrigger>
+                                <ActionMenuList>
+                                  {status !== "paid" && openCents > 0 && availableCreditCents > 0 && (
+                                    <ActionMenuItem
+                                      type="button"
+                                      onClick={(event) => {
+                                        closeActionMenu(event);
+                                        handleApplyCreditToEntry(entry.id);
+                                      }}
+                                    >
+                                      Usar credito
+                                    </ActionMenuItem>
+                                  )}
+                                  {status !== "paid" && (
+                                    <ActionMenuItem
+                                      type="button"
+                                      onClick={(event) => {
+                                        closeActionMenu(event);
+                                        openPaymentModal(
+                                          entry,
+                                          installmentCount > 1 && firstInstallmentOpenCents > 0
+                                            ? { open_amount_cents: firstInstallmentOpenCents }
+                                            : null,
+                                        );
+                                      }}
+                                    >
+                                      Registrar recebimento
+                                    </ActionMenuItem>
+                                  )}
+                                </ActionMenuList>
+                              </ActionMenu>
+                            )}
                         </RowActions>
                       </td>
                     </tr>
@@ -3674,57 +3674,57 @@ export default function Financeiro() {
         <AttendanceTableCard>
           <AttendanceTableScroll>
             <AttendanceOverviewTable>
-            <thead>
-              <tr>
-                <th>Cliente</th>
-                <th>Sessoes</th>
-                <th>Valor total</th>
-                <th>Em aberto</th>
-                <th>Valor pago</th>
-                <th>Credito</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {attendanceByPatient.map((row) => (
-                <PatientSummaryRow key={row.patientId} $hasOpen={row.openCents > 0}>
-                  <td>
-                    <AttendanceCellStack>
-                      <AttendancePatientSummaryName $hasOpen={row.openCents > 0}>
-                        {row.patientName}
-                      </AttendancePatientSummaryName>
-                    </AttendanceCellStack>
-                  </td>
-                  <td>
-                    <AttendancePrimaryText>{row.sessions}</AttendancePrimaryText>
-                  </td>
-                  <td>
-                    <AttendanceMoneyText>{formatCurrency(row.totalCents)}</AttendanceMoneyText>
-                  </td>
-                  <td>
-                    <AttendanceOpenAmountValue $hasOpen={row.openCents > 0}>
-                      {formatCurrency(row.openCents)}
-                    </AttendanceOpenAmountValue>
-                  </td>
-                  <td>
-                    <AttendanceMoneyText>{formatCurrency(row.paidCents)}</AttendanceMoneyText>
-                  </td>
-                  <td>
-                    <AttendanceMoneyText>{formatCurrency(row.creditsAvailable)}</AttendanceMoneyText>
-                  </td>
-                  <td>
-                    <AttendanceRowActions>
-                      <AttendanceSmallAction
-                        type="button"
-                        onClick={() => handleViewPatientSessions(row.patientId)}
-                      >
-                        Ver sessoes
-                      </AttendanceSmallAction>
-                    </AttendanceRowActions>
-                  </td>
-                </PatientSummaryRow>
-              ))}
-            </tbody>
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Sessoes</th>
+                  <th>Valor total</th>
+                  <th>Em aberto</th>
+                  <th>Valor pago</th>
+                  <th>Credito</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attendanceByPatient.map((row) => (
+                  <PatientSummaryRow key={row.patientId} $hasOpen={row.openCents > 0}>
+                    <td>
+                      <AttendanceCellStack>
+                        <AttendancePatientSummaryName $hasOpen={row.openCents > 0}>
+                          {row.patientName}
+                        </AttendancePatientSummaryName>
+                      </AttendanceCellStack>
+                    </td>
+                    <td>
+                      <AttendancePrimaryText>{row.sessions}</AttendancePrimaryText>
+                    </td>
+                    <td>
+                      <AttendanceMoneyText>{formatCurrency(row.totalCents)}</AttendanceMoneyText>
+                    </td>
+                    <td>
+                      <AttendanceOpenAmountValue $hasOpen={row.openCents > 0}>
+                        {formatCurrency(row.openCents)}
+                      </AttendanceOpenAmountValue>
+                    </td>
+                    <td>
+                      <AttendanceMoneyText>{formatCurrency(row.paidCents)}</AttendanceMoneyText>
+                    </td>
+                    <td>
+                      <AttendanceMoneyText>{formatCurrency(row.creditsAvailable)}</AttendanceMoneyText>
+                    </td>
+                    <td>
+                      <AttendanceRowActions>
+                        <AttendanceSmallAction
+                          type="button"
+                          onClick={() => handleViewPatientSessions(row.patientId)}
+                        >
+                          Ver sessoes
+                        </AttendanceSmallAction>
+                      </AttendanceRowActions>
+                    </td>
+                  </PatientSummaryRow>
+                ))}
+              </tbody>
             </AttendanceOverviewTable>
           </AttendanceTableScroll>
         </AttendanceTableCard>
@@ -3774,202 +3774,202 @@ export default function Financeiro() {
           )}
           <AttendanceTableScroll>
             <AttendanceDataTable>
-            <thead>
-              <tr>
-                {ENABLE_SESSION_BATCH_PAYMENT && (
-                  <th>
-                    <AttendanceSelectionCheckbox
-                      type="checkbox"
-                      checked={areAllAttendanceBatchRowsSelected}
-                      onChange={handleToggleAllAttendanceSessionSelections}
-                      disabled={attendanceBatchSelectableRows.length === 0}
-                      aria-label="Selecionar todas as sessoes elegiveis"
-                    />
-                  </th>
-                )}
-                <th>Data</th>
-                <th>Cliente</th>
-                <th>Profissional</th>
-                <th>Servico</th>
-                <th>Valor</th>
-	                <th>Detalhe</th>
-                <th>Status</th>
-                <th>Obs.</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {attendanceSessionRows.map((row) => {
-                const status = row.financialStatus || "missing";
-                const statusLabel = formatFinancialStatus(status);
-                const availableCreditCents = creditBalanceByPatient.get(row.patientId) || 0;
-                const hideActionsForInstallmentAgreement = Boolean(
-                  row.isInstallmentPlan
-                  && !row.isProjectedInstallmentRow
-                  && status === "partial"
-                  && Number(row.firstInstallmentOpenCents || 0) <= 0,
-                );
-                const isBatchSelectable = isSessionBatchEligibleRow(row);
-                const isBatchSelected = selectedAttendanceSessionIds.includes(Number(row.id || 0));
-                const canShowActions = Boolean(
-                  !row.isManualReceiptRow
-                  && row.entry
-                  && status !== "canceled"
-                  && status !== "paid"
-	                  && !hideActionsForInstallmentAgreement,
-	                );
-	                let installmentSummary = "-";
-	                if (row.isManualReceiptRow) {
-	                  installmentSummary = row.paymentMethod || "-";
-	                } else if (row.isInstallmentPlan) {
-	                  installmentSummary = `${row.installmentCount}x de ${formatCurrency(row.installmentUnitCents)}`;
-	                }
-	                let installmentNote = null;
-	                if (row.isManualReceiptRow) {
-	                  installmentNote = row.manualUsageLabel || null;
-	                } else if (row.isProjectedInstallmentRow && row.dueInstallment) {
-	                  installmentNote = `Parcela ${row.dueInstallment.installment_number} de ${row.installmentCount}`;
-	                } else if (row.isInstallmentPlan) {
-	                  installmentNote = `Parcela 1/${row.installmentCount}`;
-                }
-                let paymentModalOptions = null;
-                if (row.isProjectedInstallmentRow && row.dueInstallment) {
-                  paymentModalOptions = {
-                    simplifiedInstallment: true,
-                    installment: row.dueInstallment,
-                    payment_method_id: row.payment?.payment_method_id || null,
-                    payment_method_name: row.paymentMethod || "",
-                  };
-                } else if (row.isInstallmentPlan && Number(row.firstInstallmentOpenCents || 0) > 0) {
-                  paymentModalOptions = {
-                    open_amount_cents: Number(row.firstInstallmentOpenCents || 0),
-                  };
-                }
+              <thead>
+                <tr>
+                  {ENABLE_SESSION_BATCH_PAYMENT && (
+                    <th>
+                      <AttendanceSelectionCheckbox
+                        type="checkbox"
+                        checked={areAllAttendanceBatchRowsSelected}
+                        onChange={handleToggleAllAttendanceSessionSelections}
+                        disabled={attendanceBatchSelectableRows.length === 0}
+                        aria-label="Selecionar todas as sessoes elegiveis"
+                      />
+                    </th>
+                  )}
+                  <th>Data</th>
+                  <th>Cliente</th>
+                  <th>Profissional</th>
+                  <th>Servico</th>
+                  <th>Valor</th>
+                  <th>Detalhe</th>
+                  <th>Status</th>
+                  <th>Obs.</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attendanceSessionRows.map((row) => {
+                  const status = row.financialStatus || "missing";
+                  const statusLabel = formatFinancialStatus(status);
+                  const availableCreditCents = creditBalanceByPatient.get(row.patientId) || 0;
+                  const hideActionsForInstallmentAgreement = Boolean(
+                    row.isInstallmentPlan
+                    && !row.isProjectedInstallmentRow
+                    && status === "partial"
+                    && Number(row.firstInstallmentOpenCents || 0) <= 0,
+                  );
+                  const isBatchSelectable = isSessionBatchEligibleRow(row);
+                  const isBatchSelected = selectedAttendanceSessionIds.includes(Number(row.id || 0));
+                  const canShowActions = Boolean(
+                    !row.isManualReceiptRow
+                    && row.entry
+                    && status !== "canceled"
+                    && status !== "paid"
+                    && !hideActionsForInstallmentAgreement,
+                  );
+                  let installmentSummary = "-";
+                  if (row.isManualReceiptRow) {
+                    installmentSummary = row.paymentMethod || "-";
+                  } else if (row.isInstallmentPlan) {
+                    installmentSummary = `${row.installmentCount}x de ${formatCurrency(row.installmentUnitCents)}`;
+                  }
+                  let installmentNote = null;
+                  if (row.isManualReceiptRow) {
+                    installmentNote = row.manualUsageLabel || null;
+                  } else if (row.isProjectedInstallmentRow && row.dueInstallment) {
+                    installmentNote = `Parcela ${row.dueInstallment.installment_number} de ${row.installmentCount}`;
+                  } else if (row.isInstallmentPlan) {
+                    installmentNote = `Parcela 1/${row.installmentCount}`;
+                  }
+                  let paymentModalOptions = null;
+                  if (row.isProjectedInstallmentRow && row.dueInstallment) {
+                    paymentModalOptions = {
+                      simplifiedInstallment: true,
+                      installment: row.dueInstallment,
+                      payment_method_id: row.payment?.payment_method_id || null,
+                      payment_method_name: row.paymentMethod || "",
+                    };
+                  } else if (row.isInstallmentPlan && Number(row.firstInstallmentOpenCents || 0) > 0) {
+                    paymentModalOptions = {
+                      open_amount_cents: Number(row.firstInstallmentOpenCents || 0),
+                    };
+                  }
 
-                return (
-                  <tr key={row.id}>
-                    {ENABLE_SESSION_BATCH_PAYMENT && (
+                  return (
+                    <tr key={row.id}>
+                      {ENABLE_SESSION_BATCH_PAYMENT && (
+                        <td>
+                          {isBatchSelectable ? (
+                            <AttendanceSelectionCheckbox
+                              type="checkbox"
+                              value={row.id}
+                              checked={isBatchSelected}
+                              onChange={handleAttendanceSessionSelectionChange}
+                              aria-label={`Selecionar sessao ${row.patientName} ${formatDate(row.starts_at)}`}
+                            />
+                          ) : (
+                            <AttendanceSelectionPlaceholder>-</AttendanceSelectionPlaceholder>
+                          )}
+                        </td>
+                      )}
                       <td>
-	                        {isBatchSelectable ? (
-	                          <AttendanceSelectionCheckbox
-	                            type="checkbox"
-	                            value={row.id}
-	                            checked={isBatchSelected}
-	                            onChange={handleAttendanceSessionSelectionChange}
-	                            aria-label={`Selecionar sessao ${row.patientName} ${formatDate(row.starts_at)}`}
-	                          />
-                        ) : (
-                          <AttendanceSelectionPlaceholder>-</AttendanceSelectionPlaceholder>
-                        )}
+                        <AttendanceCellStack>
+                          <AttendancePrimaryText>{formatDate(row.starts_at)}</AttendancePrimaryText>
+                          <AttendanceSecondaryText>{formatWeekday(row.starts_at)}</AttendanceSecondaryText>
+                        </AttendanceCellStack>
                       </td>
-                    )}
-                    <td>
-                      <AttendanceCellStack>
-                        <AttendancePrimaryText>{formatDate(row.starts_at)}</AttendancePrimaryText>
-                        <AttendanceSecondaryText>{formatWeekday(row.starts_at)}</AttendanceSecondaryText>
-                      </AttendanceCellStack>
-                    </td>
-                    <td>
-                      <AttendanceCellStack>
-                        <AttendancePrimaryText>{row.patientName}</AttendancePrimaryText>
-                      </AttendanceCellStack>
-                    </td>
-                    <td>
-                      <AttendancePrimaryText>{row.professionalName}</AttendancePrimaryText>
-                    </td>
-	                    <td>
-	                      <AttendanceCellStack>
-	                        <AttendancePrimaryText>{row.serviceName}</AttendancePrimaryText>
-	                        {row.isManualReceiptRow && (
-	                          <AttendanceOriginBadge>Lancamento manual</AttendanceOriginBadge>
-	                        )}
-	                      </AttendanceCellStack>
-	                    </td>
-                    <td>
-                      <AttendanceCellStack>
-                        <AttendanceMoneyText>{formatCurrency(row.amountCents)}</AttendanceMoneyText>
-                      </AttendanceCellStack>
-                    </td>
-	                    <td>
-	                      <AttendanceCellStack>
-	                        <AttendancePrimaryText>{installmentSummary}</AttendancePrimaryText>
-	                        {row.isManualReceiptRow && installmentNote && (
-	                          <AttendanceSecondaryText>{installmentNote}</AttendanceSecondaryText>
-	                        )}
-	                        {row.isInstallmentPlan && row.installmentAgreementTotalCents > 0 && (
-	                          <AttendanceSecondaryText>
-	                            Acordo: {formatCurrency(row.installmentAgreementTotalCents)}
-	                          </AttendanceSecondaryText>
-                        )}
-                        {row.isInstallmentPlan
-                          && !row.isProjectedInstallmentRow
-                          && row.firstInstallmentOpenCents > 0 && (
-                          <AttendanceSecondaryText>
-                            Residual em aberto: {formatCurrency(row.firstInstallmentOpenCents)}
-                          </AttendanceSecondaryText>
-                        )}
-                      </AttendanceCellStack>
-                    </td>
-                    <td>
-                      <AttendanceStatusBadge $status={status}>
-                        {statusLabel}
-                      </AttendanceStatusBadge>
-                    </td>
-	                    <td>
-	                      <AttendanceNoteText>
-	                        {row.isManualReceiptRow
-	                          ? row.manualNote || "-"
-	                          : installmentNote || row.entry?.notes || row.payment?.note || "-"}
-	                      </AttendanceNoteText>
-	                    </td>
-	                    <td>
-	                      <AttendanceRowActions>
-	                        {!row.isManualReceiptRow && !row.entry && row.billing_mode === "covered_by_plan" && (
-	                          <CoveredByPlanBadge>Coberto pelo plano</CoveredByPlanBadge>
-	                        )}
-	                        {!row.isManualReceiptRow && !row.entry && row.billing_mode !== "covered_by_plan" && (
-	                          <AttendanceSmallAction
-	                            type="button"
-	                            onClick={() => handleCreateSessionEntry(row.id)}
-	                          >
-                            Gerar lancamento
-                          </AttendanceSmallAction>
-                        )}
-                        {canShowActions && (
-                          <ActionMenu onToggle={handleActionMenuToggle}>
-                            <ActionMenuTrigger>Ações</ActionMenuTrigger>
-                            <AttendanceActionList>
-                              {status !== "paid" && row.openCents > 0 && availableCreditCents > 0 && (
-                                <AttendanceActionItem
-                                  type="button"
-                                  onClick={(event) => {
-                                    closeActionMenu(event);
-                                    handleApplyCreditToEntry(row.entry.id);
-                                  }}
-                                >
-                                  Usar credito
-                                </AttendanceActionItem>
-                              )}
-                              {status !== "paid" && (
-                                <AttendanceActionItem
-                                  type="button"
-                                  onClick={(event) => {
-                                    closeActionMenu(event);
-                                    openPaymentModal(row.entry, paymentModalOptions);
-                                  }}
-                                >
-                                  Registrar recebimento
-                                </AttendanceActionItem>
-                              )}
-                            </AttendanceActionList>
-                          </ActionMenu>
-                        )}
-                      </AttendanceRowActions>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
+                      <td>
+                        <AttendanceCellStack>
+                          <AttendancePrimaryText>{row.patientName}</AttendancePrimaryText>
+                        </AttendanceCellStack>
+                      </td>
+                      <td>
+                        <AttendancePrimaryText>{row.professionalName}</AttendancePrimaryText>
+                      </td>
+                      <td>
+                        <AttendanceCellStack>
+                          <AttendancePrimaryText>{row.serviceName}</AttendancePrimaryText>
+                          {row.isManualReceiptRow && (
+                            <AttendanceOriginBadge>Lancamento manual</AttendanceOriginBadge>
+                          )}
+                        </AttendanceCellStack>
+                      </td>
+                      <td>
+                        <AttendanceCellStack>
+                          <AttendanceMoneyText>{formatCurrency(row.amountCents)}</AttendanceMoneyText>
+                        </AttendanceCellStack>
+                      </td>
+                      <td>
+                        <AttendanceCellStack>
+                          <AttendancePrimaryText>{installmentSummary}</AttendancePrimaryText>
+                          {row.isManualReceiptRow && installmentNote && (
+                            <AttendanceSecondaryText>{installmentNote}</AttendanceSecondaryText>
+                          )}
+                          {row.isInstallmentPlan && row.installmentAgreementTotalCents > 0 && (
+                            <AttendanceSecondaryText>
+                              Acordo: {formatCurrency(row.installmentAgreementTotalCents)}
+                            </AttendanceSecondaryText>
+                          )}
+                          {row.isInstallmentPlan
+                            && !row.isProjectedInstallmentRow
+                            && row.firstInstallmentOpenCents > 0 && (
+                              <AttendanceSecondaryText>
+                                Residual em aberto: {formatCurrency(row.firstInstallmentOpenCents)}
+                              </AttendanceSecondaryText>
+                            )}
+                        </AttendanceCellStack>
+                      </td>
+                      <td>
+                        <AttendanceStatusBadge $status={status}>
+                          {statusLabel}
+                        </AttendanceStatusBadge>
+                      </td>
+                      <td>
+                        <AttendanceNoteText>
+                          {row.isManualReceiptRow
+                            ? row.manualNote || "-"
+                            : installmentNote || row.entry?.notes || row.payment?.note || "-"}
+                        </AttendanceNoteText>
+                      </td>
+                      <td>
+                        <AttendanceRowActions>
+                          {!row.isManualReceiptRow && !row.entry && row.billing_mode === "covered_by_plan" && (
+                            <CoveredByPlanBadge>Coberto pelo plano</CoveredByPlanBadge>
+                          )}
+                          {!row.isManualReceiptRow && !row.entry && row.billing_mode !== "covered_by_plan" && (
+                            <AttendanceSmallAction
+                              type="button"
+                              onClick={() => handleCreateSessionEntry(row.id)}
+                            >
+                              Gerar lancamento
+                            </AttendanceSmallAction>
+                          )}
+                          {canShowActions && (
+                            <ActionMenu onToggle={handleActionMenuToggle}>
+                              <ActionMenuTrigger>Ações</ActionMenuTrigger>
+                              <AttendanceActionList>
+                                {status !== "paid" && row.openCents > 0 && availableCreditCents > 0 && (
+                                  <AttendanceActionItem
+                                    type="button"
+                                    onClick={(event) => {
+                                      closeActionMenu(event);
+                                      handleApplyCreditToEntry(row.entry.id);
+                                    }}
+                                  >
+                                    Usar credito
+                                  </AttendanceActionItem>
+                                )}
+                                {status !== "paid" && (
+                                  <AttendanceActionItem
+                                    type="button"
+                                    onClick={(event) => {
+                                      closeActionMenu(event);
+                                      openPaymentModal(row.entry, paymentModalOptions);
+                                    }}
+                                  >
+                                    Registrar recebimento
+                                  </AttendanceActionItem>
+                                )}
+                              </AttendanceActionList>
+                            </ActionMenu>
+                          )}
+                        </AttendanceRowActions>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
             </AttendanceDataTable>
           </AttendanceTableScroll>
         </AttendanceTableCard>
@@ -4113,113 +4113,113 @@ export default function Financeiro() {
               <AttendanceControlsRow>
                 <AttendanceTabsRow>
                   <AttendanceTabGroup>
-                  <AttendanceTabButton
-                    type="button"
-                    $active={attendanceView === "patients"}
-                    onClick={() => handleAttendanceViewChange("patients")}
-                  >
-                    Por paciente
-                  </AttendanceTabButton>
-                  <AttendanceTabButton
-                    type="button"
-                    $active={attendanceView === "sessions"}
-	                    disabled={!canOpenAttendanceSessionsView}
-	                    onClick={() => handleAttendanceViewChange("sessions")}
-	                    title={
-	                      canOpenAttendanceSessionsView
-	                        ? undefined
-	                        : "Selecione um paciente para ver por sessao"
-	                    }
-                  >
-                    Por sessão
-	                  </AttendanceTabButton>
-                  </AttendanceTabGroup>
-		                <AttendanceTabGroup>
-                  <AttendanceTabButton
-                    type="button"
-                    $active={attendancePeriodMode === "month"}
-	                    onClick={() => handleAttendancePeriodModeChange("month")}
-                  >
-                    Mes
-	                  </AttendanceTabButton>
-	                  <AttendanceTabButton
-                    type="button"
-                    $active={attendancePeriodMode === "year"}
-	                    onClick={() => handleAttendancePeriodModeChange("year")}
-                  >
-                    Visao anual
-	                  </AttendanceTabButton>
-	                </AttendanceTabGroup>
-                </AttendanceTabsRow>
-		              {attendancePeriodLabel && (
-		                <AttendancePeriodControls>
-		                  <AttendancePeriodButton type="button" onClick={handleAttendancePreviousMonth}>
-                    {attendancePeriodMode === "year" ? "Ano anterior" : "Mes anterior"}
-	                  </AttendancePeriodButton>
-		                  <AttendancePeriodChip
-                    role="button"
-                    tabIndex={0}
-                    onClick={handleAttendancePeriodTagClick}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        handleAttendancePeriodTagClick();
+                    <AttendanceTabButton
+                      type="button"
+                      $active={attendanceView === "patients"}
+                      onClick={() => handleAttendanceViewChange("patients")}
+                    >
+                      Por paciente
+                    </AttendanceTabButton>
+                    <AttendanceTabButton
+                      type="button"
+                      $active={attendanceView === "sessions"}
+                      disabled={!canOpenAttendanceSessionsView}
+                      onClick={() => handleAttendanceViewChange("sessions")}
+                      title={
+                        canOpenAttendanceSessionsView
+                          ? undefined
+                          : "Selecione um paciente para ver por sessao"
                       }
-                    }}
-                  >
-                    {attendancePeriodLabel}
-                    {attendancePeriodMode === "year" ? (
-                      <AttendancePeriodYearSelect
-                        aria-label="Selecionar ano"
-                        value={attendancePeriodYear}
-                        onChange={handleAttendanceYearPickerChange}
-                      >
-                        {attendanceYearOptions.map((year) => (
-                          <option key={year} value={year}>
-                            {year}
-                          </option>
-                        ))}
-                      </AttendancePeriodYearSelect>
-                    ) : (
-                      <AttendancePeriodMonthInput
-                        ref={attendanceMonthPickerRef}
-                        aria-label="Selecionar mes e ano"
-                        type="month"
-                        value={attendancePeriodMonth}
-                        onChange={handleAttendanceMonthPickerChange}
-                      />
-                    )}
-	                  </AttendancePeriodChip>
-		                  <AttendancePeriodButton type="button" onClick={handleAttendanceNextMonth}>
-                    {attendancePeriodMode === "year" ? "Ano seguinte" : "Mes seguinte"}
-	                  </AttendancePeriodButton>
-		                </AttendancePeriodControls>
-		              )}
+                    >
+                      Por sessão
+                    </AttendanceTabButton>
+                  </AttendanceTabGroup>
+                  <AttendanceTabGroup>
+                    <AttendanceTabButton
+                      type="button"
+                      $active={attendancePeriodMode === "month"}
+                      onClick={() => handleAttendancePeriodModeChange("month")}
+                    >
+                      Mes
+                    </AttendanceTabButton>
+                    <AttendanceTabButton
+                      type="button"
+                      $active={attendancePeriodMode === "year"}
+                      onClick={() => handleAttendancePeriodModeChange("year")}
+                    >
+                      Visao anual
+                    </AttendanceTabButton>
+                  </AttendanceTabGroup>
+                </AttendanceTabsRow>
+                {attendancePeriodLabel && (
+                  <AttendancePeriodControls>
+                    <AttendancePeriodButton type="button" onClick={handleAttendancePreviousMonth}>
+                      {attendancePeriodMode === "year" ? "Ano anterior" : "Mes anterior"}
+                    </AttendancePeriodButton>
+                    <AttendancePeriodChip
+                      role="button"
+                      tabIndex={0}
+                      onClick={handleAttendancePeriodTagClick}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          handleAttendancePeriodTagClick();
+                        }
+                      }}
+                    >
+                      {attendancePeriodLabel}
+                      {attendancePeriodMode === "year" ? (
+                        <AttendancePeriodYearSelect
+                          aria-label="Selecionar ano"
+                          value={attendancePeriodYear}
+                          onChange={handleAttendanceYearPickerChange}
+                        >
+                          {attendanceYearOptions.map((year) => (
+                            <option key={year} value={year}>
+                              {year}
+                            </option>
+                          ))}
+                        </AttendancePeriodYearSelect>
+                      ) : (
+                        <AttendancePeriodMonthInput
+                          ref={attendanceMonthPickerRef}
+                          aria-label="Selecionar mes e ano"
+                          type="month"
+                          value={attendancePeriodMonth}
+                          onChange={handleAttendanceMonthPickerChange}
+                        />
+                      )}
+                    </AttendancePeriodChip>
+                    <AttendancePeriodButton type="button" onClick={handleAttendanceNextMonth}>
+                      {attendancePeriodMode === "year" ? "Ano seguinte" : "Mes seguinte"}
+                    </AttendancePeriodButton>
+                  </AttendancePeriodControls>
+                )}
               </AttendanceControlsRow>
-		              {attendanceView === "sessions" && attendanceSelectedPatientSummary && (
-		                <AttendancePatientStrip>
-		                  <AttendancePatientName>{attendanceSelectedPatientSummary.patientName}</AttendancePatientName>
-		                  <AttendancePatientStats>
-		                    <AttendancePatientStat>
-		                      <span>Sessoes</span>
-		                      <strong>{attendanceSelectedPatientSummary.sessions}</strong>
-		                    </AttendancePatientStat>
-		                    <AttendancePatientStat>
-		                      <span>Em aberto</span>
-		                      <strong>{formatCurrency(attendanceSelectedPatientSummary.openCents)}</strong>
-		                    </AttendancePatientStat>
-		                    <AttendancePatientStat>
-		                      <span>Creditos</span>
-		                      <strong>
-		                        {formatCurrency(attendanceSelectedPatientSummary.creditsAvailable)}
-		                      </strong>
-		                    </AttendancePatientStat>
-		                  </AttendancePatientStats>
-		                </AttendancePatientStrip>
-		              )}
-		              <AttendanceDetailHeader>
-		                <AttendanceDetailTitle>{attendanceTitle}</AttendanceDetailTitle>
-		              </AttendanceDetailHeader>
+              {attendanceView === "sessions" && attendanceSelectedPatientSummary && (
+                <AttendancePatientStrip>
+                  <AttendancePatientName>{attendanceSelectedPatientSummary.patientName}</AttendancePatientName>
+                  <AttendancePatientStats>
+                    <AttendancePatientStat>
+                      <span>Sessoes</span>
+                      <strong>{attendanceSelectedPatientSummary.sessions}</strong>
+                    </AttendancePatientStat>
+                    <AttendancePatientStat>
+                      <span>Em aberto</span>
+                      <strong>{formatCurrency(attendanceSelectedPatientSummary.openCents)}</strong>
+                    </AttendancePatientStat>
+                    <AttendancePatientStat>
+                      <span>Creditos</span>
+                      <strong>
+                        {formatCurrency(attendanceSelectedPatientSummary.creditsAvailable)}
+                      </strong>
+                    </AttendancePatientStat>
+                  </AttendancePatientStats>
+                </AttendancePatientStrip>
+              )}
+              <AttendanceDetailHeader>
+                <AttendanceDetailTitle>{attendanceTitle}</AttendanceDetailTitle>
+              </AttendanceDetailHeader>
               {attendanceContent}
             </AttendanceCard>
           </>
@@ -4488,6 +4488,8 @@ export default function Financeiro() {
                     <th>Plano</th>
                     <th>Periodo</th>
                     <th>Valor</th>
+                    <th>Sessões</th>
+                    <th>Saldo</th>
                     <th>Status</th>
                     <th>Acao</th>
                   </tr>
@@ -4501,6 +4503,20 @@ export default function Financeiro() {
                     const periodEnd = formatDateOnlyBR(cycle.cycle_end);
                     const amountCents = Number(cycle.amount_cents || 0);
                     const cycleStatus = entry?.status || cycle.status || "pending";
+
+                    const usage = cycle.usage_summary;
+                    const usedSessions = usage?.total_included_active ?? null;
+                    const totalSessions = usage?.included_sessions_count ?? null;
+                    const remaining = usage?.remaining_included_sessions ?? null;
+                    const extraSessions = usage?.total_extra_active ?? 0;
+                    const sessionsLabel = usedSessions !== null && totalSessions !== null
+                      ? `${usedSessions}/${totalSessions}`
+                      : "-";
+                    let saldoLabel = "-";
+                    if (remaining !== null) {
+                      saldoLabel = remaining > 0 ? `${remaining} restantes` : "Completo";
+                    }
+                    const extraLabel = extraSessions > 0 ? ` +${extraSessions} ${extraSessions === 1 ? "extra" : "extras"}` : "";
 
                     return (
                       <tr key={cycle.id}>
@@ -4517,6 +4533,14 @@ export default function Financeiro() {
                         </td>
                         <td>
                           <AttendanceMoneyText>{formatCurrency(amountCents)}</AttendanceMoneyText>
+                        </td>
+                        <td>
+                          <AttendancePrimaryText>{sessionsLabel}{extraLabel}</AttendancePrimaryText>
+                        </td>
+                        <td>
+                          <AttendancePrimaryText style={{ color: remaining !== null && remaining <= 0 ? "#d9534f" : "inherit" }}>
+                            {saldoLabel}
+                          </AttendancePrimaryText>
                         </td>
                         <td>
                           <AttendanceStatusBadge $status={cycleStatus}>
@@ -4552,26 +4576,26 @@ export default function Financeiro() {
   const renderReceitasTabs = () => (
     <TabsWrapper>
       <TabsRow>
-	        <TabButton
-	          type="button"
-	          $active={receitasView === "atendimentos"}
-	          onClick={() => setReceitasView("atendimentos")}
-	        >
-	          Atendimentos
-	        </TabButton>
-	        {SHOW_DEDICATED_PAYMENTS_VIEW && (
-	          <TabButton
-	            type="button"
-	            $active={receitasView === "recebimentos"}
-	            onClick={() => setReceitasView("recebimentos")}
-	          >
-	            Recebimentos
-	          </TabButton>
-	        )}
-	        {SHOW_MANUAL_ENTRIES && (
-	          <TabButton
-	            type="button"
-	            $active={receitasView === "manuais"}
+        <TabButton
+          type="button"
+          $active={receitasView === "atendimentos"}
+          onClick={() => setReceitasView("atendimentos")}
+        >
+          Atendimentos
+        </TabButton>
+        {SHOW_DEDICATED_PAYMENTS_VIEW && (
+          <TabButton
+            type="button"
+            $active={receitasView === "recebimentos"}
+            onClick={() => setReceitasView("recebimentos")}
+          >
+            Recebimentos
+          </TabButton>
+        )}
+        {SHOW_MANUAL_ENTRIES && (
+          <TabButton
+            type="button"
+            $active={receitasView === "manuais"}
             onClick={() => setReceitasView("manuais")}
           >
             Lancamentos manuais
@@ -4591,13 +4615,13 @@ export default function Financeiro() {
   const renderReceitas = () => {
     let receitasContent = renderAttendance();
 
-	    if (SHOW_DEDICATED_PAYMENTS_VIEW && receitasView === "recebimentos") {
-	      receitasContent = renderPayments();
-	    } else if (receitasView === "manuais" && SHOW_MANUAL_ENTRIES) {
-	      receitasContent = renderEntries();
-	    } else if (receitasView === "mensalidades") {
-	      receitasContent = renderMensalidades();
-	    }
+    if (SHOW_DEDICATED_PAYMENTS_VIEW && receitasView === "recebimentos") {
+      receitasContent = renderPayments();
+    } else if (receitasView === "manuais" && SHOW_MANUAL_ENTRIES) {
+      receitasContent = renderEntries();
+    } else if (receitasView === "mensalidades") {
+      receitasContent = renderMensalidades();
+    }
 
     return (
       <>
@@ -5358,381 +5382,381 @@ export default function Financeiro() {
                   </PaymentPreviewBox>
                 )}
                 {!isSimplifiedInstallmentPayment && (
-                <>
-                {paymentForm.entry_id && (
-                  <ChargeAmountBanner>
-                    <span>Valor da cobranca</span>
-                    <strong>{formatCurrency(selectedChargeAmountCents)}</strong>
-                  </ChargeAmountBanner>
-                )}
-                {isSessionBatchPayment && (
-                  <ChargeAmountBanner>
-                    <span>Total selecionado</span>
-                    <strong>{formatCurrency(paymentModalContext?.sessionBatch?.totalOpenCents || 0)}</strong>
-                  </ChargeAmountBanner>
-                )}
-                <FormGrid>
-		                  {!paymentForm.entry_id && !isSessionBatchPayment && (
-	                    <Field>
-	                      <Label htmlFor="payment-patient">Paciente</Label>
-	                      <SearchFieldWrapper>
-	                        <Input
-	                          id="payment-patient"
-	                          value={paymentPatientQuery}
-	                          onChange={handlePaymentPatientSearchChange}
-	                          onFocus={() => setIsPaymentPatientSearchFocused(true)}
-	                          onBlur={handlePaymentPatientSearchBlur}
-	                          placeholder="Digite o nome do paciente"
-	                          autoComplete="off"
-	                        />
-	                        {isPaymentPatientSearchFocused
-	                          && paymentPatientNormalizedQuery
-	                          && paymentPatientOptions.length > 0 && (
-	                          <SearchSuggestions role="listbox" aria-label="Sugestoes de pacientes">
-	                            {paymentPatientOptions.map((patient) => (
-	                              <SearchSuggestionButton
-	                                key={patient.id}
-	                                type="button"
-	                                onMouseDown={(event) => {
-	                                  event.preventDefault();
-	                                  handleSelectPaymentPatient(patient);
-	                                }}
-	                              >
-	                                {getPatientDisplayName(patient)}
-	                              </SearchSuggestionButton>
-	                            ))}
-	                          </SearchSuggestions>
-	                        )}
-	                      </SearchFieldWrapper>
-	                    </Field>
-	                  )}
-                  <Field>
-                    <Label htmlFor="payment-amount">Valor recebido</Label>
-                    <CurrencyInputGroup>
-                      <CurrencyPrefix>R$</CurrencyPrefix>
-                      <CurrencyInput
-                        id="payment-amount"
-                        name="amount"
-                        value={paymentForm.amount}
-                        onChange={handlePaymentChange}
-                        onBlur={handlePaymentCurrencyBlur}
-                        inputMode="decimal"
-                        placeholder="0,00"
-                      />
-                    </CurrencyInputGroup>
-                  </Field>
-                  <Field>
-                    <Label htmlFor="payment-date">Data do recebimento</Label>
-                    <Input
-                      id="payment-date"
-                      type="datetime-local"
-                      name="paid_at"
-                      value={paymentForm.paid_at}
-                      onChange={handlePaymentChange}
-                    />
-                  </Field>
-                  <Field>
-                    <Label htmlFor="payment-method">Forma de pagamento</Label>
-                    <Select
-                      id="payment-method"
-                      name="payment_method_id"
-                      value={paymentForm.payment_method_id}
-                      onChange={handlePaymentChange}
-                    >
-                      <option value="">Selecione</option>
-                      {paymentMethods.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  {paymentForm.entry_id && paymentPreview.originalInstallmentsCount <= 1 && (
-                    <Field>
-                      <InlineCheckLabel htmlFor="payment-convert-entry">
-                        <input
-                          id="payment-convert-entry"
-                          type="checkbox"
-                          name="convert_entry_to_installments"
-                          checked={Boolean(paymentForm.convert_entry_to_installments)}
+                  <>
+                    {paymentForm.entry_id && (
+                      <ChargeAmountBanner>
+                        <span>Valor da cobranca</span>
+                        <strong>{formatCurrency(selectedChargeAmountCents)}</strong>
+                      </ChargeAmountBanner>
+                    )}
+                    {isSessionBatchPayment && (
+                      <ChargeAmountBanner>
+                        <span>Total selecionado</span>
+                        <strong>{formatCurrency(paymentModalContext?.sessionBatch?.totalOpenCents || 0)}</strong>
+                      </ChargeAmountBanner>
+                    )}
+                    <FormGrid>
+                      {!paymentForm.entry_id && !isSessionBatchPayment && (
+                        <Field>
+                          <Label htmlFor="payment-patient">Paciente</Label>
+                          <SearchFieldWrapper>
+                            <Input
+                              id="payment-patient"
+                              value={paymentPatientQuery}
+                              onChange={handlePaymentPatientSearchChange}
+                              onFocus={() => setIsPaymentPatientSearchFocused(true)}
+                              onBlur={handlePaymentPatientSearchBlur}
+                              placeholder="Digite o nome do paciente"
+                              autoComplete="off"
+                            />
+                            {isPaymentPatientSearchFocused
+                              && paymentPatientNormalizedQuery
+                              && paymentPatientOptions.length > 0 && (
+                                <SearchSuggestions role="listbox" aria-label="Sugestoes de pacientes">
+                                  {paymentPatientOptions.map((patient) => (
+                                    <SearchSuggestionButton
+                                      key={patient.id}
+                                      type="button"
+                                      onMouseDown={(event) => {
+                                        event.preventDefault();
+                                        handleSelectPaymentPatient(patient);
+                                      }}
+                                    >
+                                      {getPatientDisplayName(patient)}
+                                    </SearchSuggestionButton>
+                                  ))}
+                                </SearchSuggestions>
+                              )}
+                          </SearchFieldWrapper>
+                        </Field>
+                      )}
+                      <Field>
+                        <Label htmlFor="payment-amount">Valor recebido</Label>
+                        <CurrencyInputGroup>
+                          <CurrencyPrefix>R$</CurrencyPrefix>
+                          <CurrencyInput
+                            id="payment-amount"
+                            name="amount"
+                            value={paymentForm.amount}
+                            onChange={handlePaymentChange}
+                            onBlur={handlePaymentCurrencyBlur}
+                            inputMode="decimal"
+                            placeholder="0,00"
+                          />
+                        </CurrencyInputGroup>
+                      </Field>
+                      <Field>
+                        <Label htmlFor="payment-date">Data do recebimento</Label>
+                        <Input
+                          id="payment-date"
+                          type="datetime-local"
+                          name="paid_at"
+                          value={paymentForm.paid_at}
                           onChange={handlePaymentChange}
                         />
-                        <span>Parcelamento da cobranca</span>
-                      </InlineCheckLabel>
-                      {paymentForm.convert_entry_to_installments && (
-                        <NestedField>
-                          <InstallmentInlineField>
-                            <InstallmentInlineLabel htmlFor="payment-entry-installments">
-                              nº de parcelas
-                            </InstallmentInlineLabel>
-                            <InstallmentCountInput
-                              id="payment-entry-installments"
-                              type="number"
-                              min="2"
-                              name="entry_installments_count"
-                              value={paymentForm.entry_installments_count}
+                      </Field>
+                      <Field>
+                        <Label htmlFor="payment-method">Forma de pagamento</Label>
+                        <Select
+                          id="payment-method"
+                          name="payment_method_id"
+                          value={paymentForm.payment_method_id}
+                          onChange={handlePaymentChange}
+                        >
+                          <option value="">Selecione</option>
+                          {paymentMethods.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                      {paymentForm.entry_id && paymentPreview.originalInstallmentsCount <= 1 && (
+                        <Field>
+                          <InlineCheckLabel htmlFor="payment-convert-entry">
+                            <input
+                              id="payment-convert-entry"
+                              type="checkbox"
+                              name="convert_entry_to_installments"
+                              checked={Boolean(paymentForm.convert_entry_to_installments)}
                               onChange={handlePaymentChange}
                             />
-                          </InstallmentInlineField>
-                        </NestedField>
+                            <span>Parcelamento da cobranca</span>
+                          </InlineCheckLabel>
+                          {paymentForm.convert_entry_to_installments && (
+                            <NestedField>
+                              <InstallmentInlineField>
+                                <InstallmentInlineLabel htmlFor="payment-entry-installments">
+                                  nº de parcelas
+                                </InstallmentInlineLabel>
+                                <InstallmentCountInput
+                                  id="payment-entry-installments"
+                                  type="number"
+                                  min="2"
+                                  name="entry_installments_count"
+                                  value={paymentForm.entry_installments_count}
+                                  onChange={handlePaymentChange}
+                                />
+                              </InstallmentInlineField>
+                            </NestedField>
+                          )}
+                        </Field>
                       )}
-                    </Field>
-                  )}
-                  {false && paymentForm.entry_id
-                    && paymentPreview.originalInstallmentsCount <= 1
-                    && paymentForm.convert_entry_to_installments && (
-                      <Field>
-                        <MutedText>
-                          Ao confirmar, a cobranca vira parcelada. A 1ª parcela vence na data do recebimento e sera baixada agora. As demais ficam para os meses seguintes.
-                        </MutedText>
-                      </Field>
-                  )}
-                  {paymentForm.entry_id && (
-                    <Field>
-                      <Label htmlFor="payment-discount">Desconto</Label>
-                      <CurrencyInputGroup>
-                        <CurrencyPrefix>R$</CurrencyPrefix>
-                        <CurrencyInput
-                          id="payment-discount"
-                          name="discount"
-                          value={paymentForm.discount}
-                          onChange={handlePaymentChange}
-                          onBlur={handlePaymentCurrencyBlur}
-                          inputMode="decimal"
-                          placeholder="0,00"
-                        />
-                      </CurrencyInputGroup>
-                    </Field>
-                  )}
-                  {paymentForm.entry_id && (
-                    <Field>
-                      <Label htmlFor="payment-surcharge">Acrescimo</Label>
-                      <CurrencyInputGroup>
-                        <CurrencyPrefix>R$</CurrencyPrefix>
-                        <CurrencyInput
-                          id="payment-surcharge"
-                          name="surcharge"
-                          value={paymentForm.surcharge}
-                          onChange={handlePaymentChange}
-                          onBlur={handlePaymentCurrencyBlur}
-                          inputMode="decimal"
-                          placeholder="0,00"
-                        />
-                      </CurrencyInputGroup>
-                    </Field>
-                  )}
-                  {!paymentForm.entry_id && !isSessionBatchPayment && (
-	                    <Field>
-                      <Label htmlFor="payment-allocation">Destino do valor</Label>
-                      <Select
-                        id="payment-allocation"
-                        name="allocation_mode"
-                        value={paymentForm.allocation_mode}
-                        onChange={handlePaymentChange}
-                      >
-                        <option value="credit">Guardar como credito</option>
-                        <option value="auto">Quitar cobrancas automaticamente</option>
-                        <option value="manual">Escolher cobrancas manualmente</option>
-                      </Select>
-                    </Field>
-	                  )}
-	                </FormGrid>
-	                {isSessionBatchPayment && (
-	                  <PaymentPreviewBox>
-	                    <PaymentPreviewTitle>Lote selecionado</PaymentPreviewTitle>
-	                    <PaymentPreviewRow>
-	                      <span>Paciente</span>
-	                      <strong>{paymentModalContext?.sessionBatch?.patientName || "Paciente"}</strong>
-	                    </PaymentPreviewRow>
-	                    <PaymentPreviewRow>
-	                      <span>Sessoes</span>
-	                      <strong>{paymentModalContext?.sessionBatch?.sessions?.length || 0}</strong>
-	                    </PaymentPreviewRow>
-	                    <PaymentPreviewRow>
-	                      <span>Total em aberto</span>
-	                      <strong>{formatCurrency(paymentModalContext?.sessionBatch?.totalOpenCents || 0)}</strong>
-	                    </PaymentPreviewRow>
-	                    <PaymentPreviewRow>
-	                      <span>Valor recebido</span>
-	                      <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
-	                    </PaymentPreviewRow>
-	                    <PaymentPreviewRow>
-	                      <span>
-	                        {paymentPreview.creditAfterCents > 0
-	                          ? "Saldo em credito"
-	                          : "Saldo ainda em aberto"}
-	                      </span>
-	                      <strong>
-	                        {formatCurrency(
-	                          paymentPreview.creditAfterCents > 0
-	                            ? paymentPreview.creditAfterCents
-	                            : paymentPreview.openAfterCents,
-	                        )}
-	                      </strong>
-	                    </PaymentPreviewRow>
-	                    <MutedText>
-	                      O valor sera distribuido por ordem cronologica das sessoes selecionadas.
-	                    </MutedText>
-	                  </PaymentPreviewBox>
-	                )}
-	                {!isSimplifiedInstallmentPayment && paymentForm.entry_id && paymentPreview.originalInstallmentsCount > 1 && (
-                  <MutedText>
-                    Esta cobranca ja esta parcelada. Neste fluxo, registre apenas a quitacao da parcela em aberto.
-                  </MutedText>
-                )}
-                {!isSimplifiedInstallmentPayment && paymentForm.entry_id && paymentPreview.hasAdjustment && (
-                  <Field>
-                    <Label htmlFor="payment-adjustment-reason">Motivo do ajuste</Label>
-                    <TextArea
-                      id="payment-adjustment-reason"
-                      name="adjustment_reason"
-                      rows="2"
-                      placeholder="Descreva o motivo do desconto ou acrescimo."
-                      value={paymentForm.adjustment_reason}
-                      onChange={handlePaymentChange}
-                    />
-                  </Field>
-                )}
-                <Field>
-                  <Label htmlFor="payment-note">Observações</Label>
-                  <TextArea
-                    id="payment-note"
-                    name="note"
-                    rows="2"
-                    value={paymentForm.note}
-                    onChange={handlePaymentChange}
-	                  />
-	                </Field>
-	                {isSessionBatchPayment && Array.isArray(paymentModalContext?.sessionBatch?.sessions) && (
-	                  <Field>
-	                    <Label>Sessoes do lote</Label>
-	                    <SimpleTable>
-	                      <thead>
-	                        <tr>
-	                          <th>Data</th>
-	                          <th>Servico</th>
-	                          <th>Profissional</th>
-	                          <th>Em aberto</th>
-	                        </tr>
-	                      </thead>
-	                      <tbody>
-	                        {paymentModalContext.sessionBatch.sessions.map((session) => (
-	                          <tr key={session.id}>
-	                            <td>{formatDate(session.starts_at)}</td>
-	                            <td>{session.serviceName || "-"}</td>
-	                            <td>{session.professionalName || "-"}</td>
-	                            <td>{formatCurrency(session.openCents)}</td>
-	                          </tr>
-	                        ))}
-	                      </tbody>
-	                    </SimpleTable>
-	                  </Field>
-	                )}
-	                {paymentForm.entry_id && (
-                  <PaymentPreviewBox>
-                    <PaymentPreviewTitle>Resumo da operacao</PaymentPreviewTitle>
-                    <PaymentPreviewRow>
-                      <span>Valor da cobranca</span>
-                      <strong>{formatCurrency(selectedChargeAmountCents)}</strong>
-                    </PaymentPreviewRow>
-                    {paymentPreview.discountCents > 0 && (
-                      <PaymentPreviewRow>
-                        <span>Desconto</span>
-                        <strong>- {formatCurrency(paymentPreview.discountCents)}</strong>
-                      </PaymentPreviewRow>
-                    )}
-                    {paymentPreview.surchargeCents > 0 && (
-                      <PaymentPreviewRow>
-                        <span>Acrescimo</span>
-                        <strong>+ {formatCurrency(paymentPreview.surchargeCents)}</strong>
-                      </PaymentPreviewRow>
-                    )}
-                    <PaymentPreviewDivider />
-                    <PaymentPreviewRow>
-                      <span>Valor final cobrado</span>
-                      <strong>{formatCurrency(paymentPreview.finalChargedCents)}</strong>
-                    </PaymentPreviewRow>
-                    <PaymentPreviewRow>
-                      <span>Valor recebido</span>
-                      <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
-                    </PaymentPreviewRow>
-                    <PaymentPreviewDivider />
-                    <PaymentPreviewRow>
-                      <span>
-                        {paymentPreview.creditAfterCents > 0
-                          ? "Saldo em credito"
-                          : "Valor pendente"}
-                      </span>
-                      <strong>
-                        {formatCurrency(
-                          paymentPreview.creditAfterCents > 0
-                            ? paymentPreview.creditAfterCents
-                            : paymentPreview.openAfterCents,
+                      {false && paymentForm.entry_id
+                        && paymentPreview.originalInstallmentsCount <= 1
+                        && paymentForm.convert_entry_to_installments && (
+                          <Field>
+                            <MutedText>
+                              Ao confirmar, a cobranca vira parcelada. A 1ª parcela vence na data do recebimento e sera baixada agora. As demais ficam para os meses seguintes.
+                            </MutedText>
+                          </Field>
                         )}
-                      </strong>
-                    </PaymentPreviewRow>
-                    {(paymentPreview.installmentsCount > 1 || paymentForm.convert_entry_to_installments) && (
-                      <>
+                      {paymentForm.entry_id && (
+                        <Field>
+                          <Label htmlFor="payment-discount">Desconto</Label>
+                          <CurrencyInputGroup>
+                            <CurrencyPrefix>R$</CurrencyPrefix>
+                            <CurrencyInput
+                              id="payment-discount"
+                              name="discount"
+                              value={paymentForm.discount}
+                              onChange={handlePaymentChange}
+                              onBlur={handlePaymentCurrencyBlur}
+                              inputMode="decimal"
+                              placeholder="0,00"
+                            />
+                          </CurrencyInputGroup>
+                        </Field>
+                      )}
+                      {paymentForm.entry_id && (
+                        <Field>
+                          <Label htmlFor="payment-surcharge">Acrescimo</Label>
+                          <CurrencyInputGroup>
+                            <CurrencyPrefix>R$</CurrencyPrefix>
+                            <CurrencyInput
+                              id="payment-surcharge"
+                              name="surcharge"
+                              value={paymentForm.surcharge}
+                              onChange={handlePaymentChange}
+                              onBlur={handlePaymentCurrencyBlur}
+                              inputMode="decimal"
+                              placeholder="0,00"
+                            />
+                          </CurrencyInputGroup>
+                        </Field>
+                      )}
+                      {!paymentForm.entry_id && !isSessionBatchPayment && (
+                        <Field>
+                          <Label htmlFor="payment-allocation">Destino do valor</Label>
+                          <Select
+                            id="payment-allocation"
+                            name="allocation_mode"
+                            value={paymentForm.allocation_mode}
+                            onChange={handlePaymentChange}
+                          >
+                            <option value="credit">Guardar como credito</option>
+                            <option value="auto">Quitar cobrancas automaticamente</option>
+                            <option value="manual">Escolher cobrancas manualmente</option>
+                          </Select>
+                        </Field>
+                      )}
+                    </FormGrid>
+                    {isSessionBatchPayment && (
+                      <PaymentPreviewBox>
+                        <PaymentPreviewTitle>Lote selecionado</PaymentPreviewTitle>
                         <PaymentPreviewRow>
-                          <span>Parcelamento da cobranca</span>
-                          <strong>
-                            {`${paymentPreview.installmentsCount}x de ${formatCurrency(paymentPreview.installmentUnitCents)}`}
-                          </strong>
+                          <span>Paciente</span>
+                          <strong>{paymentModalContext?.sessionBatch?.patientName || "Paciente"}</strong>
                         </PaymentPreviewRow>
                         <PaymentPreviewRow>
-                          <span>Status do parcelamento</span>
+                          <span>Sessoes</span>
+                          <strong>{paymentModalContext?.sessionBatch?.sessions?.length || 0}</strong>
+                        </PaymentPreviewRow>
+                        <PaymentPreviewRow>
+                          <span>Total em aberto</span>
+                          <strong>{formatCurrency(paymentModalContext?.sessionBatch?.totalOpenCents || 0)}</strong>
+                        </PaymentPreviewRow>
+                        <PaymentPreviewRow>
+                          <span>Valor recebido</span>
+                          <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
+                        </PaymentPreviewRow>
+                        <PaymentPreviewRow>
+                          <span>
+                            {paymentPreview.creditAfterCents > 0
+                              ? "Saldo em credito"
+                              : "Saldo ainda em aberto"}
+                          </span>
                           <strong>
-                            {`${paymentPreview.paidInstallments}/${paymentPreview.installmentsCount} paga(s)`}
+                            {formatCurrency(
+                              paymentPreview.creditAfterCents > 0
+                                ? paymentPreview.creditAfterCents
+                                : paymentPreview.openAfterCents,
+                            )}
                           </strong>
                         </PaymentPreviewRow>
-                      </>
+                        <MutedText>
+                          O valor sera distribuido por ordem cronologica das sessoes selecionadas.
+                        </MutedText>
+                      </PaymentPreviewBox>
                     )}
-                  </PaymentPreviewBox>
-                )}
-	                {!paymentForm.entry_id && !isSessionBatchPayment && paymentForm.allocation_mode === "manual" && (
-                  <Field>
-                    <Label>Escolher cobrancas</Label>
-                    {openEntriesForPayment.length === 0 ? (
-                      <MutedText>Sem cobrancas em aberto para este paciente.</MutedText>
-                    ) : (
-                      <>
+                    {!isSimplifiedInstallmentPayment && paymentForm.entry_id && paymentPreview.originalInstallmentsCount > 1 && (
+                      <MutedText>
+                        Esta cobranca ja esta parcelada. Neste fluxo, registre apenas a quitacao da parcela em aberto.
+                      </MutedText>
+                    )}
+                    {!isSimplifiedInstallmentPayment && paymentForm.entry_id && paymentPreview.hasAdjustment && (
+                      <Field>
+                        <Label htmlFor="payment-adjustment-reason">Motivo do ajuste</Label>
+                        <TextArea
+                          id="payment-adjustment-reason"
+                          name="adjustment_reason"
+                          rows="2"
+                          placeholder="Descreva o motivo do desconto ou acrescimo."
+                          value={paymentForm.adjustment_reason}
+                          onChange={handlePaymentChange}
+                        />
+                      </Field>
+                    )}
+                    <Field>
+                      <Label htmlFor="payment-note">Observações</Label>
+                      <TextArea
+                        id="payment-note"
+                        name="note"
+                        rows="2"
+                        value={paymentForm.note}
+                        onChange={handlePaymentChange}
+                      />
+                    </Field>
+                    {isSessionBatchPayment && Array.isArray(paymentModalContext?.sessionBatch?.sessions) && (
+                      <Field>
+                        <Label>Sessoes do lote</Label>
                         <SimpleTable>
                           <thead>
                             <tr>
                               <th>Data</th>
-                              <th>Descricao</th>
+                              <th>Servico</th>
+                              <th>Profissional</th>
                               <th>Em aberto</th>
-                              <th>Alocar</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {openEntriesForPayment.map((item) => (
-                              <tr key={item.entry.id}>
-                                <td>{item.entry.reference_date || "-"}</td>
-                                <td>{item.entry.description || "-"}</td>
-                                <td>{formatCurrency(item.open)}</td>
-                                <td>
-                                  <Input
-                                    type="text"
-                                    value={paymentAllocations[item.entry.id] || ""}
-                                    onChange={(event) =>
-                                      handleAllocationChange(item.entry.id, event.target.value)
-                                    }
-                                    placeholder="0,00"
-                                  />
-                                </td>
+                            {paymentModalContext.sessionBatch.sessions.map((session) => (
+                              <tr key={session.id}>
+                                <td>{formatDate(session.starts_at)}</td>
+                                <td>{session.serviceName || "-"}</td>
+                                <td>{session.professionalName || "-"}</td>
+                                <td>{formatCurrency(session.openCents)}</td>
                               </tr>
                             ))}
                           </tbody>
                         </SimpleTable>
-                        <MutedText>
-                          Total distribuido: {formatCurrency(manualAllocationTotal)}
-                        </MutedText>
-                      </>
+                      </Field>
                     )}
-                  </Field>
-                )}
-                </>
+                    {paymentForm.entry_id && (
+                      <PaymentPreviewBox>
+                        <PaymentPreviewTitle>Resumo da operacao</PaymentPreviewTitle>
+                        <PaymentPreviewRow>
+                          <span>Valor da cobranca</span>
+                          <strong>{formatCurrency(selectedChargeAmountCents)}</strong>
+                        </PaymentPreviewRow>
+                        {paymentPreview.discountCents > 0 && (
+                          <PaymentPreviewRow>
+                            <span>Desconto</span>
+                            <strong>- {formatCurrency(paymentPreview.discountCents)}</strong>
+                          </PaymentPreviewRow>
+                        )}
+                        {paymentPreview.surchargeCents > 0 && (
+                          <PaymentPreviewRow>
+                            <span>Acrescimo</span>
+                            <strong>+ {formatCurrency(paymentPreview.surchargeCents)}</strong>
+                          </PaymentPreviewRow>
+                        )}
+                        <PaymentPreviewDivider />
+                        <PaymentPreviewRow>
+                          <span>Valor final cobrado</span>
+                          <strong>{formatCurrency(paymentPreview.finalChargedCents)}</strong>
+                        </PaymentPreviewRow>
+                        <PaymentPreviewRow>
+                          <span>Valor recebido</span>
+                          <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
+                        </PaymentPreviewRow>
+                        <PaymentPreviewDivider />
+                        <PaymentPreviewRow>
+                          <span>
+                            {paymentPreview.creditAfterCents > 0
+                              ? "Saldo em credito"
+                              : "Valor pendente"}
+                          </span>
+                          <strong>
+                            {formatCurrency(
+                              paymentPreview.creditAfterCents > 0
+                                ? paymentPreview.creditAfterCents
+                                : paymentPreview.openAfterCents,
+                            )}
+                          </strong>
+                        </PaymentPreviewRow>
+                        {(paymentPreview.installmentsCount > 1 || paymentForm.convert_entry_to_installments) && (
+                          <>
+                            <PaymentPreviewRow>
+                              <span>Parcelamento da cobranca</span>
+                              <strong>
+                                {`${paymentPreview.installmentsCount}x de ${formatCurrency(paymentPreview.installmentUnitCents)}`}
+                              </strong>
+                            </PaymentPreviewRow>
+                            <PaymentPreviewRow>
+                              <span>Status do parcelamento</span>
+                              <strong>
+                                {`${paymentPreview.paidInstallments}/${paymentPreview.installmentsCount} paga(s)`}
+                              </strong>
+                            </PaymentPreviewRow>
+                          </>
+                        )}
+                      </PaymentPreviewBox>
+                    )}
+                    {!paymentForm.entry_id && !isSessionBatchPayment && paymentForm.allocation_mode === "manual" && (
+                      <Field>
+                        <Label>Escolher cobrancas</Label>
+                        {openEntriesForPayment.length === 0 ? (
+                          <MutedText>Sem cobrancas em aberto para este paciente.</MutedText>
+                        ) : (
+                          <>
+                            <SimpleTable>
+                              <thead>
+                                <tr>
+                                  <th>Data</th>
+                                  <th>Descricao</th>
+                                  <th>Em aberto</th>
+                                  <th>Alocar</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {openEntriesForPayment.map((item) => (
+                                  <tr key={item.entry.id}>
+                                    <td>{item.entry.reference_date || "-"}</td>
+                                    <td>{item.entry.description || "-"}</td>
+                                    <td>{formatCurrency(item.open)}</td>
+                                    <td>
+                                      <Input
+                                        type="text"
+                                        value={paymentAllocations[item.entry.id] || ""}
+                                        onChange={(event) =>
+                                          handleAllocationChange(item.entry.id, event.target.value)
+                                        }
+                                        placeholder="0,00"
+                                      />
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </SimpleTable>
+                            <MutedText>
+                              Total distribuido: {formatCurrency(manualAllocationTotal)}
+                            </MutedText>
+                          </>
+                        )}
+                      </Field>
+                    )}
+                  </>
                 )}
               </ModalBody>
               <ModalActions>
@@ -6863,7 +6887,7 @@ const AttendanceTabButton = styled.button`
 
   &:hover:not(:disabled) {
     background: ${(props) =>
-      props.$active ? ATTENDANCE_UI.colors.actionHover : ATTENDANCE_UI.colors.neutralSoft};
+    props.$active ? ATTENDANCE_UI.colors.actionHover : ATTENDANCE_UI.colors.neutralSoft};
     color: ${(props) => (props.$active ? "#fff" : ATTENDANCE_UI.colors.textPrimary)};
   }
 

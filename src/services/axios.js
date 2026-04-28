@@ -4,10 +4,10 @@ import * as authActions from "../store/modules/auth/actions";
 
 const api = axios.create({
   // testes locais
-  // baseURL: "http://localhost:3006/api",
+  baseURL: "http://localhost:3006/api",
 
   // producao
-  baseURL: "/api",
+  // baseURL: "/api",
 });
 
 let responseInterceptorId = null;
@@ -16,7 +16,7 @@ let isToastErrorPatched = false;
 let suppressErrorToastsUntil = 0;
 const AUTH_TOAST_SUPPRESSION_MS = 2000;
 const GENERIC_OPERATION_ERROR_MESSAGE =
-  "Nao foi possivel concluir a operacao. Tente novamente em instantes.";
+  "Nao foi possivel concluir a operação. Tente novamente em instantes.";
 const TECHNICAL_ERROR_PATTERNS = [
   /sqlstate/i,
   /insert into/i,

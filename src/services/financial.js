@@ -99,6 +99,9 @@ export const cancelPatientPlan = (id) =>
 export const listBillingCycles = (params) =>
   api.get('/billing-cycles', { params });
 
+export const getCoveragePreview = (params) =>
+  api.get('/billing-cycles/coverage-preview', { params });
+
 export default {
   listFinancialCategories,
   createFinancialCategory,
@@ -133,4 +136,5 @@ export default {
   resumePatientPlan,
   cancelPatientPlan,
   listBillingCycles,
+  getCoveragePreview,
 };

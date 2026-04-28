@@ -21,7 +21,7 @@ import {
   listSpecialSchedulingEvents,
   previewSchedulingOccurrences,
 } from "../../services/scheduling";
-import { listPatientPlans } from "../../services/financial";
+import { listPatientPlans, getCoveragePreview } from "../../services/financial";
 import { AppDrawer, DrawerBackdrop } from "../../components/AppDrawer";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import {
@@ -76,6 +76,55 @@ const renderPatientAttentionIndicator = (level) => {
       $tone={meta.tone}
     />
   );
+};
+
+const compactWeeklyFrequencyLabel = (servicePlan) => {
+  const weeklyCount = Number(servicePlan?.sessions_per_week);
+  if (Number.isInteger(weeklyCount) && weeklyCount > 0) {
+    return `${weeklyCount}x/sem`;
+  }
+
+  const rawLabel = String(servicePlan?.frequency_label || "").trim();
+  if (!rawLabel) return null;
+
+  const compactMatch = rawLabel.match(/^(\d+)\s*x(?:\s+na\s+semana)?$/i);
+  if (compactMatch) return `${compactMatch[1]}x/sem`;
+
+  return rawLabel.replace(/\s+/g, " ");
+};
+
+const getSessionPlanDescriptor = (session, resolveServiceName) => {
+  if (session?.billing_mode !== "covered_by_plan") return null;
+
+  const servicePlan = session?.BillingCycle?.ServicePlan || null;
+  const serviceCode = servicePlan?.Service?.code || session?.service_type || session?.Service?.code;
+  const serviceLabel =
+    servicePlan?.Service?.name
+    || session?.Service?.name
+    || (serviceCode ? resolveServiceName(serviceCode) : null);
+  const frequencyLabel = compactWeeklyFrequencyLabel(servicePlan);
+
+  if (serviceLabel && frequencyLabel) return `${serviceLabel} ${frequencyLabel}`;
+  if (servicePlan?.name) return String(servicePlan.name).trim();
+  if (serviceLabel) return serviceLabel;
+  if (frequencyLabel) return frequencyLabel;
+  return null;
+};
+
+const getSessionPlanSummary = (session, resolveServiceName) => {
+  if (session?.billing_mode !== "covered_by_plan") return null;
+  const descriptor = getSessionPlanDescriptor(session, resolveServiceName);
+  const isExtra = session?.BillingCycleSessionUsage?.coverage_kind === "extra";
+  const label = isExtra ? "Mensal extra" : "Mensal";
+  return descriptor ? `${label} - ${descriptor}` : label;
+};
+
+const getSessionBadgeLabel = (session) => {
+  if (session?.billing_mode !== "covered_by_plan") return null;
+  const freq = compactWeeklyFrequencyLabel(session?.BillingCycle?.ServicePlan);
+  const isExtra = session?.BillingCycleSessionUsage?.coverage_kind === "extra";
+  const label = isExtra ? "Mensal extra" : "Mensal";
+  return freq ? `${label} ${freq}` : label;
 };
 
 const statusLabel = (status) => {
@@ -597,6 +646,8 @@ export default function Agendamentos() {
   const [isDeletePreviewing, setIsDeletePreviewing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [activePlansForPatient, setActivePlansForPatient] = useState([]);
+  const [coveragePreview, setCoveragePreview] = useState(null);
+  const [coveragePreviewLoading, setCoveragePreviewLoading] = useState(false);
   const [expandedHours, setExpandedHours] = useState(new Set());
   const [expandedPeriods, setExpandedPeriods] = useState({
     morning: true,
@@ -717,6 +768,32 @@ export default function Agendamentos() {
       billing_mode: eligiblePlan ? "covered_by_plan" : "per_session",
     }));
   }, [eligiblePlan, editingId, form.patient_id, form.service_id, form.starts_at]);
+
+  const canUsePlanRepeatMode =
+    !!eligiblePlan && form.billing_mode === "covered_by_plan";
+
+  useEffect(() => {
+    if (repeatMode === "plan" && !canUsePlanRepeatMode) {
+      setRepeatMode("count");
+    }
+  }, [canUsePlanRepeatMode, repeatMode]);
+
+  // Prévia de cobertura — só em criação e quando billing_mode é covered_by_plan
+  useEffect(() => {
+    let cancelled = false;
+    const dateStr = String(form.starts_at || "").slice(0, 10);
+    const ready = !editingId && form.patient_id && form.service_id && /^\d{4}-\d{2}-\d{2}$/.test(dateStr);
+    if (ready && form.billing_mode === "covered_by_plan") {
+      setCoveragePreviewLoading(true);
+      getCoveragePreview({ patient_id: form.patient_id, service_id: form.service_id, date: dateStr })
+        .then((res) => { if (!cancelled) setCoveragePreview(res.data); })
+        .catch(() => { if (!cancelled) setCoveragePreview(null); })
+        .finally(() => { if (!cancelled) setCoveragePreviewLoading(false); });
+    } else {
+      setCoveragePreview(null);
+    }
+    return () => { cancelled = true; };
+  }, [form.patient_id, form.service_id, form.starts_at, form.billing_mode, editingId]);
 
   useEffect(() => {
     loadBaseData();
@@ -933,6 +1010,16 @@ export default function Agendamentos() {
   const serviceColor = useCallback(
     (value) => servicesByCode.get(value)?.color || null,
     [servicesByCode],
+  );
+
+  const getMonthlyPlanDescriptor = useCallback(
+    (session) => getSessionPlanDescriptor(session, serviceName),
+    [serviceName],
+  );
+
+  const getMonthlyPlanSummary = useCallback(
+    (session) => getSessionPlanSummary(session, serviceName),
+    [serviceName],
   );
 
   const statusStyle = useCallback((status) => {
@@ -2055,11 +2142,41 @@ export default function Agendamentos() {
           duration_minutes: durationMinutes,
           repeat_interval: 1,
           weekdays,
-          until_date:
-            repeatMode === "weeks" || repeatMode === "month" ? untilDate : null,
-          occurrence_count: repeatMode === "count" ? Number(repeatCount) : null,
+          ...(repeatMode === "plan"
+            ? {}
+            : {
+              until_date:
+                repeatMode === "weeks" || repeatMode === "month" ? untilDate : null,
+              occurrence_count: repeatMode === "count" ? Number(repeatCount) : null,
+            }),
+          billing_mode:
+            repeatMode === "plan" ? "covered_by_plan" : payload.billing_mode || "per_session",
           notes: payload.notes,
         };
+
+        if (repeatMode === "plan") {
+          try {
+            const response = await axios.post("/session-series", seriesPayload);
+            const created = Number(
+              response?.data?.total_created || response?.data?.total_sessions || 0,
+            );
+            toast.success(
+              created > 0
+                ? `Agenda do plano criada (${created} sessao(oes)).`
+                : "Agenda do plano criada.",
+            );
+            resetForm();
+            closeDrawer();
+            await reloadVisibleSessions();
+            await loadPendingSessions();
+          } catch (error) {
+            const message = resolveSchedulingErrorMessage(error);
+            toast.error(message);
+          } finally {
+            releaseSubmitState();
+          }
+          return;
+        }
 
         try {
           const previewResponse = await previewSchedulingOccurrences(seriesPayload);
@@ -2743,20 +2860,25 @@ export default function Agendamentos() {
                           {visibleItems.map(({ session, group, color }) => {
                             const patientName = getSessionPatientName(session);
                             const attentionLevel = getSessionPatientAttentionLevel(session);
+                            const planSummary = getMonthlyPlanSummary(session);
                             return (
                               <GroupPill
                                 key={`${session.id}-${day.toISOString()}-${hour}`}
                                 $type={group.service_type}
                                 $color={color}
+                                title={planSummary ? `${patientName} - ${planSummary}` : patientName}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   handleOpenGroup(slotDate);
                                 }}
                               >
-                                <GroupPillPatient>
-                                  <PatientInlineText>{patientName}</PatientInlineText>
-                                  {renderPatientAttentionIndicator(attentionLevel)}
-                                </GroupPillPatient>
+                                <GroupPillContent>
+                                  <GroupPillPatient>
+                                    <PatientInlineText>{patientName}</PatientInlineText>
+                                    {renderPatientAttentionIndicator(attentionLevel)}
+                                  </GroupPillPatient>
+                                  {planSummary && <GroupPillMeta>{planSummary}</GroupPillMeta>}
+                                </GroupPillContent>
                               </GroupPill>
                             );
                           })}
@@ -2840,6 +2962,7 @@ export default function Agendamentos() {
                               const tone = statusStyle(session.status);
                               const patientName = getSessionPatientName(session);
                               const attentionLevel = getSessionPatientAttentionLevel(session);
+                              const planDescriptor = getMonthlyPlanDescriptor(session);
                               return (
                                 <DaySessionCard
                                   key={card.key}
@@ -2856,7 +2979,9 @@ export default function Agendamentos() {
                                         {renderPatientAttentionIndicator(attentionLevel)}
                                       </DaySessionPatient>
                                       {session.billing_mode === "covered_by_plan" && (
-                                        <BillingModeBadge>Mensal</BillingModeBadge>
+                                        <BillingModeBadge>
+                                          {getSessionBadgeLabel(session)}
+                                        </BillingModeBadge>
                                       )}
                                       <DaySessionActions>
                                         <DayActionButton
@@ -2918,6 +3043,11 @@ export default function Agendamentos() {
                                         </DayDeleteButton>
                                       </DaySessionActions>
                                     </DaySessionTop>
+                                    {planDescriptor && (
+                                      <DaySessionPlanSummary title={`Mensal - ${planDescriptor}`}>
+                                        {planDescriptor}
+                                      </DaySessionPlanSummary>
+                                    )}
                                   </DaySessionBody>
                                 </DaySessionCard>
                               );
@@ -3069,96 +3199,104 @@ export default function Agendamentos() {
                           {group.limit && group.limit > 0 ? ` / ${group.limit}` : ""} pacientes
                         </GroupSectionMeta>
                       </GroupSectionHeader>
-                      {group.sessions.map((session) => (
-                        <GroupItem key={session.id}>
-                          <PatientInfo>
-                            <PatientInfoName>
-                              <PatientInlineText>{getSessionPatientName(session)}</PatientInlineText>
-                              {renderPatientAttentionIndicator(getSessionPatientAttentionLevel(session))}
-                            </PatientInfoName>
-                            <PatientInfoMeta>
-                              <PatientInfoProfessional>
-                                {session?.professional?.name || "Profissional"}
-                              </PatientInfoProfessional>
-                              <GroupSessionStatusPill $status={session.status}>
-                                {statusLabel(session.status)}
-                              </GroupSessionStatusPill>
-                            </PatientInfoMeta>
-                          </PatientInfo>
-                          <ActionsMenuWrapper>
-                            <ActionsMenuButton
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenActionMenu(
-                                  openActionMenu === session.id ? null : session.id,
-                                );
-                              }}
-                            >
-                              Ações ▾
-                            </ActionsMenuButton>
-                            {openActionMenu === session.id && (
-                              <ActionsDropdown onClick={(e) => e.stopPropagation()}>
-                                <GroupStatusButton
-                                  type="button"
-                                  data-id={session.id}
-                                  data-status="scheduled"
-                                  $status="scheduled"
-                                  $active={session.status === "scheduled" || session.status === "open"}
-                                  onClick={(e) => { handleQuickStatus(e); setOpenActionMenu(null); }}
-                                >
-                                  Agendado
-                                </GroupStatusButton>
-                                <GroupStatusButton
-                                  type="button"
-                                  data-id={session.id}
-                                  data-status="done"
-                                  $status="done"
-                                  $active={session.status === "done"}
-                                  onClick={(e) => { handleQuickStatus(e); setOpenActionMenu(null); }}
-                                >
-                                  Concluído
-                                </GroupStatusButton>
-                                <GroupStatusButton
-                                  type="button"
-                                  data-id={session.id}
-                                  data-status="no_show"
-                                  $status="no_show"
-                                  $active={session.status === "no_show"}
-                                  onClick={(e) => { handleAbsence(e); setOpenActionMenu(null); }}
-                                >
-                                  Falta
-                                </GroupStatusButton>
-                                <GroupStatusButton
-                                  type="button"
-                                  data-id={session.id}
-                                  data-status="canceled"
-                                  $status="canceled"
-                                  $active={session.status === "canceled"}
-                                  onClick={(e) => { handleAbsence(e); setOpenActionMenu(null); }}
-                                >
-                                  Cancelado
-                                </GroupStatusButton>
-                                <ActionsDropdownDivider />
-                                <ActionsDropdownItem
-                                  type="button"
-                                  data-id={session.id}
-                                  onClick={(e) => { handleEdit(e); setOpenActionMenu(null); }}
-                                >
-                                  Editar
-                                </ActionsDropdownItem>
-                                <ActionsDropdownItem
-                                  type="button"
-                                  $danger
-                                  onClick={() => { handleOpenDelete(session); setOpenActionMenu(null); }}
-                                >
-                                  Excluir
-                                </ActionsDropdownItem>
-                              </ActionsDropdown>
-                            )}
-                          </ActionsMenuWrapper>
-                        </GroupItem>
-                      ))}
+                      {group.sessions.map((session) => {
+                        const planSummary = getMonthlyPlanSummary(session);
+                        return (
+                          <GroupItem key={session.id}>
+                            <PatientInfo>
+                              <PatientInfoName>
+                                <PatientInlineText>{getSessionPatientName(session)}</PatientInlineText>
+                                {renderPatientAttentionIndicator(getSessionPatientAttentionLevel(session))}
+                              </PatientInfoName>
+                              {planSummary && (
+                                <PatientPlanSummary title={planSummary}>
+                                  {planSummary}
+                                </PatientPlanSummary>
+                              )}
+                              <PatientInfoMeta>
+                                <PatientInfoProfessional>
+                                  {session?.professional?.name || "Profissional"}
+                                </PatientInfoProfessional>
+                                <GroupSessionStatusPill $status={session.status}>
+                                  {statusLabel(session.status)}
+                                </GroupSessionStatusPill>
+                              </PatientInfoMeta>
+                            </PatientInfo>
+                            <ActionsMenuWrapper>
+                              <ActionsMenuButton
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenActionMenu(
+                                    openActionMenu === session.id ? null : session.id,
+                                  );
+                                }}
+                              >
+                                Ações ▾
+                              </ActionsMenuButton>
+                              {openActionMenu === session.id && (
+                                <ActionsDropdown onClick={(e) => e.stopPropagation()}>
+                                  <GroupStatusButton
+                                    type="button"
+                                    data-id={session.id}
+                                    data-status="scheduled"
+                                    $status="scheduled"
+                                    $active={session.status === "scheduled" || session.status === "open"}
+                                    onClick={(e) => { handleQuickStatus(e); setOpenActionMenu(null); }}
+                                  >
+                                    Agendado
+                                  </GroupStatusButton>
+                                  <GroupStatusButton
+                                    type="button"
+                                    data-id={session.id}
+                                    data-status="done"
+                                    $status="done"
+                                    $active={session.status === "done"}
+                                    onClick={(e) => { handleQuickStatus(e); setOpenActionMenu(null); }}
+                                  >
+                                    Concluído
+                                  </GroupStatusButton>
+                                  <GroupStatusButton
+                                    type="button"
+                                    data-id={session.id}
+                                    data-status="no_show"
+                                    $status="no_show"
+                                    $active={session.status === "no_show"}
+                                    onClick={(e) => { handleAbsence(e); setOpenActionMenu(null); }}
+                                  >
+                                    Falta
+                                  </GroupStatusButton>
+                                  <GroupStatusButton
+                                    type="button"
+                                    data-id={session.id}
+                                    data-status="canceled"
+                                    $status="canceled"
+                                    $active={session.status === "canceled"}
+                                    onClick={(e) => { handleAbsence(e); setOpenActionMenu(null); }}
+                                  >
+                                    Cancelado
+                                  </GroupStatusButton>
+                                  <ActionsDropdownDivider />
+                                  <ActionsDropdownItem
+                                    type="button"
+                                    data-id={session.id}
+                                    onClick={(e) => { handleEdit(e); setOpenActionMenu(null); }}
+                                  >
+                                    Editar
+                                  </ActionsDropdownItem>
+                                  <ActionsDropdownItem
+                                    type="button"
+                                    $danger
+                                    onClick={() => { handleOpenDelete(session); setOpenActionMenu(null); }}
+                                  >
+                                    Excluir
+                                  </ActionsDropdownItem>
+                                </ActionsDropdown>
+                              )}
+                            </ActionsMenuWrapper>
+                          </GroupItem>
+                        );
+                      })}
                     </GroupSection>
                   ))}
                 </GroupList>
@@ -3210,6 +3348,19 @@ export default function Agendamentos() {
                         )}
                     </AutoComplete>
                   </Field>
+                  {!editingId && form.patient_id && activePlansForPatient.length > 0 && (
+                    <ActivePlansCard className="span-2">
+                      {activePlansForPatient.map((p) => {
+                        const planServiceName = p.ServicePlan?.Service?.name || p.ServicePlan?.name || "Plano";
+                        const freq = compactWeeklyFrequencyLabel(p.ServicePlan);
+                        return (
+                          <ActivePlanRow key={p.id}>
+                            <strong>Plano ativo:</strong> {planServiceName}{freq ? ` · ${freq}` : ""}
+                          </ActivePlanRow>
+                        );
+                      })}
+                    </ActivePlansCard>
+                  )}
                   <Field className="span-2">
                     Profissional
                     <SelectionFieldShell>
@@ -3346,6 +3497,38 @@ export default function Agendamentos() {
                       onChange={handleFormChange}
                     />
                   </Field>
+                  {!editingId && form.patient_id && form.service_id && form.starts_at && (
+                    <CoveragePreviewCard className="span-2">
+                      {form.billing_mode !== "covered_by_plan" && (
+                        <CoveragePreviewRow><strong>Cobrança prevista:</strong> Avulsa</CoveragePreviewRow>
+                      )}
+                      {form.billing_mode === "covered_by_plan" && coveragePreviewLoading && (
+                        <CoveragePreviewRow>Verificando cobertura...</CoveragePreviewRow>
+                      )}
+                      {form.billing_mode === "covered_by_plan" && !coveragePreviewLoading && coveragePreview && (
+                        <>
+                          <CoveragePreviewRow>
+                            <strong>Cobrança prevista:</strong>{" "}
+                            {coveragePreview.is_extra ? "Plano mensal extra" : "Plano mensal"}
+                          </CoveragePreviewRow>
+                          {coveragePreview.sessions_per_week && (
+                            <CoveragePreviewRow>Plano: {coveragePreview.sessions_per_week}x/sem</CoveragePreviewRow>
+                          )}
+                          {coveragePreview.usage_summary && (
+                            <CoveragePreviewRow>
+                              Saldo: {coveragePreview.usage_summary.total_included_active}/{coveragePreview.usage_summary.included_sessions_count} usadas
+                            </CoveragePreviewRow>
+                          )}
+                          {!coveragePreview.usage_summary && (
+                            <CoveragePreviewRow>{coveragePreview.message}</CoveragePreviewRow>
+                          )}
+                          {coveragePreview.is_extra && (
+                            <CoveragePreviewWarning>Será cobrada como extra quando realizada</CoveragePreviewWarning>
+                          )}
+                        </>
+                      )}
+                    </CoveragePreviewCard>
+                  )}
                   {shouldShowFormContext && (
                     <ScheduleContextCard className="span-2" $severity="block">
                       <strong>{formAvailabilityTitle}</strong>
@@ -3406,6 +3589,15 @@ export default function Agendamentos() {
                               >
                                 Por mes
                               </RepeatModeButton>
+                              {canUsePlanRepeatMode && (
+                                <RepeatModeButton
+                                  type="button"
+                                  $active={repeatMode === "plan"}
+                                  onClick={() => setRepeatMode("plan")}
+                                >
+                                  Agenda do plano
+                                </RepeatModeButton>
+                              )}
                             </RepeatModes>
                           </RepeatField>
                         </RepeatRow>
@@ -3453,6 +3645,15 @@ export default function Agendamentos() {
                                 />
                                 <span>semanas</span>
                               </RepeatInline>
+                            </RepeatField>
+                          )}
+                          {repeatMode === "plan" && canUsePlanRepeatMode && (
+                            <RepeatField className="full">
+                              <RepeatLabel>Agenda do plano</RepeatLabel>
+                              <RepeatReadonlyValue>
+                                Agenda fixa do plano. O sistema cria os proximos dias
+                                automaticamente e mantem a agenda futura pelo job recorrente.
+                              </RepeatReadonlyValue>
                             </RepeatField>
                           )}
                         </RepeatRow>
@@ -4423,7 +4624,7 @@ const GroupPill = styled.div`
   }};
   border: 1px solid rgba(106, 121, 92, 0.2);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
@@ -4443,13 +4644,32 @@ const GroupPill = styled.div`
   }
 `;
 
+const GroupPillContent = styled.span`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+`;
+
 const GroupPillPatient = styled.span`
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  flex: 1 1 auto;
   min-width: 0;
   width: 100%;
+`;
+
+const GroupPillMeta = styled.span`
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #4f6644;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 `;
 
 const OverflowIndicatorBadge = styled.div`
@@ -4748,6 +4968,17 @@ const DaySessionTop = styled.div`
   min-width: 0;
 `;
 
+const DaySessionPlanSummary = styled.span`
+  display: block;
+  color: #5d7050;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
 const DaySessionPatient = styled.strong`
   margin: 0;
   color: #1f1f1f;
@@ -5002,6 +5233,17 @@ const PatientInfoMeta = styled.div`
   gap: 6px;
   flex-wrap: wrap;
   min-width: 0;
+`;
+
+const PatientPlanSummary = styled.span`
+  display: block;
+  color: #5d7050;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 `;
 
 const PatientInfoProfessional = styled.span`
@@ -5763,6 +6005,50 @@ const BillingModeOption = styled.button`
     opacity: 0.55;
     cursor: not-allowed;
   }
+`;
+
+const ActivePlansCard = styled.div`
+  border: 1px solid rgba(106, 121, 92, 0.35);
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: rgba(106, 121, 92, 0.09);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
+
+const ActivePlanRow = styled.span`
+  font-size: 0.86rem;
+  color: #2e4025;
+
+  strong {
+    color: #1b1b1b;
+  }
+`;
+
+const CoveragePreviewCard = styled.div`
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: #f8faf5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
+
+const CoveragePreviewRow = styled.span`
+  font-size: 0.83rem;
+  color: #3d5230;
+
+  strong {
+    color: #1b1b1b;
+  }
+`;
+
+const CoveragePreviewWarning = styled.span`
+  font-size: 0.8rem;
+  color: #8a5c30;
+  margin-top: 2px;
 `;
 
 const BillingModeBadge = styled.span`

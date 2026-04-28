@@ -442,8 +442,7 @@ const Sections = styled.div`
   gap: 16px;
 `;
 
-const SectionCard = styled.div`
-  background: #fff;
+const SectionCard = styled(ModulePanel)`
   border-radius: 16px;
   border: 1px solid rgba(106, 121, 92, 0.18);
   padding: 18px;
