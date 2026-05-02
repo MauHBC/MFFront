@@ -7295,13 +7295,6 @@ const AttendanceControlsRow = styled.div`
   margin-bottom: ${ATTENDANCE_UI.spacing[2]};
 `;
 
-const AttendanceTabsRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: ${ATTENDANCE_UI.spacing[1]};
-  flex-wrap: wrap;
-`;
-
 const AttendanceTabGroup = styled.div`
   display: inline-flex;
   align-items: center;
