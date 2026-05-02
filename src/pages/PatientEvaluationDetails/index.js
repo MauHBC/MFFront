@@ -4,7 +4,7 @@ import styled from "styled-components";
 import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
-import Loading from "../../components/Loading";
+import DataLoadingState from "../../components/DataLoadingState";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { LinkGhostButton } from "../../components/AppButton";
 import {
@@ -346,7 +346,11 @@ export default function PatientEvaluationDetails() {
           <LinkGhostButton to={`/pacientes/${patientId}`}>Voltar</LinkGhostButton>
         </Header>
 
-        <Loading isLoading={isLoading} />
+        {isLoading && (
+          <SectionCard>
+            <DataLoadingState text="Carregando avaliação..." />
+          </SectionCard>
+        )}
 
         {!isLoading && (
           <>

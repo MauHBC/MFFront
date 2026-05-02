@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import styled from "styled-components";
+import styled, { keyframes } from "styled-components";
 import { toast } from "react-toastify";
-import { FaCheckCircle, FaSave } from "react-icons/fa";
+import { FaPlus, FaTimes } from "react-icons/fa";
 
-import axios from "../../services/axios";
-import Loading from "../../components/Loading";
+import { getUserFacingApiError } from "../../services/axios";
+import DataLoadingState from "../../components/DataLoadingState";
 import { LinkGhostButton } from "../../components/AppButton";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import {
@@ -14,251 +14,320 @@ import {
   ModuleSubtitle,
 } from "../../components/AppModuleShell";
 import {
-  acknowledgeSchedulingConflict,
   createSpecialSchedulingEvent,
-  getUnitSchedulingPolicy,
-  listSchedulingConflicts,
+  inactivateSpecialSchedulingEvent,
   listSpecialSchedulingEvents,
-  resolveSchedulingConflict,
   updateSpecialSchedulingEvent,
-  updateUnitSchedulingPolicy,
 } from "../../services/scheduling";
 
-const SOURCE_OPTIONS = [
+const HOLIDAY_SOURCE_OPTIONS = [
   { value: "national", label: "Feriado nacional" },
   { value: "state", label: "Feriado estadual" },
   { value: "city", label: "Feriado municipal" },
   { value: "optional_point", label: "Ponto facultativo" },
-  { value: "internal_block", label: "Bloqueio interno" },
-  { value: "staff_time_off", label: "Ausencia profissional" },
-  { value: "unit_closure", label: "Fechamento da unidade" },
 ];
 
-const BEHAVIOR_OPTIONS = [
-  { value: "INFO", label: "Informativo" },
-  { value: "WARN_CONFIRM", label: "Alerta com confirmacao" },
-  { value: "BLOCK", label: "Bloqueante" },
+const HOLIDAY_SOURCE_LABELS = HOLIDAY_SOURCE_OPTIONS.reduce((acc, option) => {
+  acc[option.value] = option.label;
+  return acc;
+}, {});
+
+const HOLIDAY_SOURCE_SET = new Set(HOLIDAY_SOURCE_OPTIONS.map((option) => option.value));
+
+const HOLIDAY_SCHEDULING_OPTIONS = [
+  {
+    value: "block",
+    label: "Clinica nao funciona e a agenda fica bloqueada",
+    help: "Mantem o comportamento atual de bloqueio e avisos de feriado na agenda.",
+  },
+  {
+    value: "open",
+    label: "Clinica funciona normalmente",
+    help: "O feriado fica apenas informativo e a agenda continua liberada.",
+  },
 ];
 
-const eventFormDefaults = {
-  source_type: "internal_block",
-  behavior_type: "BLOCK",
+const emptyHolidayForm = {
   name: "",
-  description: "",
-  start_date: "",
-  end_date: "",
-  all_day: true,
-  start_time: "08:00",
-  end_time: "18:00",
-  affects_scheduling: true,
-  professional_id: "",
+  date: "",
+  source_type: "national",
   state_code: "",
   city_name: "",
+  scheduling_mode: "block",
 };
 
-const policyDefaults = {
-  country_code: "BR",
-  state_code: "",
-  city_name: "",
-  national_behavior: "BLOCK",
-  state_behavior: "BLOCK",
-  city_behavior: "BLOCK",
-  optional_point_behavior: "WARN_CONFIRM",
-  internal_block_behavior: "BLOCK",
-  staff_time_off_behavior: "BLOCK",
-  unit_closure_behavior: "BLOCK",
-  allow_admin_override_block: true,
-};
-
-const formatDate = (value) => {
+const formatHolidayDate = (value) => {
   if (!value) return "-";
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("pt-BR");
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("pt-BR");
 };
+
+const formatHolidayLocation = (item) => {
+  if (!item) return "";
+  if (item.source_type === "city") {
+    const city = String(item.city_name || "").trim();
+    const state = String(item.state_code || "").trim().toUpperCase();
+    if (city && state) return `${city}/${state}`;
+    if (city) return city;
+  }
+  if (item.source_type === "state") {
+    const state = String(item.state_code || "").trim().toUpperCase();
+    if (state) return state;
+  }
+  return "";
+};
+
+const getHolidaySchedulingMode = (item) =>
+  item?.affects_scheduling === false ? "open" : "block";
+
+const getHolidaySchedulingPayload = (mode) => {
+  if (mode === "open") {
+    return {
+      behavior_type: "INFO",
+      affects_scheduling: false,
+    };
+  }
+
+  return {
+    behavior_type: "BLOCK",
+    affects_scheduling: true,
+  };
+};
+
+const getHolidaySchedulingLabel = (item) =>
+  getHolidaySchedulingMode(item) === "open"
+    ? "Clinica funciona"
+    : "Clinica fechada";
+
+const getHolidaySchedulingDescription = (item) =>
+  getHolidaySchedulingMode(item) === "open"
+    ? "Agenda liberada"
+    : "Agenda bloqueada";
 
 export default function SchedulingEvents() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [events, setEvents] = useState([]);
-  const [conflicts, setConflicts] = useState([]);
-  const [professionals, setProfessionals] = useState([]);
-  const [eventForm, setEventForm] = useState(eventFormDefaults);
-  const [policyForm, setPolicyForm] = useState(policyDefaults);
+  const [holidays, setHolidays] = useState([]);
+  const [isHolidayLoading, setIsHolidayLoading] = useState(false);
+  const [isHolidaySaving, setIsHolidaySaving] = useState(false);
+  const [holidayUpdatingId, setHolidayUpdatingId] = useState(null);
+  const [isHolidayOpen, setIsHolidayOpen] = useState(false);
+  const [holidayForm, setHolidayForm] = useState(emptyHolidayForm);
 
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
+  const holidayRows = useMemo(
+    () =>
+      [...holidays].sort((first, second) => {
+        const firstDate = String(first?.start_date || "");
+        const secondDate = String(second?.start_date || "");
+        return firstDate.localeCompare(secondDate);
+      }),
+    [holidays],
+  );
+
+  const loadHolidays = useCallback(async () => {
     try {
-      const [eventsResponse, conflictsResponse, policyResponse, usersResponse] =
-        await Promise.all([
-          listSpecialSchedulingEvents({ include_inactive: true }),
-          listSchedulingConflicts({}),
-          getUnitSchedulingPolicy(),
-          axios.get("/users", { params: { group: "profissional" } }),
-        ]);
-
-      setEvents(Array.isArray(eventsResponse.data) ? eventsResponse.data : []);
-      setConflicts(Array.isArray(conflictsResponse.data) ? conflictsResponse.data : []);
-      setProfessionals(Array.isArray(usersResponse.data) ? usersResponse.data : []);
-      const payload = policyResponse?.data || {};
-      setPolicyForm((prev) => ({
-        ...prev,
-        country_code: payload?.clinic_location?.country_code || prev.country_code,
-        state_code: payload?.clinic_location?.state_code || "",
-        city_name: payload?.clinic_location?.city_name || "",
-        national_behavior: payload.national_behavior || prev.national_behavior,
-        state_behavior: payload.state_behavior || prev.state_behavior,
-        city_behavior: payload.city_behavior || prev.city_behavior,
-        optional_point_behavior:
-          payload.optional_point_behavior || prev.optional_point_behavior,
-        internal_block_behavior:
-          payload.internal_block_behavior || prev.internal_block_behavior,
-        staff_time_off_behavior:
-          payload.staff_time_off_behavior || prev.staff_time_off_behavior,
-        unit_closure_behavior:
-          payload.unit_closure_behavior || prev.unit_closure_behavior,
-        allow_admin_override_block:
-          payload.allow_admin_override_block !== false,
-      }));
+      setIsHolidayLoading(true);
+      const response = await listSpecialSchedulingEvents({});
+      const items = Array.isArray(response.data) ? response.data : [];
+      setHolidays(items.filter((item) => HOLIDAY_SOURCE_SET.has(item.source_type)));
     } catch (error) {
-      toast.error(
-        error?.response?.data?.error ||
-          "Nao foi possivel carregar eventos especiais.",
-      );
+      toast.error(getUserFacingApiError(error, "Nao foi possivel carregar os feriados."));
     } finally {
-      setIsLoading(false);
+      setIsHolidayLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadHolidays();
+  }, [loadHolidays]);
 
-  const pendingConflicts = useMemo(
-    () =>
-      conflicts.filter(
-        (conflict) => conflict.status === "OPEN" || conflict.status === "ACKNOWLEDGED",
-      ),
-    [conflicts],
-  );
-
-  const handleEventChange = useCallback((event) => {
-    const { name, value, type, checked } = event.target;
-    setEventForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
+  const openHolidayModal = useCallback(() => {
+    setHolidayForm(emptyHolidayForm);
+    setIsHolidayOpen(true);
   }, []);
 
-  const handlePolicyChange = useCallback((event) => {
-    const { name, value, type, checked } = event.target;
-    setPolicyForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
+  const closeHolidayModal = useCallback(() => {
+    if (isHolidaySaving) return;
+    setIsHolidayOpen(false);
+  }, [isHolidaySaving]);
+
+  const handleHolidayChange = useCallback((event) => {
+    const { name, value } = event.target;
+    setHolidayForm((prev) => {
+      const next = { ...prev, [name]: value };
+      if (name === "source_type") {
+        if (value !== "state" && value !== "city") {
+          next.state_code = "";
+        }
+        if (value !== "city") {
+          next.city_name = "";
+        }
+      }
+      if (name === "state_code") {
+        next.state_code = String(value || "").toUpperCase().slice(0, 2);
+      }
+      return next;
+    });
   }, []);
 
-  const handleCreateEvent = useCallback(
-    async (event) => {
-      event.preventDefault();
-      if (!eventForm.name.trim()) {
-        toast.error("Informe o nome do evento especial.");
+  const handleSaveHoliday = useCallback(async () => {
+    if (!holidayForm.name.trim()) {
+      toast.error("Informe o nome do feriado.");
+      return;
+    }
+    if (!holidayForm.date) {
+      toast.error("Informe a data do feriado.");
+      return;
+    }
+    if (holidayForm.source_type === "state" && !holidayForm.state_code.trim()) {
+      toast.error("Informe a UF do feriado estadual.");
+      return;
+    }
+    if (holidayForm.source_type === "city") {
+      if (!holidayForm.state_code.trim()) {
+        toast.error("Informe a UF do feriado municipal.");
         return;
       }
-      if (!eventForm.start_date || !eventForm.end_date) {
-        toast.error("Informe inicio e fim do evento.");
+      if (!holidayForm.city_name.trim()) {
+        toast.error("Informe a cidade do feriado municipal.");
         return;
       }
+    }
+
+    try {
+      setIsHolidaySaving(true);
+      await createSpecialSchedulingEvent({
+        source_type: holidayForm.source_type,
+        name: holidayForm.name.trim(),
+        description: null,
+        start_date: holidayForm.date,
+        end_date: holidayForm.date,
+        all_day: true,
+        start_time: null,
+        end_time: null,
+        professional_id: null,
+        state_code: holidayForm.state_code.trim() || null,
+        city_name: holidayForm.city_name.trim() || null,
+        ...getHolidaySchedulingPayload(holidayForm.scheduling_mode),
+      });
+      toast.success("Feriado adicionado.");
+      setHolidayForm(emptyHolidayForm);
+      setIsHolidayOpen(false);
+      await loadHolidays();
+    } catch (error) {
+      toast.error(getUserFacingApiError(error, "Nao foi possivel salvar o feriado."));
+    } finally {
+      setIsHolidaySaving(false);
+    }
+  }, [holidayForm, loadHolidays]);
+
+  const handleDeleteHoliday = useCallback(
+    async (holiday) => {
+      if (!holiday?.id) return;
       try {
-        await createSpecialSchedulingEvent({
-          source_type: eventForm.source_type,
-          behavior_type: eventForm.behavior_type || null,
-          name: eventForm.name.trim(),
-          description: eventForm.description.trim() || null,
-          start_date: eventForm.start_date,
-          end_date: eventForm.end_date,
-          all_day: !!eventForm.all_day,
-          start_time: eventForm.all_day ? null : eventForm.start_time,
-          end_time: eventForm.all_day ? null : eventForm.end_time,
-          affects_scheduling: !!eventForm.affects_scheduling,
-          professional_id: eventForm.professional_id
-            ? Number(eventForm.professional_id)
-            : null,
-          state_code: eventForm.state_code || null,
-          city_name: eventForm.city_name || null,
+        await inactivateSpecialSchedulingEvent(holiday.id);
+        toast.success("Feriado excluido.");
+        await loadHolidays();
+      } catch (error) {
+        toast.error(getUserFacingApiError(error, "Nao foi possivel excluir o feriado."));
+      }
+    },
+    [loadHolidays],
+  );
+
+  const handleToggleHolidayScheduling = useCallback(
+    async (holiday) => {
+      if (!holiday?.id) return;
+      const currentMode = getHolidaySchedulingMode(holiday);
+      const nextMode = currentMode === "block" ? "open" : "block";
+
+      try {
+        setHolidayUpdatingId(holiday.id);
+        await updateSpecialSchedulingEvent(holiday.id, {
+          ...getHolidaySchedulingPayload(nextMode),
         });
-        toast.success("Evento especial criado.");
-        setEventForm(eventFormDefaults);
-        await loadData();
+        toast.success(
+          nextMode === "block"
+            ? "Feriado configurado para bloquear a agenda."
+            : "Feriado configurado como informativo.",
+        );
+        await loadHolidays();
       } catch (error) {
         toast.error(
-          error?.response?.data?.error ||
-            "Nao foi possivel criar evento especial.",
+          getUserFacingApiError(error, "Nao foi possivel atualizar o comportamento do feriado."),
         );
+      } finally {
+        setHolidayUpdatingId(null);
       }
     },
-    [eventForm, loadData],
+    [loadHolidays],
   );
 
-  const handleSavePolicy = useCallback(
-    async (event) => {
-      event.preventDefault();
-      try {
-        await updateUnitSchedulingPolicy(policyForm);
-        toast.success("Politica salva.");
-        await loadData();
-      } catch (error) {
-        toast.error(
-          error?.response?.data?.error || "Nao foi possivel salvar politica.",
-        );
-      }
-    },
-    [loadData, policyForm],
+  let content = (
+    <TableScroll>
+      <SimpleTable>
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Data</th>
+            <th>Tipo</th>
+            <th>Funcionamento</th>
+            <th>Acoes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {holidayRows.map((holiday) => {
+            const location = formatHolidayLocation(holiday);
+            const schedulingMode = getHolidaySchedulingMode(holiday);
+            const isUpdatingThisHoliday = holidayUpdatingId === holiday.id;
+            return (
+              <tr key={holiday.id}>
+                <td>
+                  <CellStack>
+                    <span>{holiday.name || "Feriado"}</span>
+                    {location ? <MutedText>{location}</MutedText> : null}
+                  </CellStack>
+                </td>
+                <td>{formatHolidayDate(holiday.start_date)}</td>
+                <td>{HOLIDAY_SOURCE_LABELS[holiday.source_type] || holiday.source_type || "-"}</td>
+                <td>
+                  <CellStack>
+                    <HolidaySchedulingBadge $mode={schedulingMode}>
+                      {getHolidaySchedulingLabel(holiday)}
+                    </HolidaySchedulingBadge>
+                    <MutedText>{getHolidaySchedulingDescription(holiday)}</MutedText>
+                  </CellStack>
+                </td>
+                <td>
+                  <RowActions>
+                    <SmallButton
+                      type="button"
+                      onClick={() => handleToggleHolidayScheduling(holiday)}
+                      disabled={isUpdatingThisHoliday}
+                    >
+                      {schedulingMode === "block" ? "Liberar agenda" : "Bloquear agenda"}
+                    </SmallButton>
+                    <SmallButton
+                      type="button"
+                      onClick={() => handleDeleteHoliday(holiday)}
+                      disabled={isUpdatingThisHoliday}
+                    >
+                      Excluir
+                    </SmallButton>
+                  </RowActions>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </SimpleTable>
+    </TableScroll>
   );
 
-  const handleToggleEvent = useCallback(
-    async (eventItem) => {
-      try {
-        await updateSpecialSchedulingEvent(eventItem.id, {
-          is_active: !eventItem.is_active,
-        });
-        toast.success(eventItem.is_active ? "Evento inativado." : "Evento reativado.");
-        await loadData();
-      } catch (error) {
-        toast.error(
-          error?.response?.data?.error ||
-            "Nao foi possivel atualizar evento especial.",
-        );
-      }
-    },
-    [loadData],
-  );
-
-  const handleAcknowledge = useCallback(
-    async (conflictId) => {
-      try {
-        await acknowledgeSchedulingConflict(conflictId, {});
-        toast.success("Conflito reconhecido.");
-        await loadData();
-      } catch (error) {
-        toast.error(
-          error?.response?.data?.error ||
-            "Nao foi possivel reconhecer o conflito.",
-        );
-      }
-    },
-    [loadData],
-  );
-
-  const handleResolve = useCallback(
-    async (conflictId) => {
-      try {
-        await resolveSchedulingConflict(conflictId, {
-          notes: "Resolvido manualmente.",
-        });
-        toast.success("Conflito resolvido.");
-        await loadData();
-      } catch (error) {
-        toast.error(
-          error?.response?.data?.error || "Nao foi possivel resolver conflito.",
-        );
-      }
-    },
-    [loadData],
-  );
+  if (isHolidayLoading) {
+    content = <DataLoadingState text="Carregando feriados..." />;
+  } else if (holidayRows.length === 0) {
+    content = <EmptyState>Sem feriados cadastrados.</EmptyState>;
+  }
 
   return (
     <PageWrapper $paddingTop="90px" $paddingBottom="60px">
@@ -273,170 +342,148 @@ export default function SchedulingEvents() {
       >
         <Header>
           <div>
-            <HeaderTitle>Eventos especiais da agenda</HeaderTitle>
-            <HeaderSubtitle>Gerencie bloqueios e conflitos operacionais.</HeaderSubtitle>
+            <HeaderTitle>Feriados</HeaderTitle>
+            <HeaderSubtitle>
+              Defina os feriados e se a clinica vai funcionar ou bloquear a agenda em cada data.
+            </HeaderSubtitle>
           </div>
           <BackLink to="/agendamentos">Voltar</BackLink>
         </Header>
-        <Loading isLoading={isLoading} />
 
         <Section>
-          <h2>Politica e localidade da unidade</h2>
-          <SimpleForm onSubmit={handleSavePolicy}>
-            <input name="country_code" value={policyForm.country_code} onChange={handlePolicyChange} placeholder="BR" />
-            <input name="state_code" value={policyForm.state_code} onChange={handlePolicyChange} placeholder="ES" />
-            <input name="city_name" value={policyForm.city_name} onChange={handlePolicyChange} placeholder="Vitoria" />
-            <select name="national_behavior" value={policyForm.national_behavior} onChange={handlePolicyChange}>
-              {BEHAVIOR_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <select name="state_behavior" value={policyForm.state_behavior} onChange={handlePolicyChange}>
-              {BEHAVIOR_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <select name="city_behavior" value={policyForm.city_behavior} onChange={handlePolicyChange}>
-              {BEHAVIOR_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <select name="optional_point_behavior" value={policyForm.optional_point_behavior} onChange={handlePolicyChange}>
-              {BEHAVIOR_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <select name="internal_block_behavior" value={policyForm.internal_block_behavior} onChange={handlePolicyChange}>
-              {BEHAVIOR_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <select name="staff_time_off_behavior" value={policyForm.staff_time_off_behavior} onChange={handlePolicyChange}>
-              {BEHAVIOR_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <select name="unit_closure_behavior" value={policyForm.unit_closure_behavior} onChange={handlePolicyChange}>
-              {BEHAVIOR_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <input
-              type="checkbox"
-              name="allow_admin_override_block"
-              aria-label="Permitir override admin em bloqueios"
-              checked={!!policyForm.allow_admin_override_block}
-              onChange={handlePolicyChange}
-            />
-            <span>Permitir override admin em bloqueios</span>
-            <SaveButton type="submit"><FaSave /> Salvar politica</SaveButton>
-          </SimpleForm>
+          <SectionHeader>
+            <div>
+              <SectionTitle>Feriados</SectionTitle>
+              <SectionSubtitle>
+                Controle os dias que aparecem na agenda como liberados ou bloqueados.
+              </SectionSubtitle>
+            </div>
+            <HeaderActions>
+              <GhostButton type="button" onClick={loadHolidays}>
+                Atualizar
+              </GhostButton>
+              <PrimaryButton type="button" onClick={openHolidayModal}>
+                <FaPlus />
+                Novo feriado
+              </PrimaryButton>
+            </HeaderActions>
+          </SectionHeader>
+
+          {content}
         </Section>
 
-        <Section>
-          <h2>Novo evento especial</h2>
-          <SimpleForm onSubmit={handleCreateEvent}>
-            <select name="source_type" value={eventForm.source_type} onChange={handleEventChange}>
-              {SOURCE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <select name="behavior_type" value={eventForm.behavior_type} onChange={handleEventChange}>
-              {BEHAVIOR_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <input name="name" value={eventForm.name} onChange={handleEventChange} placeholder="Nome do evento" />
-            <input type="date" name="start_date" value={eventForm.start_date} onChange={handleEventChange} />
-            <input type="date" name="end_date" value={eventForm.end_date} onChange={handleEventChange} />
-            <input
-              type="checkbox"
-              name="all_day"
-              aria-label="Evento em dia inteiro"
-              checked={!!eventForm.all_day}
-              onChange={handleEventChange}
-            />
-            <span>Evento em dia inteiro</span>
-            {!eventForm.all_day && (
-              <>
-                <input
-                  type="time"
-                  name="start_time"
-                  value={eventForm.start_time}
-                  onChange={handleEventChange}
-                />
-                <input
-                  type="time"
-                  name="end_time"
-                  value={eventForm.end_time}
-                  onChange={handleEventChange}
-                />
-              </>
-            )}
-            <select name="professional_id" value={eventForm.professional_id} onChange={handleEventChange}>
-              <option value="">Todos profissionais</option>
-              {professionals.map((professional) => (
-                <option key={professional.id} value={professional.id}>{professional.name}</option>
-              ))}
-            </select>
-            <input name="state_code" value={eventForm.state_code} onChange={handleEventChange} placeholder="Estado (ex.: ES)" />
-            <input name="city_name" value={eventForm.city_name} onChange={handleEventChange} placeholder="Cidade (ex.: Vitoria)" />
-            <input
-              type="checkbox"
-              name="affects_scheduling"
-              aria-label="Impacta disponibilidade"
-              checked={!!eventForm.affects_scheduling}
-              onChange={handleEventChange}
-            />
-            <span>Impacta disponibilidade</span>
-            <textarea name="description" value={eventForm.description} onChange={handleEventChange} placeholder="Descricao" />
-            <SaveButton type="submit"><FaSave /> Criar evento</SaveButton>
-          </SimpleForm>
-        </Section>
-
-        <Section>
-          <h2>Eventos cadastrados ({events.length})</h2>
-          <Table>
-            {events.map((eventItem) => (
-              <Row key={eventItem.id}>
-                <span>{formatDate(eventItem.start_date)} - {formatDate(eventItem.end_date)}</span>
-                <strong>{eventItem.name}</strong>
-                <small>{eventItem.source_type}</small>
-                <ActionButton
-                  type="button"
-                  onClick={() => handleToggleEvent(eventItem)}
-                >
-                  {eventItem.is_active ? "Inativar" : "Reativar"}
-                </ActionButton>
-              </Row>
-            ))}
-          </Table>
-        </Section>
-
-        <Section>
-          <h2>Conflitos pendentes ({pendingConflicts.length})</h2>
-          <Table>
-            {conflicts.map((conflict) => (
-              <Row key={conflict.id}>
-                <span>{conflict?.sourceEvent?.name || "-"}</span>
-                <strong>{conflict?.appointment?.Patient?.full_name || "Paciente"}</strong>
-                <small>{conflict.status}</small>
-                <Buttons>
-                  {conflict.status !== "RESOLVED" && (
-                    <>
-                      <ActionButton type="button" onClick={() => handleAcknowledge(conflict.id)}>
-                        Reconhecer
-                      </ActionButton>
-                      <ActionButton type="button" onClick={() => handleResolve(conflict.id)}>
-                        <FaCheckCircle /> Resolver
-                      </ActionButton>
-                    </>
-                  )}
-                </Buttons>
-              </Row>
-            ))}
-          </Table>
-        </Section>
+        {isHolidayOpen && (
+          <>
+            <ModalOverlay>
+              <ModalCard>
+                <ModalHeader>
+                  <div>
+                    <ModalTitle>Novo feriado</ModalTitle>
+                    <ModalSubtitle>
+                      Configure se a data bloqueia a agenda ou fica apenas informativa.
+                    </ModalSubtitle>
+                  </div>
+                  <IconButton type="button" onClick={closeHolidayModal}>
+                    <FaTimes />
+                  </IconButton>
+                </ModalHeader>
+                <ModalBody>
+                  <FormGrid>
+                    <Field>
+                      <Label htmlFor="holiday-name">Nome</Label>
+                      <Input
+                        id="holiday-name"
+                        name="name"
+                        placeholder="Ex.: Tiradentes"
+                        value={holidayForm.name}
+                        onChange={handleHolidayChange}
+                      />
+                    </Field>
+                    <Field>
+                      <Label htmlFor="holiday-date">Data</Label>
+                      <Input
+                        id="holiday-date"
+                        type="date"
+                        name="date"
+                        value={holidayForm.date}
+                        onChange={handleHolidayChange}
+                      />
+                    </Field>
+                    <Field>
+                      <Label htmlFor="holiday-source">Tipo</Label>
+                      <Select
+                        id="holiday-source"
+                        name="source_type"
+                        value={holidayForm.source_type}
+                        onChange={handleHolidayChange}
+                      >
+                        {HOLIDAY_SOURCE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field>
+                      <Label htmlFor="holiday-scheduling-mode">Funcionamento da clinica</Label>
+                      <Select
+                        id="holiday-scheduling-mode"
+                        name="scheduling_mode"
+                        value={holidayForm.scheduling_mode}
+                        onChange={handleHolidayChange}
+                      >
+                        {HOLIDAY_SCHEDULING_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                      <MutedText>
+                        {HOLIDAY_SCHEDULING_OPTIONS.find(
+                          (option) => option.value === holidayForm.scheduling_mode,
+                        )?.help || ""}
+                      </MutedText>
+                    </Field>
+                    {(holidayForm.source_type === "state" || holidayForm.source_type === "city") && (
+                      <Field>
+                        <Label htmlFor="holiday-state">UF</Label>
+                        <Input
+                          id="holiday-state"
+                          name="state_code"
+                          placeholder="SP"
+                          maxLength={2}
+                          value={holidayForm.state_code}
+                          onChange={handleHolidayChange}
+                        />
+                      </Field>
+                    )}
+                    {holidayForm.source_type === "city" && (
+                      <Field>
+                        <Label htmlFor="holiday-city">Cidade</Label>
+                        <Input
+                          id="holiday-city"
+                          name="city_name"
+                          placeholder="Sao Paulo"
+                          value={holidayForm.city_name}
+                          onChange={handleHolidayChange}
+                        />
+                      </Field>
+                    )}
+                  </FormGrid>
+                </ModalBody>
+                <ModalActions>
+                  <SecondaryButton type="button" onClick={closeHolidayModal} disabled={isHolidaySaving}>
+                    Cancelar
+                  </SecondaryButton>
+                  <PrimaryButton type="button" onClick={handleSaveHoliday} disabled={isHolidaySaving}>
+                    {isHolidaySaving ? <ButtonSpinner /> : "Adicionar feriado"}
+                  </PrimaryButton>
+                </ModalActions>
+              </ModalCard>
+            </ModalOverlay>
+            <Backdrop onClick={closeHolidayModal} />
+          </>
+        )}
       </PageContent>
     </PageWrapper>
   );
@@ -463,69 +510,278 @@ const BackLink = styled(LinkGhostButton)`
 
 const Section = styled(ModulePanel).attrs({ as: "section" })`
   border: 1px solid rgba(106, 121, 92, 0.18);
-  padding: 14px;
+  padding: 24px;
   margin-bottom: 12px;
 `;
 
-const SimpleForm = styled.form`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 8px;
-
-  input,
-  select,
-  textarea {
-    border: 1px solid rgba(106, 121, 92, 0.24);
-    border-radius: 8px;
-    padding: 8px 10px;
-  }
-
-  textarea {
-    grid-column: 1 / -1;
-    min-height: 70px;
-  }
-`;
-
-const SaveButton = styled.button`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: none;
-  border-radius: 8px;
-  background: #6a795c;
-  color: #fff;
-  font-weight: 700;
-  padding: 8px 12px;
-`;
-
-const Table = styled.div`
-  display: grid;
-  gap: 8px;
-`;
-
-const Row = styled.div`
-  border: 1px solid rgba(106, 121, 92, 0.18);
-  border-radius: 10px;
-  padding: 10px;
-  display: grid;
-  gap: 6px;
-`;
-
-const Buttons = styled.div`
+const SectionHeader = styled.div`
   display: flex;
-  gap: 6px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
   flex-wrap: wrap;
 `;
 
-const ActionButton = styled.button`
+const HeaderActions = styled.div`
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+`;
+
+const SectionTitle = styled.h2`
+  margin: 0;
+  font-size: 22px;
+  color: #2b2b2b;
+`;
+
+const SectionSubtitle = styled.p`
+  margin: 4px 0 0;
+  color: #6b6b6b;
+`;
+
+const TableScroll = styled.div`
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+`;
+
+const SimpleTable = styled.table`
+  width: 100%;
+  border-collapse: collapse;
+
+  th,
+  td {
+    padding: 12px 8px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    text-align: left;
+    font-size: 14px;
+    vertical-align: top;
+  }
+
+  th {
+    font-weight: 700;
+    color: #555;
+  }
+`;
+
+const CellStack = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
+
+const MutedText = styled.span`
+  color: #777;
+  font-size: 13px;
+`;
+
+const HolidaySchedulingBadge = styled.span`
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border: 1px solid rgba(106, 121, 92, 0.25);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: ${(props) => (props.$mode === "open" ? "#e3f1e0" : "#f7e7dc")};
+  color: ${(props) => (props.$mode === "open" ? "#4f6b45" : "#9a6a3a")};
+`;
+
+const RowActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+`;
+
+const EmptyState = styled.div`
+  padding: 40px 16px;
+  text-align: center;
+  color: #6a795c;
+`;
+
+const PrimaryButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: none;
+  border-radius: 10px;
+  background: #6a795c;
+  color: #fff;
+  padding: 10px 16px;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+`;
+
+const GhostButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 1px solid rgba(106, 121, 92, 0.3);
+  border-radius: 10px;
   background: #fff;
-  color: #506045;
-  border-radius: 8px;
-  padding: 6px 10px;
+  color: #4f6045;
+  padding: 10px 16px;
+  font-weight: 700;
+  cursor: pointer;
+`;
+
+const SecondaryButton = styled(GhostButton)``;
+
+const SmallButton = styled.button`
+  border: 1px solid rgba(106, 121, 92, 0.28);
+  border-radius: 10px;
+  background: #fff;
+  color: #4f6045;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+`;
+
+const spin = keyframes`
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+`;
+
+const ButtonSpinner = styled.span`
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  animation: ${spin} 0.75s linear infinite;
+`;
+
+const ModalOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: max(14px, env(safe-area-inset-top)) 16px 14px;
+  overflow-y: auto;
+  z-index: 2000;
+`;
+
+const ModalCard = styled.div`
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100dvh - 28px);
+  background: #fff;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.15);
+  z-index: 2001;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  @media (max-width: 760px) {
+    width: 100%;
+    max-height: calc(100dvh - 16px);
+    border-radius: 14px;
+    padding: 16px;
+  }
+`;
+
+const ModalHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+`;
+
+const ModalTitle = styled.h3`
+  margin: 0;
+  font-size: 20px;
+`;
+
+const ModalSubtitle = styled.p`
+  margin: 4px 0 0;
+  color: #6d6d6d;
+`;
+
+const IconButton = styled.button`
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  color: #4a4a4a;
+  cursor: pointer;
+`;
+
+const ModalBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-right: -4px;
+`;
+
+const FormGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+`;
+
+const Field = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const Label = styled.label`
   font-weight: 600;
+  color: #4a4a4a;
+`;
+
+const Input = styled.input`
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+`;
+
+const Select = styled.select`
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: #fff;
+`;
+
+const ModalActions = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
+`;
+
+const Backdrop = styled.div`
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 1990;
 `;

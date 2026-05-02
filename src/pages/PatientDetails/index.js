@@ -4,7 +4,7 @@ import styled, { css } from "styled-components";
 import { toast } from "react-toastify";
 import { FaInfoCircle, FaListAlt, FaPhoneAlt, FaUserAlt } from "react-icons/fa";
 
-import Loading from "../../components/Loading";
+import DataLoadingState from "../../components/DataLoadingState";
 import axios from "../../services/axios";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { LinkGhostButton } from "../../components/AppButton";
@@ -668,7 +668,13 @@ export default function PatientDetails() {
           </TabButton>
         </Tabs>
 
-        <Loading isLoading={isLoading || isSavingSection} />
+        {isLoading && (
+          <Section>
+            <InfoCard>
+              <DataLoadingState text="Carregando paciente..." />
+            </InfoCard>
+          </Section>
+        )}
 
         {!isLoading && activeTab === TABS.resumo && (
           <Section>

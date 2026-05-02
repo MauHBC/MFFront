@@ -2,10 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import styled from "styled-components";
 import {
   FaBars,
-  FaCalendarAlt,
   FaChartLine,
   FaChevronLeft,
-  FaCoins,
   FaMoneyBillWave,
   FaRegCreditCard,
   FaTags,
@@ -38,6 +36,7 @@ import {
   GhostButton as SharedGhostButton,
 } from "../../components/AppButton";
 import { DataTable as SharedDataTable } from "../../components/AppTable";
+import PatientSearchField from "../../components/PatientSearchField";
 import axios, { getUserFacingApiError } from "../../services/axios";
 import {
   listFinancialEntries,
@@ -66,6 +65,10 @@ import {
   listSpecialSchedulingEvents,
   updateSpecialSchedulingEvent,
 } from "../../services/scheduling";
+import {
+  getPatientSearchText,
+  normalizeSearchText,
+} from "../../utils/patientSearch";
 
 const emptyEntry = {
   type: "income",
@@ -520,15 +523,6 @@ const toDateTimeLocalInputValue = (value = new Date()) => {
   return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
 };
 
-const normalizeSearchText = (value) =>
-  String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
 const getPatientDisplayName = (patient) => patient?.full_name || patient?.name || "Paciente";
 
 const getMonthRangeFromInputValue = (value) => {
@@ -551,6 +545,42 @@ const getYearRangeFromValue = (value) => {
     start: toDateInputValue(start),
     end: toDateInputValue(end),
   };
+};
+
+const isDateOnlyWithinRange = (value, start, end) => {
+  const dateOnly = String(value || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return false;
+  if (start && dateOnly < start) return false;
+  if (end && dateOnly > end) return false;
+  return true;
+};
+
+const formatSessionDateTimeBR = (value) => {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const formatSessionWeekdayBR = (value) => {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  const label = parsed.toLocaleDateString("pt-BR", { weekday: "long" });
+  return label ? label.charAt(0).toUpperCase() + label.slice(1) : "-";
+};
+
+const formatBillingCycleSessionStatus = (status) => {
+  if (status === "done") return "Realizada";
+  if (status === "no_show") return "Falta";
+  if (status === "canceled") return "Cancelada";
+  return "Agendada";
 };
 
 const getCurrentMonthRange = () => {
@@ -638,6 +668,29 @@ export default function Financeiro() {
   const [isBillingCyclesLoading, setIsBillingCyclesLoading] = useState(false);
   const [hasBillingCyclesLoaded, setHasBillingCyclesLoaded] = useState(false);
   const [billingCyclesStatusFilter, setBillingCyclesStatusFilter] = useState("all");
+  const [billingCyclesFilters, setBillingCyclesFilters] = useState(() => {
+    const range = getCurrentMonthRange();
+    return {
+      start: range.start,
+      end: range.end,
+      search: "",
+    };
+  });
+  const [billingCyclesPeriodMode, setBillingCyclesPeriodMode] = useState("month");
+  const [billingCyclesPeriodMonth, setBillingCyclesPeriodMonth] = useState(() =>
+    toMonthInputValue(new Date()),
+  );
+  const [billingCyclesPeriodYear, setBillingCyclesPeriodYear] = useState(() =>
+    String(new Date().getFullYear()),
+  );
+  const billingCyclesMonthPickerRef = useRef(null);
+  const [billingCycleSessionsPreview, setBillingCycleSessionsPreview] = useState({
+    open: false,
+    cycle: null,
+    sessions: [],
+    isLoading: false,
+    error: "",
+  });
 
   const [isEntryOpen, setIsEntryOpen] = useState(false);
   const [entryForm, setEntryForm] = useState(emptyEntry);
@@ -766,7 +819,7 @@ export default function Financeiro() {
     if (!paymentPatientNormalizedQuery) return [];
     return sortedPatients
       .filter((patient) =>
-        normalizeSearchText(getPatientDisplayName(patient)).includes(paymentPatientNormalizedQuery),
+        getPatientSearchText(patient).includes(paymentPatientNormalizedQuery),
       )
       .slice(0, 12);
   }, [paymentPatientNormalizedQuery, sortedPatients]);
@@ -1029,6 +1082,7 @@ export default function Financeiro() {
     if (status === "paid") return "Pago";
     if (status === "partial") return "Parcial";
     if (status === "canceled") return "Cancelado";
+    if (status === "overdue") return "Vencido";
     if (status === "missing") return "Sem lancamento";
     if (status === "covered_by_plan") return "Coberto pelo plano";
     return "Pendente";
@@ -1101,8 +1155,8 @@ export default function Financeiro() {
     try {
       setIsBillingCyclesLoading(true);
       const params = {};
-      if (attendanceFilters.start) params.from = attendanceFilters.start;
-      if (attendanceFilters.end) params.to = attendanceFilters.end;
+      if (billingCyclesFilters.start) params.from = billingCyclesFilters.start;
+      if (billingCyclesFilters.end) params.to = billingCyclesFilters.end;
       const response = await listBillingCycles(params);
       setBillingCycles(response.data || []);
       setHasBillingCyclesLoaded(true);
@@ -1111,7 +1165,7 @@ export default function Financeiro() {
     } finally {
       setIsBillingCyclesLoading(false);
     }
-  }, [attendanceFilters.start, attendanceFilters.end]);
+  }, [billingCyclesFilters.start, billingCyclesFilters.end]);
 
   const loadAttendance = useCallback(async () => {
     try {
@@ -1494,6 +1548,141 @@ export default function Financeiro() {
     shiftAttendancePeriod(1);
   }, [shiftAttendancePeriod]);
 
+  useEffect(() => {
+    const range =
+      billingCyclesPeriodMode === "year"
+        ? getYearRangeFromValue(billingCyclesPeriodYear)
+        : getMonthRangeFromInputValue(billingCyclesPeriodMonth);
+
+    if (!range) return;
+
+    setBillingCyclesFilters((prev) => {
+      if (prev.start === range.start && prev.end === range.end) return prev;
+      return {
+        ...prev,
+        start: range.start,
+        end: range.end,
+      };
+    });
+  }, [billingCyclesPeriodMode, billingCyclesPeriodMonth, billingCyclesPeriodYear]);
+
+  const handleBillingCyclesMonthPickerChange = useCallback((event) => {
+    const { value } = event.target;
+    const parsed = parseMonthInputValue(value);
+    if (!parsed) return;
+    setBillingCyclesPeriodMonth(value);
+    setBillingCyclesPeriodYear(String(parsed.year));
+  }, []);
+
+  const handleBillingCyclesYearPickerChange = useCallback((event) => {
+    const digits = String(event.target.value || "").replace(/\D/g, "").slice(0, 4);
+    if (!digits) return;
+    setBillingCyclesPeriodYear(digits);
+    setBillingCyclesPeriodMonth((prev) => {
+      const parsed = parseMonthInputValue(prev);
+      if (!parsed) return `${digits}-01`;
+      return `${digits}-${String(parsed.month).padStart(2, "0")}`;
+    });
+  }, []);
+
+  const handleBillingCyclesPeriodModeChange = useCallback((mode) => {
+    if (!["month", "year"].includes(mode)) return;
+    setBillingCyclesPeriodMode(mode);
+  }, []);
+
+  const handleBillingCyclesPeriodTagClick = useCallback(() => {
+    if (billingCyclesPeriodMode !== "month") return;
+    const input = billingCyclesMonthPickerRef.current;
+    if (!input) return;
+    if (typeof input.showPicker === "function") {
+      try {
+        input.showPicker();
+        return;
+      } catch (error) {
+        // fallback below
+      }
+    }
+    input.focus();
+    input.click();
+  }, [billingCyclesPeriodMode]);
+
+  const shiftBillingCyclesPeriod = useCallback((direction) => {
+    if (!Number.isFinite(direction) || direction === 0) return;
+    if (billingCyclesPeriodMode === "year") {
+      setBillingCyclesPeriodYear((prev) => {
+        const baseYear = Number(String(prev || "").trim());
+        const nextYear = Number.isInteger(baseYear)
+          ? baseYear + direction
+          : new Date().getFullYear() + direction;
+        return String(nextYear);
+      });
+      return;
+    }
+
+    setBillingCyclesPeriodMonth((prev) => {
+      const parsed = parseMonthInputValue(prev);
+      const baseDate = parsed
+        ? new Date(parsed.year, parsed.month - 1, 1)
+        : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      const target = new Date(baseDate.getFullYear(), baseDate.getMonth() + direction, 1);
+      return toMonthInputValue(target);
+    });
+  }, [billingCyclesPeriodMode]);
+
+  const handleBillingCyclesPreviousMonth = useCallback(() => {
+    shiftBillingCyclesPeriod(-1);
+  }, [shiftBillingCyclesPeriod]);
+
+  const handleBillingCyclesNextMonth = useCallback(() => {
+    shiftBillingCyclesPeriod(1);
+  }, [shiftBillingCyclesPeriod]);
+
+  const closeBillingCycleSessionsPreview = useCallback(() => {
+    setBillingCycleSessionsPreview({
+      open: false,
+      cycle: null,
+      sessions: [],
+      isLoading: false,
+      error: "",
+    });
+  }, []);
+
+  const openBillingCycleSessionsPreview = useCallback(async (cycle) => {
+    if (!cycle?.id) return;
+    setBillingCycleSessionsPreview({
+      open: true,
+      cycle,
+      sessions: [],
+      isLoading: true,
+      error: "",
+    });
+
+    try {
+      const params = {};
+      if (cycle.cycle_start) params.from = cycle.cycle_start;
+      if (cycle.cycle_end) params.to = cycle.cycle_end;
+      const response = await axios.get("/sessions", { params });
+      const sessions = (Array.isArray(response.data) ? response.data : [])
+        .filter((session) => String(session.billing_cycle_id || "") === String(cycle.id))
+        .sort((first, second) => {
+          const firstTime = first?.starts_at ? new Date(first.starts_at).getTime() : 0;
+          const secondTime = second?.starts_at ? new Date(second.starts_at).getTime() : 0;
+          return firstTime - secondTime;
+        });
+      setBillingCycleSessionsPreview((prev) => ({
+        ...prev,
+        sessions,
+        isLoading: false,
+      }));
+    } catch (error) {
+      setBillingCycleSessionsPreview((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: getUserFacingApiError(error, "Nao foi possivel carregar as sessoes do ciclo."),
+      }));
+    }
+  }, []);
+
   const handleViewPatientSessions = useCallback((patientId) => {
     if (!patientId) return;
     setAttendanceDrilldownPatientId(String(patientId));
@@ -1581,7 +1770,7 @@ export default function Financeiro() {
 
   const handleSectionChange = useCallback(
     (section) => {
-      setActiveSection(section);
+      setActiveSection(section === "prices" ? "methods" : section);
       if (isMobile) {
         closeSidebar();
       }
@@ -2190,7 +2379,7 @@ export default function Financeiro() {
           ) || null
           : null;
 
-        const isCoveredByPlan = !entry && session.billing_mode === "covered_by_plan";
+        const billingMode = session.billing_mode || "per_session";
 
         return {
           id: session.id,
@@ -2202,12 +2391,12 @@ export default function Financeiro() {
           professionalName,
           serviceName,
           recurrence: formatRecurrence(session),
-          billing_mode: session.billing_mode || "per_session",
-          amountCents: isCoveredByPlan ? 0 : amountCents,
-          paidCents: isCoveredByPlan ? 0 : paidCents,
-          openCents: isCoveredByPlan ? 0 : effectiveOpenCents,
+          billing_mode: billingMode,
+          amountCents,
+          paidCents,
+          openCents: effectiveOpenCents,
           entry,
-          financialStatus: isCoveredByPlan ? "covered_by_plan" : status,
+          financialStatus: status,
           payment: latestPayment,
           paymentCount,
           totalReceivedCents,
@@ -2222,15 +2411,10 @@ export default function Financeiro() {
           installments,
         };
       })
+      .filter((row) => row.billing_mode === "per_session")
       .filter((row) => {
         if (!search) return true;
-        const haystack = normalizeSearchText([
-          row.patientName,
-          row.professionalName,
-          row.serviceName,
-        ]
-          .filter(Boolean)
-          .join(" "));
+        const haystack = normalizeSearchText(row.patientName);
         return haystack.includes(search);
       })
       .filter((row) => {
@@ -2272,6 +2456,7 @@ export default function Financeiro() {
   ]);
 
   const attendanceManualPaymentRows = useMemo(() => {
+    if (!SHOW_MANUAL_ENTRIES) return [];
     const startDate = attendanceFilters.start
       ? parseDateInputBoundary(attendanceFilters.start, "start")
       : null;
@@ -2398,11 +2583,7 @@ export default function Financeiro() {
 
     const matchesSearch = (row) => {
       if (!search) return true;
-      const haystack = normalizeSearchText(
-        [row.patientName, row.professionalName, row.serviceName]
-          .filter(Boolean)
-          .join(" "),
-      );
+      const haystack = normalizeSearchText(row.patientName);
       return haystack.includes(search);
     };
 
@@ -2457,6 +2638,7 @@ export default function Financeiro() {
       if (!dueInstallments.length) return;
 
       const linkedSession = entry.session_id ? sessionById.get(entry.session_id) : null;
+      if (linkedSession?.billing_mode === "covered_by_plan") return;
       const patientId = Number(entry.patient_id || linkedSession?.patient_id || 0) || null;
       if (selectedPatientId && patientId !== selectedPatientId) return;
       const professionalId = Number(
@@ -2791,6 +2973,7 @@ export default function Financeiro() {
       openPatients: 0,
       pendingAmount: 0,
       paidAmount: 0,
+      expectedAmount: 0,
       creditsAvailable: 0,
     };
 
@@ -2811,9 +2994,84 @@ export default function Financeiro() {
     });
 
     data.openPatients = openPatients.size;
+    data.expectedAmount = data.paidAmount + data.pendingAmount;
 
     return data;
   }, [attendanceRows, creditBalanceByPatient]);
+
+  const resolveBillingCycleFinancial = useCallback((cycle) => {
+    const entry = cycle?.FinancialEntry || (cycle?.financial_entry_id
+      ? entryMap.get(cycle.financial_entry_id)
+      : null);
+    const financial = entry?.id ? entryFinancialMap.get(entry.id) : null;
+    const amount = Number(cycle?.amount_cents || entry?.amount_cents || financial?.amount || 0);
+    const paid = Math.min(amount, Number(financial?.paid || 0));
+    const open = Math.max(0, Number(financial?.open ?? amount - paid));
+    let status = financial?.status || entry?.status || cycle?.status || "pending";
+
+    if (status === "pending" && open > 0 && entry?.due_date) {
+      const dueDate = parseDateInputBoundary(String(entry.due_date).slice(0, 10), "end");
+      const today = parseDateInputBoundary(toDateInputValue(new Date()), "end");
+      if (dueDate && today && dueDate.getTime() < today.getTime()) {
+        status = "overdue";
+      }
+    }
+
+    return { entry, amount, paid, open, status };
+  }, [entryFinancialMap, entryMap]);
+
+  const billingCyclesFilteredRows = useMemo(() => {
+    const search = normalizeSearchText(billingCyclesFilters.search);
+    return billingCycles
+      .filter((cycle) => {
+        if (!isDateOnlyWithinRange(
+          cycle.cycle_start,
+          billingCyclesFilters.start,
+          billingCyclesFilters.end,
+        )) {
+          return false;
+        }
+        const financial = resolveBillingCycleFinancial(cycle);
+        const { status } = financial;
+        if (billingCyclesStatusFilter !== "all" && status !== billingCyclesStatusFilter) {
+          return false;
+        }
+        if (!search) return true;
+        return getPatientSearchText(cycle.Patient).includes(search);
+      })
+      .sort((a, b) => String(b.cycle_start || "").localeCompare(String(a.cycle_start || "")));
+  }, [
+    billingCycles,
+    billingCyclesFilters.end,
+    billingCyclesFilters.search,
+    billingCyclesFilters.start,
+    billingCyclesStatusFilter,
+    resolveBillingCycleFinancial,
+  ]);
+
+  const billingCyclesSummary = useMemo(() => {
+    const activePlanIds = new Set();
+    const data = {
+      activePlans: 0,
+      expectedCents: 0,
+      paidCents: 0,
+      pendingCents: 0,
+    };
+
+    billingCyclesFilteredRows.forEach((cycle) => {
+      if (cycle.status !== "canceled" && cycle.patient_plan_id) {
+        activePlanIds.add(cycle.patient_plan_id);
+      }
+      const financial = resolveBillingCycleFinancial(cycle);
+      if (financial.status === "canceled") return;
+      data.expectedCents += financial.amount;
+      data.paidCents += financial.paid;
+      data.pendingCents += financial.open;
+    });
+
+    data.activePlans = activePlanIds.size;
+    return data;
+  }, [billingCyclesFilteredRows, resolveBillingCycleFinancial]);
 
   const isAttendancePatientRequired = attendanceView === "sessions" && !selectedAttendancePatientId;
   const canOpenAttendanceSessionsView = !!selectedAttendancePatientId;
@@ -2836,6 +3094,25 @@ export default function Financeiro() {
     }
     return years;
   }, [attendancePeriodYear]);
+
+  const billingCyclesPeriodLabel = useMemo(() => {
+    if (billingCyclesPeriodMode === "year") {
+      return billingCyclesPeriodYear || "";
+    }
+    const parsed = parseMonthInputValue(billingCyclesPeriodMonth);
+    if (!parsed) return "";
+    return formatMonthYear(new Date(parsed.year, parsed.month - 1, 1));
+  }, [billingCyclesPeriodMode, billingCyclesPeriodMonth, billingCyclesPeriodYear]);
+
+  const billingCyclesYearOptions = useMemo(() => {
+    const nowYear = new Date().getFullYear();
+    const currentYear = Number(String(billingCyclesPeriodYear || "").trim()) || nowYear;
+    const years = [];
+    for (let year = currentYear - 5; year <= currentYear + 5; year += 1) {
+      years.push(String(year));
+    }
+    return years;
+  }, [billingCyclesPeriodYear]);
 
   const openEntriesForPayment = useMemo(() => {
     const patientId = Number(paymentForm.patient_id || 0);
@@ -3662,8 +3939,11 @@ export default function Financeiro() {
 
   const renderAttendance = () => {
     const isAttendanceBusy = isAttendanceLoading || (loading && !hasAttendanceLoaded);
+    const periodSuffix = attendancePeriodLabel ? ` — ${attendancePeriodLabel}` : "";
     const attendanceTitle =
-      attendanceView === "patients" ? "Resumo por paciente" : "Detalhe financeiro";
+      attendanceView === "patients"
+        ? `Resumo por paciente${periodSuffix}`
+        : `Atendimentos por sessão${periodSuffix}`;
 
     let attendanceContent = (
       <AttendanceEmptyState>Sem atendimentos no periodo.</AttendanceEmptyState>
@@ -3676,11 +3956,11 @@ export default function Financeiro() {
             <AttendanceOverviewTable>
               <thead>
                 <tr>
-                  <th>Cliente</th>
+                  <th>Paciente</th>
                   <th>Sessoes</th>
-                  <th>Valor total</th>
-                  <th>Em aberto</th>
-                  <th>Valor pago</th>
+                  <th>Receita esperada</th>
+                  <th>A receber</th>
+                  <th>Recebido</th>
                   <th>Credito</th>
                   <th>Ações</th>
                 </tr>
@@ -3718,7 +3998,7 @@ export default function Financeiro() {
                           type="button"
                           onClick={() => handleViewPatientSessions(row.patientId)}
                         >
-                          Ver sessoes
+                          Ver sessões
                         </AttendanceSmallAction>
                       </AttendanceRowActions>
                     </td>
@@ -3733,9 +4013,9 @@ export default function Financeiro() {
 
     if (attendanceView === "sessions" && isAttendancePatientRequired) {
       attendanceContent = (
-        <AttendanceEmptyState>
+        <AttendanceRequiredPatientNotice>
           Selecione um paciente nos filtros para visualizar o detalhe por sessao.
-        </AttendanceEmptyState>
+        </AttendanceRequiredPatientNotice>
       );
     }
 
@@ -3788,7 +4068,7 @@ export default function Financeiro() {
                     </th>
                   )}
                   <th>Data</th>
-                  <th>Cliente</th>
+                  <th>Paciente</th>
                   <th>Profissional</th>
                   <th>Servico</th>
                   <th>Valor</th>
@@ -4004,6 +4284,73 @@ export default function Financeiro() {
           </SectionLoader>
         ) : (
           <>
+            <AttendancePeriodBlock>
+              <AttendancePeriodBlockLeft>
+                <AttendancePeriodBlockLabel>Competência financeira</AttendancePeriodBlockLabel>
+                <AttendancePeriodBlockValue>{attendancePeriodLabel}</AttendancePeriodBlockValue>
+              </AttendancePeriodBlockLeft>
+              <AttendancePeriodBlockRight>
+                <AttendanceTabGroup>
+                  <AttendanceTabButton
+                    type="button"
+                    $active={attendancePeriodMode === "month"}
+                    onClick={() => handleAttendancePeriodModeChange("month")}
+                  >
+                    Mês
+                  </AttendanceTabButton>
+                  <AttendanceTabButton
+                    type="button"
+                    $active={attendancePeriodMode === "year"}
+                    onClick={() => handleAttendancePeriodModeChange("year")}
+                  >
+                    Visão anual
+                  </AttendanceTabButton>
+                </AttendanceTabGroup>
+                {attendancePeriodLabel && (
+                  <AttendancePeriodControls>
+                    <AttendancePeriodButton type="button" onClick={handleAttendancePreviousMonth}>
+                      {attendancePeriodMode === "year" ? "← Ano anterior" : "← Anterior"}
+                    </AttendancePeriodButton>
+                    <AttendancePeriodChip
+                      role="button"
+                      tabIndex={0}
+                      onClick={handleAttendancePeriodTagClick}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          handleAttendancePeriodTagClick();
+                        }
+                      }}
+                    >
+                      {attendancePeriodLabel}
+                      {attendancePeriodMode === "year" ? (
+                        <AttendancePeriodYearSelect
+                          aria-label="Selecionar ano"
+                          value={attendancePeriodYear}
+                          onChange={handleAttendanceYearPickerChange}
+                        >
+                          {attendanceYearOptions.map((year) => (
+                            <option key={year} value={year}>{year}</option>
+                          ))}
+                        </AttendancePeriodYearSelect>
+                      ) : (
+                        <AttendancePeriodMonthInput
+                          ref={attendanceMonthPickerRef}
+                          aria-label="Selecionar mes e ano"
+                          type="month"
+                          value={attendancePeriodMonth}
+                          onChange={handleAttendanceMonthPickerChange}
+                        />
+                      )}
+                    </AttendancePeriodChip>
+                    <AttendancePeriodButton type="button" onClick={handleAttendanceNextMonth}>
+                      {attendancePeriodMode === "year" ? "Próximo ano →" : "Próximo →"}
+                    </AttendancePeriodButton>
+                  </AttendancePeriodControls>
+                )}
+              </AttendancePeriodBlockRight>
+            </AttendancePeriodBlock>
+
             <AttendanceCard>
               <AttendanceCardHeader>
                 <AttendanceCardTitle>Resumo de cobranca</AttendanceCardTitle>
@@ -4014,16 +4361,16 @@ export default function Financeiro() {
                   <AttendanceMetricValue>{attendanceSummary.total}</AttendanceMetricValue>
                 </AttendanceMetricCard>
                 <AttendanceMetricCard>
-                  <AttendanceMetricLabel>Pacientes em aberto</AttendanceMetricLabel>
-                  <AttendanceMetricValue>{attendanceSummary.openPatients}</AttendanceMetricValue>
+                  <AttendanceMetricLabel>Receita esperada</AttendanceMetricLabel>
+                  <AttendanceMetricValue>{formatCurrency(attendanceSummary.expectedAmount)}</AttendanceMetricValue>
                 </AttendanceMetricCard>
                 <AttendanceMetricCard>
-                  <AttendanceMetricLabel>Pendente de pagamento</AttendanceMetricLabel>
+                  <AttendanceMetricLabel>Recebido</AttendanceMetricLabel>
+                  <AttendanceMetricValue>{formatCurrency(attendanceSummary.paidAmount)}</AttendanceMetricValue>
+                </AttendanceMetricCard>
+                <AttendanceMetricCard>
+                  <AttendanceMetricLabel>Pendente</AttendanceMetricLabel>
                   <AttendanceMetricValue>{formatCurrency(attendanceSummary.pendingAmount)}</AttendanceMetricValue>
-                </AttendanceMetricCard>
-                <AttendanceMetricCard>
-                  <AttendanceMetricLabel>Credito antecipado</AttendanceMetricLabel>
-                  <AttendanceMetricValue>{formatCurrency(attendanceSummary.creditsAvailable)}</AttendanceMetricValue>
                 </AttendanceMetricCard>
               </AttendanceMetricsGrid>
             </AttendanceCard>
@@ -4048,24 +4395,6 @@ export default function Financeiro() {
                   </AttendanceFilterSelect>
                 </AttendanceFilterField>
                 <AttendanceFilterField>
-                  <AttendanceFilterLabel htmlFor="attendance-patient">Paciente</AttendanceFilterLabel>
-                  <AttendanceFilterSelect
-                    id="attendance-patient"
-                    name="patient_id"
-                    value={attendanceFilters.patient_id}
-                    onChange={handleAttendanceFilterChange}
-                  >
-                    <option value="">
-                      {attendanceView === "sessions" ? "Selecione um paciente" : "Todos"}
-                    </option>
-                    {patients.map((patient) => (
-                      <option key={patient.id} value={patient.id}>
-                        {patient.full_name || patient.name}
-                      </option>
-                    ))}
-                  </AttendanceFilterSelect>
-                </AttendanceFilterField>
-                <AttendanceFilterField>
                   <AttendanceFilterLabel htmlFor="attendance-professional">Profissional</AttendanceFilterLabel>
                   <AttendanceFilterSelect
                     id="attendance-professional"
@@ -4082,13 +4411,14 @@ export default function Financeiro() {
                   </AttendanceFilterSelect>
                 </AttendanceFilterField>
                 <AttendanceFilterField>
-                  <AttendanceFilterLabel htmlFor="attendance-search">Busca</AttendanceFilterLabel>
-                  <AttendanceFilterInput
-                    id="attendance-search"
-                    name="search"
-                    placeholder="Paciente, profissional, servico..."
+                  <PatientSearchField
+                    mode="filter"
+                    inputId="attendance-search"
                     value={attendanceFilters.search}
-                    onChange={handleAttendanceFilterChange}
+                    onChange={(nextValue) => setAttendanceFilters((prev) => ({
+                      ...prev,
+                      search: nextValue,
+                    }))}
                   />
                 </AttendanceFilterField>
               </AttendanceFilterGrid>
@@ -4111,90 +4441,28 @@ export default function Financeiro() {
 
             <AttendanceCard>
               <AttendanceControlsRow>
-                <AttendanceTabsRow>
-                  <AttendanceTabGroup>
-                    <AttendanceTabButton
-                      type="button"
-                      $active={attendanceView === "patients"}
-                      onClick={() => handleAttendanceViewChange("patients")}
-                    >
-                      Por paciente
-                    </AttendanceTabButton>
-                    <AttendanceTabButton
-                      type="button"
-                      $active={attendanceView === "sessions"}
-                      disabled={!canOpenAttendanceSessionsView}
-                      onClick={() => handleAttendanceViewChange("sessions")}
-                      title={
-                        canOpenAttendanceSessionsView
-                          ? undefined
-                          : "Selecione um paciente para ver por sessao"
-                      }
-                    >
-                      Por sessão
-                    </AttendanceTabButton>
-                  </AttendanceTabGroup>
-                  <AttendanceTabGroup>
-                    <AttendanceTabButton
-                      type="button"
-                      $active={attendancePeriodMode === "month"}
-                      onClick={() => handleAttendancePeriodModeChange("month")}
-                    >
-                      Mes
-                    </AttendanceTabButton>
-                    <AttendanceTabButton
-                      type="button"
-                      $active={attendancePeriodMode === "year"}
-                      onClick={() => handleAttendancePeriodModeChange("year")}
-                    >
-                      Visao anual
-                    </AttendanceTabButton>
-                  </AttendanceTabGroup>
-                </AttendanceTabsRow>
-                {attendancePeriodLabel && (
-                  <AttendancePeriodControls>
-                    <AttendancePeriodButton type="button" onClick={handleAttendancePreviousMonth}>
-                      {attendancePeriodMode === "year" ? "Ano anterior" : "Mes anterior"}
-                    </AttendancePeriodButton>
-                    <AttendancePeriodChip
-                      role="button"
-                      tabIndex={0}
-                      onClick={handleAttendancePeriodTagClick}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          handleAttendancePeriodTagClick();
-                        }
-                      }}
-                    >
-                      {attendancePeriodLabel}
-                      {attendancePeriodMode === "year" ? (
-                        <AttendancePeriodYearSelect
-                          aria-label="Selecionar ano"
-                          value={attendancePeriodYear}
-                          onChange={handleAttendanceYearPickerChange}
-                        >
-                          {attendanceYearOptions.map((year) => (
-                            <option key={year} value={year}>
-                              {year}
-                            </option>
-                          ))}
-                        </AttendancePeriodYearSelect>
-                      ) : (
-                        <AttendancePeriodMonthInput
-                          ref={attendanceMonthPickerRef}
-                          aria-label="Selecionar mes e ano"
-                          type="month"
-                          value={attendancePeriodMonth}
-                          onChange={handleAttendanceMonthPickerChange}
-                        />
-                      )}
-                    </AttendancePeriodChip>
-                    <AttendancePeriodButton type="button" onClick={handleAttendanceNextMonth}>
-                      {attendancePeriodMode === "year" ? "Ano seguinte" : "Mes seguinte"}
-                    </AttendancePeriodButton>
-                  </AttendancePeriodControls>
-                )}
+                <AttendanceTabGroup>
+                  <AttendanceTabButton
+                    type="button"
+                    $active={attendanceView === "patients"}
+                    onClick={() => handleAttendanceViewChange("patients")}
+                  >
+                    Por paciente
+                  </AttendanceTabButton>
+                  <AttendanceTabButton
+                    type="button"
+                    $active={attendanceView === "sessions"}
+                    disabled={!canOpenAttendanceSessionsView}
+                    onClick={() => handleAttendanceViewChange("sessions")}
+                    title={
+                      canOpenAttendanceSessionsView
+                        ? undefined
+                        : "Selecione um paciente para ver por sessao"
+                    }
+                  >
+                    Por sessão
+                  </AttendanceTabButton>
+                </AttendanceTabGroup>
               </AttendanceControlsRow>
               {attendanceView === "sessions" && attendanceSelectedPatientSummary && (
                 <AttendancePatientStrip>
@@ -4205,7 +4473,7 @@ export default function Financeiro() {
                       <strong>{attendanceSelectedPatientSummary.sessions}</strong>
                     </AttendancePatientStat>
                     <AttendancePatientStat>
-                      <span>Em aberto</span>
+                      <span>A receber</span>
                       <strong>{formatCurrency(attendanceSelectedPatientSummary.openCents)}</strong>
                     </AttendancePatientStat>
                     <AttendancePatientStat>
@@ -4438,49 +4706,150 @@ export default function Financeiro() {
   );
 
   const renderMensalidades = () => {
-    const filteredCycles = billingCyclesStatusFilter === "all"
-      ? billingCycles
-      : billingCycles.filter((c) => c.status === billingCyclesStatusFilter);
-
+    const billingCyclesTitle = `Mensalidades${billingCyclesPeriodLabel ? ` — ${billingCyclesPeriodLabel}` : ""}`;
     return (
       <AttendanceSectionSurface>
-        <AttendanceTableCard>
-          <AttendanceTableScroll>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 16px 4px" }}>
-              {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
-              <label style={{ fontSize: "13px", color: ATTENDANCE_UI.colors.textSecondary, fontWeight: 500 }}>
-                Status:
-                <select
-                  value={billingCyclesStatusFilter}
-                  onChange={(e) => setBillingCyclesStatusFilter(e.target.value)}
-                  style={{
-                    marginLeft: "8px",
-                    fontSize: "13px",
-                    padding: "4px 8px",
-                    borderRadius: ATTENDANCE_UI.radius.sm,
-                    border: `1px solid ${ATTENDANCE_UI.colors.border}`,
-                    background: ATTENDANCE_UI.colors.surface,
-                    color: ATTENDANCE_UI.colors.textPrimary,
+        <AttendancePeriodBlock>
+          <AttendancePeriodBlockLeft>
+            <AttendancePeriodBlockLabel>Competência financeira</AttendancePeriodBlockLabel>
+            <AttendancePeriodBlockValue>{billingCyclesPeriodLabel}</AttendancePeriodBlockValue>
+          </AttendancePeriodBlockLeft>
+          <AttendancePeriodBlockRight>
+            <AttendanceTabGroup>
+              <AttendanceTabButton
+                type="button"
+                $active={billingCyclesPeriodMode === "month"}
+                onClick={() => handleBillingCyclesPeriodModeChange("month")}
+              >
+                Mês
+              </AttendanceTabButton>
+              <AttendanceTabButton
+                type="button"
+                $active={billingCyclesPeriodMode === "year"}
+                onClick={() => handleBillingCyclesPeriodModeChange("year")}
+              >
+                Visão anual
+              </AttendanceTabButton>
+            </AttendanceTabGroup>
+            {billingCyclesPeriodLabel && (
+              <AttendancePeriodControls>
+                <AttendancePeriodButton type="button" onClick={handleBillingCyclesPreviousMonth}>
+                  {billingCyclesPeriodMode === "year" ? "← Ano anterior" : "← Anterior"}
+                </AttendancePeriodButton>
+                <AttendancePeriodChip
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleBillingCyclesPeriodTagClick}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      handleBillingCyclesPeriodTagClick();
+                    }
                   }}
                 >
-                  <option value="all">Todos</option>
-                  <option value="pending">Pendente</option>
-                  <option value="paid">Pago</option>
-                  <option value="canceled">Cancelado</option>
-                </select>
-              </label>
-            </div>
+                  {billingCyclesPeriodLabel}
+                  {billingCyclesPeriodMode === "year" ? (
+                    <AttendancePeriodYearSelect
+                      aria-label="Selecionar ano"
+                      value={billingCyclesPeriodYear}
+                      onChange={handleBillingCyclesYearPickerChange}
+                    >
+                      {billingCyclesYearOptions.map((year) => (
+                        <option key={year} value={year}>{year}</option>
+                      ))}
+                    </AttendancePeriodYearSelect>
+                  ) : (
+                    <AttendancePeriodMonthInput
+                      ref={billingCyclesMonthPickerRef}
+                      aria-label="Selecionar mes e ano"
+                      type="month"
+                      value={billingCyclesPeriodMonth}
+                      onChange={handleBillingCyclesMonthPickerChange}
+                    />
+                  )}
+                </AttendancePeriodChip>
+                <AttendancePeriodButton type="button" onClick={handleBillingCyclesNextMonth}>
+                  {billingCyclesPeriodMode === "year" ? "Próximo ano →" : "Próximo →"}
+                </AttendancePeriodButton>
+              </AttendancePeriodControls>
+            )}
+          </AttendancePeriodBlockRight>
+        </AttendancePeriodBlock>
+
+        <AttendanceCard>
+          <AttendanceCardHeader>
+            <AttendanceCardTitle>Resumo de mensalidades</AttendanceCardTitle>
+          </AttendanceCardHeader>
+          <AttendanceMetricsGrid>
+            <AttendanceMetricCard>
+              <AttendanceMetricLabel>Planos ativos</AttendanceMetricLabel>
+              <AttendanceMetricValue>{billingCyclesSummary.activePlans}</AttendanceMetricValue>
+            </AttendanceMetricCard>
+            <AttendanceMetricCard>
+              <AttendanceMetricLabel>Receita esperada</AttendanceMetricLabel>
+              <AttendanceMetricValue>{formatCurrency(billingCyclesSummary.expectedCents)}</AttendanceMetricValue>
+            </AttendanceMetricCard>
+            <AttendanceMetricCard>
+              <AttendanceMetricLabel>Recebido</AttendanceMetricLabel>
+              <AttendanceMetricValue>{formatCurrency(billingCyclesSummary.paidCents)}</AttendanceMetricValue>
+            </AttendanceMetricCard>
+            <AttendanceMetricCard>
+              <AttendanceMetricLabel>Pendente</AttendanceMetricLabel>
+              <AttendanceMetricValue>{formatCurrency(billingCyclesSummary.pendingCents)}</AttendanceMetricValue>
+            </AttendanceMetricCard>
+          </AttendanceMetricsGrid>
+        </AttendanceCard>
+
+        <AttendanceCard>
+          <AttendanceCardHeader>
+            <AttendanceCardTitle>Filtros</AttendanceCardTitle>
+          </AttendanceCardHeader>
+          <AttendanceFilterGrid>
+            <AttendanceFilterField>
+              <AttendanceFilterLabel htmlFor="billing-cycle-status">Status financeiro</AttendanceFilterLabel>
+              <AttendanceFilterSelect
+                id="billing-cycle-status"
+                value={billingCyclesStatusFilter}
+                onChange={(e) => setBillingCyclesStatusFilter(e.target.value)}
+              >
+                <option value="all">Todos</option>
+                <option value="pending">Pendente</option>
+                <option value="partial">Parcial</option>
+                <option value="paid">Pago</option>
+                <option value="overdue">Vencido</option>
+                <option value="canceled">Cancelado</option>
+              </AttendanceFilterSelect>
+            </AttendanceFilterField>
+            <AttendanceFilterField>
+              <PatientSearchField
+                mode="filter"
+                inputId="billing-cycle-search"
+                value={billingCyclesFilters.search}
+                onChange={(nextValue) => setBillingCyclesFilters((prev) => ({
+                  ...prev,
+                  search: nextValue,
+                }))}
+              />
+            </AttendanceFilterField>
+          </AttendanceFilterGrid>
+        </AttendanceCard>
+
+        <AttendanceTableCard>
+          <AttendanceDetailHeader style={{ padding: `${ATTENDANCE_UI.spacing[2]} ${ATTENDANCE_UI.spacing[2]} 0` }}>
+            <AttendanceDetailTitle>{billingCyclesTitle}</AttendanceDetailTitle>
+          </AttendanceDetailHeader>
+          <AttendanceTableScroll>
             {isBillingCyclesLoading && (
               <div style={{ padding: "32px 16px", textAlign: "center", color: ATTENDANCE_UI.colors.textSecondary }}>
                 Carregando...
               </div>
             )}
-            {!isBillingCyclesLoading && filteredCycles.length === 0 && (
+            {!isBillingCyclesLoading && billingCyclesFilteredRows.length === 0 && (
               <div style={{ padding: "32px 16px", textAlign: "center", color: ATTENDANCE_UI.colors.textSecondary }}>
                 Nenhuma mensalidade encontrada no periodo.
               </div>
             )}
-            {!isBillingCyclesLoading && filteredCycles.length > 0 && (
+            {!isBillingCyclesLoading && billingCyclesFilteredRows.length > 0 && (
               <AttendanceDataTable>
                 <thead>
                   <tr>
@@ -4489,34 +4858,26 @@ export default function Financeiro() {
                     <th>Periodo</th>
                     <th>Valor</th>
                     <th>Sessões</th>
-                    <th>Saldo</th>
                     <th>Status</th>
-                    <th>Acao</th>
+                    <th>Ação</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredCycles.map((cycle) => {
-                    const entry = cycle.FinancialEntry;
+                  {billingCyclesFilteredRows.map((cycle) => {
+                    const financial = resolveBillingCycleFinancial(cycle);
+                    const { entry } = financial;
                     const patientName = cycle.Patient?.full_name || "-";
                     const planName = cycle.ServicePlan?.name || "-";
                     const periodStart = formatDateOnlyBR(cycle.cycle_start);
                     const periodEnd = formatDateOnlyBR(cycle.cycle_end);
-                    const amountCents = Number(cycle.amount_cents || 0);
-                    const cycleStatus = entry?.status || cycle.status || "pending";
+                    const cycleStatus = financial.status;
 
                     const usage = cycle.usage_summary;
-                    const usedSessions = usage?.total_included_active ?? null;
-                    const totalSessions = usage?.included_sessions_count ?? null;
-                    const remaining = usage?.remaining_included_sessions ?? null;
-                    const extraSessions = usage?.total_extra_active ?? 0;
-                    const sessionsLabel = usedSessions !== null && totalSessions !== null
-                      ? `${usedSessions}/${totalSessions}`
+                    const scheduledSessions = usage?.total_reserved ?? null;
+                    const doneSessions = usage?.total_consumed ?? null;
+                    const sessionsLabel = scheduledSessions !== null && doneSessions !== null
+                      ? `${doneSessions}/${doneSessions + scheduledSessions}`
                       : "-";
-                    let saldoLabel = "-";
-                    if (remaining !== null) {
-                      saldoLabel = remaining > 0 ? `${remaining} restantes` : "Completo";
-                    }
-                    const extraLabel = extraSessions > 0 ? ` +${extraSessions} ${extraSessions === 1 ? "extra" : "extras"}` : "";
 
                     return (
                       <tr key={cycle.id}>
@@ -4532,14 +4893,11 @@ export default function Financeiro() {
                           </AttendancePrimaryText>
                         </td>
                         <td>
-                          <AttendanceMoneyText>{formatCurrency(amountCents)}</AttendanceMoneyText>
+                          <AttendanceMoneyText>{formatCurrency(financial.amount)}</AttendanceMoneyText>
                         </td>
                         <td>
-                          <AttendancePrimaryText>{sessionsLabel}{extraLabel}</AttendancePrimaryText>
-                        </td>
-                        <td>
-                          <AttendancePrimaryText style={{ color: remaining !== null && remaining <= 0 ? "#d9534f" : "inherit" }}>
-                            {saldoLabel}
+                          <AttendancePrimaryText title="realizadas / agendadas">
+                            {sessionsLabel}
                           </AttendancePrimaryText>
                         </td>
                         <td>
@@ -4549,6 +4907,12 @@ export default function Financeiro() {
                         </td>
                         <td>
                           <AttendanceRowActions>
+                            <AttendanceSmallAction
+                              type="button"
+                              onClick={() => openBillingCycleSessionsPreview(cycle)}
+                            >
+                              Ver sessões
+                            </AttendanceSmallAction>
                             {entry ? (
                               <AttendanceSmallAction
                                 type="button"
@@ -4856,6 +5220,7 @@ export default function Financeiro() {
     );
   };
 
+  // eslint-disable-next-line no-unused-vars
   const renderPrices = () => {
     let content = (
       <SimpleTable>
@@ -5063,6 +5428,15 @@ export default function Financeiro() {
     sidebarToggleIcon = <FaBars />;
   }
 
+  const previewCycle = billingCycleSessionsPreview.cycle;
+  const previewPatientName = previewCycle?.Patient?.full_name || "-";
+  const previewPlanName = previewCycle?.ServicePlan?.name || "-";
+  const previewPeriodLabel = previewCycle
+    ? `${formatDateOnlyBR(previewCycle.cycle_start)}${
+      previewCycle.cycle_end ? ` — ${formatDateOnlyBR(previewCycle.cycle_end)}` : ""
+    }`
+    : "-";
+
   return (
     <SidebarShellWrapper $collapsed={isSidebarCollapsed}>
       <SidebarShellLayout $collapsed={isSidebarCollapsed}>
@@ -5134,18 +5508,6 @@ export default function Financeiro() {
             <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Configurações</AppSidebarSectionTitle>
             <AppSidebarButton
               type="button"
-              $active={activeSection === "prices"}
-              $collapsed={isSidebarCollapsed}
-              onClick={() => handleSectionChange("prices")}
-              title="Servicos"
-            >
-              <AppSidebarIcon $active={activeSection === "prices"}>
-                <FaCoins />
-              </AppSidebarIcon>
-              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Servicos</AppSidebarLabel>
-            </AppSidebarButton>
-            <AppSidebarButton
-              type="button"
               $active={activeSection === "methods"}
               $collapsed={isSidebarCollapsed}
               onClick={() => handleSectionChange("methods")}
@@ -5155,18 +5517,6 @@ export default function Financeiro() {
                 <FaRegCreditCard />
               </AppSidebarIcon>
               <AppSidebarLabel $collapsed={isSidebarCollapsed}>Formas de pagamento</AppSidebarLabel>
-            </AppSidebarButton>
-            <AppSidebarButton
-              type="button"
-              $active={activeSection === "holidays"}
-              $collapsed={isSidebarCollapsed}
-              onClick={() => handleSectionChange("holidays")}
-              title="Feriados"
-            >
-              <AppSidebarIcon $active={activeSection === "holidays"}>
-                <FaCalendarAlt />
-              </AppSidebarIcon>
-              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Feriados</AppSidebarLabel>
             </AppSidebarButton>
             {SHOW_FINANCIAL_MANAGEMENT && (
               <AppSidebarButton
@@ -5203,13 +5553,83 @@ export default function Financeiro() {
             {SHOW_FINANCIAL_MANAGEMENT && activeSection === "categories" && renderCategories()}
             {activeSection === "methods" && renderMethods()}
             {activeSection === "holidays" && renderHolidays()}
-            {activeSection === "prices" && renderPrices()}
             {SHOW_FINANCIAL_REPORTS && activeSection === "reports" && renderReports()}
           </>
         </SidebarMainArea>
       </SidebarShellLayout>
 
       {isMobile && isSidebarOpen && <AppSidebarOverlay onClick={closeSidebar} />}
+
+      {billingCycleSessionsPreview.open && (
+        <>
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <div>
+                  <ModalTitle>Sessões da mensalidade</ModalTitle>
+                  <BillingCyclePreviewSummary>
+                    <strong>{previewPatientName}</strong>
+                    <span>{previewPlanName}</span>
+                    <small>{previewPeriodLabel}</small>
+                  </BillingCyclePreviewSummary>
+                </div>
+                <IconButton type="button" onClick={closeBillingCycleSessionsPreview}>
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                {billingCycleSessionsPreview.isLoading && (
+                  <div style={{ padding: "28px 12px", textAlign: "center", color: ATTENDANCE_UI.colors.textSecondary }}>
+                    Carregando sessões...
+                  </div>
+                )}
+                {!billingCycleSessionsPreview.isLoading && billingCycleSessionsPreview.error && (
+                  <EmptyState>{billingCycleSessionsPreview.error}</EmptyState>
+                )}
+                {!billingCycleSessionsPreview.isLoading &&
+                  !billingCycleSessionsPreview.error &&
+                  billingCycleSessionsPreview.sessions.length === 0 && (
+                    <EmptyState>Nenhuma sessÃ£o vinculada a este ciclo.</EmptyState>
+                )}
+                {!billingCycleSessionsPreview.isLoading &&
+                  !billingCycleSessionsPreview.error &&
+                  billingCycleSessionsPreview.sessions.length > 0 && (
+                    <TableScroll>
+                      <SimpleTable>
+                        <thead>
+                          <tr>
+                            <th>Data e horário</th>
+                            <th>Dia da semana</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {billingCycleSessionsPreview.sessions.map((session) => (
+                            <tr key={session.id}>
+                              <td>{formatSessionDateTimeBR(session.starts_at)}</td>
+                              <td>{formatSessionWeekdayBR(session.starts_at)}</td>
+                              <td>
+                                <AttendanceStatusBadge $status={session.status}>
+                                  {formatBillingCycleSessionStatus(session.status)}
+                                </AttendanceStatusBadge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </SimpleTable>
+                    </TableScroll>
+                )}
+              </ModalBody>
+              <ModalActions>
+                <SecondaryButton type="button" onClick={closeBillingCycleSessionsPreview}>
+                  Fechar
+                </SecondaryButton>
+              </ModalActions>
+            </ModalCard>
+          </ModalOverlay>
+          <Backdrop onClick={closeBillingCycleSessionsPreview} />
+        </>
+      )}
 
       {isEntryOpen && (
         <>
@@ -5406,7 +5826,7 @@ export default function Financeiro() {
                               onChange={handlePaymentPatientSearchChange}
                               onFocus={() => setIsPaymentPatientSearchFocused(true)}
                               onBlur={handlePaymentPatientSearchBlur}
-                              placeholder="Digite o nome do paciente"
+                              placeholder="Buscar paciente"
                               autoComplete="off"
                             />
                             {isPaymentPatientSearchFocused
@@ -6712,6 +7132,47 @@ const AttendanceCard = styled.div`
   margin-bottom: ${ATTENDANCE_UI.spacing[2]};
 `;
 
+const AttendancePeriodBlock = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${ATTENDANCE_UI.spacing[2]};
+  flex-wrap: wrap;
+  background: ${ATTENDANCE_UI.colors.surface};
+  border: 1px solid ${ATTENDANCE_UI.colors.borderStrong};
+  border-radius: ${ATTENDANCE_UI.radius.lg};
+  padding: 14px ${ATTENDANCE_UI.spacing[2]};
+  margin-bottom: ${ATTENDANCE_UI.spacing[2]};
+`;
+
+const AttendancePeriodBlockLeft = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+`;
+
+const AttendancePeriodBlockLabel = styled.span`
+  font-size: ${ATTENDANCE_UI.font.size.xs};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  color: ${ATTENDANCE_UI.colors.textTertiary};
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+`;
+
+const AttendancePeriodBlockValue = styled.span`
+  font-size: ${ATTENDANCE_UI.font.size.xl};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  letter-spacing: -0.01em;
+`;
+
+const AttendancePeriodBlockRight = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${ATTENDANCE_UI.spacing[1]};
+  flex-wrap: wrap;
+`;
+
 const AttendanceCardHeader = styled.div`
   display: flex;
   align-items: center;
@@ -6780,27 +7241,6 @@ const AttendanceFilterLabel = styled.label`
   font-weight: ${ATTENDANCE_UI.font.weight.medium};
   letter-spacing: 0.03em;
   text-transform: uppercase;
-`;
-
-const AttendanceFilterInput = styled.input`
-  height: 44px;
-  border-radius: ${ATTENDANCE_UI.radius.md};
-  border: 1px solid ${ATTENDANCE_UI.colors.borderStrong};
-  background: ${ATTENDANCE_UI.colors.surface};
-  color: ${ATTENDANCE_UI.colors.textPrimary};
-  padding: 0 14px;
-  font-size: ${ATTENDANCE_UI.font.size.md};
-  box-shadow: none;
-
-  &::placeholder {
-    color: ${ATTENDANCE_UI.colors.textMuted};
-  }
-
-  &:focus {
-    outline: none;
-    border-color: ${ATTENDANCE_UI.colors.action};
-    box-shadow: 0 0 0 3px rgba(95, 121, 87, 0.12);
-  }
 `;
 
 const AttendanceFilterSelect = styled.select`
@@ -7210,6 +7650,7 @@ const AttendanceStatusBadge = styled.span`
     if (props.$status === "credit") return ATTENDANCE_UI.colors.actionSoft;
     if (props.$status === "paid" || props.$status === "done") return ATTENDANCE_UI.colors.successSoft;
     if (props.$status === "partial") return ATTENDANCE_UI.colors.infoSoft;
+    if (props.$status === "overdue") return "rgba(190, 58, 58, 0.12)";
     if (props.$status === "covered_by_plan") return ATTENDANCE_UI.colors.neutralSoft;
     return ATTENDANCE_UI.colors.neutralSoft;
   }};
@@ -7217,6 +7658,7 @@ const AttendanceStatusBadge = styled.span`
     if (props.$status === "credit") return ATTENDANCE_UI.colors.action;
     if (props.$status === "paid" || props.$status === "done") return ATTENDANCE_UI.colors.successText;
     if (props.$status === "partial") return ATTENDANCE_UI.colors.infoText;
+    if (props.$status === "overdue") return "#9a2f2f";
     if (props.$status === "covered_by_plan") return ATTENDANCE_UI.colors.textSecondary;
     return ATTENDANCE_UI.colors.neutralText;
   }};
@@ -7311,6 +7753,14 @@ const AttendanceEmptyState = styled(EmptyState)`
   color: ${ATTENDANCE_UI.colors.textTertiary};
 `;
 
+const AttendanceRequiredPatientNotice = styled(AttendanceEmptyState)`
+  background: rgba(95, 121, 87, 0.09);
+  border-style: solid;
+  border-color: rgba(95, 121, 87, 0.34);
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+`;
+
 const ReportGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -7383,6 +7833,28 @@ const ModalTitle = styled.h3`
 const ModalSubtitle = styled.p`
   margin: 4px 0 0;
   color: #6d6d6d;
+`;
+
+const BillingCyclePreviewSummary = styled.div`
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #34422d;
+
+  strong {
+    font-size: 1rem;
+  }
+
+  span {
+    color: #4f6045;
+    font-weight: 700;
+  }
+
+  small {
+    color: #6d6d6d;
+    font-size: 0.9rem;
+  }
 `;
 
 const ModalBody = styled.div`

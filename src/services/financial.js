@@ -93,8 +93,8 @@ export const pausePatientPlan = (id) =>
 export const resumePatientPlan = (id) =>
   api.post(`/patient-plans/${id}/resume`);
 
-export const cancelPatientPlan = (id) =>
-  api.post(`/patient-plans/${id}/cancel`);
+export const cancelPatientPlan = (id, payload = {}) =>
+  api.post(`/patient-plans/${id}/cancel`, payload);
 
 export const listBillingCycles = (params) =>
   api.get('/billing-cycles', { params });

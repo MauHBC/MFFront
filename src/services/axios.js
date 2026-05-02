@@ -3,8 +3,11 @@ import { toast } from "react-toastify";
 import * as authActions from "../store/modules/auth/actions";
 
 const api = axios.create({
-  // testes locais
-  baseURL: "http://localhost:3006/api",
+  // testes locais notebook
+  baseURL: "http://localhost:3001/api",
+
+  // testes locais desktop
+  // baseURL: "http://localhost:3006/api",
 
   // producao
   // baseURL: "/api",

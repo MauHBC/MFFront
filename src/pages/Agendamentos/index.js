@@ -16,6 +16,7 @@ import axios, {
   sanitizeUserFacingErrorMessage,
 } from "../../services/axios";
 import Loading from "../../components/Loading";
+import DataLoadingState from "../../components/DataLoadingState";
 import {
   checkSchedulingAvailability,
   listSpecialSchedulingEvents,
@@ -28,6 +29,12 @@ import {
   SessionStatusPill,
   SessionStatusButton,
 } from "../../components/AppSessionStatus";
+import PatientSearchField from "../../components/PatientSearchField";
+import {
+  getPatientDisplayName as getPatientName,
+  getPatientSearchText,
+  normalizeSearchText,
+} from "../../utils/patientSearch";
 
 const START_HOUR = 7;
 const END_HOUR = 20;
@@ -114,25 +121,102 @@ const getSessionPlanDescriptor = (session, resolveServiceName) => {
 const getSessionPlanSummary = (session, resolveServiceName) => {
   if (session?.billing_mode !== "covered_by_plan") return null;
   const descriptor = getSessionPlanDescriptor(session, resolveServiceName);
-  const isExtra = session?.BillingCycleSessionUsage?.coverage_kind === "extra";
-  const label = isExtra ? "Mensal extra" : "Mensal";
+  const label = "Mensal";
   return descriptor ? `${label} - ${descriptor}` : label;
 };
 
-const getSessionBadgeLabel = (session) => {
-  if (session?.billing_mode !== "covered_by_plan") return null;
-  const freq = compactWeeklyFrequencyLabel(session?.BillingCycle?.ServicePlan);
-  const isExtra = session?.BillingCycleSessionUsage?.coverage_kind === "extra";
-  const label = isExtra ? "Mensal extra" : "Mensal";
-  return freq ? `${label} ${freq}` : label;
+const getRecurringSeriesBadge = (session) => {
+  if (session?.billing_mode === "covered_by_plan") return null;
+  const position = session?.recurring_position;
+  if (!position) return null;
+  const total = session?.recurring_total;
+  return total ? `Avulso ${position}/${total}` : "Avulso";
 };
 
-const statusLabel = (status) => {
-  if (status === "done") return "Concluído";
-  if (status === "no_show") return "Falta";
-  if (status === "canceled") return "Cancelado";
-  return "Agendado";
+const getShortPatientName = (name) => {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length <= 1) return parts[0] || "Paciente";
+  return `${parts[0]} ${parts[1]}`;
 };
+
+const getMonthlyCardSummary = (session) => {
+  const servicePlan = session?.BillingCycle?.ServicePlan || session?.ServicePlan || null;
+  const weeklyCount = Number(servicePlan?.sessions_per_week);
+  if (Number.isInteger(weeklyCount) && weeklyCount > 0) {
+    return `Mensal ${weeklyCount}x`;
+  }
+
+  const frequency = compactWeeklyFrequencyLabel(servicePlan);
+  if (frequency) return `Mensal ${frequency.replace(/\/sem$/i, "")}`;
+  return "Mensal";
+};
+
+const getSessionCardSummary = (session) => {
+  if (session?.billing_mode === "covered_by_plan") return getMonthlyCardSummary(session);
+  return getRecurringSeriesBadge(session) || "Avulso";
+};
+
+const getSessionCardMetaParts = (session) => {
+  if (session?.billing_mode === "covered_by_plan") {
+    const summary = getMonthlyCardSummary(session);
+    const counter = summary.replace(/^Mensal\s*/i, "").trim();
+    return { type: "Mensal", counter };
+  }
+
+  const position = session?.recurring_position;
+  const total = session?.recurring_total;
+  return {
+    type: "Avulso",
+    counter: position && total ? `${position}/${total}` : "",
+  };
+};
+
+const SESSION_STATUS_CONFIG = {
+  scheduled: {
+    label: "Agendado",
+    tone: "scheduled",
+  },
+  open: {
+    label: "Agendado",
+    tone: "scheduled",
+  },
+  done: {
+    label: "Concluído",
+    tone: "done",
+  },
+  no_show: {
+    label: "Falta",
+    tone: "no_show",
+  },
+  canceled: {
+    label: "Cancelado",
+    tone: "canceled",
+  },
+};
+
+const normalizeSessionStatusValue = (status) =>
+  SESSION_STATUS_CONFIG[status] ? status : "scheduled";
+
+const getSessionStatusConfig = (status) =>
+  SESSION_STATUS_CONFIG[normalizeSessionStatusValue(status)];
+
+const getSessionStatusLabel = (status) => getSessionStatusConfig(status).label;
+
+const getSessionStatusTone = (status) => getSessionStatusConfig(status).tone;
+
+const isSessionStatusActive = (currentStatus, targetStatus) =>
+  getSessionStatusTone(currentStatus) === getSessionStatusTone(targetStatus);
+
+const SESSION_STATUS_OPTIONS = [
+  { value: "scheduled", label: getSessionStatusLabel("scheduled") },
+  { value: "done", label: getSessionStatusLabel("done") },
+  { value: "canceled", label: getSessionStatusLabel("canceled") },
+  { value: "no_show", label: getSessionStatusLabel("no_show") },
+];
+
 const SPECIAL_SOURCE_LABELS = {
   national: "Feriado nacional",
   state: "Feriado estadual",
@@ -188,7 +272,7 @@ const buildSpecialEventsTooltip = (events = []) =>
     .map((event) => {
       const source = SPECIAL_SOURCE_LABELS[event.source_type] || event.source_type || "Evento";
       const behavior = eventBehaviorLabel(event);
-      return `${event.name || "Evento especial"} - ${source} - ${behavior}`;
+      return `${event.name || "Feriado ou bloqueio"} - ${source} - ${behavior}`;
     })
     .join("\n");
 
@@ -227,8 +311,6 @@ const WEEKDAY_OPTIONS = [
   { value: 3, label: "Qua" },
   { value: 4, label: "Qui" },
   { value: 5, label: "Sex" },
-  { value: 6, label: "Sab" },
-  { value: 7, label: "Dom" },
 ];
 
 const OCCURRENCE_STATUS_LABELS = {
@@ -266,24 +348,12 @@ const resolveSeriesId = (session) => session?.series_id || session?.series?.id |
 
 const hasRecurringSeries = (session) => !!resolveSeriesId(session);
 
-const sessionStatusLabel = (status) => {
-  if (status === "done") return "Concluido";
-  if (status === "no_show") return "Falta";
-  if (status === "canceled") return "Cancelado";
-  return "Agendado";
-};
-
 const getPatientDisplayName = (patientLike) =>
   patientLike?.Patient?.full_name
   || patientLike?.Patient?.name
   || patientLike?.full_name
   || patientLike?.name
   || "Paciente";
-
-const comparePatientDisplayName = (first, second) =>
-  getPatientDisplayName(first).localeCompare(getPatientDisplayName(second), "pt-BR", {
-    sensitivity: "base",
-  });
 
 const normalizeText = (value) => {
   const trimmed = value.trim();
@@ -332,6 +402,11 @@ const resolveSchedulingErrorMessage = (error) => {
 const toIsoWeekday = (date) => {
   const day = date.getDay();
   return day === 0 ? 7 : day;
+};
+
+const toSelectableWeekday = (date) => {
+  const weekday = toIsoWeekday(date);
+  return weekday >= 1 && weekday <= 5 ? weekday : null;
 };
 
 const formatDateTime = (value) => {
@@ -603,6 +678,9 @@ const getVisibleDateRange = (view, baseDate) => {
 export default function Agendamentos() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const savingSessionIdsRef = useRef(new Set());
+  const [savingSessionIds, setSavingSessionIds] = useState(new Set());
+  const [savingActionMap, setSavingActionMap] = useState({});
   const submitLockRef = useRef(false);
   const [sessions, setSessions] = useState([]);
   const [specialEvents, setSpecialEvents] = useState([]);
@@ -611,23 +689,32 @@ export default function Agendamentos() {
   const [professionals, setProfessionals] = useState([]);
   const [serviceLimits, setServiceLimits] = useState([]);
   const [services, setServices] = useState([]);
+  const [isBaseDataLoading, setIsBaseDataLoading] = useState(true);
   const [statusOptions, setStatusOptions] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [filterPatientQuery, setFilterPatientQuery] = useState("");
-  const [isFilterPatientListOpen, setIsFilterPatientListOpen] = useState(false);
   const [formPatientQuery, setFormPatientQuery] = useState("");
-  const [isFormPatientListOpen, setIsFormPatientListOpen] = useState(false);
   const [absenceModal, setAbsenceModal] = useState({
     open: false,
     id: null,
     status: null,
     reason: "",
+    isSaving: false,
+  });
+  const [attendanceModal, setAttendanceModal] = useState({
+    open: false,
+    timeLabel: "",
+    serviceGroups: [],
+    statuses: {},
+    reasons: {},
+    isSaving: false,
   });
   const [editingId, setEditingId] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState("form");
   const [groupContext, setGroupContext] = useState(null);
   const [view, setView] = useState("week");
+  const [showMonthWeekend, setShowMonthWeekend] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [filters, setFilters] = useState({
@@ -658,6 +745,7 @@ export default function Agendamentos() {
   const visibleRange = useMemo(() => getVisibleDateRange(view, selectedDate), [selectedDate, view]);
 
   const loadBaseData = useCallback(async () => {
+    setIsBaseDataLoading(true);
     try {
       const [patientsResponse, usersResponse, limitsResponse, statusResponse, servicesResponse] = await Promise.all([
         axios.get("/patients"),
@@ -676,6 +764,8 @@ export default function Agendamentos() {
         error?.response?.data?.error ||
         "Nao foi possivel carregar pacientes ou profissionais.";
       toast.error(message);
+    } finally {
+      setIsBaseDataLoading(false);
     }
   }, []);
 
@@ -708,7 +798,7 @@ export default function Agendamentos() {
       setSpecialEvents(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       const message =
-        error?.response?.data?.error || "Nao foi possivel carregar eventos especiais.";
+        error?.response?.data?.error || "Nao foi possivel carregar feriados.";
       toast.error(message);
     }
   }, []);
@@ -842,6 +932,7 @@ export default function Agendamentos() {
   const patientOptions = useMemo(
     () =>
       patients.map((patient) => ({
+        ...patient,
         id: patient.id,
         name: patient.full_name || patient.name || "Paciente",
       })),
@@ -874,37 +965,10 @@ export default function Agendamentos() {
     [patientDirectory],
   );
 
-  const filterPatientList = useCallback(
-    (query) => {
-      const normalized = query.trim().toLowerCase();
-      if (!normalized) return patientOptions;
-      return patientOptions.filter((patient) =>
-        patient.name.toLowerCase().includes(normalized),
-      );
-    },
-    [patientOptions],
-  );
-
-  const filteredPatientOptions = useMemo(
-    () => filterPatientList(filterPatientQuery),
-    [filterPatientQuery, filterPatientList],
-  );
-
-  const filteredFormPatientOptions = useMemo(
-    () => filterPatientList(formPatientQuery),
-    [formPatientQuery, filterPatientList],
-  );
-
   const handleSelectPatient = useCallback((patient) => {
     setForm((prev) => ({ ...prev, patient_id: String(patient.id) }));
-    setFormPatientQuery(patient.name);
-    setIsFormPatientListOpen(false);
+    setFormPatientQuery(getPatientName(patient));
   }, []);
-
-  const selectedPatient = useMemo(() => {
-    if (!form.patient_id) return null;
-    return patientOptions.find((patient) => String(patient.id) === form.patient_id) || null;
-  }, [form.patient_id, patientOptions]);
 
   const professionalOptions = useMemo(
     () =>
@@ -925,48 +989,27 @@ export default function Agendamentos() {
           name: service.name,
           color: service.color,
           duration: service.default_duration_minutes,
-        })),
+        }))
+        .sort((serviceA, serviceB) =>
+          String(serviceA.name || "").localeCompare(String(serviceB.name || ""), "pt-BR", {
+            sensitivity: "base",
+          }),
+        ),
     [services],
   );
 
-  const fallbackServiceOptions = useMemo(
-    () => [
-      {
-        id: null,
-        code: "fisioterapia",
-        name: "Fisioterapia",
-        color: "#16A34A",
-        duration: 60,
-      },
-      {
-        id: null,
-        code: "pilates",
-        name: "Pilates",
-        color: "#0EA5E9",
-        duration: 60,
-      },
-      {
-        id: null,
-        code: "funcional",
-        name: "Funcional",
-        color: "#F97316",
-        duration: 60,
-      },
-      {
-        id: null,
-        code: "outro",
-        name: "Outro",
-        color: "#8B5CF6",
-        duration: 60,
-      },
-    ],
-    [],
+  const allServiceOptions = useMemo(
+    () => serviceOptions,
+    [serviceOptions],
   );
 
-  const allServiceOptions = useMemo(
-    () => (serviceOptions.length > 0 ? serviceOptions : fallbackServiceOptions),
-    [fallbackServiceOptions, serviceOptions],
-  );
+  const serviceOrderMap = useMemo(() => {
+    const map = new Map();
+    allServiceOptions.forEach((service, index) => {
+      if (service?.code) map.set(service.code, index);
+    });
+    return map;
+  }, [allServiceOptions]);
 
   const servicesByCode = useMemo(() => {
     const map = new Map();
@@ -1012,22 +1055,38 @@ export default function Agendamentos() {
     [servicesByCode],
   );
 
-  const getMonthlyPlanDescriptor = useCallback(
-    (session) => getSessionPlanDescriptor(session, serviceName),
-    [serviceName],
+  const compareServiceGroups = useCallback(
+    (first, second) => {
+      const firstCode = first.serviceCode || first.service_type || first.service?.code || "";
+      const secondCode = second.serviceCode || second.service_type || second.service?.code || "";
+      const firstOrder = serviceOrderMap.has(firstCode) ? serviceOrderMap.get(firstCode) : Number.MAX_SAFE_INTEGER;
+      const secondOrder = serviceOrderMap.has(secondCode) ? serviceOrderMap.get(secondCode) : Number.MAX_SAFE_INTEGER;
+      if (firstOrder !== secondOrder) return firstOrder - secondOrder;
+      const firstLabel = first.serviceLabel || serviceName(firstCode);
+      const secondLabel = second.serviceLabel || serviceName(secondCode);
+      const labelCompare = firstLabel.localeCompare(secondLabel, "pt-BR", { sensitivity: "base" });
+      if (labelCompare !== 0) return labelCompare;
+      return firstCode.localeCompare(secondCode, "pt-BR", { sensitivity: "base" });
+    },
+    [serviceName, serviceOrderMap],
   );
+
+  const compareSessionsByPatientThenId = useCallback((first, second) => {
+    const patientCompare = getPatientDisplayName(first).localeCompare(
+      getPatientDisplayName(second),
+      "pt-BR",
+      { sensitivity: "base" },
+    );
+    if (patientCompare !== 0) return patientCompare;
+    return Number(first?.id || 0) - Number(second?.id || 0);
+  }, []);
 
   const getMonthlyPlanSummary = useCallback(
     (session) => getSessionPlanSummary(session, serviceName),
     [serviceName],
   );
 
-  const statusStyle = useCallback((status) => {
-    if (status === "done") return "done";
-    if (status === "canceled") return "canceled";
-    if (status === "no_show") return "no_show";
-    return "scheduled";
-  }, []);
+  const statusStyle = useCallback((status) => getSessionStatusTone(status), []);
 
   const buildDeleteCandidates = useCallback(
     (sourceSession, mode) => {
@@ -1103,16 +1162,20 @@ export default function Agendamentos() {
   );
 
   const filteredSessions = useMemo(() => {
+    const patientSearch = normalizeSearchText(filterPatientQuery);
     return sessions.filter((session) => {
       if (filters.status && session.status !== filters.status) return false;
       if (filters.service_type) {
         const sessionCode = session.service_type || session.Service?.code || "";
         if (sessionCode !== filters.service_type) return false;
       }
-      if (filters.patient_id && String(session.patient_id) !== filters.patient_id) return false;
+      if (patientSearch) {
+        const patient = session?.Patient || patientDirectory.get(String(session?.patient_id || ""));
+        if (!getPatientSearchText(patient).includes(patientSearch)) return false;
+      }
       return true;
     });
-  }, [filters, sessions]);
+  }, [filterPatientQuery, filters, patientDirectory, sessions]);
 
   const sessionsByDay = useMemo(() => {
     const map = new Map();
@@ -1215,25 +1278,23 @@ export default function Agendamentos() {
         serviceGroups: Array.from(timeGroup.serviceMap.values())
           .map((serviceGroup) => {
             const cards = serviceGroup.cards.sort((first, second) => {
-              const firstPatient = getPatientDisplayName(first.session);
-              const secondPatient = getPatientDisplayName(second.session);
-              const firstLabel = `${firstPatient}-${first.professionalName}`;
-              const secondLabel = `${secondPatient}-${second.professionalName}`;
-              return firstLabel.localeCompare(secondLabel, "pt-BR");
+              const professionalCompare = String(first.professionalName || "").localeCompare(
+                String(second.professionalName || ""),
+                "pt-BR",
+                { sensitivity: "base" },
+              );
+              if (professionalCompare !== 0) return professionalCompare;
+              return compareSessionsByPatientThenId(first.session, second.session);
             });
-            const professionalNames = Array.from(
-              new Set(cards.map((card) => card.professionalName)),
-            ).sort((first, second) => first.localeCompare(second, "pt-BR"));
             return {
               ...serviceGroup,
               cards,
-              professionalLabel: professionalNames.join(", "),
             };
           })
-          .sort((first, second) => first.serviceLabel.localeCompare(second.serviceLabel, "pt-BR")),
+          .sort(compareServiceGroups),
       }))
       .sort((first, second) => first.sortMinutes - second.sortMinutes);
-  }, [daySessions, serviceColor, serviceName]);
+  }, [compareServiceGroups, compareSessionsByPatientThenId, daySessions, serviceColor, serviceName]);
 
   const selectedDaySpecialEvents = useMemo(() => {
     const key = startOfDay(selectedDate).toISOString();
@@ -1341,17 +1402,13 @@ export default function Agendamentos() {
           serviceGroups: timeGroup.serviceGroups
             .map((serviceGroup) => ({
               ...serviceGroup,
-              sessions: serviceGroup.sessions.sort(comparePatientDisplayName),
+              sessions: serviceGroup.sessions.sort(compareSessionsByPatientThenId),
             }))
-            .sort((first, second) => {
-              const firstLabel = `${first.serviceLabel}-${first.professionalName}`;
-              const secondLabel = `${second.serviceLabel}-${second.professionalName}`;
-              return firstLabel.localeCompare(secondLabel, "pt-BR");
-            }),
+            .sort(compareServiceGroups),
         }))
         .sort((first, second) => first.sortMinutes - second.sortMinutes),
     }));
-  }, [pendingConfirmationSessions, serviceColor, serviceName]);
+  }, [compareServiceGroups, compareSessionsByPatientThenId, pendingConfirmationSessions, serviceColor, serviceName]);
 
   const getSlotGroups = useCallback(
     (day, hour) => {
@@ -1374,7 +1431,7 @@ export default function Agendamentos() {
         groups.get(type).sessions.push(session);
       });
       return Array.from(groups.entries()).map(([type, bucket]) => {
-        const items = [...bucket.sessions].sort(comparePatientDisplayName);
+        const items = [...bucket.sessions].sort(compareSessionsByPatientThenId);
         const activeCount = items.filter(
           (item) => item.status !== "canceled" && item.status !== "no_show",
         ).length;
@@ -1391,9 +1448,16 @@ export default function Agendamentos() {
           total: items.length,
           limit: limitById ?? limitByCode,
         });
-      });
+      }).sort(compareServiceGroups);
     },
-    [serviceLimitMap, sessionsByDay, servicesByCode, servicesById],
+    [
+      compareServiceGroups,
+      compareSessionsByPatientThenId,
+      serviceLimitMap,
+      sessionsByDay,
+      servicesByCode,
+      servicesById,
+    ],
   );
 
   const groupSessions = useMemo(() => {
@@ -1444,7 +1508,8 @@ export default function Agendamentos() {
       };
     });
     if (repeatEnabled && repeatWeekdays.length === 0) {
-      setRepeatWeekdays([toIsoWeekday(startDate)]);
+      const weekday = toSelectableWeekday(startDate);
+      if (weekday) setRepeatWeekdays([weekday]);
     }
   }, [repeatEnabled, repeatWeekdays.length]);
 
@@ -1550,23 +1615,6 @@ export default function Agendamentos() {
     });
   }, []);
 
-  const handleSelectOnlyCreatablePreview = useCallback(() => {
-    setRecurrencePreview((previous) => {
-      if (!previous) return previous;
-      const selectedIndexes = previous.occurrences
-        .filter((occurrence) => occurrence.status === "AVAILABLE" || occurrence.status === "INFO")
-        .map((occurrence) => occurrence.index);
-
-      return {
-        ...previous,
-        selected_indexes: selectedIndexes,
-        confirm_warning_indexes: [],
-        force_override_indexes: [],
-        override_reason: "",
-      };
-    });
-  }, []);
-
   const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
     setFilters((prev) => ({ ...prev, [name]: value }));
@@ -1606,7 +1654,6 @@ export default function Agendamentos() {
     setEditingId(null);
     setForm(emptyForm);
     setFormPatientQuery("");
-    setIsFormPatientListOpen(false);
     setRepeatEnabled(false);
     setRepeatWeekdays([]);
     setRepeatMode("count");
@@ -1815,7 +1862,6 @@ export default function Agendamentos() {
         billing_mode: session.billing_mode || "per_session",
       });
       setFormPatientQuery(patientName);
-      setIsFormPatientListOpen(false);
       setIsDrawerOpen(true);
     },
     [filteredSessions, servicesByCode],
@@ -1953,29 +1999,69 @@ export default function Agendamentos() {
     reloadVisibleSessions,
   ]);
 
+  const applySessionStatusLocally = useCallback(({ id, status, reason, updatedSession }) => {
+    if (!id || !status) return;
+    const applyStatus = (session) => {
+      if (String(session?.id) !== String(id)) return session;
+      return {
+        ...session,
+        ...(updatedSession || {}),
+        status,
+        absence_reason: reason || updatedSession?.absence_reason || session?.absence_reason,
+      };
+    };
+
+    setSessions((previous) => previous.map(applyStatus));
+    setPendingSessionsSource((previous) => previous.map(applyStatus));
+    setDeleteModal((previous) => {
+      if (!previous?.open) return previous;
+      return {
+        ...previous,
+        session: previous.session ? applyStatus(previous.session) : previous.session,
+        candidates: Array.isArray(previous.candidates)
+          ? previous.candidates.map(applyStatus)
+          : previous.candidates,
+      };
+    });
+  }, []);
+
   const updateSessionStatus = useCallback(
-    async ({ id, status, reason }) => {
+    async ({ id, status, reason, onSuccess, onError }) => {
       if (!id || !status) return;
+      const sid = String(id);
+      if (savingSessionIdsRef.current.has(sid)) return;
       const payload = { status };
       if (reason) {
         payload.absence_reason = reason;
       }
-      setIsSaving(true);
+      savingSessionIdsRef.current.add(sid);
+      setSavingSessionIds(new Set(savingSessionIdsRef.current));
+      setSavingActionMap((prev) => ({ ...prev, [sid]: status }));
       try {
-        await axios.put(`/sessions/${id}`, payload);
+        const response = await axios.put(`/sessions/${id}`, payload);
+        applySessionStatusLocally({
+          id,
+          status,
+          reason,
+          updatedSession: response?.data,
+        });
         toast.success("Agendamento atualizado.");
         await reloadVisibleSessions();
         await loadPendingSessions();
+        if (onSuccess) onSuccess();
       } catch (error) {
         const message =
           error?.response?.data?.error ||
           "Nao foi possivel atualizar o agendamento.";
         toast.error(message);
+        if (onError) onError();
       } finally {
-        setIsSaving(false);
+        savingSessionIdsRef.current.delete(sid);
+        setSavingSessionIds(new Set(savingSessionIdsRef.current));
+        setSavingActionMap((prev) => { const { [sid]: _, ...rest } = prev; return rest; });
       }
     },
-    [loadPendingSessions, reloadVisibleSessions],
+    [applySessionStatusLocally, loadPendingSessions, reloadVisibleSessions],
   );
 
   const handleQuickStatus = useCallback(
@@ -1999,18 +2085,134 @@ export default function Agendamentos() {
   }, []);
 
   const handleConfirmAbsence = useCallback(async () => {
-    if (!absenceModal.id || !absenceModal.status) return;
+    if (!absenceModal.id || !absenceModal.status || absenceModal.isSaving) return;
     if (!absenceModal.reason.trim()) {
       toast.error("Informe o motivo.");
       return;
     }
+    setAbsenceModal((prev) => ({ ...prev, isSaving: true }));
     await updateSessionStatus({
       id: absenceModal.id,
       status: absenceModal.status,
       reason: absenceModal.reason.trim(),
+      onSuccess: () => setAbsenceModal({ open: false, id: null, status: null, reason: "", isSaving: false }),
+      onError: () => setAbsenceModal((prev) => ({ ...prev, isSaving: false })),
     });
-    setAbsenceModal({ open: false, id: null, status: null, reason: "" });
   }, [absenceModal, updateSessionStatus]);
+
+  const handleOpenAttendanceCall = useCallback(({ timeGroup }) => {
+    const allEligible = (timeGroup?.serviceGroups || []).flatMap((sg) =>
+      (sg.cards || []).filter((card) => card?.session?.id && card.session.status !== "canceled"),
+    );
+
+    if (allEligible.length === 0) {
+      toast.info("Nao ha sessoes ativas para fazer chamada neste horario.");
+      return;
+    }
+
+    const statuses = {};
+    const reasons = {};
+    allEligible.forEach((card) => {
+      const sid = String(card.session.id);
+      if (card.session.status === "no_show") {
+        statuses[sid] = "no_show";
+        if (card.session.absence_reason) reasons[sid] = card.session.absence_reason;
+      } else {
+        statuses[sid] = "done";
+      }
+    });
+
+    const modalServiceGroups = (timeGroup?.serviceGroups || [])
+      .map((sg) => ({
+        key: sg.key,
+        serviceLabel: sg.serviceLabel,
+        serviceColor: sg.serviceColor,
+        serviceCode: sg.serviceCode,
+        sessions: (sg.cards || [])
+          .filter((card) => card?.session?.id && card.session.status !== "canceled")
+          .map((card) => card.session),
+      }))
+      .filter((sg) => sg.sessions.length > 0);
+
+    setAttendanceModal({
+      open: true,
+      timeLabel: timeGroup?.label || "",
+      serviceGroups: modalServiceGroups,
+      statuses,
+      reasons,
+      isSaving: false,
+    });
+  }, []);
+
+  const handleCloseAttendanceCall = useCallback(() => {
+    setAttendanceModal((prev) => (
+      prev.isSaving
+        ? prev
+        : {
+          open: false,
+          timeLabel: "",
+          serviceGroups: [],
+          statuses: {},
+          reasons: {},
+          isSaving: false,
+        }
+    ));
+  }, []);
+
+  const handleAttendanceStatusChange = useCallback((sessionId, status) => {
+    setAttendanceModal((prev) => ({
+      ...prev,
+      statuses: {
+        ...prev.statuses,
+        [String(sessionId)]: status,
+      },
+    }));
+  }, []);
+
+  const handleAttendanceReasonChange = useCallback((sessionId, reason) => {
+    setAttendanceModal((prev) => ({
+      ...prev,
+      reasons: {
+        ...prev.reasons,
+        [String(sessionId)]: reason,
+      },
+    }));
+  }, []);
+
+  const handleSaveAttendanceCall = useCallback(async () => {
+    const allSessions = (attendanceModal.serviceGroups || []).flatMap((sg) => sg.sessions || []);
+    if (!attendanceModal.open || attendanceModal.isSaving || allSessions.length === 0) return;
+
+    const sessionsPayload = allSessions.map((session) => {
+      const sid = String(session.id);
+      const status = attendanceModal.statuses[sid] === "no_show" ? "no_show" : "done";
+      const payload = { id: session.id, status };
+      const reason = String(attendanceModal.reasons[sid] || "").trim();
+      if (status === "no_show" && reason) {
+        payload.absence_reason = reason;
+      }
+      return payload;
+    });
+
+    setAttendanceModal((prev) => ({ ...prev, isSaving: true }));
+    try {
+      await axios.patch("/sessions/bulk-status", { sessions: sessionsPayload });
+      toast.success("Chamada salva.");
+      setAttendanceModal({
+        open: false,
+        timeLabel: "",
+        serviceGroups: [],
+        statuses: {},
+        reasons: {},
+        isSaving: false,
+      });
+      await reloadVisibleSessions();
+      await loadPendingSessions();
+    } catch (error) {
+      toast.error(getUserFacingApiError(error, "Nao foi possivel salvar a chamada."));
+      setAttendanceModal((prev) => ({ ...prev, isSaving: false }));
+    }
+  }, [attendanceModal, loadPendingSessions, reloadVisibleSessions]);
 
   const handleOpenPendingDay = useCallback((value) => {
     if (!value) return;
@@ -2160,11 +2362,17 @@ export default function Agendamentos() {
             const created = Number(
               response?.data?.total_created || response?.data?.total_sessions || 0,
             );
-            toast.success(
-              created > 0
-                ? `Agenda do plano criada (${created} sessao(oes)).`
-                : "Agenda do plano criada.",
+            const skipped = Number(
+              response?.data?.total_skipped_by_availability || response?.data?.total_skipped || 0,
             );
+            let successMessage = "Agenda do plano criada.";
+            if (created > 0) {
+              successMessage = `Agenda do plano criada (${created} sessao(oes)).`;
+            }
+            if (skipped > 0) {
+              successMessage = `Agenda criada. ${skipped} data(s) bloqueada(s) foram ignorada(s).`;
+            }
+            toast.success(successMessage);
             resetForm();
             closeDrawer();
             await reloadVisibleSessions();
@@ -2293,7 +2501,7 @@ export default function Agendamentos() {
           availability.severity === "info" &&
           matchedEvents.length > 0
         ) {
-          toast.info("Dia com evento especial informativo.");
+          toast.info("Dia com feriado ou bloqueio informativo.");
         }
       } catch (error) {
         const message =
@@ -2354,6 +2562,29 @@ export default function Agendamentos() {
 
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
   const monthDays = useMemo(() => getMonthDays(selectedDate), [selectedDate]);
+
+  const monthServicesByDay = useMemo(() => {
+    const map = new Map();
+    sessionsByDay.forEach((daySessionList, key) => {
+      const groups = new Map();
+      daySessionList.forEach((session) => {
+        const code = session.service_type || session.Service?.code || "outro";
+        if (!groups.has(code)) {
+          groups.set(code, { code, count: 0, color: serviceColor(code), name: serviceName(code) });
+        }
+        groups.get(code).count += 1;
+      });
+      map.set(key, [...groups.values()].sort((a, b) =>
+        String(a.name || "").localeCompare(String(b.name || ""), "pt-BR", { sensitivity: "base" })
+      ));
+    });
+    return map;
+  }, [sessionsByDay, serviceColor, serviceName]);
+
+  const visibleMonthDays = useMemo(() => {
+    if (showMonthWeekend) return monthDays;
+    return monthDays.filter((day) => day.getDay() !== 0 && day.getDay() !== 6);
+  }, [monthDays, showMonthWeekend]);
 
   const handlePrev = useCallback(() => {
     const next = new Date(selectedDate);
@@ -2467,7 +2698,7 @@ export default function Agendamentos() {
     if (!selectedDaySpecialSummary) return "";
     if (selectedDaySpecialSummary.severity === "block") return "Dia bloqueado";
     if (selectedDaySpecialSummary.severity === "warn") return "Dia com alerta";
-    return "Dia com evento especial";
+    return "Dia com feriado ou bloqueio";
   }, [selectedDaySpecialSummary]);
 
   const deleteSeriesCandidates = useMemo(() => {
@@ -2584,6 +2815,15 @@ export default function Agendamentos() {
                 Semana atual
               </SecondaryButton>
             )}
+            {view === "month" && (
+              <WeekendToggleButton
+                type="button"
+                $active={showMonthWeekend}
+                onClick={() => setShowMonthWeekend((prev) => !prev)}
+              >
+                {showMonthWeekend ? "Ocultar fim de semana" : "Fins de semana"}
+              </WeekendToggleButton>
+            )}
           </DateNav>
           <ToolbarActions>
             <NotificationButton
@@ -2603,11 +2843,11 @@ export default function Agendamentos() {
                 resetForm();
                 openDrawer();
               }}
-            >
+            >   
               <FaPlus /> Novo agendamento
             </PrimaryButton>
             <ToolbarLink to="/agendamentos/eventos">
-              Eventos especiais
+              Feriados
             </ToolbarLink>
           </ToolbarActions>
         </Toolbar>
@@ -2618,12 +2858,11 @@ export default function Agendamentos() {
             <select name="status" value={filters.status} onChange={handleFilterChange}>
               <option value="">Todos</option>
               {statusOptions.length === 0 && (
-                <>
-                  <option value="scheduled">Agendado</option>
-                  <option value="done">Concluido</option>
-                  <option value="canceled">Cancelado</option>
-                  <option value="no_show">Falta</option>
-                </>
+                SESSION_STATUS_OPTIONS.map((status) => (
+                  <option key={status.value} value={status.value}>
+                    {status.label}
+                  </option>
+                ))
               )}
               {statusOptions.map((status) => (
                 <option key={status.code} value={status.code}>
@@ -2640,6 +2879,11 @@ export default function Agendamentos() {
               onChange={handleFilterChange}
             >
               <option value="">Todos</option>
+              {isBaseDataLoading && (
+                <option value="" disabled>
+                  Carregando serviços...
+                </option>
+              )}
               {allServiceOptions.map((service) => (
                 <option
                   key={service.id ? `id-${service.id}` : `code-${service.code}`}
@@ -2651,64 +2895,36 @@ export default function Agendamentos() {
             </select>
           </FilterField>
           <FilterField>
-            Paciente
-            <AutoComplete>
-              <SearchInput
-                type="text"
-                placeholder="Buscar paciente"
-                value={filterPatientQuery}
-                onChange={(event) => {
-                  setFilterPatientQuery(event.target.value);
-                  setIsFilterPatientListOpen(true);
-                  if (filters.patient_id) {
-                    setFilters((prev) => ({ ...prev, patient_id: "" }));
-                  }
-                }}
-                onFocus={() => setIsFilterPatientListOpen(true)}
-                onBlur={() => {
-                  setTimeout(() => setIsFilterPatientListOpen(false), 150);
-                }}
-              />
-              {isFilterPatientListOpen &&
-                filteredPatientOptions.length > 0 &&
-                filterPatientQuery && (
-                  <AutoList>
-                    {filteredPatientOptions.slice(0, 8).map((patient) => (
-                      <AutoItem
-                        key={patient.id}
-                        type="button"
-                        onClick={() => {
-                          setFilters((prev) => ({
-                            ...prev,
-                            patient_id: String(patient.id),
-                          }));
-                          setFilterPatientQuery(patient.name);
-                          setIsFilterPatientListOpen(false);
-                        }}
-                        onMouseDown={(event) => event.preventDefault()}
-                      >
-                        {patient.name}
-                      </AutoItem>
-                    ))}
-                  </AutoList>
-                )}
-            </AutoComplete>
+            <PatientSearchField
+              mode="filter"
+              value={filterPatientQuery}
+              onChange={setFilterPatientQuery}
+            />
           </FilterField>
         </FiltersRow>
-        <Legend>
-          {allServiceOptions.map((service) => (
-            <LegendItem
-              key={service.id ? `id-${service.id}` : `code-${service.code}`}
-            >
-              <TypePill $type={service.code} $color={service.color}>
-                {service.name}
-              </TypePill>
-            </LegendItem>
-          ))}
-        </Legend>
+        {isBaseDataLoading && (
+          <LegendLoading>Carregando serviços...</LegendLoading>
+        )}
+        {!isBaseDataLoading && allServiceOptions.length > 0 && (
+          <Legend>
+            {allServiceOptions.map((service) => (
+              <LegendItem
+                key={service.id ? `id-${service.id}` : `code-${service.code}`}
+              >
+                <TypePill $type={service.code} $color={service.color}>
+                  {service.name}
+                </TypePill>
+              </LegendItem>
+            ))}
+          </Legend>
+        )}
 
-        <Loading isLoading={isLoading} />
-
+        {isLoading ? (
+          <AgendaLoadingPanel>
+            <DataLoadingState text="Carregando agenda..." />
+          </AgendaLoadingPanel>
+        ) : (
+          <>
         {view === "week" && (
           <WeekGrid>
             <WeekHeader>
@@ -2859,14 +3075,16 @@ export default function Agendamentos() {
                         >
                           {visibleItems.map(({ session, group, color }) => {
                             const patientName = getSessionPatientName(session);
+                            const shortPatientName = getShortPatientName(patientName);
                             const attentionLevel = getSessionPatientAttentionLevel(session);
-                            const planSummary = getMonthlyPlanSummary(session);
+                            const sessionSummary = getSessionCardSummary(session);
+                            const sessionMetaParts = getSessionCardMetaParts(session);
                             return (
                               <GroupPill
                                 key={`${session.id}-${day.toISOString()}-${hour}`}
                                 $type={group.service_type}
                                 $color={color}
-                                title={planSummary ? `${patientName} - ${planSummary}` : patientName}
+                                title={`${patientName} - ${sessionSummary}`}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   handleOpenGroup(slotDate);
@@ -2874,10 +3092,11 @@ export default function Agendamentos() {
                               >
                                 <GroupPillContent>
                                   <GroupPillPatient>
-                                    <PatientInlineText>{patientName}</PatientInlineText>
+                                    <PatientInlineText>{shortPatientName}</PatientInlineText>
+                                    <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
+                                    <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
                                     {renderPatientAttentionIndicator(attentionLevel)}
                                   </GroupPillPatient>
-                                  {planSummary && <GroupPillMeta>{planSummary}</GroupPillMeta>}
                                 </GroupPillContent>
                               </GroupPill>
                             );
@@ -2944,6 +3163,12 @@ export default function Agendamentos() {
                   <DayTimeGroup key={timeGroup.key}>
                     <DayTimeHeader>
                       <strong>{timeGroup.label}</strong>
+                      <AttendanceCallButton
+                        type="button"
+                        onClick={() => handleOpenAttendanceCall({ timeGroup })}
+                      >
+                        Fazer chamada
+                      </AttendanceCallButton>
                     </DayTimeHeader>
                     <DayCardsColumn>
                       {timeGroup.serviceGroups.map((serviceGroup) => (
@@ -2953,7 +3178,7 @@ export default function Agendamentos() {
                               $type={serviceGroup.serviceCode}
                               $color={serviceGroup.serviceColor}
                             >
-                              {serviceGroup.professionalLabel} - {serviceGroup.serviceLabel}
+                              {serviceGroup.serviceLabel}
                             </DayServiceGroupBadge>
                           </DayServiceGroupHeader>
                           <DayServiceCards>
@@ -2961,8 +3186,16 @@ export default function Agendamentos() {
                               const { session } = card;
                               const tone = statusStyle(session.status);
                               const patientName = getSessionPatientName(session);
+                              const shortPatientName = getShortPatientName(patientName);
                               const attentionLevel = getSessionPatientAttentionLevel(session);
-                              const planDescriptor = getMonthlyPlanDescriptor(session);
+                              const sessionMetaParts = getSessionCardMetaParts(session);
+                              const daySessionId = String(session.id);
+                              const isDaySessionSaving = savingSessionIds.has(daySessionId);
+                              const statusMenuKey = `day-status-${daySessionId}`;
+                              const actionsMenuKey = `day-actions-${daySessionId}`;
+                              const currentStatusLabel = isDaySessionSaving
+                                ? "Salvando..."
+                                : getSessionStatusLabel(session.status);
                               return (
                                 <DaySessionCard
                                   key={card.key}
@@ -2975,79 +3208,105 @@ export default function Agendamentos() {
                                   <DaySessionBody>
                                     <DaySessionTop>
                                       <DaySessionPatient>
-                                        <PatientInlineText>{patientName}</PatientInlineText>
+                                        <PatientInlineText>{shortPatientName}</PatientInlineText>
+                                        <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
+                                        <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
                                         {renderPatientAttentionIndicator(attentionLevel)}
                                       </DaySessionPatient>
-                                      {session.billing_mode === "covered_by_plan" && (
-                                        <BillingModeBadge>
-                                          {getSessionBadgeLabel(session)}
-                                        </BillingModeBadge>
-                                      )}
                                       <DaySessionActions>
-                                        <DayActionButton
-                                          type="button"
-                                          data-id={session.id}
-                                          data-status="scheduled"
-                                          $status="scheduled"
-                                          $active={
-                                            session.status === "scheduled" ||
-                                            session.status === "open" ||
-                                            !session.status
-                                          }
-                                          onClick={handleQuickStatus}
-                                        >
-                                          Agendado
-                                        </DayActionButton>
-                                        <DayActionButton
-                                          type="button"
-                                          data-id={session.id}
-                                          data-status="done"
-                                          $status="done"
-                                          $active={session.status === "done"}
-                                          onClick={handleQuickStatus}
-                                        >
-                                          Concluido
-                                        </DayActionButton>
-                                        <DayActionButton
-                                          type="button"
-                                          data-id={session.id}
-                                          data-status="no_show"
-                                          $status="no_show"
-                                          $active={session.status === "no_show"}
-                                          onClick={handleAbsence}
-                                        >
-                                          Falta
-                                        </DayActionButton>
-                                        <DayActionButton
-                                          type="button"
-                                          data-id={session.id}
-                                          data-status="canceled"
-                                          $status="canceled"
-                                          $active={session.status === "canceled"}
-                                          onClick={handleQuickStatus}
-                                        >
-                                          Cancelar
-                                        </DayActionButton>
-                                        <DayEditButton
-                                          type="button"
-                                          data-id={session.id}
-                                          onClick={handleEdit}
-                                        >
-                                          Editar
-                                        </DayEditButton>
-                                        <DayDeleteButton
-                                          type="button"
-                                          onClick={() => handleOpenDelete(session)}
-                                        >
-                                          Excluir
-                                        </DayDeleteButton>
+                                        <DayDropdownWrapper>
+                                          <DayStatusMenuButton
+                                            type="button"
+                                            $status={statusStyle(session.status)}
+                                            disabled={isDaySessionSaving}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              setOpenActionMenu(
+                                                openActionMenu === statusMenuKey ? null : statusMenuKey,
+                                              );
+                                            }}
+                                          >
+                                            {currentStatusLabel} <span>▼</span>
+                                          </DayStatusMenuButton>
+                                          {openActionMenu === statusMenuKey && (
+                                            <ActionsDropdown onClick={(event) => event.stopPropagation()}>
+                                              <GroupStatusButton
+                                                type="button"
+                                                data-id={session.id}
+                                                data-status="scheduled"
+                                                $status="scheduled"
+                                                $active={isSessionStatusActive(session.status, "scheduled")}
+                                                onClick={(event) => { handleQuickStatus(event); setOpenActionMenu(null); }}
+                                              >
+                                                Agendado
+                                              </GroupStatusButton>
+                                              <GroupStatusButton
+                                                type="button"
+                                                data-id={session.id}
+                                                data-status="done"
+                                                $status="done"
+                                                $active={isSessionStatusActive(session.status, "done")}
+                                                onClick={(event) => { handleQuickStatus(event); setOpenActionMenu(null); }}
+                                              >
+                                                Concluir
+                                              </GroupStatusButton>
+                                              <GroupStatusButton
+                                                type="button"
+                                                data-id={session.id}
+                                                data-status="no_show"
+                                                $status="no_show"
+                                                $active={isSessionStatusActive(session.status, "no_show")}
+                                                onClick={(event) => { handleAbsence(event); setOpenActionMenu(null); }}
+                                              >
+                                                Marcar falta
+                                              </GroupStatusButton>
+                                              <GroupStatusButton
+                                                type="button"
+                                                data-id={session.id}
+                                                data-status="canceled"
+                                                $status="canceled"
+                                                $active={isSessionStatusActive(session.status, "canceled")}
+                                                onClick={(event) => { handleQuickStatus(event); setOpenActionMenu(null); }}
+                                              >
+                                                Cancelar
+                                              </GroupStatusButton>
+                                            </ActionsDropdown>
+                                          )}
+                                        </DayDropdownWrapper>
+                                        <DayDropdownWrapper>
+                                          <DayKebabButton
+                                            type="button"
+                                            aria-label="Ações da sessão"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              setOpenActionMenu(
+                                                openActionMenu === actionsMenuKey ? null : actionsMenuKey,
+                                              );
+                                            }}
+                                          >
+                                            ⋮
+                                          </DayKebabButton>
+                                          {openActionMenu === actionsMenuKey && (
+                                            <ActionsDropdown onClick={(event) => event.stopPropagation()}>
+                                              <ActionsDropdownItem
+                                                type="button"
+                                                data-id={session.id}
+                                                onClick={(event) => { handleEdit(event); setOpenActionMenu(null); }}
+                                              >
+                                                Editar
+                                              </ActionsDropdownItem>
+                                              <ActionsDropdownItem
+                                                type="button"
+                                                $danger
+                                                onClick={() => { handleOpenDelete(session); setOpenActionMenu(null); }}
+                                              >
+                                                Excluir
+                                              </ActionsDropdownItem>
+                                            </ActionsDropdown>
+                                          )}
+                                        </DayDropdownWrapper>
                                       </DaySessionActions>
                                     </DaySessionTop>
-                                    {planDescriptor && (
-                                      <DaySessionPlanSummary title={`Mensal - ${planDescriptor}`}>
-                                        {planDescriptor}
-                                      </DaySessionPlanSummary>
-                                    )}
                                   </DaySessionBody>
                                 </DaySessionCard>
                               );
@@ -3065,15 +3324,20 @@ export default function Agendamentos() {
 
         {view === "month" && (
           <MonthPanel>
-            <MonthGrid>
-              {["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"].map((label) => (
+            <MonthGrid $cols={showMonthWeekend ? 7 : 5}>
+              {(showMonthWeekend
+                ? ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
+                : ["Seg", "Ter", "Qua", "Qui", "Sex"]
+              ).map((label) => (
                 <MonthHeader key={label}>{label}</MonthHeader>
               ))}
-              {monthDays.map((day) => {
+              {visibleMonthDays.map((day) => {
                 const key = startOfDay(day).toISOString();
-                const count = (sessionsByDay.get(key) || []).length;
                 const specialSummary = specialEventsByDay.get(key) || null;
                 const isCurrentMonth = day.getMonth() === selectedDate.getMonth();
+                const dayServices = monthServicesByDay.get(key) || [];
+                const visibleServices = dayServices.slice(0, 3);
+                const extraServices = dayServices.length > 3 ? dayServices.length - 3 : 0;
                 return (
                   <MonthCell
                     key={day.toISOString()}
@@ -3084,18 +3348,27 @@ export default function Agendamentos() {
                       setView("day");
                     }}
                   >
-                    <div>
-                      <strong>{day.getDate()}</strong>
-                      {count > 0 && <CountBadge>{count}</CountBadge>}
-                      {specialSummary && (
-                        <SpecialDayFlag
-                          $severity={specialSummary.severity}
-                          title={buildSpecialEventsTooltip(specialSummary.events)}
-                        >
-                          {daySummaryLabel(specialSummary)} ({specialSummary.events.length})
-                        </SpecialDayFlag>
-                      )}
-                    </div>
+                    <strong>{day.getDate()}</strong>
+                    {specialSummary && (
+                      <SpecialDayFlag
+                        $severity={specialSummary.severity}
+                        title={buildSpecialEventsTooltip(specialSummary.events)}
+                      >
+                        {daySummaryLabel(specialSummary)}
+                      </SpecialDayFlag>
+                    )}
+                    {visibleServices.length > 0 && (
+                      <MonthServiceChips>
+                        {visibleServices.map((svc) => (
+                          <MonthServiceChip key={svc.code} $color={svc.color}>
+                            {svc.name}: {svc.count}
+                          </MonthServiceChip>
+                        ))}
+                        {extraServices > 0 && (
+                          <MonthServiceMore>+{extraServices} mais</MonthServiceMore>
+                        )}
+                      </MonthServiceChips>
+                    )}
                   </MonthCell>
                 );
               })}
@@ -3104,6 +3377,8 @@ export default function Agendamentos() {
               Clique em um dia para abrir a agenda detalhada.
             </MonthHint>
           </MonthPanel>
+        )}
+          </>
         )}
 
         <AppDrawer $open={isDrawerOpen}>
@@ -3173,7 +3448,6 @@ export default function Agendamentos() {
                         ends_at: toInputValue(endsAt),
                       }));
                       setFormPatientQuery("");
-                      setIsFormPatientListOpen(false);
                     }}
                   >
                     <FaPlus /> Adicionar paciente
@@ -3201,6 +3475,14 @@ export default function Agendamentos() {
                       </GroupSectionHeader>
                       {group.sessions.map((session) => {
                         const planSummary = getMonthlyPlanSummary(session);
+                        const groupRecurringBadge = getRecurringSeriesBadge(session);
+                        const groupSessionMeta = planSummary || groupRecurringBadge || null;
+                        const groupSessionId = String(session.id);
+                        const isGroupSessionSaving = savingSessionIds.has(groupSessionId);
+                        const groupSessionSavingAction = savingActionMap[groupSessionId];
+                        let groupCancelLabel = "Cancelar";
+                        if (groupSessionSavingAction === "canceled") groupCancelLabel = "Salvando...";
+                        else if (session.status === "canceled") groupCancelLabel = "Cancelado";
                         return (
                           <GroupItem key={session.id}>
                             <PatientInfo>
@@ -3208,9 +3490,9 @@ export default function Agendamentos() {
                                 <PatientInlineText>{getSessionPatientName(session)}</PatientInlineText>
                                 {renderPatientAttentionIndicator(getSessionPatientAttentionLevel(session))}
                               </PatientInfoName>
-                              {planSummary && (
-                                <PatientPlanSummary title={planSummary}>
-                                  {planSummary}
+                              {groupSessionMeta && (
+                                <PatientPlanSummary title={groupSessionMeta}>
+                                  {groupSessionMeta}
                                 </PatientPlanSummary>
                               )}
                               <PatientInfoMeta>
@@ -3218,7 +3500,7 @@ export default function Agendamentos() {
                                   {session?.professional?.name || "Profissional"}
                                 </PatientInfoProfessional>
                                 <GroupSessionStatusPill $status={session.status}>
-                                  {statusLabel(session.status)}
+                                  {getSessionStatusLabel(session.status)}
                                 </GroupSessionStatusPill>
                               </PatientInfoMeta>
                             </PatientInfo>
@@ -3241,40 +3523,44 @@ export default function Agendamentos() {
                                     data-id={session.id}
                                     data-status="scheduled"
                                     $status="scheduled"
-                                    $active={session.status === "scheduled" || session.status === "open"}
+                                    $active={isSessionStatusActive(session.status, "scheduled")}
+                                    disabled={isGroupSessionSaving}
                                     onClick={(e) => { handleQuickStatus(e); setOpenActionMenu(null); }}
                                   >
-                                    Agendado
+                                    {groupSessionSavingAction === "scheduled" ? "Salvando..." : getSessionStatusLabel("scheduled")}
                                   </GroupStatusButton>
                                   <GroupStatusButton
                                     type="button"
                                     data-id={session.id}
                                     data-status="done"
                                     $status="done"
-                                    $active={session.status === "done"}
+                                    $active={isSessionStatusActive(session.status, "done")}
+                                    disabled={isGroupSessionSaving}
                                     onClick={(e) => { handleQuickStatus(e); setOpenActionMenu(null); }}
                                   >
-                                    Concluído
+                                    {groupSessionSavingAction === "done" ? "Salvando..." : getSessionStatusLabel("done")}
                                   </GroupStatusButton>
                                   <GroupStatusButton
                                     type="button"
                                     data-id={session.id}
                                     data-status="no_show"
                                     $status="no_show"
-                                    $active={session.status === "no_show"}
+                                    $active={isSessionStatusActive(session.status, "no_show")}
+                                    disabled={isGroupSessionSaving}
                                     onClick={(e) => { handleAbsence(e); setOpenActionMenu(null); }}
                                   >
-                                    Falta
+                                    {groupSessionSavingAction === "no_show" ? "Salvando..." : getSessionStatusLabel("no_show")}
                                   </GroupStatusButton>
                                   <GroupStatusButton
                                     type="button"
                                     data-id={session.id}
                                     data-status="canceled"
                                     $status="canceled"
-                                    $active={session.status === "canceled"}
+                                    $active={isSessionStatusActive(session.status, "canceled")}
+                                    disabled={isGroupSessionSaving}
                                     onClick={(e) => { handleAbsence(e); setOpenActionMenu(null); }}
                                   >
-                                    Cancelado
+                                    {groupCancelLabel}
                                   </GroupStatusButton>
                                   <ActionsDropdownDivider />
                                   <ActionsDropdownItem
@@ -3305,49 +3591,21 @@ export default function Agendamentos() {
             {drawerMode !== "pending" && drawerMode !== "group" && (
               <Form onSubmit={handleSubmit}>
                 <FormGrid>
-                  <Field className="span-2">
-                    Paciente *
-                    <AutoComplete>
-                      <PatientInputShell>
-                        <PatientSearchInput
-                          type="text"
-                          placeholder="Buscar paciente"
-                          value={formPatientQuery}
-                          $selected={!!selectedPatient}
-                          onChange={(event) => {
-                            setFormPatientQuery(event.target.value);
-                            setIsFormPatientListOpen(true);
-                            if (form.patient_id) {
-                              setForm((prev) => ({ ...prev, patient_id: "" }));
-                            }
-                          }}
-                          onFocus={() => setIsFormPatientListOpen(true)}
-                          onBlur={() => {
-                            setTimeout(() => setIsFormPatientListOpen(false), 150);
-                          }}
-                        />
-                        {selectedPatient && (
-                          <SelectionIndicator aria-hidden="true" />
-                        )}
-                      </PatientInputShell>
-                      {isFormPatientListOpen &&
-                        filteredFormPatientOptions.length > 0 &&
-                        formPatientQuery && (
-                          <AutoList>
-                            {filteredFormPatientOptions.slice(0, 8).map((patient) => (
-                              <AutoItem
-                                key={patient.id}
-                                type="button"
-                                onClick={() => handleSelectPatient(patient)}
-                                onMouseDown={(event) => event.preventDefault()}
-                              >
-                                {patient.name}
-                              </AutoItem>
-                            ))}
-                          </AutoList>
-                        )}
-                    </AutoComplete>
-                  </Field>
+                  <PatientSearchField
+                    className="span-2"
+                    mode="select"
+                    required
+                    patients={patientOptions}
+                    selectedPatientId={form.patient_id}
+                    value={formPatientQuery}
+                    onChange={(nextValue) => {
+                      setFormPatientQuery(nextValue);
+                      if (form.patient_id) {
+                        setForm((prev) => ({ ...prev, patient_id: "" }));
+                      }
+                    }}
+                    onSelect={handleSelectPatient}
+                  />
                   {!editingId && form.patient_id && activePlansForPatient.length > 0 && (
                     <ActivePlansCard className="span-2">
                       {activePlansForPatient.map((p) => {
@@ -3406,13 +3664,15 @@ export default function Agendamentos() {
                         <option value="" disabled hidden>
                           Selecionar
                         </option>
-                        {serviceOptions.length === 0 && (
-                          <>
-                            <option value="fisioterapia">Fisioterapia</option>
-                            <option value="funcional">Funcional</option>
-                            <option value="pilates">Pilates</option>
-                            <option value="outro">Outro</option>
-                          </>
+                        {isBaseDataLoading && (
+                          <option value="" disabled>
+                            Carregando serviços...
+                          </option>
+                        )}
+                        {!isBaseDataLoading && serviceOptions.length === 0 && (
+                          <option value="" disabled>
+                            Nenhum serviço ativo disponível
+                          </option>
                         )}
                         {serviceOptions.map((service) => (
                           <option key={service.id} value={service.id}>
@@ -3433,12 +3693,11 @@ export default function Agendamentos() {
                       onChange={handleFormChange}
                     >
                       {statusOptions.length === 0 && (
-                        <>
-                          <option value="scheduled">Agendado</option>
-                          <option value="done">Concluido</option>
-                          <option value="canceled">Cancelado</option>
-                          <option value="no_show">Falta</option>
-                        </>
+                        SESSION_STATUS_OPTIONS.map((status) => (
+                          <option key={status.value} value={status.value}>
+                            {status.label}
+                          </option>
+                        ))
                       )}
                       {statusOptions.map((status) => (
                         <option key={status.code} value={status.code}>
@@ -3509,21 +3768,18 @@ export default function Agendamentos() {
                         <>
                           <CoveragePreviewRow>
                             <strong>Cobrança prevista:</strong>{" "}
-                            {coveragePreview.is_extra ? "Plano mensal extra" : "Plano mensal"}
+                            Plano mensal
                           </CoveragePreviewRow>
                           {coveragePreview.sessions_per_week && (
-                            <CoveragePreviewRow>Plano: {coveragePreview.sessions_per_week}x/sem</CoveragePreviewRow>
+                            <CoveragePreviewRow>Frequência planejada: {coveragePreview.sessions_per_week}x/sem</CoveragePreviewRow>
                           )}
                           {coveragePreview.usage_summary && (
                             <CoveragePreviewRow>
-                              Saldo: {coveragePreview.usage_summary.total_included_active}/{coveragePreview.usage_summary.included_sessions_count} usadas
+                              Sessões neste ciclo: {coveragePreview.usage_summary.total_reserved || 0} agendada(s) / {coveragePreview.usage_summary.total_consumed || 0} realizada(s)
                             </CoveragePreviewRow>
                           )}
                           {!coveragePreview.usage_summary && (
                             <CoveragePreviewRow>{coveragePreview.message}</CoveragePreviewRow>
-                          )}
-                          {coveragePreview.is_extra && (
-                            <CoveragePreviewWarning>Será cobrada como extra quando realizada</CoveragePreviewWarning>
                           )}
                         </>
                       )}
@@ -3555,7 +3811,8 @@ export default function Agendamentos() {
                             ) {
                               const start = new Date(form.starts_at);
                               if (!Number.isNaN(start.getTime())) {
-                                setRepeatWeekdays([toIsoWeekday(start)]);
+                                const weekday = toSelectableWeekday(start);
+                                if (weekday) setRepeatWeekdays([weekday]);
                               }
                             }
                           }}
@@ -3776,7 +4033,7 @@ export default function Agendamentos() {
                               <RecurrenceEventList>
                                 {occurrence.matched_events.map((event, index) => (
                                   <li key={`${occurrence.index}-${event.id || index}`}>
-                                    {event.name || "Evento especial"} -{" "}
+                                    {event.name || "Feriado ou bloqueio"} -{" "}
                                     {SPECIAL_SOURCE_LABELS[event.source_type] ||
                                       event.source_type}
                                   </li>
@@ -3816,13 +4073,6 @@ export default function Agendamentos() {
               <ModalActions>
                 <SecondaryButton
                   type="button"
-                  onClick={handleSelectOnlyCreatablePreview}
-                  disabled={recurrencePreview.is_submitting}
-                >
-                  Criar apenas permitidas
-                </SecondaryButton>
-                <SecondaryButton
-                  type="button"
                   onClick={closeRecurrencePreview}
                   disabled={recurrencePreview.is_submitting}
                 >
@@ -3833,10 +4083,96 @@ export default function Agendamentos() {
                   onClick={handleConfirmRecurrenceCreation}
                   disabled={recurrencePreview.is_submitting}
                 >
-                  {recurrencePreview.is_submitting ? "Salvando..." : "Confirmar criacao"}
+                  {recurrencePreview.is_submitting ? "Salvando..." : "Confirmar"}
                 </PrimaryButton>
               </ModalActions>
             </RecurrencePreviewCard>
+          </ModalOverlay>
+        )}
+        {attendanceModal.open && (
+          <ModalOverlay>
+            <AttendanceCallCard>
+              <ModalHeader>
+                <AttendanceCallTitle>
+                  <h3>Fazer chamada — {attendanceModal.timeLabel}</h3>
+                </AttendanceCallTitle>
+                <IconButton
+                  type="button"
+                  disabled={attendanceModal.isSaving}
+                  onClick={handleCloseAttendanceCall}
+                >
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <AttendanceCallBody>
+                {attendanceModal.serviceGroups.map((sg) => (
+                  <AttendanceCallServiceSection key={sg.key}>
+                    <AttendanceCallServiceHeader $color={sg.serviceColor} $code={sg.serviceCode}>
+                      {sg.serviceLabel}
+                    </AttendanceCallServiceHeader>
+                    {sg.sessions.map((session) => {
+                      const sid = String(session.id);
+                      const selectedStatus = attendanceModal.statuses[sid] || "done";
+                      const professionalName = session?.professional?.name || "";
+                      return (
+                        <AttendanceCallRow key={session.id}>
+                          <AttendanceCallInfo>
+                            <strong>{getSessionPatientName(session)}</strong>
+                            {professionalName && <span>{professionalName}</span>}
+                          </AttendanceCallInfo>
+                          <AttendanceStatusToggle role="group" aria-label="Status da chamada">
+                            <AttendanceStatusButton
+                              type="button"
+                              $active={selectedStatus === "done"}
+                              disabled={attendanceModal.isSaving}
+                              onClick={() => handleAttendanceStatusChange(session.id, "done")}
+                            >
+                              Concluído
+                            </AttendanceStatusButton>
+                            <AttendanceStatusButton
+                              type="button"
+                              $active={selectedStatus === "no_show"}
+                              $tone="no_show"
+                              disabled={attendanceModal.isSaving}
+                              onClick={() => handleAttendanceStatusChange(session.id, "no_show")}
+                            >
+                              Falta
+                            </AttendanceStatusButton>
+                          </AttendanceStatusToggle>
+                          {selectedStatus === "no_show" && (
+                            <AttendanceReasonInput
+                              type="text"
+                              placeholder="Motivo opcional"
+                              value={attendanceModal.reasons[sid] || ""}
+                              disabled={attendanceModal.isSaving}
+                              onChange={(event) =>
+                                handleAttendanceReasonChange(session.id, event.target.value)
+                              }
+                            />
+                          )}
+                        </AttendanceCallRow>
+                      );
+                    })}
+                  </AttendanceCallServiceSection>
+                ))}
+              </AttendanceCallBody>
+              <ModalActions>
+                <SecondaryButton
+                  type="button"
+                  disabled={attendanceModal.isSaving}
+                  onClick={handleCloseAttendanceCall}
+                >
+                  Cancelar
+                </SecondaryButton>
+                <PrimaryButton
+                  type="button"
+                  disabled={attendanceModal.isSaving}
+                  onClick={handleSaveAttendanceCall}
+                >
+                  {attendanceModal.isSaving ? "Salvando..." : "Salvar chamada"}
+                </PrimaryButton>
+              </ModalActions>
+            </AttendanceCallCard>
           </ModalOverlay>
         )}
         {absenceModal.open && (
@@ -3846,9 +4182,9 @@ export default function Agendamentos() {
                 <h3>Motivo da falta/cancelamento</h3>
                 <IconButton
                   type="button"
-                  disabled={isSaving}
+                  disabled={absenceModal.isSaving}
                   onClick={() =>
-                    setAbsenceModal({ open: false, id: null, status: null, reason: "" })
+                    setAbsenceModal({ open: false, id: null, status: null, reason: "", isSaving: false })
                   }
                 >
                   <FaTimes />
@@ -3859,6 +4195,7 @@ export default function Agendamentos() {
                   rows={4}
                   placeholder="Descreva o motivo"
                   value={absenceModal.reason}
+                  disabled={absenceModal.isSaving}
                   onChange={(event) =>
                     setAbsenceModal((prev) => ({ ...prev, reason: event.target.value }))
                   }
@@ -3867,9 +4204,9 @@ export default function Agendamentos() {
               <ModalActions>
                 <SecondaryButton
                   type="button"
-                  disabled={isSaving}
+                  disabled={absenceModal.isSaving}
                   onClick={() =>
-                    setAbsenceModal({ open: false, id: null, status: null, reason: "" })
+                    setAbsenceModal({ open: false, id: null, status: null, reason: "", isSaving: false })
                   }
                 >
                   Cancelar
@@ -3877,10 +4214,10 @@ export default function Agendamentos() {
                 <ModalSaveButton
                   type="button"
                   onClick={handleConfirmAbsence}
-                  disabled={isSaving}
-                  aria-label={isSaving ? "Salvando motivo" : "Salvar motivo"}
+                  disabled={absenceModal.isSaving}
+                  aria-label={absenceModal.isSaving ? "Salvando motivo" : "Salvar motivo"}
                 >
-                  {isSaving ? <ButtonSpinner aria-hidden="true" /> : "Salvar"}
+                  {absenceModal.isSaving ? <ButtonSpinner aria-hidden="true" /> : "Salvar"}
                 </ModalSaveButton>
               </ModalActions>
             </ModalCard>
@@ -3929,7 +4266,7 @@ export default function Agendamentos() {
                       </RecurrenceSummaryItem>
                       <RecurrenceSummaryItem>
                         <small>Status</small>
-                        <strong>{sessionStatusLabel(deleteModal.session?.status)}</strong>
+                        <strong>{getSessionStatusLabel(deleteModal.session?.status)}</strong>
                       </RecurrenceSummaryItem>
                     </RecurrenceSummaryGrid>
                     <DeleteChoiceGrid>
@@ -4021,7 +4358,7 @@ export default function Agendamentos() {
                               )}
                             </DeleteReviewInfo>
                             <DeleteStatusPill $status={session.status}>
-                              {sessionStatusLabel(session.status)}
+                              {getSessionStatusLabel(session.status)}
                             </DeleteStatusPill>
                           </DeleteReviewRow>
                         );
@@ -4374,7 +4711,17 @@ const LegendItem = styled.div`
   align-items: center;
 `;
 
-const FilterField = styled.label`
+const LegendLoading = styled.div`
+  min-height: 32px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  color: #687263;
+  font-size: 0.86rem;
+  font-weight: 700;
+`;
+
+const FilterField = styled.div`
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -4661,17 +5008,6 @@ const GroupPillPatient = styled.span`
   width: 100%;
 `;
 
-const GroupPillMeta = styled.span`
-  display: block;
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: #4f6644;
-  line-height: 1.15;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`;
-
 const OverflowIndicatorBadge = styled.div`
   align-self: flex-end;
   min-width: 26px;
@@ -4860,28 +5196,23 @@ const DayList = styled.div`
 `;
 
 const DayTimeGroup = styled.div`
-  display: grid;
-  grid-template-columns: 96px 1fr;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 6px 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 12px;
   border-bottom: 1px solid rgba(106, 121, 92, 0.14);
 
   &:last-child {
     border-bottom: none;
     padding-bottom: 0;
   }
-
-  @media (max-width: 920px) {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
 `;
 
 const DayTimeHeader = styled.div`
   display: flex;
   align-items: center;
-  padding-top: 4px;
+  justify-content: space-between;
+  gap: 12px;
 
   strong {
     color: #1f1f1f;
@@ -4907,6 +5238,8 @@ const DayServiceGroupBlock = styled.div`
 const DayServiceGroupHeader = styled.div`
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 `;
 
 const DayServiceGroupBadge = styled.span`
@@ -4927,6 +5260,25 @@ const DayServiceGroupBadge = styled.span`
   }};
 `;
 
+const AttendanceCallButton = styled.button`
+  border: 1px solid rgba(106, 121, 92, 0.22);
+  background: #fff;
+  color: #516046;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+
+  &:hover {
+    background: rgba(106, 121, 92, 0.12);
+    border-color: rgba(106, 121, 92, 0.38);
+    color: #3f5035;
+  }
+`;
+
 const DayServiceCards = styled.div`
   display: flex;
   flex-direction: column;
@@ -4937,7 +5289,8 @@ const DaySessionCard = styled.article`
   display: grid;
   grid-template-columns: 5px 1fr;
   border-radius: 10px;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
   border: 1px solid rgba(106, 121, 92, 0.18);
   background: ${(props) => {
     if (props.$status === "done") return "rgba(94, 135, 90, 0.07)";
@@ -4948,6 +5301,7 @@ const DaySessionCard = styled.article`
 `;
 
 const DayServiceBar = styled.span`
+  border-radius: 10px 0 0 10px;
   background: ${(props) => {
     if (props.$color) return props.$color;
     return "#a2b190";
@@ -4966,17 +5320,6 @@ const DaySessionTop = styled.div`
   align-items: center;
   gap: 12px;
   min-width: 0;
-`;
-
-const DaySessionPlanSummary = styled.span`
-  display: block;
-  color: #5d7050;
-  font-size: 0.76rem;
-  font-weight: 700;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 `;
 
 const DaySessionPatient = styled.strong`
@@ -5000,13 +5343,7 @@ const DaySessionActions = styled.div`
   min-width: 0;
   margin-left: auto;
   flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-
-  &::-webkit-scrollbar {
-    display: none;
-  }
+  overflow: visible;
 `;
 
 const MonthPanel = styled.div`
@@ -5018,7 +5355,7 @@ const MonthPanel = styled.div`
 
 const MonthGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(${(props) => props.$cols || 7}, 1fr);
   gap: 8px;
 `;
 
@@ -5027,34 +5364,30 @@ const MonthHeader = styled.div`
   font-weight: 700;
   color: #6a795c;
   padding: 6px;
+  font-size: 0.92rem;
 `;
 
 const MonthCell = styled.div`
-  min-height: 70px;
+  min-height: 90px;
   border-radius: 12px;
-  border: 1px solid rgba(106, 121, 92, 0.15);
+  border: 1px solid rgba(106, 121, 92, 0.45);
   padding: 8px;
   cursor: pointer;
   background: ${(props) => (props.$active ? "rgba(162, 177, 144, 0.25)" : "#fff")};
-  opacity: ${(props) => (props.$inactive ? 0.45 : 1)};
+  opacity: ${(props) => (props.$inactive ? 0.4 : 1)};
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  gap: 4px;
+  transition: background 0.15s;
+  &:hover {
+    background: ${(props) => (props.$active ? "rgba(162, 177, 144, 0.35)" : "rgba(106, 121, 92, 0.06)")};
+  }
   strong {
     color: #1b1b1b;
+    font-size: 1.05rem;
+    font-weight: 700;
+    text-align: center;
   }
-`;
-
-const CountBadge = styled.span`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #6a795c;
-  color: #fff;
-  font-size: 0.7rem;
-  margin-top: 6px;
 `;
 
 const SpecialDayFlag = styled.span`
@@ -5086,6 +5419,48 @@ const MonthHint = styled.p`
   font-size: 0.9rem;
 `;
 
+const WeekendToggleButton = styled.button`
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(106, 121, 92, 0.28);
+  background: ${(props) => (props.$active ? "rgba(106, 121, 92, 0.15)" : "transparent")};
+  color: #6a795c;
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  &:hover {
+    background: rgba(106, 121, 92, 0.12);
+  }
+`;
+
+const MonthServiceChips = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
+`;
+
+const MonthServiceChip = styled.span`
+  display: block;
+  padding: 2px 5px 2px 7px;
+  border-radius: 4px;
+  border-left: 3px solid ${(props) => props.$color || "#6a795c"};
+  background: rgba(106, 121, 92, 0.06);
+  font-size: 0.63rem;
+  font-weight: 600;
+  color: #2a2a2a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const MonthServiceMore = styled.span`
+  font-size: 0.62rem;
+  color: #6a795c;
+  padding: 1px 5px;
+  font-weight: 600;
+`;
 
 const DrawerHeader = styled.div`
   padding: 22px 20px;
@@ -5290,16 +5665,26 @@ const ActionsMenuButton = styled.button`
 const GroupStatusButton = styled(SessionStatusButton)`
   width: 100%;
   justify-content: flex-start;
-  padding: 6px 12px;
+  padding: 8px 14px;
   font-size: 0.82rem;
-  border-radius: 6px;
+  border-radius: 8px;
   border: none;
-  transition: filter 120ms ease;
+  background: ${(props) => (props.$active ? "#6a795c" : "#fff")};
+  color: ${(props) => {
+    if (props.$active) return "#fff";
+    if (props.$status === "done") return "#2f5a33";
+    if (props.$status === "canceled") return "#7b3a3a";
+    if (props.$status === "no_show") return "#8a5718";
+    return "#516046";
+  }};
+  box-shadow: none;
+  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
 
   &:hover {
-    transform: none;
+    background: ${(props) => (props.$active ? "#5f6f52" : "rgba(106, 121, 92, 0.14)")};
     box-shadow: none;
-    filter: brightness(0.95);
+    filter: none;
+    transform: translateX(2px);
   }
 `;
 
@@ -5311,11 +5696,12 @@ const ActionsDropdown = styled.div`
   background: #fff;
   border: 1px solid rgba(106, 121, 92, 0.18);
   border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  padding: 6px 0;
-  min-width: 148px;
+  box-shadow: 0 12px 30px rgba(32, 43, 27, 0.16);
+  padding: 6px;
+  min-width: 164px;
   display: flex;
   flex-direction: column;
+  gap: 2px;
 `;
 
 const ActionsDropdownItem = styled.button`
@@ -5392,58 +5778,57 @@ const StatusAction = styled.button`
   }
 `;
 
-const SmallEdit = styled.button`
-  border: 1px solid rgba(106, 121, 92, 0.18);
-  background: #f5f7f1;
-  color: #516046;
-  font-size: 0.8rem;
-  font-weight: 700;
-  padding: 7px 10px;
-  border-radius: 9px;
-  cursor: pointer;
-
-  &:hover {
-    background: #eef2e7;
-  }
+const DayDropdownWrapper = styled.div`
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
 `;
 
-const SmallDeleteButton = styled(SmallEdit)`
-  border-color: rgba(189, 85, 85, 0.28);
-  background: rgba(247, 234, 234, 0.9);
-  color: #8c3737;
-
-  &:hover {
-    background: rgba(247, 226, 226, 0.98);
-  }
-`;
-
-const DayActionButton = styled(StatusAction)`
-  padding: 3px 8px;
+const DayStatusMenuButton = styled(StatusAction)`
+  min-width: 112px;
+  padding: 5px 10px;
   border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.76rem;
+  gap: 6px;
   box-shadow: none;
-  transition: none;
+  white-space: nowrap;
 
-  &:hover {
+  span {
+    font-size: 0.62rem;
+    line-height: 1;
+  }
+
+  &:disabled {
+    opacity: 0.68;
+    cursor: not-allowed;
     transform: none;
     box-shadow: none;
     filter: none;
   }
 `;
 
-const DayEditButton = styled(SmallEdit)`
-  padding: 3px 8px;
+const DayKebabButton = styled.button`
+  width: 30px;
+  height: 30px;
   border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 600;
-`;
+  border: 1px solid rgba(106, 121, 92, 0.22);
+  background: #fff;
+  color: #516046;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 
-const DayDeleteButton = styled(SmallDeleteButton)`
-  padding: 3px 8px;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 600;
+  &:hover {
+    background: #f5f7f1;
+    box-shadow: 0 8px 18px rgba(42, 52, 35, 0.08);
+    transform: translateY(-1px);
+  }
 `;
 
 
@@ -5454,7 +5839,9 @@ const ModalOverlay = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 30;
+  z-index: 1300;
+  padding: 16px;
+  overflow-y: auto;
 `;
 
 const ModalCard = styled.div`
@@ -5473,6 +5860,7 @@ const ModalHeader = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
 
   h3 {
     margin: 0;
@@ -5496,11 +5884,162 @@ const ModalActions = styled.div`
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex-shrink: 0;
+`;
+
+const AttendanceCallCard = styled(ModalCard)`
+  width: min(820px, 96vw);
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
+`;
+
+const AttendanceCallTitle = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+
+  h3 {
+    margin: 0;
+  }
+
+  span {
+    color: #5d6b52;
+    font-size: 0.86rem;
+    font-weight: 700;
+  }
+`;
+
+const AttendanceCallBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 2px;
+`;
+
+const AttendanceCallServiceSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const AttendanceCallServiceHeader = styled.div`
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #42523a;
+  background: ${(props) => {
+    if (props.$color) return `${props.$color}2A`;
+    if (props.$code === "pilates") return "rgba(116, 141, 189, 0.22)";
+    if (props.$code === "funcional") return "rgba(120, 145, 176, 0.22)";
+    if (props.$code === "fisioterapia") return "rgba(162, 177, 144, 0.3)";
+    return "rgba(162, 177, 144, 0.2)";
+  }};
+`;
+
+const AttendanceCallRow = styled.div`
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(106, 121, 92, 0.14);
+  border-radius: 10px;
+  padding: 10px;
+  background: #fbfcf9;
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const AttendanceCallInfo = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+
+  strong,
+  span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  strong {
+    color: #1f1f1f;
+    font-size: 0.95rem;
+  }
+
+  span {
+    color: #5d6b52;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+`;
+
+const AttendanceStatusToggle = styled.div`
+  display: inline-flex;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  border-radius: 999px;
+  padding: 3px;
+  background: #fff;
+  justify-self: end;
+
+  @media (max-width: 720px) {
+    justify-self: start;
+  }
+`;
+
+const AttendanceStatusButton = styled.button`
+  border: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  background: ${(props) => {
+    if (!props.$active) return "transparent";
+    if (props.$tone === "no_show") return "#8a5718";
+    return "#2f5a33";
+  }};
+  color: ${(props) => (props.$active ? "#fff" : "#516046")};
+  transition: background 120ms ease, color 120ms ease;
+
+  &:hover {
+    background: ${(props) => {
+    if (props.$active && props.$tone === "no_show") return "#7c4e16";
+    if (props.$active) return "#294f2d";
+    return "rgba(106, 121, 92, 0.12)";
+  }};
+  }
+
+  &:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+`;
+
+const AttendanceReasonInput = styled.input`
+  grid-column: 1 / -1;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(138, 87, 24, 0.22);
+  border-radius: 9px;
+  padding: 8px 10px;
+  color: #1f1f1f;
+  font-size: 0.86rem;
+  background: #fff;
 `;
 
 const RecurrencePreviewCard = styled(ModalCard)`
   width: min(860px, 96vw);
-  max-height: 88vh;
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
 `;
 
 const RecurrencePreviewBody = styled.div`
@@ -5508,6 +6047,8 @@ const RecurrencePreviewBody = styled.div`
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 `;
 
 const RecurrenceSummaryGrid = styled.div`
@@ -5778,11 +6319,37 @@ const PatientInlineText = styled.span`
   white-space: nowrap;
 `;
 
+const CompactSessionType = styled.span`
+  flex: 0 0 48px;
+  width: 48px;
+  min-width: 48px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: #4f6045;
+  font-size: 0.72rem;
+  font-weight: 800;
+`;
+
+const CompactSessionCounter = styled.span`
+  flex: 0 0 34px;
+  width: 34px;
+  min-width: 34px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: #4f6045;
+  font-size: 0.72rem;
+  font-weight: 800;
+`;
+
 const PatientAttentionDot = styled.span`
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  flex-shrink: 0;
+  flex: 0 0 10px;
   display: inline-block;
   background: ${(props) => {
     if (props.$tone === "high") return "#c53b32";
@@ -6045,25 +6612,6 @@ const CoveragePreviewRow = styled.span`
   }
 `;
 
-const CoveragePreviewWarning = styled.span`
-  font-size: 0.8rem;
-  color: #8a5c30;
-  margin-top: 2px;
-`;
-
-const BillingModeBadge = styled.span`
-  display: inline-block;
-  background: rgba(106, 121, 92, 0.15);
-  color: #3d5230;
-  border-radius: 6px;
-  padding: 2px 7px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  flex-shrink: 0;
-`;
-
 const RepeatCard = styled.div`
   border: 1px solid rgba(106, 121, 92, 0.18);
   border-radius: 14px;
@@ -6222,38 +6770,6 @@ const WeekdayButton = styled.button`
   }
 `;
 
-const SearchInput = styled.input`
-  height: 40px;
-  border-radius: 10px;
-  border: 1px solid rgba(106, 121, 92, 0.2);
-  padding: 0 10px;
-  font-size: 0.95rem;
-  color: #1b1b1b;
-  background: #fff;
-  width: 100%;
-  box-sizing: border-box;
-`;
-
-const AutoComplete = styled.div`
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-`;
-
-const PatientInputShell = styled.div`
-  position: relative;
-`;
-
-const PatientSearchInput = styled(SearchInput)`
-  padding-right: ${(props) => (props.$selected ? "44px" : "10px")};
-  border-color: ${(props) =>
-    props.$selected ? "rgba(106, 121, 92, 0.48)" : "rgba(106, 121, 92, 0.2)"};
-  background: ${(props) => (props.$selected ? "#fbfcf9" : "#fff")};
-  box-shadow: ${(props) =>
-    props.$selected ? "0 0 0 3px rgba(106, 121, 92, 0.08)" : "none"};
-`;
-
 const SelectionFieldShell = styled.div`
   position: relative;
 `;
@@ -6291,38 +6807,6 @@ const SelectionIndicator = styled.span`
     border-right: 2px solid #5b6f50;
     border-bottom: 2px solid #5b6f50;
     transform: translate(-50%, -62%) rotate(45deg);
-  }
-`;
-
-const AutoList = styled.div`
-  position: absolute;
-  top: 46px;
-  left: 0;
-  right: 0;
-  background: #fff;
-  border: 1px solid rgba(106, 121, 92, 0.25);
-  border-radius: 10px;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
-  max-height: 220px;
-  overflow-y: auto;
-  z-index: 5;
-`;
-
-const AutoItem = styled.button`
-  width: 100%;
-  text-align: left;
-  padding: 10px 12px;
-  border: none;
-  background: #fff;
-  color: #1b1b1b;
-  font-size: 0.95rem;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-
-  &:hover {
-    background: rgba(162, 177, 144, 0.2);
   }
 `;
 
@@ -6446,6 +6930,14 @@ const EmptyState = styled.div`
   padding: 32px 16px;
   text-align: center;
   color: #6a795c;
+`;
+
+const AgendaLoadingPanel = styled.div`
+  min-height: 360px;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
 `;
 
 const TypePill = styled.span`

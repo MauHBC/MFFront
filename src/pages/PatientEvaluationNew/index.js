@@ -4,7 +4,7 @@ import styled from "styled-components";
 import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
-import Loading from "../../components/Loading";
+import DataLoadingState from "../../components/DataLoadingState";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { LinkGhostButton } from "../../components/AppButton";
 import {
@@ -550,9 +550,13 @@ export default function PatientEvaluationNew() {
           <LinkGhostButton to={`/pacientes/${patientId}`}>Voltar</LinkGhostButton>
         </Header>
 
-        <Loading isLoading={isLoading || isSaving} />
+        {isLoading && (
+          <SectionCard>
+            <DataLoadingState text="Carregando formulários..." />
+          </SectionCard>
+        )}
 
-        {!selectedTemplate && (
+        {!isLoading && !selectedTemplate && (
           <TemplatesGrid>
             {templates.map((template) => (
               <TemplateCard
@@ -567,7 +571,7 @@ export default function PatientEvaluationNew() {
           </TemplatesGrid>
         )}
 
-        {selectedTemplate && definition && (
+        {!isLoading && selectedTemplate && definition && (
           <Form onSubmit={handleSubmit}>
             {!activeSection && (
               <>

@@ -5,7 +5,7 @@ import { FaSearch, FaPhoneAlt, FaUser, FaList, FaThLarge } from "react-icons/fa"
 import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
-import Loading from "../../components/Loading";
+import DataLoadingState from "../../components/DataLoadingState";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { LinkGhostButton } from "../../components/AppButton";
 import {
@@ -139,13 +139,17 @@ export default function PatientsSearch() {
           </ViewToggle>
         </Controls>
 
-        <Loading isLoading={isLoading} />
+        {isLoading && (
+          <ResultsPanel>
+            <DataLoadingState text="Carregando pacientes..." />
+          </ResultsPanel>
+        )}
 
         {!isLoading && sortedPatients.length === 0 && (
           <EmptyState>Nenhum paciente encontrado.</EmptyState>
         )}
 
-        {viewMode === "list" ? (
+        {!isLoading && (viewMode === "list" ? (
           <List>
             {sortedPatients.map((patient, index) => (
               <ListItem key={patient.id || `${getPatientName(patient)}-${index}`}>
@@ -201,7 +205,7 @@ export default function PatientsSearch() {
               </Card>
             ))}
           </Grid>
-        )}
+        ))}
       </PageContent>
     </PageWrapper>
   );
@@ -409,4 +413,11 @@ const EmptyState = styled.div`
   padding: 40px 16px;
   text-align: center;
   color: #6a795c;
+`;
+
+const ResultsPanel = styled.div`
+  min-height: 240px;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  border-radius: 12px;
+  background: #fff;
 `;
