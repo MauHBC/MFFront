@@ -27,6 +27,15 @@ export const createServicePrice = (payload) =>
 export const updateServicePrice = (id, payload) =>
   api.put(`/service-prices/${id}`, payload);
 
+export const listPatientServiceAgreements = (params) =>
+  api.get('/patient-service-agreements', { params });
+
+export const createPatientServiceAgreement = (payload) =>
+  api.post('/patient-service-agreements', payload);
+
+export const updatePatientServiceAgreement = (id, payload) =>
+  api.put(`/patient-service-agreements/${id}`, payload);
+
 export const listFinancialEntries = (params) =>
   api.get('/financial-entries', { params });
 
@@ -112,6 +121,9 @@ export default {
   listServicePrices,
   createServicePrice,
   updateServicePrice,
+  listPatientServiceAgreements,
+  createPatientServiceAgreement,
+  updatePatientServiceAgreement,
   listFinancialEntries,
   createFinancialEntry,
   updateFinancialEntry,

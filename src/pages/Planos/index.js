@@ -154,6 +154,21 @@ const formatPrice = (cents) => {
   }).format(cents / 100);
 };
 
+const sortServicesByName = (items) => (
+  [...items].sort((left, right) => (
+    String(left?.name || "").localeCompare(String(right?.name || ""), "pt-BR", {
+      sensitivity: "base",
+    })
+  ))
+);
+
+const upsertById = (items, nextItem) => {
+  if (!nextItem?.id) return items;
+  const exists = items.some((item) => item.id === nextItem.id);
+  if (!exists) return [...items, nextItem];
+  return items.map((item) => (item.id === nextItem.id ? { ...item, ...nextItem } : item));
+};
+
 const formatDateBR = (value) => {
   if (!value) return "-";
   const s = String(value).slice(0, 10);
@@ -441,25 +456,6 @@ export default function Planos() {
 
   // ---- Data loading ----
 
-  const loadServices = useCallback(async () => {
-    setIsServicesLoading(true);
-    setServicesError("");
-    try {
-      const [servicesRes, pricesRes] = await Promise.all([
-        axios.get("/services"),
-        listServicePrices(),
-      ]);
-      setServices(Array.isArray(servicesRes.data) ? servicesRes.data : []);
-      setServicePrices(Array.isArray(pricesRes.data) ? pricesRes.data : []);
-    } catch (err) {
-      const message = err?.response?.data?.error || "Erro ao carregar serviços.";
-      setServicesError(message);
-      toast.error(message);
-    } finally {
-      setIsServicesLoading(false);
-    }
-  }, []);
-
   const loadBaseData = useCallback(async () => {
     setIsServicesLoading(true);
     setServicesError("");
@@ -692,7 +688,10 @@ export default function Planos() {
           default_duration_minutes: Number(svcForm.default_duration_minutes) || 60,
         };
         if (svcEditingId) {
-          await axios.put(`/services/${svcEditingId}`, payload);
+          const response = await axios.put(`/services/${svcEditingId}`, payload);
+          if (response?.data?.id) {
+            setServices((prev) => sortServicesByName(upsertById(prev, response.data)));
+          }
           toast.success("Serviço atualizado.");
         } else {
           const existingCodes = new Set(services.map((s) => s.code));
@@ -700,6 +699,9 @@ export default function Planos() {
           if (existingCodes.has(code)) code = `${code}_${Date.now()}`;
           const response = await axios.post("/services", { ...payload, code });
           serviceId = response?.data?.id || null;
+          if (response?.data?.id) {
+            setServices((prev) => sortServicesByName(upsertById(prev, response.data)));
+          }
           toast.success("Serviço criado.");
         }
 
@@ -712,23 +714,29 @@ export default function Planos() {
               currency: "BRL",
               is_active: true,
             };
+            let priceResponse = null;
             if (existingPrice) {
-              await updateServicePrice(existingPrice.id, pricePayload);
+              priceResponse = await updateServicePrice(existingPrice.id, pricePayload);
             } else {
-              await createServicePrice(pricePayload);
+              priceResponse = await createServicePrice(pricePayload);
+            }
+            if (priceResponse?.data?.id) {
+              setServicePrices((prev) => upsertById(prev, priceResponse.data));
             }
           } else if (existingPrice?.is_active !== false) {
-            await updateServicePrice(existingPrice.id, {
+            const priceResponse = await updateServicePrice(existingPrice.id, {
               service_id: serviceId,
               price_cents: 0,
               currency: existingPrice.currency || "BRL",
               is_active: false,
             });
+            if (priceResponse?.data?.id) {
+              setServicePrices((prev) => upsertById(prev, priceResponse.data));
+            }
           }
         }
 
         closeSvcDrawer();
-        await loadServices();
       } catch (err) {
         toast.error(err?.response?.data?.error || "Erro ao salvar serviço.");
       } finally {
@@ -741,21 +749,22 @@ export default function Planos() {
       services,
       latestServicePriceMap,
       closeSvcDrawer,
-      loadServices,
     ],
   );
 
   const handleSvcToggle = useCallback(
     async (svc) => {
       try {
-        await axios.put(`/services/${svc.id}`, { is_active: !svc.is_active });
+        const response = await axios.put(`/services/${svc.id}`, { is_active: !svc.is_active });
+        if (response?.data?.id) {
+          setServices((prev) => sortServicesByName(upsertById(prev, response.data)));
+        }
         toast.success(svc.is_active ? "Serviço inativado." : "Serviço ativado.");
-        await loadServices();
       } catch (err) {
         toast.error(err?.response?.data?.error || "Erro ao alterar serviço.");
       }
     },
-    [loadServices],
+    [],
   );
 
   // ---- Service Plan handlers ----

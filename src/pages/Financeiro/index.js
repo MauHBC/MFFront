@@ -56,7 +56,6 @@ import {
   listFinancialRecurringExpenses,
   createFinancialRecurringExpense,
   updateFinancialRecurringExpense,
-  createSessionFinancialEntry,
   listBillingCycles,
 } from "../../services/financial";
 import {
@@ -91,6 +90,7 @@ const emptyPayment = {
   entry_installments_count: "2",
   discount: "",
   surcharge: "",
+  batch_discount_per_session: "",
   adjustment_reason: "",
   paid_at: "",
   note: "",
@@ -101,7 +101,7 @@ const STANDALONE_PAYMENT_ANCHOR_DESCRIPTION = "Recebimento avulso (sistema)";
 const STANDALONE_PAYMENT_ANCHOR_NOTE =
   "Entrada tecnica automatica para viabilizar recebimento avulso.";
 const ENABLE_SESSION_BATCH_PAYMENT =
-  String(process.env.REACT_APP_FINANCIAL_SESSION_BATCH_PAYMENT_ENABLED || "")
+  String(process.env.REACT_APP_FINANCIAL_SESSION_BATCH_PAYMENT_ENABLED || "true")
     .trim()
     .toLowerCase() === "true";
 
@@ -896,6 +896,20 @@ export default function Financeiro() {
     return list;
   }, [payments]);
 
+  const paymentAdjustmentList = useMemo(() => {
+    const list = [];
+    payments.forEach((payment) => {
+      const adjustments =
+        payment?.FinancialPaymentAdjustments ||
+        payment?.financial_payment_adjustments ||
+        [];
+      adjustments.forEach((adjustment) => {
+        list.push({ ...adjustment, payment });
+      });
+    });
+    return list;
+  }, [payments]);
+
   const paidByEntryId = useMemo(() => {
     const map = new Map();
     paymentAllocationList.forEach((allocation) => {
@@ -906,6 +920,28 @@ export default function Financeiro() {
     });
     return map;
   }, [paymentAllocationList]);
+
+  const adjustmentByEntryId = useMemo(() => {
+    const map = new Map();
+    paymentAdjustmentList.forEach((adjustment) => {
+      const entryId = adjustment.entry_id;
+      if (!entryId) return;
+      const current = map.get(entryId) || {
+        discountCents: 0,
+        surchargeCents: 0,
+        adjustedAmountCents: 0,
+        receivedAmountCents: 0,
+        reason: null,
+      };
+      current.discountCents += Number(adjustment.discount_cents || 0);
+      current.surchargeCents += Number(adjustment.surcharge_cents || 0);
+      current.adjustedAmountCents += Number(adjustment.adjusted_amount_cents || 0);
+      current.receivedAmountCents += Number(adjustment.received_amount_cents || 0);
+      current.reason = current.reason || adjustment.reason || null;
+      map.set(entryId, current);
+    });
+    return map;
+  }, [paymentAdjustmentList]);
 
   const allocatedByPaymentId = useMemo(() => {
     const map = new Map();
@@ -1360,8 +1396,16 @@ export default function Financeiro() {
     if (name === "allocation_mode" && value !== "manual") {
       setPaymentAllocations({});
     }
-    if (name === "amount" || name === "discount" || name === "surcharge") {
-      setPaymentForm((prev) => ({ ...prev, [name]: sanitizePositiveCurrencyInput(value) }));
+    if (
+      name === "amount"
+      || name === "discount"
+      || name === "surcharge"
+      || name === "batch_discount_per_session"
+    ) {
+      setPaymentForm((prev) => ({
+        ...prev,
+        [name]: sanitizePositiveCurrencyInput(value),
+      }));
       return;
     }
     if (name === "entry_installments_count") {
@@ -1419,7 +1463,12 @@ export default function Financeiro() {
 
   const handlePaymentCurrencyBlur = useCallback((event) => {
     const { name } = event.target;
-    if (!["amount", "discount", "surcharge"].includes(name)) return;
+    if (![
+      "amount",
+      "discount",
+      "surcharge",
+      "batch_discount_per_session",
+    ].includes(name)) return;
     setPaymentForm((prev) => ({
       ...prev,
       [name]: formatCurrencyInput(prev[name]),
@@ -2052,6 +2101,9 @@ export default function Financeiro() {
     const amountValue = parseCurrencyInputToNumber(paymentForm.amount);
     const discountValue = parseCurrencyInputToNumber(paymentForm.discount);
     const surchargeValue = parseCurrencyInputToNumber(paymentForm.surcharge);
+    const batchDiscountPerSessionValue = parseCurrencyInputToNumber(
+      paymentForm.batch_discount_per_session,
+    );
     const amountCents = Math.round(amountValue * 100);
     const isSessionBatchPayment = Boolean(paymentModalContext?.sessionBatch);
     const sessionBatchSessionIds = Array.isArray(paymentModalContext?.sessionBatch?.sessionIds)
@@ -2068,10 +2120,27 @@ export default function Financeiro() {
       Number.isFinite(discountValue) && discountValue > 0 ? Math.round(discountValue * 100) : 0;
     const surchargeCents =
       Number.isFinite(surchargeValue) && surchargeValue > 0 ? Math.round(surchargeValue * 100) : 0;
+    const batchSessions = Array.isArray(paymentModalContext?.sessionBatch?.sessions)
+      ? paymentModalContext.sessionBatch.sessions
+      : [];
+    const batchOriginalTotalCents = batchSessions.reduce(
+      (sum, session) => sum + Math.max(0, Number(session.openCents || session.amountCents || 0)),
+      0,
+    );
+    const batchDiscountPerSessionCents =
+      Number.isFinite(batchDiscountPerSessionValue) && batchDiscountPerSessionValue > 0
+        ? Math.round(batchDiscountPerSessionValue * 100)
+        : 0;
+    const batchDiscountCents = (() => {
+      if (!isSessionBatchPayment || !batchSessions.length) return 0;
+      return batchDiscountPerSessionCents * batchSessions.length;
+    })();
+    const batchFinalChargedCents = Math.max(0, batchOriginalTotalCents - batchDiscountCents);
     const hasAdjustment = !isSimplifiedInstallmentPayment
-      && !isSessionBatchPayment
-      && paymentForm.entry_id
-      && (discountCents > 0 || surchargeCents > 0);
+      && (
+        (!isSessionBatchPayment && paymentForm.entry_id && (discountCents > 0 || surchargeCents > 0))
+        || (isSessionBatchPayment && batchDiscountCents > 0)
+      );
     const entryId = Number(paymentForm.entry_id || 0);
     const entryFinancial = entryId ? entryFinancialMap.get(entryId) : null;
     const entryInstallments = Array.isArray(entryFinancial?.installments)
@@ -2125,6 +2194,10 @@ export default function Financeiro() {
       toast.error("Selecione as sessoes do lote.");
       return;
     }
+    if (isSessionBatchPayment && Number.isFinite(batchDiscountPerSessionValue) && batchDiscountPerSessionValue < 0) {
+      toast.error("Desconto por sessao nao pode ser negativo.");
+      return;
+    }
     if (Number.isFinite(discountValue) && discountValue < 0) {
       toast.error("Desconto nao pode ser negativo.");
       return;
@@ -2137,8 +2210,16 @@ export default function Financeiro() {
       toast.error("O desconto nao pode ser maior que o valor original.");
       return;
     }
-    if (hasAdjustment && !paymentForm.adjustment_reason.trim()) {
-      toast.error("Informe o motivo do ajuste.");
+    if (isSessionBatchPayment && batchDiscountCents > batchOriginalTotalCents) {
+      toast.error("O desconto do lote nao pode ser maior que o valor original.");
+      return;
+    }
+    if (
+      isSessionBatchPayment
+      && batchDiscountCents > 0
+      && effectiveAmountCents !== batchFinalChargedCents
+    ) {
+      toast.error("Valor recebido deve ser igual ao total final do lote com desconto.");
       return;
     }
     if (paymentForm.entry_id && paymentForm.convert_entry_to_installments && isAlreadyInstallmentCharge) {
@@ -2193,6 +2274,7 @@ export default function Financeiro() {
         : new Date(paymentForm.paid_at).toISOString();
 
       if (isSessionBatchPayment) {
+        const adjustmentReason = paymentForm.note.trim() || "Desconto aplicado no recebimento em lote";
         await createFinancialPayment({
           patient_id: selectedPatientId,
           origin: "session_batch",
@@ -2202,6 +2284,10 @@ export default function Financeiro() {
           note: paymentForm.note.trim() || null,
           allocation_mode: "manual",
           session_batch_session_ids: sessionBatchSessionIds,
+          discount_cents: batchDiscountCents || undefined,
+          adjustment_reason: batchDiscountCents
+            ? adjustmentReason
+            : undefined,
         });
 
         toast.success("Recebimento em lote registrado.");
@@ -2226,6 +2312,8 @@ export default function Financeiro() {
         }
       }
 
+      const adjustmentReason = paymentForm.note.trim() || "Ajuste aplicado no recebimento";
+
       await createFinancialPayment({
         entry_id: paymentEntryId,
         patient_id: selectedPatientId,
@@ -2237,12 +2325,12 @@ export default function Financeiro() {
         allocations: paymentAllocationMode === "manual" ? allocationItems : undefined,
         discount_cents: hasAdjustment ? discountCents : undefined,
         surcharge_cents: hasAdjustment ? surchargeCents : undefined,
-        adjustment_reason: hasAdjustment ? paymentForm.adjustment_reason.trim() : undefined,
+        adjustment_reason: hasAdjustment ? adjustmentReason : undefined,
         adjustment: hasAdjustment
           ? {
             discount_cents: discountCents,
             surcharge_cents: surchargeCents,
-            reason: paymentForm.adjustment_reason.trim(),
+            reason: adjustmentReason,
           }
           : undefined,
         convert_entry_to_installments: shouldConvertEntryToInstallments || undefined,
@@ -2281,20 +2369,6 @@ export default function Financeiro() {
     hasBillingCyclesLoaded,
     setSelectedAttendanceSessionIds,
   ]);
-
-  const handleCreateSessionEntry = useCallback(
-    async (sessionId) => {
-      try {
-        await createSessionFinancialEntry(sessionId);
-        toast.success("Lancamento gerado.");
-        loadData();
-        loadAttendance();
-      } catch (error) {
-        toast.error("Nao foi possivel gerar o lancamento.");
-      }
-    },
-    [loadAttendance, loadData],
-  );
 
   const handleApplyCreditToEntry = useCallback(
     async (entryId) => {
@@ -2337,6 +2411,10 @@ export default function Financeiro() {
           ? paymentMethodMap.get(latestPayment.payment_method_id)
           : null;
         const entryFinancial = entry ? entryFinancialMap.get(entry.id) : null;
+        const adjustment = entry ? adjustmentByEntryId.get(entry.id) : null;
+        const discountCents = Math.max(0, Number(adjustment?.discountCents || 0));
+        const surchargeCents = Math.max(0, Number(adjustment?.surchargeCents || 0));
+        const hasAdjustment = discountCents > 0 || surchargeCents > 0;
         const paidCents = entryFinancial?.paid ?? 0;
         const openCents =
           entryFinancial?.open ?? Math.max(0, Number(amountCents || 0) - paidCents);
@@ -2389,10 +2467,17 @@ export default function Financeiro() {
           professionalId:
             Number(session?.professional?.id || session?.professional_user_id || 0) || null,
           professionalName,
+          serviceId,
           serviceName,
           recurrence: formatRecurrence(session),
           billing_mode: billingMode,
           amountCents,
+          displayAmountCents: hasAdjustment && paidCents > 0 ? paidCents : amountCents,
+          originalAmountCents: amountCents,
+          discountCents,
+          surchargeCents,
+          hasAdjustment,
+          adjustmentReason: adjustment?.reason || null,
           paidCents,
           openCents: effectiveOpenCents,
           entry,
@@ -2430,6 +2515,7 @@ export default function Financeiro() {
     attendanceFilters.financial,
     attendanceFilters.search,
     attendanceSessions,
+    adjustmentByEntryId,
     entryBySessionId,
     entryFinancialMap,
     formatRecurrence,
@@ -2863,8 +2949,10 @@ export default function Financeiro() {
         sessions: orderedRows.map((row) => ({
           id: Number(row.id || 0),
           starts_at: row.starts_at,
+          serviceId: row.serviceId,
           serviceName: row.serviceName,
           professionalName: row.professionalName,
+          amountCents: Math.max(0, Number(row.amountCents || row.openCents || 0)),
           openCents: Math.max(0, Number(row.openCents || 0)),
         })),
       },
@@ -3143,9 +3231,20 @@ export default function Financeiro() {
     const amountNumber = parseCurrencyInputToNumber(paymentForm.amount);
     const discountNumber = parseCurrencyInputToNumber(paymentForm.discount);
     const surchargeNumber = parseCurrencyInputToNumber(paymentForm.surcharge);
+    const batchDiscountPerSessionNumber = parseCurrencyInputToNumber(
+      paymentForm.batch_discount_per_session,
+    );
+    const sessionBatchSessions = Array.isArray(paymentModalContext?.sessionBatch?.sessions)
+      ? paymentModalContext.sessionBatch.sessions
+      : [];
+    const sessionBatchCount = sessionBatchSessions.length;
+    const sessionBatchOriginalTotalCents = sessionBatchSessions.reduce(
+      (sum, session) => sum + Math.max(0, Number(session.openCents || session.amountCents || 0)),
+      0,
+    );
     const sessionBatchTotalOpenCents = Math.max(
       0,
-      Number(paymentModalContext?.sessionBatch?.totalOpenCents || 0),
+      Number(paymentModalContext?.sessionBatch?.totalOpenCents || sessionBatchOriginalTotalCents || 0),
     );
 
     const receivedCents =
@@ -3155,6 +3254,10 @@ export default function Financeiro() {
     const surchargeCents =
       Number.isFinite(surchargeNumber) && surchargeNumber > 0
         ? Math.round(surchargeNumber * 100)
+        : 0;
+    const batchDiscountPerSessionCents =
+      Number.isFinite(batchDiscountPerSessionNumber) && batchDiscountPerSessionNumber > 0
+        ? Math.round(batchDiscountPerSessionNumber * 100)
         : 0;
 
     let baseCents = receivedCents;
@@ -3226,20 +3329,42 @@ export default function Financeiro() {
       baseCents = manualAllocationTotal;
     }
 
-    const finalChargedCents = Math.max(0, baseCents - discountCents + surchargeCents);
-    const openAfterCents = Math.max(0, finalChargedCents - receivedCents);
-    const creditAfterCents = Math.max(0, receivedCents - finalChargedCents);
-    const hasAdjustment = discountCents > 0 || surchargeCents > 0;
+    let effectiveDiscountCents = discountCents;
+    let batchFinalPerSessionCents = sessionBatchCount > 0
+      ? Math.floor(baseCents / Math.max(1, sessionBatchCount))
+      : 0;
+    if (!paymentForm.entry_id && sessionBatchCount > 0) {
+      if (batchDiscountPerSessionCents > 0) {
+        effectiveDiscountCents = batchDiscountPerSessionCents * sessionBatchCount;
+        batchFinalPerSessionCents = Math.max(
+          0,
+          Math.floor((baseCents - effectiveDiscountCents) / Math.max(1, sessionBatchCount)),
+        );
+      }
+    }
 
-    return {
-      baseCents,
+	    const finalChargedCents = Math.max(0, baseCents - effectiveDiscountCents + surchargeCents);
+	    const openAfterCents = Math.max(0, finalChargedCents - receivedCents);
+	    const creditAfterCents = Math.max(0, receivedCents - finalChargedCents);
+	    const hasAdjustment = effectiveDiscountCents > 0 || surchargeCents > 0;
+	    const batchOriginalPerSessionCents = sessionBatchCount > 0
+	      ? Math.floor(baseCents / Math.max(1, sessionBatchCount))
+	      : 0;
+
+	    return {
+	      baseCents,
       receivedCents,
-      discountCents,
+      discountCents: effectiveDiscountCents,
       surchargeCents,
       finalChargedCents,
       openAfterCents,
       creditAfterCents,
-      hasAdjustment,
+	      hasAdjustment,
+	      batchOriginalTotalCents: baseCents,
+	      batchOriginalPerSessionCents,
+	      batchDiscountPerSessionCents,
+	      batchFinalPerSessionCents,
+      batchSessionCount: sessionBatchCount,
       originalInstallmentsCount,
       installmentsCount,
       installmentUnitCents,
@@ -3255,6 +3380,7 @@ export default function Financeiro() {
     paymentForm.amount,
     paymentForm.convert_entry_to_installments,
     paymentForm.discount,
+    paymentForm.batch_discount_per_session,
     paymentForm.entry_id,
     paymentForm.entry_installments_count,
     paymentForm.surcharge,
@@ -3270,13 +3396,18 @@ export default function Financeiro() {
     if (entryAmountCents > 0) return entryAmountCents;
     return Math.max(0, Number(paymentPreview.baseCents || 0));
   }, [entryMap, paymentForm.entry_id, paymentPreview.baseCents]);
+  const sessionBatchBalanceLabel = useMemo(() => {
+    if (paymentPreview.creditAfterCents > 0) return "Saldo em credito";
+    if (paymentPreview.openAfterCents > 0) return "Falta receber";
+    return "Diferenca";
+  }, [paymentPreview.creditAfterCents, paymentPreview.openAfterCents]);
 
   const paymentModalSubtitle = useMemo(() => {
     if (isSimplifiedInstallmentPayment) {
       return "Confirmacao simples da parcela pendente.";
     }
     if (isSessionBatchPayment) {
-      return "Recebimento unico com distribuicao nas sessoes selecionadas.";
+      return paymentModalContext?.sessionBatch?.patientName || "Paciente";
     }
     if (paymentForm.entry_id && paymentPreview.originalInstallmentsCount > 1) {
       return "";
@@ -3285,6 +3416,7 @@ export default function Financeiro() {
   }, [
     isSimplifiedInstallmentPayment,
     isSessionBatchPayment,
+    paymentModalContext,
     paymentForm.entry_id,
     paymentPreview.originalInstallmentsCount,
   ]);
@@ -4053,7 +4185,7 @@ export default function Financeiro() {
             </AttendanceBatchToolbar>
           )}
           <AttendanceTableScroll>
-            <AttendanceDataTable>
+            <AttendanceDataTable $sessionDetail>
               <thead>
                 <tr>
                   {ENABLE_SESSION_BATCH_PAYMENT && (
@@ -4066,38 +4198,22 @@ export default function Financeiro() {
                         aria-label="Selecionar todas as sessoes elegiveis"
                       />
                     </th>
-                  )}
-                  <th>Data</th>
-                  <th>Paciente</th>
-                  <th>Profissional</th>
-                  <th>Servico</th>
-                  <th>Valor</th>
-                  <th>Detalhe</th>
-                  <th>Status</th>
-                  <th>Obs.</th>
-                  <th>Ações</th>
+	                  )}
+	                  <th>Data</th>
+	                  <th>Profissional</th>
+	                  <th>Servico</th>
+	                  <th>Valor</th>
+	                  <th>Detalhe</th>
+		                  <th>Status</th>
+	                  <th>Obs.</th>
                 </tr>
               </thead>
               <tbody>
                 {attendanceSessionRows.map((row) => {
                   const status = row.financialStatus || "missing";
                   const statusLabel = formatFinancialStatus(status);
-                  const availableCreditCents = creditBalanceByPatient.get(row.patientId) || 0;
-                  const hideActionsForInstallmentAgreement = Boolean(
-                    row.isInstallmentPlan
-                    && !row.isProjectedInstallmentRow
-                    && status === "partial"
-                    && Number(row.firstInstallmentOpenCents || 0) <= 0,
-                  );
                   const isBatchSelectable = isSessionBatchEligibleRow(row);
                   const isBatchSelected = selectedAttendanceSessionIds.includes(Number(row.id || 0));
-                  const canShowActions = Boolean(
-                    !row.isManualReceiptRow
-                    && row.entry
-                    && status !== "canceled"
-                    && status !== "paid"
-                    && !hideActionsForInstallmentAgreement,
-                  );
                   let installmentSummary = "-";
                   if (row.isManualReceiptRow) {
                     installmentSummary = row.paymentMethod || "-";
@@ -4109,24 +4225,10 @@ export default function Financeiro() {
                     installmentNote = row.manualUsageLabel || null;
                   } else if (row.isProjectedInstallmentRow && row.dueInstallment) {
                     installmentNote = `Parcela ${row.dueInstallment.installment_number} de ${row.installmentCount}`;
-                  } else if (row.isInstallmentPlan) {
-                    installmentNote = `Parcela 1/${row.installmentCount}`;
-                  }
-                  let paymentModalOptions = null;
-                  if (row.isProjectedInstallmentRow && row.dueInstallment) {
-                    paymentModalOptions = {
-                      simplifiedInstallment: true,
-                      installment: row.dueInstallment,
-                      payment_method_id: row.payment?.payment_method_id || null,
-                      payment_method_name: row.paymentMethod || "",
-                    };
-                  } else if (row.isInstallmentPlan && Number(row.firstInstallmentOpenCents || 0) > 0) {
-                    paymentModalOptions = {
-                      open_amount_cents: Number(row.firstInstallmentOpenCents || 0),
-                    };
-                  }
-
-                  return (
+	                  } else if (row.isInstallmentPlan) {
+	                    installmentNote = `Parcela 1/${row.installmentCount}`;
+	                  }
+		                  return (
                     <tr key={row.id}>
                       {ENABLE_SESSION_BATCH_PAYMENT && (
                         <td>
@@ -4143,20 +4245,15 @@ export default function Financeiro() {
                           )}
                         </td>
                       )}
-                      <td>
-                        <AttendanceCellStack>
-                          <AttendancePrimaryText>{formatDate(row.starts_at)}</AttendancePrimaryText>
-                          <AttendanceSecondaryText>{formatWeekday(row.starts_at)}</AttendanceSecondaryText>
-                        </AttendanceCellStack>
-                      </td>
-                      <td>
-                        <AttendanceCellStack>
-                          <AttendancePrimaryText>{row.patientName}</AttendancePrimaryText>
-                        </AttendanceCellStack>
-                      </td>
-                      <td>
-                        <AttendancePrimaryText>{row.professionalName}</AttendancePrimaryText>
-                      </td>
+	                      <td>
+	                        <AttendanceCellStack>
+	                          <AttendancePrimaryText>{formatDate(row.starts_at)}</AttendancePrimaryText>
+	                          <AttendanceSecondaryText>{formatWeekday(row.starts_at)}</AttendanceSecondaryText>
+	                        </AttendanceCellStack>
+	                      </td>
+	                      <td>
+	                        <AttendancePrimaryText>{row.professionalName}</AttendancePrimaryText>
+	                      </td>
                       <td>
                         <AttendanceCellStack>
                           <AttendancePrimaryText>{row.serviceName}</AttendancePrimaryText>
@@ -4167,12 +4264,27 @@ export default function Financeiro() {
                       </td>
                       <td>
                         <AttendanceCellStack>
-                          <AttendanceMoneyText>{formatCurrency(row.amountCents)}</AttendanceMoneyText>
+                          <AttendanceMoneyText>{formatCurrency(row.displayAmountCents ?? row.amountCents)}</AttendanceMoneyText>
+                          {row.hasAdjustment && row.originalAmountCents !== row.displayAmountCents && (
+                            <AttendanceSecondaryText>
+                              Original: {formatCurrency(row.originalAmountCents)}
+                            </AttendanceSecondaryText>
+                          )}
                         </AttendanceCellStack>
                       </td>
                       <td>
                         <AttendanceCellStack>
                           <AttendancePrimaryText>{installmentSummary}</AttendancePrimaryText>
+                          {row.discountCents > 0 && (
+                            <AttendanceSecondaryText>
+                              Desconto: - {formatCurrency(row.discountCents)}
+                            </AttendanceSecondaryText>
+                          )}
+                          {row.surchargeCents > 0 && (
+                            <AttendanceSecondaryText>
+                              Acréscimo: + {formatCurrency(row.surchargeCents)}
+                            </AttendanceSecondaryText>
+                          )}
                           {row.isManualReceiptRow && installmentNote && (
                             <AttendanceSecondaryText>{installmentNote}</AttendanceSecondaryText>
                           )}
@@ -4181,72 +4293,28 @@ export default function Financeiro() {
                               Acordo: {formatCurrency(row.installmentAgreementTotalCents)}
                             </AttendanceSecondaryText>
                           )}
-                          {row.isInstallmentPlan
-                            && !row.isProjectedInstallmentRow
-                            && row.firstInstallmentOpenCents > 0 && (
-                              <AttendanceSecondaryText>
-                                Residual em aberto: {formatCurrency(row.firstInstallmentOpenCents)}
-                              </AttendanceSecondaryText>
-                            )}
-                        </AttendanceCellStack>
-                      </td>
-                      <td>
-                        <AttendanceStatusBadge $status={status}>
-                          {statusLabel}
-                        </AttendanceStatusBadge>
-                      </td>
-                      <td>
-                        <AttendanceNoteText>
-                          {row.isManualReceiptRow
-                            ? row.manualNote || "-"
-                            : installmentNote || row.entry?.notes || row.payment?.note || "-"}
-                        </AttendanceNoteText>
-                      </td>
-                      <td>
-                        <AttendanceRowActions>
-                          {!row.isManualReceiptRow && !row.entry && row.billing_mode === "covered_by_plan" && (
-                            <CoveredByPlanBadge>Coberto pelo plano</CoveredByPlanBadge>
-                          )}
-                          {!row.isManualReceiptRow && !row.entry && row.billing_mode !== "covered_by_plan" && (
-                            <AttendanceSmallAction
-                              type="button"
-                              onClick={() => handleCreateSessionEntry(row.id)}
-                            >
-                              Gerar lancamento
-                            </AttendanceSmallAction>
-                          )}
-                          {canShowActions && (
-                            <ActionMenu onToggle={handleActionMenuToggle}>
-                              <ActionMenuTrigger>Ações</ActionMenuTrigger>
-                              <AttendanceActionList>
-                                {status !== "paid" && row.openCents > 0 && availableCreditCents > 0 && (
-                                  <AttendanceActionItem
-                                    type="button"
-                                    onClick={(event) => {
-                                      closeActionMenu(event);
-                                      handleApplyCreditToEntry(row.entry.id);
-                                    }}
-                                  >
-                                    Usar credito
-                                  </AttendanceActionItem>
-                                )}
-                                {status !== "paid" && (
-                                  <AttendanceActionItem
-                                    type="button"
-                                    onClick={(event) => {
-                                      closeActionMenu(event);
-                                      openPaymentModal(row.entry, paymentModalOptions);
-                                    }}
-                                  >
-                                    Registrar recebimento
-                                  </AttendanceActionItem>
-                                )}
-                              </AttendanceActionList>
-                            </ActionMenu>
-                          )}
-                        </AttendanceRowActions>
-                      </td>
-                    </tr>
+	                          {row.isInstallmentPlan
+	                            && !row.isProjectedInstallmentRow
+	                            && row.firstInstallmentOpenCents > 0 && (
+	                              <AttendanceSecondaryText>
+	                                Residual em aberto: {formatCurrency(row.firstInstallmentOpenCents)}
+	                              </AttendanceSecondaryText>
+	                            )}
+		                        </AttendanceCellStack>
+		                      </td>
+	                      <td>
+	                        <AttendanceStatusBadge $status={status}>
+	                          {statusLabel}
+	                        </AttendanceStatusBadge>
+	                      </td>
+	                      <td>
+	                        <AttendanceNoteText>
+	                          {row.isManualReceiptRow
+	                            ? row.manualNote || "-"
+	                            : row.entry?.notes || row.payment?.note || "-"}
+	                        </AttendanceNoteText>
+	                      </td>
+		                    </tr>
                   );
                 })}
               </tbody>
@@ -5755,18 +5823,28 @@ export default function Financeiro() {
         </>
       )}
 
-      {isPaymentOpen && (
-        <>
-          <ModalOverlay>
-            <ModalCard>
-              <ModalHeader>
-                <div>
-                  <ModalTitle>Registrar recebimento</ModalTitle>
-                  <ModalSubtitle>{paymentModalSubtitle}</ModalSubtitle>
-                </div>
-                <IconButton type="button" onClick={closePaymentModal}>
-                  <FaTimes />
-                </IconButton>
+	      {isPaymentOpen && (
+	        <>
+	          <ModalOverlay>
+	            <ModalCard>
+	              <ModalHeader>
+	                <ModalHeaderText>
+	                  <ModalTitle>Registrar recebimento</ModalTitle>
+	                  {isSessionBatchPayment && (
+	                    <ModalContextLine>
+	                      <span>Paciente</span>
+	                      <strong title={paymentModalContext?.sessionBatch?.patientName || "Paciente"}>
+	                        {paymentModalContext?.sessionBatch?.patientName || "Paciente"}
+	                      </strong>
+	                    </ModalContextLine>
+	                  )}
+	                  {!isSessionBatchPayment && paymentModalSubtitle && (
+	                    <ModalSubtitle>{paymentModalSubtitle}</ModalSubtitle>
+	                  )}
+	                </ModalHeaderText>
+	                <IconButton type="button" onClick={closePaymentModal}>
+	                  <FaTimes />
+	                </IconButton>
               </ModalHeader>
               <ModalBody>
                 {isSimplifiedInstallmentPayment && (
@@ -5809,13 +5887,7 @@ export default function Financeiro() {
                         <strong>{formatCurrency(selectedChargeAmountCents)}</strong>
                       </ChargeAmountBanner>
                     )}
-                    {isSessionBatchPayment && (
-                      <ChargeAmountBanner>
-                        <span>Total selecionado</span>
-                        <strong>{formatCurrency(paymentModalContext?.sessionBatch?.totalOpenCents || 0)}</strong>
-                      </ChargeAmountBanner>
-                    )}
-                    <FormGrid>
+	                    <FormGrid>
                       {!paymentForm.entry_id && !isSessionBatchPayment && (
                         <Field>
                           <Label htmlFor="payment-patient">Paciente</Label>
@@ -5891,6 +5963,23 @@ export default function Financeiro() {
                           ))}
                         </Select>
                       </Field>
+                      {isSessionBatchPayment && (
+                        <Field>
+                          <Label htmlFor="payment-batch-discount">Desconto por sessao</Label>
+                          <CurrencyInputGroup>
+                            <CurrencyPrefix>R$</CurrencyPrefix>
+                            <CurrencyInput
+                              id="payment-batch-discount"
+                              name="batch_discount_per_session"
+                              value={paymentForm.batch_discount_per_session}
+                              onChange={handlePaymentChange}
+                              onBlur={handlePaymentCurrencyBlur}
+                              inputMode="decimal"
+                              placeholder="0,00"
+                            />
+                          </CurrencyInputGroup>
+                        </Field>
+                      )}
                       {paymentForm.entry_id && paymentPreview.originalInstallmentsCount <= 1 && (
                         <Field>
                           <InlineCheckLabel htmlFor="payment-convert-entry">
@@ -5980,62 +6069,54 @@ export default function Financeiro() {
                           </Select>
                         </Field>
                       )}
-                    </FormGrid>
-                    {isSessionBatchPayment && (
-                      <PaymentPreviewBox>
-                        <PaymentPreviewTitle>Lote selecionado</PaymentPreviewTitle>
-                        <PaymentPreviewRow>
-                          <span>Paciente</span>
-                          <strong>{paymentModalContext?.sessionBatch?.patientName || "Paciente"}</strong>
-                        </PaymentPreviewRow>
-                        <PaymentPreviewRow>
-                          <span>Sessoes</span>
-                          <strong>{paymentModalContext?.sessionBatch?.sessions?.length || 0}</strong>
-                        </PaymentPreviewRow>
-                        <PaymentPreviewRow>
-                          <span>Total em aberto</span>
-                          <strong>{formatCurrency(paymentModalContext?.sessionBatch?.totalOpenCents || 0)}</strong>
-                        </PaymentPreviewRow>
-                        <PaymentPreviewRow>
-                          <span>Valor recebido</span>
-                          <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
-                        </PaymentPreviewRow>
-                        <PaymentPreviewRow>
-                          <span>
-                            {paymentPreview.creditAfterCents > 0
-                              ? "Saldo em credito"
-                              : "Saldo ainda em aberto"}
-                          </span>
-                          <strong>
-                            {formatCurrency(
-                              paymentPreview.creditAfterCents > 0
-                                ? paymentPreview.creditAfterCents
-                                : paymentPreview.openAfterCents,
-                            )}
-                          </strong>
-                        </PaymentPreviewRow>
-                        <MutedText>
-                          O valor sera distribuido por ordem cronologica das sessoes selecionadas.
-                        </MutedText>
-                      </PaymentPreviewBox>
-                    )}
+	                    </FormGrid>
+	                    {isSessionBatchPayment && (
+	                      <PaymentPreviewBox>
+	                        <PaymentPreviewTitle>Resumo da cobranca</PaymentPreviewTitle>
+	                        <PaymentPreviewRow>
+	                          <span>Valor por sessao</span>
+	                          <PaymentPreviewValue>
+	                            {paymentPreview.discountCents > 0 && (
+	                              <DiscountFlag>com desconto</DiscountFlag>
+	                            )}
+	                            <strong>
+	                              {formatCurrency(
+	                                paymentPreview.discountCents > 0
+	                                  ? paymentPreview.batchFinalPerSessionCents || 0
+	                                  : paymentPreview.batchOriginalPerSessionCents || 0,
+	                              )}
+	                            </strong>
+	                          </PaymentPreviewValue>
+	                        </PaymentPreviewRow>
+	                        <PaymentPreviewRow>
+	                          <span>Quantidade de sessoes</span>
+	                          <strong>{paymentPreview.batchSessionCount || 0}</strong>
+	                        </PaymentPreviewRow>
+	                        <PaymentPreviewRow $total>
+	                          <span>Total da cobranca</span>
+	                          <strong>{formatCurrency(paymentPreview.finalChargedCents || 0)}</strong>
+	                        </PaymentPreviewRow>
+	                        <PaymentPreviewSectionTitle>Resumo do pagamento</PaymentPreviewSectionTitle>
+	                        <PaymentPreviewRow $emphasis>
+	                          <span>Valor recebido</span>
+	                          <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
+	                        </PaymentPreviewRow>
+	                        <PaymentPreviewRow $balance={paymentPreview.openAfterCents > 0 || paymentPreview.creditAfterCents > 0}>
+	                          <span>{sessionBatchBalanceLabel}</span>
+	                          <strong>
+	                            {formatCurrency(
+	                              paymentPreview.creditAfterCents > 0
+	                                ? paymentPreview.creditAfterCents
+	                                : paymentPreview.openAfterCents,
+	                            )}
+	                          </strong>
+	                        </PaymentPreviewRow>
+	                      </PaymentPreviewBox>
+	                    )}
                     {!isSimplifiedInstallmentPayment && paymentForm.entry_id && paymentPreview.originalInstallmentsCount > 1 && (
                       <MutedText>
                         Esta cobranca ja esta parcelada. Neste fluxo, registre apenas a quitacao da parcela em aberto.
                       </MutedText>
-                    )}
-                    {!isSimplifiedInstallmentPayment && paymentForm.entry_id && paymentPreview.hasAdjustment && (
-                      <Field>
-                        <Label htmlFor="payment-adjustment-reason">Motivo do ajuste</Label>
-                        <TextArea
-                          id="payment-adjustment-reason"
-                          name="adjustment_reason"
-                          rows="2"
-                          placeholder="Descreva o motivo do desconto ou acrescimo."
-                          value={paymentForm.adjustment_reason}
-                          onChange={handlePaymentChange}
-                        />
-                      </Field>
                     )}
                     <Field>
                       <Label htmlFor="payment-note">Observações</Label>
@@ -6047,31 +6128,6 @@ export default function Financeiro() {
                         onChange={handlePaymentChange}
                       />
                     </Field>
-                    {isSessionBatchPayment && Array.isArray(paymentModalContext?.sessionBatch?.sessions) && (
-                      <Field>
-                        <Label>Sessoes do lote</Label>
-                        <SimpleTable>
-                          <thead>
-                            <tr>
-                              <th>Data</th>
-                              <th>Servico</th>
-                              <th>Profissional</th>
-                              <th>Em aberto</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {paymentModalContext.sessionBatch.sessions.map((session) => (
-                              <tr key={session.id}>
-                                <td>{formatDate(session.starts_at)}</td>
-                                <td>{session.serviceName || "-"}</td>
-                                <td>{session.professionalName || "-"}</td>
-                                <td>{formatCurrency(session.openCents)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </SimpleTable>
-                      </Field>
-                    )}
                     {paymentForm.entry_id && (
                       <PaymentPreviewBox>
                         <PaymentPreviewTitle>Resumo da operacao</PaymentPreviewTitle>
@@ -7527,13 +7583,58 @@ const AttendanceOverviewTable = styled(SimpleTable)`
 `;
 
 const AttendanceDataTable = styled(AttendanceTable)`
-  min-width: 1220px;
+  width: 100%;
+  min-width: ${(props) => (props.$sessionDetail ? "0" : "1220px")};
+  table-layout: fixed;
 
   th,
   td {
-    padding: 18px 16px;
+    padding: 16px 18px;
     border-bottom: 1px solid ${ATTENDANCE_UI.colors.border};
   }
+
+  ${(props) => (props.$sessionDetail ? `
+    th:first-child,
+    td:first-child {
+      width: 5%;
+      text-align: center;
+    }
+
+    th:nth-child(2),
+    td:nth-child(2) {
+      width: 14%;
+    }
+
+    th:nth-child(3),
+    td:nth-child(3) {
+      width: 17%;
+    }
+
+    th:nth-child(4),
+    td:nth-child(4) {
+      width: 16%;
+    }
+
+    th:nth-child(5),
+    td:nth-child(5) {
+      width: 12%;
+    }
+
+    th:nth-child(6),
+    td:nth-child(6) {
+      width: 16%;
+    }
+
+    th:nth-child(7),
+    td:nth-child(7) {
+      width: 11%;
+    }
+
+    th:nth-child(8),
+    td:nth-child(8) {
+      width: 9%;
+    }
+  ` : "")}
 
   th {
     background: ${ATTENDANCE_UI.colors.surfaceMuted};
@@ -7555,7 +7656,7 @@ const AttendanceDataTable = styled(AttendanceTable)`
 
   th:last-child,
   td:last-child {
-    text-align: right;
+    text-align: ${(props) => (props.$sessionDetail ? "left" : "right")};
   }
 `;
 
@@ -7672,44 +7773,9 @@ const AttendanceOriginBadge = styled.span`
   text-transform: uppercase;
 `;
 
-const CoveredByPlanBadge = styled.span`
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 4px 10px;
-  border-radius: ${ATTENDANCE_UI.radius.pill};
-  background: ${ATTENDANCE_UI.colors.infoSoft};
-  color: ${ATTENDANCE_UI.colors.infoText};
-  font-size: ${ATTENDANCE_UI.font.size.xs};
-  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
-  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  white-space: nowrap;
-`;
-
 const AttendanceRowActions = styled(RowActions)`
   width: 100%;
   justify-content: flex-end;
-`;
-
-const AttendanceActionList = styled(ActionMenuList)`
-  border-radius: ${ATTENDANCE_UI.radius.md};
-  border: 1px solid ${ATTENDANCE_UI.colors.border};
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-`;
-
-const AttendanceActionItem = styled(ActionMenuItem)`
-  background: ${ATTENDANCE_UI.colors.surfaceMuted};
-  color: ${ATTENDANCE_UI.colors.textPrimary};
-  border-radius: ${ATTENDANCE_UI.radius.sm};
-  font-size: ${ATTENDANCE_UI.font.size.sm};
-  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
-  font-weight: ${ATTENDANCE_UI.font.weight.medium};
-
-  &:hover {
-    background: ${ATTENDANCE_UI.colors.neutralSoft};
-  }
 `;
 
 const AttendanceSmallAction = styled(SmallButton)`
@@ -7730,8 +7796,8 @@ const AttendanceSmallAction = styled(SmallButton)`
 `;
 
 const AttendanceNoteText = styled.div`
-  min-width: 220px;
-  max-width: 260px;
+  min-width: 0;
+  max-width: 100%;
   white-space: normal;
   word-break: break-word;
   color: ${ATTENDANCE_UI.colors.textTertiary};
@@ -7818,9 +7884,44 @@ const ModalHeader = styled.div`
   margin-bottom: 20px;
 `;
 
+const ModalHeaderText = styled.div`
+  flex: 1 1 auto;
+  min-width: 0;
+`;
+
 const ModalTitle = styled.h3`
+  flex: 0 0 auto;
   margin: 0;
   font-size: 20px;
+`;
+
+const ModalContextLine = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  margin-top: 6px;
+  color: #5e6757;
+  font-size: 13px;
+
+  span {
+    flex: 0 0 auto;
+    color: #78806f;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #34422d;
+    font-size: 15px;
+  }
 `;
 
 const ModalSubtitle = styled.p`
@@ -7879,12 +7980,64 @@ const PaymentPreviewTitle = styled.h4`
   letter-spacing: 0.04em;
 `;
 
+const PaymentPreviewSectionTitle = styled.h5`
+  margin: 8px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid rgba(47, 59, 38, 0.14);
+  font-size: 13px;
+  color: #2f3b26;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+`;
+
 const PaymentPreviewRow = styled.div`
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 14px;
+  align-items: baseline;
+  font-size: ${({ $emphasis, $total }) => {
+    if ($emphasis || $total) return "15px";
+    return "14px";
+  }};
+  font-weight: ${({ $emphasis, $total }) => {
+    if ($emphasis || $total) return 700;
+    return 400;
+  }};
   color: #2f2f2f;
+
+  strong {
+    font-size: ${({ $emphasis, $total }) => {
+      if ($total) return "18px";
+      if ($emphasis) return "16px";
+      return "14px";
+    }};
+    color: ${({ $balance, $discount }) => {
+      if ($discount) return "#a33a2b";
+      if ($balance) return "#7a3f14";
+      return "#2f2f2f";
+    }};
+    white-space: nowrap;
+  }
+
+  span {
+    min-width: 0;
+    color: ${({ $discount }) => ($discount ? "#8d3025" : "inherit")};
+  }
+`;
+
+const PaymentPreviewValue = styled.div`
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+`;
+
+const DiscountFlag = styled.span`
+  color: #a33a2b !important;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
 `;
 
 const PaymentPreviewDivider = styled.div`
