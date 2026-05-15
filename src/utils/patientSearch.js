@@ -7,11 +7,27 @@ export const normalizeSearchText = (value) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const firstPresentText = (values) => {
+  const found = values
+    .map((value) => String(value || "").trim())
+    .find((value) => value.length > 0);
+  return found || "Paciente";
+};
+
 export const getPatientDisplayName = (patient) =>
-  patient?.full_name || patient?.name || "Paciente";
+  firstPresentText([
+    patient?.nickname,
+    patient?.preferred_name,
+    patient?.display_name,
+    patient?.full_name,
+    patient?.name,
+  ]);
 
 export const getPatientSearchText = (patient) =>
   normalizeSearchText([
+    patient?.nickname,
+    patient?.preferred_name,
+    patient?.display_name,
     patient?.full_name,
     patient?.name,
     patient?.phone,

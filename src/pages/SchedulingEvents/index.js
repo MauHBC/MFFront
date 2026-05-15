@@ -15,8 +15,10 @@ import {
 } from "../../components/AppModuleShell";
 import {
   createSpecialSchedulingEvent,
+  getUnitSchedulingPolicy,
   inactivateSpecialSchedulingEvent,
   listSpecialSchedulingEvents,
+  updateUnitSchedulingPolicy,
   updateSpecialSchedulingEvent,
 } from "../../services/scheduling";
 
@@ -37,7 +39,7 @@ const HOLIDAY_SOURCE_SET = new Set(HOLIDAY_SOURCE_OPTIONS.map((option) => option
 const HOLIDAY_SCHEDULING_OPTIONS = [
   {
     value: "block",
-    label: "Clinica nao funciona e a agenda fica bloqueada",
+    label: "Clínica não funciona e a agenda fica bloqueada",
     help: "Mantem o comportamento atual de bloqueio e avisos de feriado na agenda.",
   },
   {
@@ -54,6 +56,14 @@ const emptyHolidayForm = {
   state_code: "",
   city_name: "",
   scheduling_mode: "block",
+};
+
+const emptyOperationalPolicyForm = {
+  late_change_minimum_notice_hours: "24",
+  monthly_reschedule_limit: "2",
+  monthly_absence_limit: "2",
+  replacement_credit_validity_days: "30",
+  replacement_credit_expiring_alert_days: "7",
 };
 
 const formatHolidayDate = (value) => {
@@ -112,6 +122,9 @@ export default function SchedulingEvents() {
   const [holidayUpdatingId, setHolidayUpdatingId] = useState(null);
   const [isHolidayOpen, setIsHolidayOpen] = useState(false);
   const [holidayForm, setHolidayForm] = useState(emptyHolidayForm);
+  const [operationalPolicyForm, setOperationalPolicyForm] = useState(emptyOperationalPolicyForm);
+  const [isPolicyLoading, setIsPolicyLoading] = useState(false);
+  const [isPolicySaving, setIsPolicySaving] = useState(false);
 
   const holidayRows = useMemo(
     () =>
@@ -130,15 +143,93 @@ export default function SchedulingEvents() {
       const items = Array.isArray(response.data) ? response.data : [];
       setHolidays(items.filter((item) => HOLIDAY_SOURCE_SET.has(item.source_type)));
     } catch (error) {
-      toast.error(getUserFacingApiError(error, "Nao foi possivel carregar os feriados."));
+      toast.error(getUserFacingApiError(error, "Não foi possível carregar os feriados."));
     } finally {
       setIsHolidayLoading(false);
     }
   }, []);
 
+  const loadOperationalPolicy = useCallback(async () => {
+    try {
+      setIsPolicyLoading(true);
+      const response = await getUnitSchedulingPolicy();
+      const data = response.data || {};
+      setOperationalPolicyForm({
+        late_change_minimum_notice_hours: String(
+          data.late_change_minimum_notice_hours ?? emptyOperationalPolicyForm.late_change_minimum_notice_hours,
+        ),
+        monthly_reschedule_limit: String(
+          data.monthly_reschedule_limit ?? emptyOperationalPolicyForm.monthly_reschedule_limit,
+        ),
+        monthly_absence_limit: String(
+          data.monthly_absence_limit ?? emptyOperationalPolicyForm.monthly_absence_limit,
+        ),
+        replacement_credit_validity_days: String(
+          data.replacement_credit_validity_days ?? emptyOperationalPolicyForm.replacement_credit_validity_days,
+        ),
+        replacement_credit_expiring_alert_days: String(
+          data.replacement_credit_expiring_alert_days ?? emptyOperationalPolicyForm.replacement_credit_expiring_alert_days,
+        ),
+      });
+    } catch (error) {
+      toast.error(getUserFacingApiError(error, "Não foi possível carregar as regras operacionais."));
+    } finally {
+      setIsPolicyLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadHolidays();
-  }, [loadHolidays]);
+    loadOperationalPolicy();
+  }, [loadHolidays, loadOperationalPolicy]);
+
+  const handleOperationalPolicyChange = useCallback((event) => {
+    const { name, value } = event.target;
+    setOperationalPolicyForm((prev) => ({ ...prev, [name]: value }));
+  }, []);
+
+  const handleSaveOperationalPolicy = useCallback(async () => {
+    const payload = {};
+    const fieldLabels = {
+      late_change_minimum_notice_hours: "prazo minimo",
+      monthly_reschedule_limit: "limite de remarcacoes",
+      monthly_absence_limit: "limite de faltas",
+      replacement_credit_validity_days: "validade da reposição",
+      replacement_credit_expiring_alert_days: "dias de alerta de reposição",
+    };
+
+    const invalidField = Object.entries(fieldLabels).find(([field]) => {
+      const parsed = Number(operationalPolicyForm[field]);
+      if (Number.isInteger(parsed) && parsed > 0) {
+        payload[field] = parsed;
+        return false;
+      }
+      return true;
+    });
+
+    if (invalidField) {
+      toast.error(`Informe um valor inteiro positivo para ${invalidField[1]}.`);
+      return;
+    }
+
+    try {
+      setIsPolicySaving(true);
+      const response = await updateUnitSchedulingPolicy(payload);
+      const data = response.data || payload;
+      setOperationalPolicyForm({
+        late_change_minimum_notice_hours: String(data.late_change_minimum_notice_hours),
+        monthly_reschedule_limit: String(data.monthly_reschedule_limit),
+        monthly_absence_limit: String(data.monthly_absence_limit),
+        replacement_credit_validity_days: String(data.replacement_credit_validity_days),
+        replacement_credit_expiring_alert_days: String(data.replacement_credit_expiring_alert_days),
+      });
+      toast.success("Regras operacionais atualizadas.");
+    } catch (error) {
+      toast.error(getUserFacingApiError(error, "Não foi possível salvar as regras operacionais."));
+    } finally {
+      setIsPolicySaving(false);
+    }
+  }, [operationalPolicyForm]);
 
   const openHolidayModal = useCallback(() => {
     setHolidayForm(emptyHolidayForm);
@@ -214,7 +305,7 @@ export default function SchedulingEvents() {
       setIsHolidayOpen(false);
       await loadHolidays();
     } catch (error) {
-      toast.error(getUserFacingApiError(error, "Nao foi possivel salvar o feriado."));
+      toast.error(getUserFacingApiError(error, "Não foi possível salvar o feriado."));
     } finally {
       setIsHolidaySaving(false);
     }
@@ -228,7 +319,7 @@ export default function SchedulingEvents() {
         toast.success("Feriado excluido.");
         await loadHolidays();
       } catch (error) {
-        toast.error(getUserFacingApiError(error, "Nao foi possivel excluir o feriado."));
+        toast.error(getUserFacingApiError(error, "Não foi possível excluir o feriado."));
       }
     },
     [loadHolidays],
@@ -253,7 +344,7 @@ export default function SchedulingEvents() {
         await loadHolidays();
       } catch (error) {
         toast.error(
-          getUserFacingApiError(error, "Nao foi possivel atualizar o comportamento do feriado."),
+          getUserFacingApiError(error, "Não foi possível atualizar o comportamento do feriado."),
         );
       } finally {
         setHolidayUpdatingId(null);
@@ -349,6 +440,101 @@ export default function SchedulingEvents() {
           </div>
           <BackLink to="/agendamentos">Voltar</BackLink>
         </Header>
+
+        <Section>
+          <SectionHeader>
+            <div>
+              <SectionTitle>Regras operacionais de agenda</SectionTitle>
+              <SectionSubtitle>
+                Configure prazos, limites mensais e alertas usados nas proximas validacoes.
+              </SectionSubtitle>
+            </div>
+            <HeaderActions>
+              <GhostButton type="button" onClick={loadOperationalPolicy} disabled={isPolicyLoading}>
+                Atualizar
+              </GhostButton>
+              <PrimaryButton
+                type="button"
+                onClick={handleSaveOperationalPolicy}
+                disabled={isPolicyLoading || isPolicySaving}
+              >
+                {isPolicySaving ? <ButtonSpinner /> : "Salvar regras"}
+              </PrimaryButton>
+            </HeaderActions>
+          </SectionHeader>
+
+          {isPolicyLoading ? (
+            <DataLoadingState text="Carregando regras operacionais..." />
+          ) : (
+            <PolicyGrid>
+              <Field>
+                <Label htmlFor="late-change-hours">Prazo minimo sem falta (horas)</Label>
+                <Input
+                  id="late-change-hours"
+                  type="number"
+                  min="1"
+                  step="1"
+                  name="late_change_minimum_notice_hours"
+                  value={operationalPolicyForm.late_change_minimum_notice_hours}
+                  onChange={handleOperationalPolicyChange}
+                />
+                <MutedText>Padrao atual: 24 horas.</MutedText>
+              </Field>
+              <Field>
+                <Label htmlFor="monthly-reschedule-limit">Limite mensal de remarcacoes</Label>
+                <Input
+                  id="monthly-reschedule-limit"
+                  type="number"
+                  min="1"
+                  step="1"
+                  name="monthly_reschedule_limit"
+                  value={operationalPolicyForm.monthly_reschedule_limit}
+                  onChange={handleOperationalPolicyChange}
+                />
+                <MutedText>Padrao atual: 2 por paciente.</MutedText>
+              </Field>
+              <Field>
+                <Label htmlFor="monthly-absence-limit">Limite mensal de faltas</Label>
+                <Input
+                  id="monthly-absence-limit"
+                  type="number"
+                  min="1"
+                  step="1"
+                  name="monthly_absence_limit"
+                  value={operationalPolicyForm.monthly_absence_limit}
+                  onChange={handleOperationalPolicyChange}
+                />
+                <MutedText>Padrao atual: 2 por paciente.</MutedText>
+              </Field>
+              <Field>
+                <Label htmlFor="replacement-validity-days">Validade da reposição (dias)</Label>
+                <Input
+                  id="replacement-validity-days"
+                  type="number"
+                  min="1"
+                  step="1"
+                  name="replacement_credit_validity_days"
+                  value={operationalPolicyForm.replacement_credit_validity_days}
+                  onChange={handleOperationalPolicyChange}
+                />
+                <MutedText>Padrao atual: 30 dias.</MutedText>
+              </Field>
+              <Field>
+                <Label htmlFor="replacement-alert-days">Alerta de reposição vencendo (dias)</Label>
+                <Input
+                  id="replacement-alert-days"
+                  type="number"
+                  min="1"
+                  step="1"
+                  name="replacement_credit_expiring_alert_days"
+                  value={operationalPolicyForm.replacement_credit_expiring_alert_days}
+                  onChange={handleOperationalPolicyChange}
+                />
+                <MutedText>Padrao atual: 7 dias antes do vencimento.</MutedText>
+              </Field>
+            </PolicyGrid>
+          )}
+        </Section>
 
         <Section>
           <SectionHeader>
@@ -527,6 +713,12 @@ const HeaderActions = styled.div`
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+`;
+
+const PolicyGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 16px;
 `;
 
 const SectionTitle = styled.h2`

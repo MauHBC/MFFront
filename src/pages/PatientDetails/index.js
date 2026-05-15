@@ -21,6 +21,7 @@ import {
   isBirthDateValid,
   maskBirthDateInput,
 } from "../../utils/birthDate";
+import { getPatientDisplayName } from "../../utils/patientSearch";
 
 const TABS = {
   resumo: "resumo",
@@ -65,13 +66,13 @@ const REFERRAL_SOURCE_OPTIONS = [
 const ATTENTION_LEVEL_OPTIONS = [
   { value: "", label: "Selecionar" },
   { value: "low", label: "Baixa" },
-  { value: "medium", label: "Media" },
+  { value: "medium", label: "Média" },
   { value: "high", label: "Alta" },
 ];
 
 const ATTENTION_LEVEL_LABELS = {
   low: "Baixa",
-  medium: "Media",
+  medium: "Média",
   high: "Alta",
 };
 
@@ -96,6 +97,19 @@ const ATTENTION_LEVEL_STYLES = {
     border: "rgba(197, 59, 50, 0.34)",
     background: "rgba(197, 59, 50, 0.1)",
   },
+};
+
+const FREQUENCY_RANGE_OPTIONS = [
+  { value: 1, label: "Mes atual" },
+  { value: 3, label: "Ultimos 3 meses" },
+  { value: 6, label: "Ultimos 6 meses" },
+];
+
+const ENDED_SESSION_STATUSES = new Set(["done", "no_show", "canceled"]);
+
+const DEFAULT_OPERATIONAL_POLICY = {
+  monthly_reschedule_limit: 2,
+  monthly_absence_limit: 2,
 };
 
 function resolveAttentionLevelStyles(level) {
@@ -171,10 +185,121 @@ function formatDateTime(value) {
   });
 }
 
+function startOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+}
+
+function addMonths(date, amount) {
+  return new Date(date.getFullYear(), date.getMonth() + amount, 1, 0, 0, 0, 0);
+}
+
+function formatDateParam(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getMonthKey(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(date) {
+  return date.toLocaleDateString("pt-BR", {
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function buildFrequencyMonths(rangeMonths) {
+  const currentMonth = startOfMonth(new Date());
+  return Array.from({ length: rangeMonths }, (_, index) => {
+    const start = addMonths(currentMonth, index - rangeMonths + 1);
+    const end = addMonths(start, 1);
+    return {
+      key: getMonthKey(start),
+      label: formatMonthLabel(start),
+      start,
+      end,
+    };
+  });
+}
+
+function buildFrequencySummary(sessions, rangeMonths, policy = DEFAULT_OPERATIONAL_POLICY) {
+  const now = new Date();
+  const months = buildFrequencyMonths(rangeMonths).map((month) => ({
+    ...month,
+    scheduled: 0,
+    done: 0,
+    noShow: 0,
+    reschedules: 0,
+    canceled: 0,
+    closed: 0,
+    attendanceRate: null,
+    alerts: [],
+  }));
+  const monthMap = new Map(months.map((month) => [month.key, month]));
+
+  (sessions || []).forEach((session) => {
+    const startsAt = session?.starts_at ? new Date(session.starts_at) : null;
+    if (!startsAt || Number.isNaN(startsAt.getTime())) return;
+    const month = monthMap.get(getMonthKey(startsAt));
+    if (!month) return;
+
+    const status = String(session.status || "scheduled");
+    month.scheduled += 1;
+    if (status === "done") month.done += 1;
+    if (status === "no_show") month.noShow += 1;
+    if (status === "canceled") month.canceled += 1;
+    if (Array.isArray(session.reschedules)) {
+      month.reschedules += session.reschedules.length;
+    }
+    if (startsAt <= now && ENDED_SESSION_STATUSES.has(status)) {
+      month.closed += 1;
+    }
+  });
+
+  return months.map((month) => {
+    const attendanceRate = month.closed > 0
+      ? Math.round((month.done / month.closed) * 100)
+      : null;
+    const alerts = [];
+    const absenceLimit = Number(policy.monthly_absence_limit || DEFAULT_OPERATIONAL_POLICY.monthly_absence_limit);
+    const rescheduleLimit = Number(policy.monthly_reschedule_limit || DEFAULT_OPERATIONAL_POLICY.monthly_reschedule_limit);
+    if (month.noShow === absenceLimit) alerts.push(`Atingiu ${absenceLimit} faltas no mes.`);
+    if (month.noShow > absenceLimit) alerts.push(`Excedeu ${absenceLimit} faltas no mes.`);
+    if (month.reschedules === rescheduleLimit) {
+      alerts.push(`Atingiu ${rescheduleLimit} remarcacoes no mes.`);
+    }
+    if (month.reschedules > rescheduleLimit) {
+      alerts.push(`Excedeu ${rescheduleLimit} remarcacoes no mes.`);
+    }
+
+    return {
+      ...month,
+      attendanceRate,
+      alerts,
+      hasAlert: alerts.length > 0,
+    };
+  });
+}
+
 function formatBoolean(value) {
   if (value === true) return "Sim";
   if (value === false) return "Nao";
   return "-";
+}
+
+function formatReplacementCreditStatus(status) {
+  const map = {
+    pending: "Pendente",
+    used: "Usada",
+    expired: "Expirada",
+    canceled: "Cancelada",
+  };
+  return map[status] || valueOrDash(status);
 }
 
 function formatSex(value) {
@@ -271,6 +396,7 @@ function buildPatientForm(patient) {
 
   return {
     full_name: patient?.full_name || patient?.name || "",
+    nickname: patient?.nickname || "",
     sex: patient?.sex || "",
     birth_date: formatBirthDateForInput(patient?.birth_date || patient?.birthDate),
     cpf: patient?.cpf || "",
@@ -311,6 +437,10 @@ export default function PatientDetails() {
   const [isLoading, setIsLoading] = useState(false);
   const [patient, setPatient] = useState(null);
   const [evaluations, setEvaluations] = useState([]);
+  const [frequencySessions, setFrequencySessions] = useState([]);
+  const [replacementCredits, setReplacementCredits] = useState([]);
+  const [operationalPolicy, setOperationalPolicy] = useState(DEFAULT_OPERATIONAL_POLICY);
+  const [frequencyRangeMonths, setFrequencyRangeMonths] = useState(3);
   const [editingSection, setEditingSection] = useState(null);
   const [isSavingSection, setIsSavingSection] = useState(false);
   const [editForm, setEditForm] = useState(() => buildPatientForm(null));
@@ -319,16 +449,44 @@ export default function PatientDetails() {
     async function loadData() {
       setIsLoading(true);
       try {
-        const [patientResponse, evalResponse] = await Promise.all([
+        const currentMonth = startOfMonth(new Date());
+        const sessionsFrom = addMonths(currentMonth, -5);
+        const sessionsTo = addMonths(currentMonth, 1);
+        const [
+          patientResponse,
+          evalResponse,
+          sessionsResponse,
+          replacementCreditsResponse,
+          operationalPolicyResponse,
+        ] = await Promise.all([
           axios.get(`/patients/${id}`),
           axios.get(`/evaluations?patient_id=${id}`),
+          axios.get("/sessions", {
+            params: {
+              patient_id: id,
+              from: formatDateParam(sessionsFrom),
+              to: formatDateParam(sessionsTo),
+            },
+          }),
+          axios.get("/session-replacement-credits", { params: { patient_id: id } }),
+          axios.get("/unit-scheduling-policy"),
         ]);
         setPatient(patientResponse.data);
         setEvaluations(Array.isArray(evalResponse.data) ? evalResponse.data : []);
+        setFrequencySessions(
+          Array.isArray(sessionsResponse.data) ? sessionsResponse.data : [],
+        );
+        setReplacementCredits(
+          Array.isArray(replacementCreditsResponse.data) ? replacementCreditsResponse.data : [],
+        );
+        setOperationalPolicy({
+          ...DEFAULT_OPERATIONAL_POLICY,
+          ...(operationalPolicyResponse.data || {}),
+        });
       } catch (error) {
         const message =
           error?.response?.data?.error ||
-          "Nao foi possivel carregar os dados do paciente.";
+          "Não foi possível carregar os dados do paciente.";
         toast.error(message);
       } finally {
         setIsLoading(false);
@@ -386,6 +544,14 @@ export default function PatientDetails() {
     if (labels.length) return labels.join(" | ");
     return valueOrDash(patient.treatment_goal);
   }, [patient]);
+  const frequencySummary = useMemo(
+    () => buildFrequencySummary(frequencySessions, frequencyRangeMonths, operationalPolicy),
+    [frequencyRangeMonths, frequencySessions, operationalPolicy],
+  );
+  const hasFrequencyAlert = useMemo(
+    () => frequencySummary.some((month) => month.hasAlert),
+    [frequencySummary],
+  );
 
   const isTreatmentGoalOtherSelected = editForm.treatment_goal_options.includes(
     "other",
@@ -403,6 +569,56 @@ export default function PatientDetails() {
   const showResumo = useCallback(() => setActiveTab(TABS.resumo), []);
   const showHistorico = useCallback(() => setActiveTab(TABS.historico), []);
   const showDados = useCallback(() => setActiveTab(TABS.dados), []);
+
+  const reloadReplacementCredits = useCallback(async () => {
+    if (!id) return;
+    const response = await axios.get("/session-replacement-credits", { params: { patient_id: id } });
+    setReplacementCredits(Array.isArray(response.data) ? response.data : []);
+  }, [id]);
+
+  const handleCreateReplacementCredit = useCallback(async () => {
+    if (!id) return;
+    // eslint-disable-next-line no-alert
+    const reason = window.prompt("Motivo da reposição:");
+    if (reason === null) return;
+    const normalizedReason = reason.trim();
+    if (!normalizedReason) {
+      toast.error("Informe o motivo da reposição.");
+      return;
+    }
+    // eslint-disable-next-line no-alert
+    const sourceSessionText = window.prompt("ID da sessão de origem (opcional):", "");
+    const sourceSessionId = Number(String(sourceSessionText || "").trim());
+
+    try {
+      await axios.post("/session-replacement-credits", {
+        patient_id: Number(id),
+        reason: normalizedReason,
+        source_session_id: Number.isInteger(sourceSessionId) && sourceSessionId > 0
+          ? sourceSessionId
+          : null,
+      });
+      toast.success("Reposicao criada.");
+      await reloadReplacementCredits();
+    } catch (error) {
+      toast.error(error?.response?.data?.error || "Não foi possível criar a reposição.");
+    }
+  }, [id, reloadReplacementCredits]);
+
+  const handleCancelReplacementCredit = useCallback(async (creditId) => {
+    // eslint-disable-next-line no-alert
+    const reason = window.prompt("Motivo do cancelamento da reposição:", "Cancelada pelo administrador.");
+    if (reason === null) return;
+    try {
+      await axios.post(`/session-replacement-credits/${creditId}/cancel`, {
+        reason: reason.trim() || "Cancelada pelo administrador.",
+      });
+      toast.success("Reposicao cancelada.");
+      await reloadReplacementCredits();
+    } catch (error) {
+      toast.error(error?.response?.data?.error || "Não foi possível cancelar a reposição.");
+    }
+  }, [reloadReplacementCredits]);
 
   const startEditingSection = useCallback(
     (section) => {
@@ -473,6 +689,7 @@ export default function PatientDetails() {
       const sex = cleanText(editForm.sex);
       payload = {
         full_name: fullName,
+        nickname: cleanText(editForm.nickname),
         sex: sex ? sex.toUpperCase() : null,
         birth_date: formatBirthDateForApi(editForm.birth_date),
         cpf: cleanText(editForm.cpf),
@@ -563,7 +780,7 @@ export default function PatientDetails() {
     } catch (error) {
       const message =
         error?.response?.data?.error ||
-        "Nao foi possivel atualizar os dados do paciente.";
+        "Não foi possível atualizar os dados do paciente.";
       toast.error(message);
     } finally {
       setIsSavingSection(false);
@@ -633,7 +850,7 @@ export default function PatientDetails() {
         <Header>
           <div>
             <HeaderTitle>
-              {patient?.full_name || patient?.name || "Paciente"}
+              {getPatientDisplayName(patient)}
             </HeaderTitle>
           </div>
           <HeaderActions>
@@ -691,6 +908,114 @@ export default function PatientDetails() {
               <CardText>
                 {lastDate} - {lastNote}
               </CardText>
+            </InfoCard>
+            <InfoCard>
+              <FrequencyHeader>
+                <CardTitle>
+                  <FaListAlt /> Resumo de frequência e agenda
+                </CardTitle>
+                <FrequencyRangeControl
+                  value={frequencyRangeMonths}
+                  onChange={(event) => setFrequencyRangeMonths(Number(event.target.value))}
+                  aria-label="Período do resumo de frequência"
+                >
+                  {FREQUENCY_RANGE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </FrequencyRangeControl>
+              </FrequencyHeader>
+              {hasFrequencyAlert && (
+                <FrequencyAlert>
+                  Paciente com faltas/remarcações recorrentes. Avaliar manualmente a manutenção dos horários futuros.
+                </FrequencyAlert>
+              )}
+              <FrequencyGrid>
+                {frequencySummary.map((month) => (
+                  <FrequencyMonthCard key={month.key} $alert={month.hasAlert}>
+                    <FrequencyMonthHeader>
+                      <strong>{month.label}</strong>
+                      {month.hasAlert && <FrequencyAlertPill>Alerta</FrequencyAlertPill>}
+                    </FrequencyMonthHeader>
+                    <FrequencyStats>
+                      <FrequencyStat>
+                        <span>Agendadas</span>
+                        <strong>{month.scheduled}</strong>
+                      </FrequencyStat>
+                      <FrequencyStat>
+                        <span>Realizadas</span>
+                        <strong>{month.done}</strong>
+                      </FrequencyStat>
+                      <FrequencyStat>
+                        <span>Faltas</span>
+                        <strong>{month.noShow}</strong>
+                      </FrequencyStat>
+                      <FrequencyStat>
+                        <span>Remarcacoes</span>
+                        <strong>{month.reschedules}</strong>
+                      </FrequencyStat>
+                      <FrequencyStat>
+                        <span>Cancelamentos</span>
+                        <strong>{month.canceled}</strong>
+                      </FrequencyStat>
+                      <FrequencyStat>
+                        <span>Comparecimento</span>
+                        <strong>
+                          {month.attendanceRate === null ? "-" : `${month.attendanceRate}%`}
+                        </strong>
+                      </FrequencyStat>
+                    </FrequencyStats>
+                    {month.alerts.length > 0 && (
+                      <FrequencyAlertList>
+                        {month.alerts.map((alert) => (
+                          <li key={alert}>{alert}</li>
+                        ))}
+                      </FrequencyAlertList>
+                    )}
+                  </FrequencyMonthCard>
+                ))}
+              </FrequencyGrid>
+            </InfoCard>
+            <InfoCard>
+              <FrequencyHeader>
+                <CardTitle>
+                  <FaListAlt /> Reposicoes de sessão
+                </CardTitle>
+                <CardButton type="button" $primary onClick={handleCreateReplacementCredit}>
+                  Criar reposição
+                </CardButton>
+              </FrequencyHeader>
+              {replacementCredits.length === 0 && (
+                <EmptyState>Nenhuma reposição registrada.</EmptyState>
+              )}
+              {replacementCredits.length > 0 && (
+                <ReplacementCreditList>
+                  {replacementCredits.map((credit) => (
+                    <ReplacementCreditItem key={credit.id} $status={credit.status}>
+                      <div>
+                        <strong>{formatReplacementCreditStatus(credit.status)}</strong>
+                        <span>Validade: {formatDate(credit.expires_at)}</span>
+                        <p>{credit.reason}</p>
+                        {credit.source_session_id && (
+                          <small>Origem: sessão #{credit.source_session_id}</small>
+                        )}
+                        {credit.used_session_id && (
+                          <small>Usada na sessão #{credit.used_session_id}</small>
+                        )}
+                      </div>
+                      {credit.status === "pending" && (
+                        <CardButton
+                          type="button"
+                          onClick={() => handleCancelReplacementCredit(credit.id)}
+                        >
+                          Cancelar
+                        </CardButton>
+                      )}
+                    </ReplacementCreditItem>
+                  ))}
+                </ReplacementCreditList>
+              )}
             </InfoCard>
           </Section>
         )}
@@ -754,6 +1079,10 @@ export default function PatientDetails() {
               {!isPersonalEditing && (
                 <DataList>
                   <DataRow>
+                    <DataLabel>Apelido</DataLabel>
+                    <DataValue>{valueOrDash(patient?.nickname)}</DataValue>
+                  </DataRow>
+                  <DataRow>
                     <DataLabel>Nome completo</DataLabel>
                     <DataValue>
                       {valueOrDash(patient?.full_name || patient?.name)}
@@ -811,6 +1140,18 @@ export default function PatientDetails() {
               )}
               {isPersonalEditing && (
                 <DataList>
+                  <DataRow>
+                    <DataLabel>Apelido</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="nickname"
+                        value={editForm.nickname}
+                        onChange={handleEditFieldChange}
+                        placeholder="Nome de exibicao"
+                        maxLength={80}
+                      />
+                    </DataValue>
+                  </DataRow>
                   <DataRow>
                     <DataLabel>Nome completo</DataLabel>
                     <DataValue>
@@ -1490,7 +1831,7 @@ const InfoCard = styled.div`
   border-radius: 16px;
   border: 1px solid
     ${(props) =>
-      props.$editing ? "rgba(190, 92, 92, 0.5)" : "rgba(106, 121, 92, 0.18)"};
+    props.$editing ? "rgba(190, 92, 92, 0.5)" : "rgba(106, 121, 92, 0.18)"};
   padding: 18px;
   box-shadow: ${(props) =>
     props.$editing
@@ -1563,6 +1904,150 @@ const CardText = styled.div`
   margin-top: 10px;
   color: #6a795c;
   line-height: 1.5;
+`;
+
+const FrequencyHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+`;
+
+const FrequencyRangeControl = styled.select`
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.24);
+  background: #fff;
+  color: #2d3629;
+  min-height: 38px;
+  padding: 0 12px;
+  font-weight: 700;
+`;
+
+const FrequencyAlert = styled.div`
+  margin-top: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(165, 106, 0, 0.24);
+  background: rgba(165, 106, 0, 0.1);
+  color: #7a5000;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  font-weight: 700;
+`;
+
+const FrequencyGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+`;
+
+const FrequencyMonthCard = styled.div`
+  border-radius: 12px;
+  border: 1px solid
+    ${(props) => (props.$alert ? "rgba(165, 106, 0, 0.28)" : "rgba(106, 121, 92, 0.16)")};
+  background: ${(props) => (props.$alert ? "rgba(165, 106, 0, 0.06)" : "#fcfdf8")};
+  padding: 12px;
+`;
+
+const FrequencyMonthHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+
+  strong {
+    color: #1b1b1b;
+    text-transform: capitalize;
+  }
+`;
+
+const FrequencyAlertPill = styled.span`
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: rgba(165, 106, 0, 0.12);
+  color: #7a5000;
+  font-size: 0.75rem;
+  font-weight: 800;
+`;
+
+const FrequencyStats = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+`;
+
+const FrequencyStat = styled.div`
+  min-width: 0;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid rgba(106, 121, 92, 0.12);
+  padding: 8px;
+
+  span {
+    display: block;
+    color: #6a795c;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  strong {
+    display: block;
+    margin-top: 2px;
+    color: #1b1b1b;
+    font-size: 1.05rem;
+  }
+`;
+
+const FrequencyAlertList = styled.ul`
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #7a5000;
+  font-size: 0.86rem;
+  font-weight: 700;
+`;
+
+const ReplacementCreditList = styled.div`
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+`;
+
+const ReplacementCreditItem = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  background: ${(props) => (props.$status === "pending" ? "#fcfdf8" : "#f6f6f3")};
+  padding: 12px;
+
+  strong,
+  span,
+  small {
+    display: block;
+  }
+
+  strong {
+    color: #1b1b1b;
+  }
+
+  span,
+  small {
+    color: #6a795c;
+    margin-top: 3px;
+  }
+
+  p {
+    color: #2d3629;
+    margin: 6px 0 0;
+  }
+
+  @media (max-width: 640px) {
+    flex-direction: column;
+  }
 `;
 
 const CardActions = styled.div`

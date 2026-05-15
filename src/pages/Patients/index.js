@@ -32,7 +32,7 @@ export default function PatientsMenu() {
       toast.success("Link gerado.");
     } catch (error) {
       const message =
-        error?.response?.data?.error || "Nao foi possivel gerar o link.";
+        error?.response?.data?.error || "Não foi possível gerar o link.";
       toast.error(message);
     } finally {
       setIsInviteLoading(false);
@@ -46,7 +46,7 @@ export default function PatientsMenu() {
       await navigator.clipboard.writeText(inviteLink);
       toast.success("Link copiado.");
     } catch (error) {
-      toast.error("Nao foi possivel copiar o link.");
+      toast.error("Não foi possível copiar o link.");
     }
   }, [inviteLink]);
 

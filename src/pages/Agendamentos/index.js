@@ -48,17 +48,35 @@ const WEEK_PERIODS = [
 
 const PATIENT_ATTENTION_INDICATOR_META = {
   high: {
-    label: "Atencao alta",
+    label: "Atenção alta",
     tone: "high",
   },
   medium: {
-    label: "Atencao media",
+    label: "Atenção média",
     tone: "medium",
   },
   undefined: {
-    label: "Atencao nao definida",
+    label: "Atenção não definida",
     tone: "undefined",
   },
+};
+
+const OPERATIONAL_ALERT_SEVERITY_LABELS = {
+  high: "Alta",
+  medium: "Média",
+  low: "Baixa",
+};
+
+const getOperationalAlertDueLabel = (alert) => {
+  if (alert?.details?.due_date_label) return alert.details.due_date_label;
+  if (String(alert?.type || "").startsWith("replacement_credit")) return "validade";
+  return "data";
+};
+
+const OPERATIONAL_ALERT_SEVERITY_ORDER = {
+  high: 0,
+  medium: 1,
+  low: 2,
 };
 
 const normalizeAttentionLevel = (value) => String(value || "").trim().toLowerCase();
@@ -223,7 +241,7 @@ const SPECIAL_SOURCE_LABELS = {
   city: "Feriado municipal",
   optional_point: "Ponto facultativo",
   internal_block: "Bloqueio interno",
-  staff_time_off: "Ausencia profissional",
+  staff_time_off: "Ausência profissional",
   unit_closure: "Fechamento da unidade",
 };
 
@@ -253,7 +271,7 @@ const eventBehaviorLabel = (event) => {
   if (!event || event.affects_scheduling === false) return "Informativo";
   const behavior = String(event.behavior_type || "").toUpperCase();
   if (behavior === "BLOCK") return "Bloqueante";
-  if (behavior === "WARN_CONFIRM") return "Requer confirmacao";
+  if (behavior === "WARN_CONFIRM") return "Requer confirmação";
   return "Informativo";
 };
 
@@ -314,7 +332,7 @@ const WEEKDAY_OPTIONS = [
 ];
 
 const OCCURRENCE_STATUS_LABELS = {
-  AVAILABLE: "Disponivel",
+  AVAILABLE: "Disponível",
   INFO: "Info",
   WARN_CONFIRM: "Alerta",
   BLOCK: "Bloqueado",
@@ -331,6 +349,14 @@ const emptyForm = {
   ends_at: "",
   notes: "",
   absence_reason: "",
+  late_policy_exception_justified: false,
+  late_policy_exception_reason: "",
+  monthly_reschedule_exception_justified: false,
+  monthly_reschedule_exception_reason: "",
+  cycle_reschedule_exception_justified: false,
+  cycle_reschedule_exception_reason: "",
+  session_replacement_credit_id: "",
+  patient_credit_id: "",
   billing_mode: "",
 };
 
@@ -349,8 +375,10 @@ const resolveSeriesId = (session) => session?.series_id || session?.series?.id |
 const hasRecurringSeries = (session) => !!resolveSeriesId(session);
 
 const getPatientDisplayName = (patientLike) =>
-  patientLike?.Patient?.full_name
+  patientLike?.Patient?.nickname
+  || patientLike?.Patient?.full_name
   || patientLike?.Patient?.name
+  || patientLike?.nickname
   || patientLike?.full_name
   || patientLike?.name
   || "Paciente";
@@ -360,15 +388,111 @@ const normalizeText = (value) => {
   return trimmed.length ? trimmed : null;
 };
 
+const DEFAULT_OPERATIONAL_POLICY = {
+  late_change_minimum_notice_hours: 24,
+  monthly_reschedule_limit: 2,
+  monthly_absence_limit: 2,
+  replacement_credit_validity_days: 30,
+  replacement_credit_expiring_alert_days: 7,
+};
+
+const isLessThanConfiguredNoticeBeforeSession = (startsAt, noticeHours = 24) => {
+  if (!startsAt) return false;
+  const date = new Date(startsAt);
+  if (Number.isNaN(date.getTime())) return false;
+  return date.getTime() - Date.now() < Number(noticeHours || 24) * 60 * 60 * 1000;
+};
+
+const resolveLatePolicyPrompt = (startsAt, actionLabel, noticeHours = 24) => {
+  if (!isLessThanConfiguredNoticeBeforeSession(startsAt, noticeHours)) return {};
+  // eslint-disable-next-line no-alert
+  const isException = window.confirm(
+    `${actionLabel} com menos de ${noticeHours}h conta como falta.\n\nMarcar como exceção justificada?`,
+  );
+  if (!isException) return {};
+  // eslint-disable-next-line no-alert
+  const reason = window.prompt("Informe a justificativa da exceção:", "");
+  if (reason === null) return null;
+  const normalizedReason = reason.trim();
+  if (!normalizedReason) {
+    return { late_policy_exception_justified: true };
+  }
+  return {
+    late_policy_exception_justified: true,
+    late_policy_exception_reason: normalizedReason,
+  };
+};
+
+const isMonthlyRescheduleLimitError = (error) =>
+  error?.response?.data?.code === "MONTHLY_RESCHEDULE_LIMIT_EXCEEDED";
+
+const isPlanCycleRescheduleError = (error) =>
+  error?.response?.data?.code === "PLAN_CYCLE_RESCHEDULE_OUT_OF_RANGE";
+
+const resolveMonthlyRescheduleExceptionPrompt = (error) => {
+  const count = Number(error?.response?.data?.monthly_reschedule_count || 0);
+  const limit = Number(error?.response?.data?.monthly_reschedule_limit || 2);
+  // eslint-disable-next-line no-alert
+  const isException = window.confirm(
+    `Este paciente já atingiu ${count} remarcações no mês da sessão original (limite ${limit}).\n\nPermitir como exceção justificada?`,
+  );
+  if (!isException) return null;
+  // eslint-disable-next-line no-alert
+  const reason = window.prompt("Informe a justificativa da exceção mensal:", "");
+  if (reason === null) return null;
+  const normalizedReason = reason.trim();
+  return {
+    monthly_reschedule_exception_justified: true,
+    monthly_reschedule_exception_reason: normalizedReason || "Exceção mensal autorizada pelo administrador.",
+  };
+};
+
+const resolvePlanCycleExceptionPrompt = (error) => {
+  const cycleStart = error?.response?.data?.cycle_start || "";
+  const cycleEnd = error?.response?.data?.cycle_end || "";
+  const cycleLabel = cycleStart && cycleEnd ? ` (${cycleStart} a ${cycleEnd})` : "";
+  // eslint-disable-next-line no-alert
+  const isException = window.confirm(
+    `Esta sessão está vinculada a plano e a nova data fica fora do ciclo vigente${cycleLabel}.\n\nPermitir como exceção justificada?`,
+  );
+  if (!isException) return null;
+  // eslint-disable-next-line no-alert
+  const reason = window.prompt("Informe a justificativa para remarcar fora do ciclo:", "");
+  if (reason === null) return null;
+  const normalizedReason = reason.trim();
+  return {
+    cycle_reschedule_exception_justified: true,
+    cycle_reschedule_exception_reason: normalizedReason || "Exceção de ciclo autorizada pelo administrador.",
+  };
+};
+
+const showAbsenceMonthlyPolicyNotice = (payload) => {
+  const policy = payload?.absence_monthly_policy || payload?.original_absence_monthly_policy;
+  if (!policy?.fixed_schedule_review_recommended) return;
+  const count = Number(policy.monthly_count_after || 0);
+  const limit = Number(policy.monthly_limit || 2);
+  if (policy.exceeded_limit) {
+    toast.warn(
+      `Paciente excedeu o limite mensal de faltas (${count}/${limit}). Avaliar horário fixo.`,
+    );
+    return;
+  }
+  if (policy.reached_limit) {
+    toast.info(
+      `Paciente atingiu o limite mensal de faltas (${count}/${limit}). Avaliar horário fixo.`,
+    );
+  }
+};
+
 const resolveSchedulingErrorMessage = (error) => {
   const responseData = error?.response?.data || {};
   const code = responseData?.code || "";
   const safeErrorMessage = sanitizeUserFacingErrorMessage(
     responseData?.error,
-    "Nao foi possivel salvar o agendamento.",
+    "Não foi possível salvar o agendamento.",
   );
   if (code === "SCHEDULING_OVERRIDE_REASON_REQUIRED") {
-    return safeErrorMessage || "Informe um motivo para forcar o encaixe.";
+    return safeErrorMessage || "Informe um motivo para forçar o encaixe.";
   }
   if (code === "SCHEDULING_BLOCKED") {
     const totalBlocked = Number(responseData?.total_blocked || 0);
@@ -733,6 +857,17 @@ export default function Agendamentos() {
   const [isDeletePreviewing, setIsDeletePreviewing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [activePlansForPatient, setActivePlansForPatient] = useState([]);
+  const [replacementCreditsForPatient, setReplacementCreditsForPatient] = useState([]);
+  const [patientCreditsForPatient, setPatientCreditsForPatient] = useState([]);
+  const [operationalPolicy, setOperationalPolicy] = useState(DEFAULT_OPERATIONAL_POLICY);
+  const [operationalAlerts, setOperationalAlerts] = useState([]);
+  const [operationalAlertCounts, setOperationalAlertCounts] = useState({
+    total: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+  });
+  const [isOperationalAlertsLoading, setIsOperationalAlertsLoading] = useState(false);
   const [coveragePreview, setCoveragePreview] = useState(null);
   const [coveragePreviewLoading, setCoveragePreviewLoading] = useState(false);
   const [expandedHours, setExpandedHours] = useState(new Set());
@@ -747,22 +882,34 @@ export default function Agendamentos() {
   const loadBaseData = useCallback(async () => {
     setIsBaseDataLoading(true);
     try {
-      const [patientsResponse, usersResponse, limitsResponse, statusResponse, servicesResponse] = await Promise.all([
+      const [
+        patientsResponse,
+        usersResponse,
+        limitsResponse,
+        statusResponse,
+        servicesResponse,
+        operationalPolicyResponse,
+      ] = await Promise.all([
         axios.get("/patients"),
         axios.get("/users", { params: { group: PROFESSIONAL_GROUP_SLUG } }),
         axios.get("/service-limits"),
         axios.get("/session-statuses"),
         axios.get("/services"),
+        axios.get("/unit-scheduling-policy"),
       ]);
       setPatients(Array.isArray(patientsResponse.data) ? patientsResponse.data : []);
       setProfessionals(Array.isArray(usersResponse.data) ? usersResponse.data : []);
       setServiceLimits(Array.isArray(limitsResponse.data) ? limitsResponse.data : []);
       setStatusOptions(Array.isArray(statusResponse.data) ? statusResponse.data : []);
       setServices(Array.isArray(servicesResponse.data) ? servicesResponse.data : []);
+      setOperationalPolicy({
+        ...DEFAULT_OPERATIONAL_POLICY,
+        ...(operationalPolicyResponse.data || {}),
+      });
     } catch (error) {
       const message =
         error?.response?.data?.error ||
-        "Nao foi possivel carregar pacientes ou profissionais.";
+        "Não foi possível carregar pacientes ou profissionais.";
       toast.error(message);
     } finally {
       setIsBaseDataLoading(false);
@@ -780,7 +927,7 @@ export default function Agendamentos() {
         setSessions(Array.isArray(response.data) ? response.data : []);
       } catch (error) {
         const message =
-          error?.response?.data?.error || "Nao foi possivel carregar agendas.";
+          error?.response?.data?.error || "Não foi possível carregar agendas.";
         toast.error(message);
       } finally {
         setIsLoading(false);
@@ -798,7 +945,7 @@ export default function Agendamentos() {
       setSpecialEvents(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       const message =
-        error?.response?.data?.error || "Nao foi possivel carregar feriados.";
+        error?.response?.data?.error || "Não foi possível carregar feriados.";
       toast.error(message);
     }
   }, []);
@@ -809,7 +956,7 @@ export default function Agendamentos() {
       setPendingSessionsSource(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       const message =
-        error?.response?.data?.error || "Nao foi possivel carregar as pendencias.";
+        error?.response?.data?.error || "Não foi possível carregar as pendências.";
       toast.error(message);
     }
   }, []);
@@ -832,9 +979,76 @@ export default function Agendamentos() {
     }
   }, []);
 
+  const loadReplacementCreditsForPatient = useCallback(async (patientId) => {
+    if (!patientId) {
+      setReplacementCreditsForPatient([]);
+      return;
+    }
+    try {
+      const response = await axios.get("/session-replacement-credits", {
+        params: { patient_id: patientId, status: "pending" },
+      });
+      setReplacementCreditsForPatient(Array.isArray(response.data) ? response.data : []);
+    } catch (_err) {
+      setReplacementCreditsForPatient([]);
+    }
+  }, []);
+
+  const loadPatientCreditsForPatient = useCallback(async (patientId) => {
+    if (!patientId) {
+      setPatientCreditsForPatient([]);
+      return;
+    }
+    try {
+      const response = await axios.get("/patient-credits", {
+        params: { patient_id: patientId },
+      });
+      const availableCredits = (Array.isArray(response.data) ? response.data : [])
+        .filter((credit) => Number(credit.total_sessions || 0) - Number(credit.used_sessions || 0) > 0);
+      setPatientCreditsForPatient(availableCredits);
+    } catch (_err) {
+      setPatientCreditsForPatient([]);
+    }
+  }, []);
+
+  const loadOperationalAlerts = useCallback(async (monthDate = selectedDate) => {
+    setIsOperationalAlertsLoading(true);
+    try {
+      const response = await axios.get("/operational-alerts", {
+        params: { month: toMonthInputValue(monthDate) },
+      });
+      setOperationalAlerts(Array.isArray(response.data?.alerts) ? response.data.alerts : []);
+      setOperationalAlertCounts(response.data?.counts || {
+        total: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+      });
+    } catch (error) {
+      setOperationalAlerts([]);
+      setOperationalAlertCounts({ total: 0, high: 0, medium: 0, low: 0 });
+      const message =
+        error?.response?.data?.error || "Não foi possível carregar alertas operacionais.";
+      toast.error(message);
+    } finally {
+      setIsOperationalAlertsLoading(false);
+    }
+  }, [selectedDate]);
+
   useEffect(() => {
     loadActivePlansForPatient(form.patient_id);
-  }, [form.patient_id, loadActivePlansForPatient]);
+    loadReplacementCreditsForPatient(form.patient_id);
+    loadPatientCreditsForPatient(form.patient_id);
+  }, [
+    form.patient_id,
+    loadActivePlansForPatient,
+    loadReplacementCreditsForPatient,
+    loadPatientCreditsForPatient,
+  ]);
+
+  useEffect(() => {
+    loadOperationalAlerts(selectedDate);
+  }, [loadOperationalAlerts, selectedDate]);
 
   // Derived: plano elegível para cobertura mensal — considera serviço E data da sessão
   const eligiblePlan = useMemo(() => {
@@ -934,7 +1148,7 @@ export default function Agendamentos() {
       patients.map((patient) => ({
         ...patient,
         id: patient.id,
-        name: patient.full_name || patient.name || "Paciente",
+        name: getPatientName(patient),
       })),
     [patients],
   );
@@ -948,7 +1162,7 @@ export default function Agendamentos() {
   );
 
   const getSessionPatientName = useCallback(
-    (session) => session?.Patient?.full_name || session?.Patient?.name || "Paciente",
+    (session) => getPatientDisplayName(session),
     [],
   );
 
@@ -1467,8 +1681,8 @@ export default function Agendamentos() {
   }, [getSlotGroups, groupContext]);
 
   const handleFormChange = useCallback((event) => {
-    const { name, value } = event.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    const { name, type, value, checked } = event.target;
+    setForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   }, []);
 
   const handleStartsAtChange = useCallback((event) => {
@@ -1550,7 +1764,7 @@ export default function Agendamentos() {
           setFormAvailability({
             error: getUserFacingApiError(
               error,
-              "Nao foi possivel validar a disponibilidade desta data.",
+              "Não foi possível validar a disponibilidade desta data.",
             ),
             matched_events: [],
           });
@@ -1654,6 +1868,8 @@ export default function Agendamentos() {
     setEditingId(null);
     setForm(emptyForm);
     setFormPatientQuery("");
+    setReplacementCreditsForPatient([]);
+    setPatientCreditsForPatient([]);
     setRepeatEnabled(false);
     setRepeatWeekdays([]);
     setRepeatMode("count");
@@ -1699,8 +1915,8 @@ export default function Agendamentos() {
       const skipped = Number(response?.data?.total_skipped || 0);
       toast.success(
         skipped > 0
-          ? `Serie criada: ${created} sessao(oes) criada(s), ${skipped} ignorada(s).`
-          : `Serie criada (${created} sessao(oes)).`,
+          ? `Serie criada: ${created} sessão(oes) criada(s), ${skipped} ignorada(s).`
+          : `Serie criada (${created} sessão(oes)).`,
       );
 
       setRecurrencePreview(null);
@@ -1792,8 +2008,24 @@ export default function Agendamentos() {
         ? endsAt.getTime() - startsAt.getTime()
         : null;
       const newStart = new Date(date);
+      const latePolicyPayload = resolveLatePolicyPrompt(
+        session.starts_at,
+        "Remarcacao",
+        operationalPolicy.late_change_minimum_notice_hours,
+      );
+      if (latePolicyPayload === null) return;
+
       const payload = {
+        patient_id: session.patient_id,
+        professional_user_id: session.professional_user_id || null,
+        service_type: session.service_type || session.Service?.code || null,
+        service_id: session.service_id || session.Service?.id || null,
+        status: "scheduled",
         starts_at: newStart.toISOString(),
+        notes: session.notes || null,
+        billing_mode: session.billing_mode || "per_session",
+        rescheduled_from_id: session.id,
+        ...latePolicyPayload,
       };
       if (durationMs && durationMs > 0) {
         payload.ends_at = new Date(newStart.getTime() + durationMs).toISOString();
@@ -1801,20 +2033,88 @@ export default function Agendamentos() {
 
       setIsSaving(true);
       try {
-        await axios.put(`/sessions/${id}`, payload);
+        const response = await axios.post("/sessions", payload);
+        showAbsenceMonthlyPolicyNotice(response?.data);
         toast.success("Agendamento reagendado.");
         await reloadVisibleSessions();
         await loadPendingSessions();
       } catch (error) {
+        if (isPlanCycleRescheduleError(error)) {
+          const cycleExceptionPayload = resolvePlanCycleExceptionPrompt(error);
+          if (cycleExceptionPayload) {
+            try {
+              const retryResponse = await axios.post("/sessions", {
+                ...payload,
+                ...cycleExceptionPayload,
+              });
+              showAbsenceMonthlyPolicyNotice(retryResponse?.data);
+              toast.success("Agendamento remarcado como exceção.");
+              await reloadVisibleSessions();
+              await loadPendingSessions();
+              return;
+            } catch (retryError) {
+              if (isMonthlyRescheduleLimitError(retryError)) {
+                const monthlyExceptionPayload = resolveMonthlyRescheduleExceptionPrompt(retryError);
+                if (monthlyExceptionPayload) {
+                  try {
+                    const secondRetryResponse = await axios.post("/sessions", {
+                      ...payload,
+                      ...cycleExceptionPayload,
+                      ...monthlyExceptionPayload,
+                    });
+                    showAbsenceMonthlyPolicyNotice(secondRetryResponse?.data);
+                    toast.success("Agendamento remarcado como exceção.");
+                    await reloadVisibleSessions();
+                    await loadPendingSessions();
+                    return;
+                  } catch (secondRetryError) {
+                    const secondRetryMessage =
+                      secondRetryError?.response?.data?.error ||
+                      "Não foi possível reagendar o agendamento.";
+                    toast.error(secondRetryMessage);
+                    return;
+                  }
+                }
+              }
+              const retryMessage =
+                retryError?.response?.data?.error ||
+                "Não foi possível reagendar o agendamento.";
+              toast.error(retryMessage);
+              return;
+            }
+          }
+        }
+        if (isMonthlyRescheduleLimitError(error)) {
+          const monthlyExceptionPayload = resolveMonthlyRescheduleExceptionPrompt(error);
+          if (monthlyExceptionPayload) {
+            try {
+              const retryResponse = await axios.post("/sessions", {
+                ...payload,
+                ...monthlyExceptionPayload,
+              });
+              showAbsenceMonthlyPolicyNotice(retryResponse?.data);
+              toast.success("Agendamento remarcado como exceção.");
+              await reloadVisibleSessions();
+              await loadPendingSessions();
+              return;
+            } catch (retryError) {
+              const retryMessage =
+                retryError?.response?.data?.error ||
+                "Não foi possível reagendar o agendamento.";
+              toast.error(retryMessage);
+              return;
+            }
+          }
+        }
         const message =
           error?.response?.data?.error ||
-          "Nao foi possivel reagendar o agendamento.";
+          "Não foi possível reagendar o agendamento.";
         toast.error(message);
       } finally {
         setIsSaving(false);
       }
     },
-    [filteredSessions, loadPendingSessions, reloadVisibleSessions],
+    [filteredSessions, loadPendingSessions, operationalPolicy.late_change_minimum_notice_hours, reloadVisibleSessions],
   );
 
   const handleDragOver = useCallback((event) => {
@@ -1830,7 +2130,7 @@ export default function Agendamentos() {
       if (!session) return;
       setDrawerMode("form");
       setGroupContext(null);
-      const patientName = session?.Patient?.full_name || session?.Patient?.name || "";
+      const patientName = getPatientDisplayName(session);
       const serviceFromCode = session.service_type
         ? servicesByCode.get(session.service_type)
         : null;
@@ -1859,6 +2159,14 @@ export default function Agendamentos() {
         ends_at: toInputValue(session.ends_at),
         notes: session.notes || "",
         absence_reason: session.absence_reason || "",
+        late_policy_exception_justified: false,
+        late_policy_exception_reason: "",
+        monthly_reschedule_exception_justified: false,
+        monthly_reschedule_exception_reason: "",
+        cycle_reschedule_exception_justified: false,
+        cycle_reschedule_exception_reason: "",
+        session_replacement_credit_id: "",
+        patient_credit_id: session.patient_credit_id ? String(session.patient_credit_id) : "",
         billing_mode: session.billing_mode || "per_session",
       });
       setFormPatientQuery(patientName);
@@ -1912,7 +2220,7 @@ export default function Agendamentos() {
         }));
       } catch (error) {
         const message =
-          error?.response?.data?.error || "Nao foi possivel preparar a revisao da exclusao.";
+          error?.response?.data?.error || "Não foi possível preparar a revisão da exclusão.";
         toast.error(message);
       } finally {
         setIsDeletePreviewing(false);
@@ -1960,7 +2268,7 @@ export default function Agendamentos() {
 
     const normalizedReason = deleteModal.reason.trim();
     if (!normalizedReason) {
-      toast.error("Informe o motivo da exclusao.");
+      toast.error("Informe o motivo da exclusão.");
       return;
     }
 
@@ -1985,7 +2293,7 @@ export default function Agendamentos() {
     } catch (error) {
       const message =
         error?.response?.data?.error ||
-        "Nao foi possivel excluir os agendamentos selecionados.";
+        "Não foi possível excluir os agendamentos selecionados.";
       toast.error(message);
     } finally {
       setIsDeleting(false);
@@ -2006,7 +2314,7 @@ export default function Agendamentos() {
       return {
         ...session,
         ...(updatedSession || {}),
-        status,
+        status: updatedSession?.status || status,
         absence_reason: reason || updatedSession?.absence_reason || session?.absence_reason,
       };
     };
@@ -2031,6 +2339,17 @@ export default function Agendamentos() {
       const sid = String(id);
       if (savingSessionIdsRef.current.has(sid)) return;
       const payload = { status };
+      const sourcePool = pendingSessionsSource.length > 0 ? pendingSessionsSource : sessions;
+      const sourceSession = sourcePool.find((item) => String(item.id) === sid);
+      if (status === "canceled") {
+        const latePolicyPayload = resolveLatePolicyPrompt(
+          sourceSession?.starts_at,
+          "Cancelamento",
+          operationalPolicy.late_change_minimum_notice_hours,
+        );
+        if (latePolicyPayload === null) return;
+        Object.assign(payload, latePolicyPayload);
+      }
       if (reason) {
         payload.absence_reason = reason;
       }
@@ -2045,6 +2364,7 @@ export default function Agendamentos() {
           reason,
           updatedSession: response?.data,
         });
+        showAbsenceMonthlyPolicyNotice(response?.data);
         toast.success("Agendamento atualizado.");
         await reloadVisibleSessions();
         await loadPendingSessions();
@@ -2052,7 +2372,7 @@ export default function Agendamentos() {
       } catch (error) {
         const message =
           error?.response?.data?.error ||
-          "Nao foi possivel atualizar o agendamento.";
+          "Não foi possível atualizar o agendamento.";
         toast.error(message);
         if (onError) onError();
       } finally {
@@ -2061,7 +2381,14 @@ export default function Agendamentos() {
         setSavingActionMap((prev) => { const { [sid]: _, ...rest } = prev; return rest; });
       }
     },
-    [applySessionStatusLocally, loadPendingSessions, reloadVisibleSessions],
+    [
+      applySessionStatusLocally,
+      loadPendingSessions,
+      operationalPolicy.late_change_minimum_notice_hours,
+      pendingSessionsSource,
+      reloadVisibleSessions,
+      sessions,
+    ],
   );
 
   const handleQuickStatus = useCallback(
@@ -2106,7 +2433,7 @@ export default function Agendamentos() {
     );
 
     if (allEligible.length === 0) {
-      toast.info("Nao ha sessoes ativas para fazer chamada neste horario.");
+      toast.info("Não há sessões ativas para fazer chamada neste horário.");
       return;
     }
 
@@ -2196,7 +2523,8 @@ export default function Agendamentos() {
 
     setAttendanceModal((prev) => ({ ...prev, isSaving: true }));
     try {
-      await axios.patch("/sessions/bulk-status", { sessions: sessionsPayload });
+      const response = await axios.patch("/sessions/bulk-status", { sessions: sessionsPayload });
+      (response?.data?.updated_sessions || []).forEach(showAbsenceMonthlyPolicyNotice);
       toast.success("Chamada salva.");
       setAttendanceModal({
         open: false,
@@ -2209,7 +2537,7 @@ export default function Agendamentos() {
       await reloadVisibleSessions();
       await loadPendingSessions();
     } catch (error) {
-      toast.error(getUserFacingApiError(error, "Nao foi possivel salvar a chamada."));
+      toast.error(getUserFacingApiError(error, "Não foi possível salvar a chamada."));
       setAttendanceModal((prev) => ({ ...prev, isSaving: false }));
     }
   }, [attendanceModal, loadPendingSessions, reloadVisibleSessions]);
@@ -2236,12 +2564,12 @@ export default function Agendamentos() {
         return;
       }
       if (!form.service_id && !form.service_type) {
-        toast.error("Selecione o servico.");
+        toast.error("Selecione o serviço.");
         return;
       }
       const startsAtDate = new Date(form.starts_at);
       if (Number.isNaN(startsAtDate.getTime())) {
-        toast.error("Data de inicio invalida.");
+        toast.error("Data de início inválida.");
         return;
       }
 
@@ -2272,7 +2600,7 @@ export default function Agendamentos() {
         if (repeatMode === "count") {
           const count = Number(repeatCount);
           if (!Number.isFinite(count) || count <= 0) {
-            toast.error("Informe a quantidade de sessoes.");
+            toast.error("Informe a quantidade de sessões.");
             return;
           }
         }
@@ -2291,6 +2619,10 @@ export default function Agendamentos() {
         setIsSaving(false);
         submitLockRef.current = false;
       };
+      let selectedPatientCreditId = null;
+      if (form.billing_mode !== "covered_by_plan" && form.patient_credit_id) {
+        selectedPatientCreditId = Number(form.patient_credit_id);
+      }
 
       const payload = {
         patient_id: Number(form.patient_id),
@@ -2307,6 +2639,16 @@ export default function Agendamentos() {
         ends_at: form.ends_at || null,
         notes: normalizeText(form.notes),
         absence_reason: normalizeText(form.absence_reason),
+        late_policy_exception_justified: !!form.late_policy_exception_justified,
+        late_policy_exception_reason: normalizeText(form.late_policy_exception_reason),
+        monthly_reschedule_exception_justified: !!form.monthly_reschedule_exception_justified,
+        monthly_reschedule_exception_reason: normalizeText(form.monthly_reschedule_exception_reason),
+        cycle_reschedule_exception_justified: !!form.cycle_reschedule_exception_justified,
+        cycle_reschedule_exception_reason: normalizeText(form.cycle_reschedule_exception_reason),
+        session_replacement_credit_id: form.session_replacement_credit_id
+          ? Number(form.session_replacement_credit_id)
+          : null,
+        patient_credit_id: selectedPatientCreditId,
         ...(eligiblePlan ? { billing_mode: form.billing_mode || "per_session" } : {}),
       };
 
@@ -2324,7 +2666,7 @@ export default function Agendamentos() {
           const monthlyValidity = buildMonthlyValidityRange(startsAtDate);
           if (!monthlyValidity.end) {
             releaseSubmitState();
-            toast.error("Nao foi possivel calcular a vigencia mensal.");
+            toast.error("Não foi possível calcular a vigência mensal.");
             return;
           }
           recurrenceStartsAt.setSeconds(0, 0);
@@ -2367,7 +2709,7 @@ export default function Agendamentos() {
             );
             let successMessage = "Agenda do plano criada.";
             if (created > 0) {
-              successMessage = `Agenda do plano criada (${created} sessao(oes)).`;
+              successMessage = `Agenda do plano criada (${created} sessão(oes)).`;
             }
             if (skipped > 0) {
               successMessage = `Agenda criada. ${skipped} data(s) bloqueada(s) foram ignorada(s).`;
@@ -2414,7 +2756,7 @@ export default function Agendamentos() {
         } catch (error) {
           const message =
             error?.response?.data?.error ||
-            "Nao foi possivel gerar a pre-visualizacao das ocorrencias.";
+            "Não foi possível gerar a pré-visualização das ocorrências.";
           toast.error(message);
         } finally {
           releaseSubmitState();
@@ -2506,7 +2848,7 @@ export default function Agendamentos() {
       } catch (error) {
         const message =
           error?.response?.data?.error ||
-          "Nao foi possivel validar disponibilidade.";
+          "Não foi possível validar disponibilidade.";
         toast.error(message);
         releaseSubmitState();
         return;
@@ -2519,11 +2861,38 @@ export default function Agendamentos() {
           override_reason: overrideReason,
         };
         if (editingId) {
-          await axios.put(`/sessions/${editingId}`, {
-            ...payload,
-            ...schedulingPayload,
-          });
-          toast.success("Agendamento atualizado.");
+          const originalSession = filteredSessions.find(
+            (session) => String(session.id) === String(editingId),
+          );
+          const originalStart = originalSession?.starts_at
+            ? new Date(originalSession.starts_at).getTime()
+            : null;
+          const nextStart = payload.starts_at ? new Date(payload.starts_at).getTime() : null;
+          const isReschedule =
+            originalSession &&
+            originalStart &&
+            nextStart &&
+            originalStart !== nextStart &&
+            originalSession.status === "scheduled" &&
+            payload.status === "scheduled";
+
+          if (isReschedule) {
+            const response = await axios.post("/sessions", {
+              ...payload,
+              ...schedulingPayload,
+              status: "scheduled",
+              rescheduled_from_id: editingId,
+            });
+            showAbsenceMonthlyPolicyNotice(response?.data);
+            toast.success("Agendamento remarcado.");
+          } else {
+            const response = await axios.put(`/sessions/${editingId}`, {
+              ...payload,
+              ...schedulingPayload,
+            });
+            showAbsenceMonthlyPolicyNotice(response?.data);
+            toast.success("Agendamento atualizado.");
+          }
         } else {
           await axios.post("/sessions", {
             ...payload,
@@ -2535,6 +2904,8 @@ export default function Agendamentos() {
         closeDrawer();
         await reloadVisibleSessions();
         await loadPendingSessions();
+        await loadReplacementCreditsForPatient(form.patient_id);
+        await loadOperationalAlerts(selectedDate);
       } catch (error) {
         toast.error(resolveSchedulingErrorMessage(error));
       } finally {
@@ -2545,10 +2916,13 @@ export default function Agendamentos() {
       closeDrawer,
       editingId,
       eligiblePlan,
+      filteredSessions,
       form,
       formLocalSpecialSummary,
       isSaving,
       loadPendingSessions,
+      loadOperationalAlerts,
+      loadReplacementCreditsForPatient,
       reloadVisibleSessions,
       repeatEnabled,
       repeatMode,
@@ -2556,6 +2930,7 @@ export default function Agendamentos() {
       repeatWeeks,
       repeatWeekdays,
       resetForm,
+      selectedDate,
       submitLockRef,
     ],
   );
@@ -2662,8 +3037,8 @@ export default function Agendamentos() {
     () =>
       Boolean(
         form.starts_at
-          && formAvailabilityLevel === "block"
-          && formBlockedHolidayEvents.length > 0,
+        && formAvailabilityLevel === "block"
+        && formBlockedHolidayEvents.length > 0,
       ),
     [form.starts_at, formAvailabilityLevel, formBlockedHolidayEvents.length],
   );
@@ -2711,6 +3086,16 @@ export default function Agendamentos() {
     const selectedIdSet = new Set(deleteModal.selectedIds);
     return deleteModal.candidates.filter((item) => selectedIdSet.has(String(item.id)));
   }, [deleteModal.candidates, deleteModal.selectedIds]);
+
+  const visibleOperationalAlerts = useMemo(
+    () => [...operationalAlerts]
+      .sort((a, b) => (
+        (OPERATIONAL_ALERT_SEVERITY_ORDER[a.severity] ?? 9)
+        - (OPERATIONAL_ALERT_SEVERITY_ORDER[b.severity] ?? 9)
+      ))
+      .slice(0, 8),
+    [operationalAlerts],
+  );
 
   let drawerTitle = "Novo agendamento";
   if (drawerMode === "pending") {
@@ -2772,39 +3157,39 @@ export default function Agendamentos() {
               Mes
             </ToggleButton>
           </ViewSwitch>
-	          <DateNav>
-	            <NavButton type="button" onClick={handlePrev}>
-	              <FaChevronLeft />
-	            </NavButton>
-	            {view === "week" && (
-	              <DateContext>
-	                <DateYearLabel>{formatWeekYearLabel(weekDays[0], weekDays[weekDays.length - 1])}</DateYearLabel>
-	                <DateLabel>
-	                  {formatWeekRange(weekDays[0], weekDays[weekDays.length - 1])}
-	                </DateLabel>
-	              </DateContext>
-	            )}
-	            {view === "day" && (
-	              <DatePickerInput
-	                type="date"
-	                value={toDateInputValue(selectedDate)}
-	                onChange={handleDayPickerChange}
-	                aria-label="Selecionar dia da agenda"
-	                $prominent
-	              />
-	            )}
-	            {view === "month" && (
-	              <DatePickerInput
-	                type="month"
-	                value={toMonthInputValue(selectedDate)}
-	                onChange={handleMonthPickerChange}
-	                aria-label="Selecionar mes e ano da agenda"
-	                $prominent
-	              />
-	            )}
-	            <NavButton type="button" onClick={handleNext}>
-	              <FaChevronRight />
-	            </NavButton>
+          <DateNav>
+            <NavButton type="button" onClick={handlePrev}>
+              <FaChevronLeft />
+            </NavButton>
+            {view === "week" && (
+              <DateContext>
+                <DateYearLabel>{formatWeekYearLabel(weekDays[0], weekDays[weekDays.length - 1])}</DateYearLabel>
+                <DateLabel>
+                  {formatWeekRange(weekDays[0], weekDays[weekDays.length - 1])}
+                </DateLabel>
+              </DateContext>
+            )}
+            {view === "day" && (
+              <DatePickerInput
+                type="date"
+                value={toDateInputValue(selectedDate)}
+                onChange={handleDayPickerChange}
+                aria-label="Selecionar dia da agenda"
+                $prominent
+              />
+            )}
+            {view === "month" && (
+              <DatePickerInput
+                type="month"
+                value={toMonthInputValue(selectedDate)}
+                onChange={handleMonthPickerChange}
+                aria-label="Selecionar mes e ano da agenda"
+                $prominent
+              />
+            )}
+            <NavButton type="button" onClick={handleNext}>
+              <FaChevronRight />
+            </NavButton>
             {view === "day" && (
               <SecondaryButton type="button" onClick={handleToday}>
                 Hoje
@@ -2830,7 +3215,7 @@ export default function Agendamentos() {
               type="button"
               onClick={togglePendingDrawer}
               $active={isDrawerOpen && drawerMode === "pending"}
-              aria-label={`Abrir pendencias. ${pendingConfirmationSessions.length} pendencias.`}
+              aria-label={`Abrir pendências. ${pendingConfirmationSessions.length} pendências.`}
             >
               <FaBell />
               <NotificationBadge $hasPending={pendingConfirmationSessions.length > 0}>
@@ -2843,7 +3228,7 @@ export default function Agendamentos() {
                 resetForm();
                 openDrawer();
               }}
-            >   
+            >
               <FaPlus /> Novo agendamento
             </PrimaryButton>
             <ToolbarLink to="/agendamentos/eventos">
@@ -2851,6 +3236,74 @@ export default function Agendamentos() {
             </ToolbarLink>
           </ToolbarActions>
         </Toolbar>
+
+        <OperationalAlertsPanel>
+          <OperationalAlertsHeader>
+            <div>
+              <OperationalAlertsTitle>
+                <FaBell /> Alertas operacionais
+              </OperationalAlertsTitle>
+              <OperationalAlertsSubtitle>
+                Riscos de agenda, faltas, remarcações e reposições no mês selecionado.
+              </OperationalAlertsSubtitle>
+            </div>
+            <OperationalAlertsCounts>
+              <OperationalAlertCounter $severity="high">
+                Alta {operationalAlertCounts.high || 0}
+              </OperationalAlertCounter>
+              <OperationalAlertCounter $severity="medium">
+                Média {operationalAlertCounts.medium || 0}
+              </OperationalAlertCounter>
+              <OperationalAlertCounter $severity="low">
+                Baixa {operationalAlertCounts.low || 0}
+              </OperationalAlertCounter>
+            </OperationalAlertsCounts>
+          </OperationalAlertsHeader>
+          {isOperationalAlertsLoading && (
+            <OperationalAlertsEmpty>Carregando alertas...</OperationalAlertsEmpty>
+          )}
+          {!isOperationalAlertsLoading && visibleOperationalAlerts.length === 0 && (
+            <OperationalAlertsEmpty>Nenhum alerta operacional para acompanhar agora.</OperationalAlertsEmpty>
+          )}
+          {!isOperationalAlertsLoading && visibleOperationalAlerts.length > 0 && (
+            <OperationalAlertsList>
+              {visibleOperationalAlerts.map((alert, index) => (
+                <OperationalAlertItem
+                  key={`${alert.type}-${alert.patient_id || "sem-paciente"}-${alert.details?.audit_log_id || alert.details?.replacement_credit_id || index}`}
+                  $severity={alert.severity}
+                >
+                  <OperationalAlertSeverity $severity={alert.severity}>
+                    {OPERATIONAL_ALERT_SEVERITY_LABELS[alert.severity] || "Alerta"}
+                  </OperationalAlertSeverity>
+                  <OperationalAlertBody>
+                    <OperationalAlertTopline>
+                      <strong>{alert.title}</strong>
+                      {alert.quantity !== null && alert.quantity !== undefined && (
+                        <span>{alert.quantity}</span>
+                      )}
+                    </OperationalAlertTopline>
+                    <OperationalAlertPatient>
+                      {alert.patient_id ? (
+                        <Link to={`/pacientes/${alert.patient_id}`}>
+                          {alert.patient_name}
+                        </Link>
+                      ) : (
+                        alert.patient_name
+                      )}
+                    </OperationalAlertPatient>
+                    <OperationalAlertMeta>
+                      {alert.status}
+                      {alert.due_date ? ` - ${getOperationalAlertDueLabel(alert)} ${alert.due_date}` : ""}
+                    </OperationalAlertMeta>
+                    <OperationalAlertAction>
+                      {alert.suggested_action}
+                    </OperationalAlertAction>
+                  </OperationalAlertBody>
+                </OperationalAlertItem>
+              ))}
+            </OperationalAlertsList>
+          )}
+        </OperationalAlertsPanel>
 
         <FiltersRow>
           <FilterField>
@@ -2925,459 +3378,459 @@ export default function Agendamentos() {
           </AgendaLoadingPanel>
         ) : (
           <>
-        {view === "week" && (
-          <WeekGrid>
-            <WeekHeader>
-              <div />
-              {weekDays.map((day) => (
-                <WeekHeaderCell
-                  key={day.toISOString()}
-                  onClick={() => {
-                    setSelectedDate(day);
-                    setView("day");
-                  }}
-                >
-                  <span>{day.toLocaleDateString("pt-BR", { weekday: "short" })}</span>
-                  <strong>{day.getDate()}</strong>
-                  {specialEventsByDay.get(startOfDay(day).toISOString()) && (
-                    <DaySpecialBadge
-                      $severity={
-                        specialEventsByDay.get(startOfDay(day).toISOString()).severity
-                      }
-                      title={buildSpecialEventsTooltip(
-                        specialEventsByDay.get(startOfDay(day).toISOString()).events,
-                      )}
+            {view === "week" && (
+              <WeekGrid>
+                <WeekHeader>
+                  <div />
+                  {weekDays.map((day) => (
+                    <WeekHeaderCell
+                      key={day.toISOString()}
+                      onClick={() => {
+                        setSelectedDate(day);
+                        setView("day");
+                      }}
                     >
-                      <span>
-                        {daySummaryLabel(
-                          specialEventsByDay.get(startOfDay(day).toISOString()),
-                        )}
-                      </span>
-                      <strong>
-                        {
-                          specialEventsByDay.get(startOfDay(day).toISOString()).events
-                            .length
-                        }
-                      </strong>
-                    </DaySpecialBadge>
-                  )}
-                </WeekHeaderCell>
-              ))}
-            </WeekHeader>
-            <WeekBody>
-              {Array.from({ length: END_HOUR - START_HOUR + 1 }).map((_, index) => {
-                const hour = START_HOUR + index;
-                const startingPeriod =
-                  WEEK_PERIODS.find((period) => period.startHour === hour) || null;
-                const currentPeriod =
-                  WEEK_PERIODS.find(
-                    (period) => hour >= period.startHour && hour <= period.endHour,
-                  ) || WEEK_PERIODS[WEEK_PERIODS.length - 1];
-                const isPeriodExpanded = expandedPeriods[currentPeriod.key] !== false;
-                const isHourExpanded = expandedHours.has(hour);
-                const rowHasMore = weekDays.some((day) => {
-                  const groups = getSlotGroups(day, hour);
-                  const totalActive = groups.reduce(
-                    (sum, g) =>
-                      sum +
-                      g.sessions.filter(
-                        (s) => s.status !== "canceled" && s.status !== "no_show",
-                      ).length,
-                    0,
-                  );
-                  return totalActive > MAX_WEEK_SLOT_VISIBLE;
-                });
-                return (
-                  <React.Fragment key={hour}>
-                    {startingPeriod && (
-                      <WeekPeriodRow>
-                        <WeekPeriodSpacer />
-                        <WeekPeriodToggle
-                          type="button"
-                          $expanded={isPeriodExpanded}
-                          onClick={() => toggleExpandedPeriod(startingPeriod.key)}
-                          aria-label={
-                            isPeriodExpanded
-                              ? `Recolher período ${startingPeriod.label}`
-                              : `Expandir período ${startingPeriod.label}`
+                      <span>{day.toLocaleDateString("pt-BR", { weekday: "short" })}</span>
+                      <strong>{day.getDate()}</strong>
+                      {specialEventsByDay.get(startOfDay(day).toISOString()) && (
+                        <DaySpecialBadge
+                          $severity={
+                            specialEventsByDay.get(startOfDay(day).toISOString()).severity
                           }
-                        >
-                          <WeekPeriodLabel>{startingPeriod.label}</WeekPeriodLabel>
-                          <WeekPeriodMeta>
-                            {formatHourLabel(startingPeriod.startHour)} às{" "}
-                            {formatHourLabel(startingPeriod.endHour)}
-                          </WeekPeriodMeta>
-                          <WeekPeriodArrow>{isPeriodExpanded ? "▲" : "▾"}</WeekPeriodArrow>
-                        </WeekPeriodToggle>
-                      </WeekPeriodRow>
-                    )}
-                    {isPeriodExpanded && (
-                      <WeekRow key={`row-${hour}`} $striped={hour % 2 === 0}>
-                    <TimeCell $striped={hour % 2 === 0}>
-                      <span>{`${hour.toString().padStart(2, "0")}:00`}</span>
-                      {rowHasMore && (
-                        <HourExpandToggle
-                          type="button"
-                          $expanded={isHourExpanded}
-                          aria-label={
-                            isHourExpanded
-                              ? `Recolher agendamentos das ${hour
-                                  .toString()
-                                  .padStart(2, "0")}:00`
-                              : `Expandir agendamentos das ${hour
-                                  .toString()
-                                  .padStart(2, "0")}:00`
-                          }
-                          title={
-                            isHourExpanded
-                              ? `Recolher agendamentos das ${hour
-                                  .toString()
-                                  .padStart(2, "0")}:00`
-                              : `Expandir agendamentos das ${hour
-                                  .toString()
-                                  .padStart(2, "0")}:00`
-                          }
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleExpandedHour(hour);
-                          }}
-                        >
-                          {isHourExpanded ? "▲" : "▾"}
-                        </HourExpandToggle>
-                      )}
-                    </TimeCell>
-                    {weekDays.map((day) => {
-                      const slotDate = new Date(day);
-                      slotDate.setHours(hour, 0, 0, 0);
-                      const groups = getSlotGroups(day, hour);
-                      const allActive = groups.flatMap((group) => {
-                        const color =
-                          group.service?.color || serviceColor(group.service_type);
-                        return group.sessions
-                          .filter(
-                            (s) => s.status !== "canceled" && s.status !== "no_show",
-                          )
-                          .map((session) => ({ session, group, color }));
-                      });
-                      const visibleItems = isHourExpanded
-                        ? allActive
-                        : allActive.slice(0, MAX_WEEK_SLOT_VISIBLE);
-                      const hiddenItems = isHourExpanded
-                        ? []
-                        : allActive.slice(MAX_WEEK_SLOT_VISIBLE);
-                      return (
-                        <SlotCell
-                          key={`${day.toISOString()}-${hour}`}
-                          $striped={hour % 2 === 0}
-                          onClick={() => handleCreateAt(slotDate)}
-                          onDragOver={handleDragOver}
-                          onDrop={(event) => handleDropAt(event, slotDate)}
-                        >
-                          {visibleItems.map(({ session, group, color }) => {
-                            const patientName = getSessionPatientName(session);
-                            const shortPatientName = getShortPatientName(patientName);
-                            const attentionLevel = getSessionPatientAttentionLevel(session);
-                            const sessionSummary = getSessionCardSummary(session);
-                            const sessionMetaParts = getSessionCardMetaParts(session);
-                            return (
-                              <GroupPill
-                                key={`${session.id}-${day.toISOString()}-${hour}`}
-                                $type={group.service_type}
-                                $color={color}
-                                title={`${patientName} - ${sessionSummary}`}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleOpenGroup(slotDate);
-                                }}
-                              >
-                                <GroupPillContent>
-                                  <GroupPillPatient>
-                                    <PatientInlineText>{shortPatientName}</PatientInlineText>
-                                    <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
-                                    <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
-                                    {renderPatientAttentionIndicator(attentionLevel)}
-                                  </GroupPillPatient>
-                                </GroupPillContent>
-                              </GroupPill>
-                            );
-                          })}
-                          {hiddenItems.length > 0 && (
-                            <OverflowIndicatorBadge
-                              aria-hidden="true"
-                              title={`${hiddenItems.length} paciente(s) a mais neste horario`}
-                            >
-                              <span>{hiddenItems.length}</span>
-                              <WeekOverflowArrow aria-hidden="true">▼</WeekOverflowArrow>
-                            </OverflowIndicatorBadge>
+                          title={buildSpecialEventsTooltip(
+                            specialEventsByDay.get(startOfDay(day).toISOString()).events,
                           )}
-                        </SlotCell>
+                        >
+                          <span>
+                            {daySummaryLabel(
+                              specialEventsByDay.get(startOfDay(day).toISOString()),
+                            )}
+                          </span>
+                          <strong>
+                            {
+                              specialEventsByDay.get(startOfDay(day).toISOString()).events
+                                .length
+                            }
+                          </strong>
+                        </DaySpecialBadge>
+                      )}
+                    </WeekHeaderCell>
+                  ))}
+                </WeekHeader>
+                <WeekBody>
+                  {Array.from({ length: END_HOUR - START_HOUR + 1 }).map((_, index) => {
+                    const hour = START_HOUR + index;
+                    const startingPeriod =
+                      WEEK_PERIODS.find((period) => period.startHour === hour) || null;
+                    const currentPeriod =
+                      WEEK_PERIODS.find(
+                        (period) => hour >= period.startHour && hour <= period.endHour,
+                      ) || WEEK_PERIODS[WEEK_PERIODS.length - 1];
+                    const isPeriodExpanded = expandedPeriods[currentPeriod.key] !== false;
+                    const isHourExpanded = expandedHours.has(hour);
+                    const rowHasMore = weekDays.some((day) => {
+                      const groups = getSlotGroups(day, hour);
+                      const totalActive = groups.reduce(
+                        (sum, g) =>
+                          sum +
+                          g.sessions.filter(
+                            (s) => s.status !== "canceled" && s.status !== "no_show",
+                          ).length,
+                        0,
                       );
-                    })}
-                  </WeekRow>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </WeekBody>
-          </WeekGrid>
-        )}
-        {view === "day" && (
-          <DayPanel>
-            <DayHeader>
-              <h2>{formatDate(selectedDate)}</h2>
-              <SecondaryButton type="button" onClick={() => handleCreateAt(selectedDate)}>
-                Adicionar horario
-              </SecondaryButton>
-            </DayHeader>
-            {selectedDaySpecialSummary && (
-              <DaySpecialStateBanner $severity={selectedDaySpecialSummary.severity}>
-                <strong>{selectedDaySpecialTitle}</strong>
-                <span>
-                  {daySummaryLabel(selectedDaySpecialSummary)}
-                  {" - "}
-                  {selectedDaySpecialSummary.events.length} evento(s) no dia.
-                </span>
-              </DaySpecialStateBanner>
-            )}
-            {selectedDaySpecialEvents.length > 0 && (
-              <DaySpecialList>
-                {selectedDaySpecialEvents.map((event) => (
-                  <DaySpecialItem key={`${event.id}-${event.start_date}`} $severity={event.severity}>
-                    <strong>{event.name}</strong>
-                    <span>
-                      {SPECIAL_SOURCE_LABELS[event.source_type] || event.source_type}
-                      {" · "}
-                      {eventSeverityLabel(event.severity)}
-                    </span>
-                    <small>{eventBehaviorLabel(event)}</small>
-                  </DaySpecialItem>
-                ))}
-              </DaySpecialList>
-            )}
-            {daySessions.length === 0 && (
-              <EmptyState>Nenhum agendamento para este dia.</EmptyState>
-            )}
-            {daySessions.length > 0 && (
-              <DayList>
-                {daySessionGroups.map((timeGroup) => (
-                  <DayTimeGroup key={timeGroup.key}>
-                    <DayTimeHeader>
-                      <strong>{timeGroup.label}</strong>
-                      <AttendanceCallButton
-                        type="button"
-                        onClick={() => handleOpenAttendanceCall({ timeGroup })}
-                      >
-                        Fazer chamada
-                      </AttendanceCallButton>
-                    </DayTimeHeader>
-                    <DayCardsColumn>
-                      {timeGroup.serviceGroups.map((serviceGroup) => (
-                        <DayServiceGroupBlock key={`${timeGroup.key}-${serviceGroup.key}`}>
-                          <DayServiceGroupHeader>
-                            <DayServiceGroupBadge
-                              $type={serviceGroup.serviceCode}
-                              $color={serviceGroup.serviceColor}
+                      return totalActive > MAX_WEEK_SLOT_VISIBLE;
+                    });
+                    return (
+                      <React.Fragment key={hour}>
+                        {startingPeriod && (
+                          <WeekPeriodRow>
+                            <WeekPeriodSpacer />
+                            <WeekPeriodToggle
+                              type="button"
+                              $expanded={isPeriodExpanded}
+                              onClick={() => toggleExpandedPeriod(startingPeriod.key)}
+                              aria-label={
+                                isPeriodExpanded
+                                  ? `Recolher período ${startingPeriod.label}`
+                                  : `Expandir período ${startingPeriod.label}`
+                              }
                             >
-                              {serviceGroup.serviceLabel}
-                            </DayServiceGroupBadge>
-                          </DayServiceGroupHeader>
-                          <DayServiceCards>
-                            {serviceGroup.cards.map((card) => {
-                              const { session } = card;
-                              const tone = statusStyle(session.status);
-                              const patientName = getSessionPatientName(session);
-                              const shortPatientName = getShortPatientName(patientName);
-                              const attentionLevel = getSessionPatientAttentionLevel(session);
-                              const sessionMetaParts = getSessionCardMetaParts(session);
-                              const daySessionId = String(session.id);
-                              const isDaySessionSaving = savingSessionIds.has(daySessionId);
-                              const statusMenuKey = `day-status-${daySessionId}`;
-                              const actionsMenuKey = `day-actions-${daySessionId}`;
-                              const currentStatusLabel = isDaySessionSaving
-                                ? "Salvando..."
-                                : getSessionStatusLabel(session.status);
-                              return (
-                                <DaySessionCard
-                                  key={card.key}
-                                  data-id={session.id}
-                                  draggable
-                                  onDragStart={handleDragStart}
-                                  $status={tone}
+                              <WeekPeriodLabel>{startingPeriod.label}</WeekPeriodLabel>
+                              <WeekPeriodMeta>
+                                {formatHourLabel(startingPeriod.startHour)} às{" "}
+                                {formatHourLabel(startingPeriod.endHour)}
+                              </WeekPeriodMeta>
+                              <WeekPeriodArrow>{isPeriodExpanded ? "▲" : "▾"}</WeekPeriodArrow>
+                            </WeekPeriodToggle>
+                          </WeekPeriodRow>
+                        )}
+                        {isPeriodExpanded && (
+                          <WeekRow key={`row-${hour}`} $striped={hour % 2 === 0}>
+                            <TimeCell $striped={hour % 2 === 0}>
+                              <span>{`${hour.toString().padStart(2, "0")}:00`}</span>
+                              {rowHasMore && (
+                                <HourExpandToggle
+                                  type="button"
+                                  $expanded={isHourExpanded}
+                                  aria-label={
+                                    isHourExpanded
+                                      ? `Recolher agendamentos das ${hour
+                                        .toString()
+                                        .padStart(2, "0")}:00`
+                                      : `Expandir agendamentos das ${hour
+                                        .toString()
+                                        .padStart(2, "0")}:00`
+                                  }
+                                  title={
+                                    isHourExpanded
+                                      ? `Recolher agendamentos das ${hour
+                                        .toString()
+                                        .padStart(2, "0")}:00`
+                                      : `Expandir agendamentos das ${hour
+                                        .toString()
+                                        .padStart(2, "0")}:00`
+                                  }
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleExpandedHour(hour);
+                                  }}
                                 >
-                                  <DayServiceBar $color={card.serviceColor} />
-                                  <DaySessionBody>
-                                    <DaySessionTop>
-                                      <DaySessionPatient>
-                                        <PatientInlineText>{shortPatientName}</PatientInlineText>
-                                        <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
-                                        <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
-                                        {renderPatientAttentionIndicator(attentionLevel)}
-                                      </DaySessionPatient>
-                                      <DaySessionActions>
-                                        <DayDropdownWrapper>
-                                          <DayStatusMenuButton
-                                            type="button"
-                                            $status={statusStyle(session.status)}
-                                            disabled={isDaySessionSaving}
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              setOpenActionMenu(
-                                                openActionMenu === statusMenuKey ? null : statusMenuKey,
-                                              );
-                                            }}
-                                          >
-                                            {currentStatusLabel} <span>▼</span>
-                                          </DayStatusMenuButton>
-                                          {openActionMenu === statusMenuKey && (
-                                            <ActionsDropdown onClick={(event) => event.stopPropagation()}>
-                                              <GroupStatusButton
-                                                type="button"
-                                                data-id={session.id}
-                                                data-status="scheduled"
-                                                $status="scheduled"
-                                                $active={isSessionStatusActive(session.status, "scheduled")}
-                                                onClick={(event) => { handleQuickStatus(event); setOpenActionMenu(null); }}
-                                              >
-                                                Agendado
-                                              </GroupStatusButton>
-                                              <GroupStatusButton
-                                                type="button"
-                                                data-id={session.id}
-                                                data-status="done"
-                                                $status="done"
-                                                $active={isSessionStatusActive(session.status, "done")}
-                                                onClick={(event) => { handleQuickStatus(event); setOpenActionMenu(null); }}
-                                              >
-                                                Concluir
-                                              </GroupStatusButton>
-                                              <GroupStatusButton
-                                                type="button"
-                                                data-id={session.id}
-                                                data-status="no_show"
-                                                $status="no_show"
-                                                $active={isSessionStatusActive(session.status, "no_show")}
-                                                onClick={(event) => { handleAbsence(event); setOpenActionMenu(null); }}
-                                              >
-                                                Marcar falta
-                                              </GroupStatusButton>
-                                              <GroupStatusButton
-                                                type="button"
-                                                data-id={session.id}
-                                                data-status="canceled"
-                                                $status="canceled"
-                                                $active={isSessionStatusActive(session.status, "canceled")}
-                                                onClick={(event) => { handleQuickStatus(event); setOpenActionMenu(null); }}
-                                              >
-                                                Cancelar
-                                              </GroupStatusButton>
-                                            </ActionsDropdown>
-                                          )}
-                                        </DayDropdownWrapper>
-                                        <DayDropdownWrapper>
-                                          <DayKebabButton
-                                            type="button"
-                                            aria-label="Ações da sessão"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              setOpenActionMenu(
-                                                openActionMenu === actionsMenuKey ? null : actionsMenuKey,
-                                              );
-                                            }}
-                                          >
-                                            ⋮
-                                          </DayKebabButton>
-                                          {openActionMenu === actionsMenuKey && (
-                                            <ActionsDropdown onClick={(event) => event.stopPropagation()}>
-                                              <ActionsDropdownItem
-                                                type="button"
-                                                data-id={session.id}
-                                                onClick={(event) => { handleEdit(event); setOpenActionMenu(null); }}
-                                              >
-                                                Editar
-                                              </ActionsDropdownItem>
-                                              <ActionsDropdownItem
-                                                type="button"
-                                                $danger
-                                                onClick={() => { handleOpenDelete(session); setOpenActionMenu(null); }}
-                                              >
-                                                Excluir
-                                              </ActionsDropdownItem>
-                                            </ActionsDropdown>
-                                          )}
-                                        </DayDropdownWrapper>
-                                      </DaySessionActions>
-                                    </DaySessionTop>
-                                  </DaySessionBody>
-                                </DaySessionCard>
+                                  {isHourExpanded ? "▲" : "▾"}
+                                </HourExpandToggle>
+                              )}
+                            </TimeCell>
+                            {weekDays.map((day) => {
+                              const slotDate = new Date(day);
+                              slotDate.setHours(hour, 0, 0, 0);
+                              const groups = getSlotGroups(day, hour);
+                              const allActive = groups.flatMap((group) => {
+                                const color =
+                                  group.service?.color || serviceColor(group.service_type);
+                                return group.sessions
+                                  .filter(
+                                    (s) => s.status !== "canceled" && s.status !== "no_show",
+                                  )
+                                  .map((session) => ({ session, group, color }));
+                              });
+                              const visibleItems = isHourExpanded
+                                ? allActive
+                                : allActive.slice(0, MAX_WEEK_SLOT_VISIBLE);
+                              const hiddenItems = isHourExpanded
+                                ? []
+                                : allActive.slice(MAX_WEEK_SLOT_VISIBLE);
+                              return (
+                                <SlotCell
+                                  key={`${day.toISOString()}-${hour}`}
+                                  $striped={hour % 2 === 0}
+                                  onClick={() => handleCreateAt(slotDate)}
+                                  onDragOver={handleDragOver}
+                                  onDrop={(event) => handleDropAt(event, slotDate)}
+                                >
+                                  {visibleItems.map(({ session, group, color }) => {
+                                    const patientName = getSessionPatientName(session);
+                                    const shortPatientName = getShortPatientName(patientName);
+                                    const attentionLevel = getSessionPatientAttentionLevel(session);
+                                    const sessionSummary = getSessionCardSummary(session);
+                                    const sessionMetaParts = getSessionCardMetaParts(session);
+                                    return (
+                                      <GroupPill
+                                        key={`${session.id}-${day.toISOString()}-${hour}`}
+                                        $type={group.service_type}
+                                        $color={color}
+                                        title={`${patientName} - ${sessionSummary}`}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          handleOpenGroup(slotDate);
+                                        }}
+                                      >
+                                        <GroupPillContent>
+                                          <GroupPillPatient>
+                                            <PatientInlineText>{shortPatientName}</PatientInlineText>
+                                            <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
+                                            <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
+                                            {renderPatientAttentionIndicator(attentionLevel)}
+                                          </GroupPillPatient>
+                                        </GroupPillContent>
+                                      </GroupPill>
+                                    );
+                                  })}
+                                  {hiddenItems.length > 0 && (
+                                    <OverflowIndicatorBadge
+                                      aria-hidden="true"
+                                      title={`${hiddenItems.length} paciente(s) a mais neste horario`}
+                                    >
+                                      <span>{hiddenItems.length}</span>
+                                      <WeekOverflowArrow aria-hidden="true">▼</WeekOverflowArrow>
+                                    </OverflowIndicatorBadge>
+                                  )}
+                                </SlotCell>
                               );
                             })}
-                          </DayServiceCards>
-                        </DayServiceGroupBlock>
-                      ))}
-                    </DayCardsColumn>
-                  </DayTimeGroup>
-                ))}
-              </DayList>
-            )}
-          </DayPanel>
-        )}
-
-        {view === "month" && (
-          <MonthPanel>
-            <MonthGrid $cols={showMonthWeekend ? 7 : 5}>
-              {(showMonthWeekend
-                ? ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
-                : ["Seg", "Ter", "Qua", "Qui", "Sex"]
-              ).map((label) => (
-                <MonthHeader key={label}>{label}</MonthHeader>
-              ))}
-              {visibleMonthDays.map((day) => {
-                const key = startOfDay(day).toISOString();
-                const specialSummary = specialEventsByDay.get(key) || null;
-                const isCurrentMonth = day.getMonth() === selectedDate.getMonth();
-                const dayServices = monthServicesByDay.get(key) || [];
-                const visibleServices = dayServices.slice(0, 3);
-                const extraServices = dayServices.length > 3 ? dayServices.length - 3 : 0;
-                return (
-                  <MonthCell
-                    key={day.toISOString()}
-                    $inactive={!isCurrentMonth}
-                    $active={sameDay(day, selectedDate)}
-                    onClick={() => {
-                      setSelectedDate(day);
-                      setView("day");
-                    }}
-                  >
-                    <strong>{day.getDate()}</strong>
-                    {specialSummary && (
-                      <SpecialDayFlag
-                        $severity={specialSummary.severity}
-                        title={buildSpecialEventsTooltip(specialSummary.events)}
-                      >
-                        {daySummaryLabel(specialSummary)}
-                      </SpecialDayFlag>
-                    )}
-                    {visibleServices.length > 0 && (
-                      <MonthServiceChips>
-                        {visibleServices.map((svc) => (
-                          <MonthServiceChip key={svc.code} $color={svc.color}>
-                            {svc.name}: {svc.count}
-                          </MonthServiceChip>
-                        ))}
-                        {extraServices > 0 && (
-                          <MonthServiceMore>+{extraServices} mais</MonthServiceMore>
+                          </WeekRow>
                         )}
-                      </MonthServiceChips>
-                    )}
-                  </MonthCell>
-                );
-              })}
-            </MonthGrid>
-            <MonthHint>
-              Clique em um dia para abrir a agenda detalhada.
-            </MonthHint>
-          </MonthPanel>
-        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </WeekBody>
+              </WeekGrid>
+            )}
+            {view === "day" && (
+              <DayPanel>
+                <DayHeader>
+                  <h2>{formatDate(selectedDate)}</h2>
+                  <SecondaryButton type="button" onClick={() => handleCreateAt(selectedDate)}>
+                    Adicionar horario
+                  </SecondaryButton>
+                </DayHeader>
+                {selectedDaySpecialSummary && (
+                  <DaySpecialStateBanner $severity={selectedDaySpecialSummary.severity}>
+                    <strong>{selectedDaySpecialTitle}</strong>
+                    <span>
+                      {daySummaryLabel(selectedDaySpecialSummary)}
+                      {" - "}
+                      {selectedDaySpecialSummary.events.length} evento(s) no dia.
+                    </span>
+                  </DaySpecialStateBanner>
+                )}
+                {selectedDaySpecialEvents.length > 0 && (
+                  <DaySpecialList>
+                    {selectedDaySpecialEvents.map((event) => (
+                      <DaySpecialItem key={`${event.id}-${event.start_date}`} $severity={event.severity}>
+                        <strong>{event.name}</strong>
+                        <span>
+                          {SPECIAL_SOURCE_LABELS[event.source_type] || event.source_type}
+                          {" · "}
+                          {eventSeverityLabel(event.severity)}
+                        </span>
+                        <small>{eventBehaviorLabel(event)}</small>
+                      </DaySpecialItem>
+                    ))}
+                  </DaySpecialList>
+                )}
+                {daySessions.length === 0 && (
+                  <EmptyState>Nenhum agendamento para este dia.</EmptyState>
+                )}
+                {daySessions.length > 0 && (
+                  <DayList>
+                    {daySessionGroups.map((timeGroup) => (
+                      <DayTimeGroup key={timeGroup.key}>
+                        <DayTimeHeader>
+                          <strong>{timeGroup.label}</strong>
+                          <AttendanceCallButton
+                            type="button"
+                            onClick={() => handleOpenAttendanceCall({ timeGroup })}
+                          >
+                            Fazer chamada
+                          </AttendanceCallButton>
+                        </DayTimeHeader>
+                        <DayCardsColumn>
+                          {timeGroup.serviceGroups.map((serviceGroup) => (
+                            <DayServiceGroupBlock key={`${timeGroup.key}-${serviceGroup.key}`}>
+                              <DayServiceGroupHeader>
+                                <DayServiceGroupBadge
+                                  $type={serviceGroup.serviceCode}
+                                  $color={serviceGroup.serviceColor}
+                                >
+                                  {serviceGroup.serviceLabel}
+                                </DayServiceGroupBadge>
+                              </DayServiceGroupHeader>
+                              <DayServiceCards>
+                                {serviceGroup.cards.map((card) => {
+                                  const { session } = card;
+                                  const tone = statusStyle(session.status);
+                                  const patientName = getSessionPatientName(session);
+                                  const shortPatientName = getShortPatientName(patientName);
+                                  const attentionLevel = getSessionPatientAttentionLevel(session);
+                                  const sessionMetaParts = getSessionCardMetaParts(session);
+                                  const daySessionId = String(session.id);
+                                  const isDaySessionSaving = savingSessionIds.has(daySessionId);
+                                  const statusMenuKey = `day-status-${daySessionId}`;
+                                  const actionsMenuKey = `day-actions-${daySessionId}`;
+                                  const currentStatusLabel = isDaySessionSaving
+                                    ? "Salvando..."
+                                    : getSessionStatusLabel(session.status);
+                                  return (
+                                    <DaySessionCard
+                                      key={card.key}
+                                      data-id={session.id}
+                                      draggable
+                                      onDragStart={handleDragStart}
+                                      $status={tone}
+                                    >
+                                      <DayServiceBar $color={card.serviceColor} />
+                                      <DaySessionBody>
+                                        <DaySessionTop>
+                                          <DaySessionPatient>
+                                            <PatientInlineText>{shortPatientName}</PatientInlineText>
+                                            <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
+                                            <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
+                                            {renderPatientAttentionIndicator(attentionLevel)}
+                                          </DaySessionPatient>
+                                          <DaySessionActions>
+                                            <DayDropdownWrapper>
+                                              <DayStatusMenuButton
+                                                type="button"
+                                                $status={statusStyle(session.status)}
+                                                disabled={isDaySessionSaving}
+                                                onClick={(event) => {
+                                                  event.stopPropagation();
+                                                  setOpenActionMenu(
+                                                    openActionMenu === statusMenuKey ? null : statusMenuKey,
+                                                  );
+                                                }}
+                                              >
+                                                {currentStatusLabel} <span>▼</span>
+                                              </DayStatusMenuButton>
+                                              {openActionMenu === statusMenuKey && (
+                                                <ActionsDropdown onClick={(event) => event.stopPropagation()}>
+                                                  <GroupStatusButton
+                                                    type="button"
+                                                    data-id={session.id}
+                                                    data-status="scheduled"
+                                                    $status="scheduled"
+                                                    $active={isSessionStatusActive(session.status, "scheduled")}
+                                                    onClick={(event) => { handleQuickStatus(event); setOpenActionMenu(null); }}
+                                                  >
+                                                    Agendado
+                                                  </GroupStatusButton>
+                                                  <GroupStatusButton
+                                                    type="button"
+                                                    data-id={session.id}
+                                                    data-status="done"
+                                                    $status="done"
+                                                    $active={isSessionStatusActive(session.status, "done")}
+                                                    onClick={(event) => { handleQuickStatus(event); setOpenActionMenu(null); }}
+                                                  >
+                                                    Concluir
+                                                  </GroupStatusButton>
+                                                  <GroupStatusButton
+                                                    type="button"
+                                                    data-id={session.id}
+                                                    data-status="no_show"
+                                                    $status="no_show"
+                                                    $active={isSessionStatusActive(session.status, "no_show")}
+                                                    onClick={(event) => { handleAbsence(event); setOpenActionMenu(null); }}
+                                                  >
+                                                    Marcar falta
+                                                  </GroupStatusButton>
+                                                  <GroupStatusButton
+                                                    type="button"
+                                                    data-id={session.id}
+                                                    data-status="canceled"
+                                                    $status="canceled"
+                                                    $active={isSessionStatusActive(session.status, "canceled")}
+                                                    onClick={(event) => { handleQuickStatus(event); setOpenActionMenu(null); }}
+                                                  >
+                                                    Cancelar
+                                                  </GroupStatusButton>
+                                                </ActionsDropdown>
+                                              )}
+                                            </DayDropdownWrapper>
+                                            <DayDropdownWrapper>
+                                              <DayKebabButton
+                                                type="button"
+                                                aria-label="Ações da sessão"
+                                                onClick={(event) => {
+                                                  event.stopPropagation();
+                                                  setOpenActionMenu(
+                                                    openActionMenu === actionsMenuKey ? null : actionsMenuKey,
+                                                  );
+                                                }}
+                                              >
+                                                ⋮
+                                              </DayKebabButton>
+                                              {openActionMenu === actionsMenuKey && (
+                                                <ActionsDropdown onClick={(event) => event.stopPropagation()}>
+                                                  <ActionsDropdownItem
+                                                    type="button"
+                                                    data-id={session.id}
+                                                    onClick={(event) => { handleEdit(event); setOpenActionMenu(null); }}
+                                                  >
+                                                    Editar
+                                                  </ActionsDropdownItem>
+                                                  <ActionsDropdownItem
+                                                    type="button"
+                                                    $danger
+                                                    onClick={() => { handleOpenDelete(session); setOpenActionMenu(null); }}
+                                                  >
+                                                    Excluir
+                                                  </ActionsDropdownItem>
+                                                </ActionsDropdown>
+                                              )}
+                                            </DayDropdownWrapper>
+                                          </DaySessionActions>
+                                        </DaySessionTop>
+                                      </DaySessionBody>
+                                    </DaySessionCard>
+                                  );
+                                })}
+                              </DayServiceCards>
+                            </DayServiceGroupBlock>
+                          ))}
+                        </DayCardsColumn>
+                      </DayTimeGroup>
+                    ))}
+                  </DayList>
+                )}
+              </DayPanel>
+            )}
+
+            {view === "month" && (
+              <MonthPanel>
+                <MonthGrid $cols={showMonthWeekend ? 7 : 5}>
+                  {(showMonthWeekend
+                    ? ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
+                    : ["Seg", "Ter", "Qua", "Qui", "Sex"]
+                  ).map((label) => (
+                    <MonthHeader key={label}>{label}</MonthHeader>
+                  ))}
+                  {visibleMonthDays.map((day) => {
+                    const key = startOfDay(day).toISOString();
+                    const specialSummary = specialEventsByDay.get(key) || null;
+                    const isCurrentMonth = day.getMonth() === selectedDate.getMonth();
+                    const dayServices = monthServicesByDay.get(key) || [];
+                    const visibleServices = dayServices.slice(0, 3);
+                    const extraServices = dayServices.length > 3 ? dayServices.length - 3 : 0;
+                    return (
+                      <MonthCell
+                        key={day.toISOString()}
+                        $inactive={!isCurrentMonth}
+                        $active={sameDay(day, selectedDate)}
+                        onClick={() => {
+                          setSelectedDate(day);
+                          setView("day");
+                        }}
+                      >
+                        <strong>{day.getDate()}</strong>
+                        {specialSummary && (
+                          <SpecialDayFlag
+                            $severity={specialSummary.severity}
+                            title={buildSpecialEventsTooltip(specialSummary.events)}
+                          >
+                            {daySummaryLabel(specialSummary)}
+                          </SpecialDayFlag>
+                        )}
+                        {visibleServices.length > 0 && (
+                          <MonthServiceChips>
+                            {visibleServices.map((svc) => (
+                              <MonthServiceChip key={svc.code} $color={svc.color}>
+                                {svc.name}: {svc.count}
+                              </MonthServiceChip>
+                            ))}
+                            {extraServices > 0 && (
+                              <MonthServiceMore>+{extraServices} mais</MonthServiceMore>
+                            )}
+                          </MonthServiceChips>
+                        )}
+                      </MonthCell>
+                    );
+                  })}
+                </MonthGrid>
+                <MonthHint>
+                  Clique em um dia para abrir a agenda detalhada.
+                </MonthHint>
+              </MonthPanel>
+            )}
           </>
         )}
 
@@ -3706,6 +4159,75 @@ export default function Agendamentos() {
                       ))}
                     </select>
                   </Field>
+                  {editingId && isLessThanConfiguredNoticeBeforeSession(
+                    filteredSessions.find((session) => String(session.id) === String(editingId))?.starts_at,
+                    operationalPolicy.late_change_minimum_notice_hours,
+                  ) && (
+                      <LatePolicyCard className="span-2">
+                        <LatePolicyToggle>
+                          <input
+                            type="checkbox"
+                            name="late_policy_exception_justified"
+                            checked={!!form.late_policy_exception_justified}
+                            onChange={handleFormChange}
+                          />
+                          <span>Exceção justificada</span>
+                        </LatePolicyToggle>
+                        {form.late_policy_exception_justified && (
+                          <textarea
+                            name="late_policy_exception_reason"
+                            value={form.late_policy_exception_reason}
+                            onChange={handleFormChange}
+                            rows={2}
+                            placeholder="Justificativa para não contar como falta"
+                          />
+                        )}
+                      </LatePolicyCard>
+                    )}
+                  {editingId && (
+                    <LatePolicyCard className="span-2">
+                      <LatePolicyToggle>
+                        <input
+                          type="checkbox"
+                          name="monthly_reschedule_exception_justified"
+                          checked={!!form.monthly_reschedule_exception_justified}
+                          onChange={handleFormChange}
+                        />
+                        <span>Exceção mensal de remarcação</span>
+                      </LatePolicyToggle>
+                      {form.monthly_reschedule_exception_justified && (
+                        <textarea
+                          name="monthly_reschedule_exception_reason"
+                          value={form.monthly_reschedule_exception_reason}
+                          onChange={handleFormChange}
+                          rows={2}
+                          placeholder="Justificativa para exceder o limite mensal"
+                        />
+                      )}
+                    </LatePolicyCard>
+                  )}
+                  {editingId && (
+                    <LatePolicyCard className="span-2">
+                      <LatePolicyToggle>
+                        <input
+                          type="checkbox"
+                          name="cycle_reschedule_exception_justified"
+                          checked={!!form.cycle_reschedule_exception_justified}
+                          onChange={handleFormChange}
+                        />
+                        <span>Exceção de ciclo do plano</span>
+                      </LatePolicyToggle>
+                      {form.cycle_reschedule_exception_justified && (
+                        <textarea
+                          name="cycle_reschedule_exception_reason"
+                          value={form.cycle_reschedule_exception_reason}
+                          onChange={handleFormChange}
+                          rows={2}
+                          placeholder="Justificativa para remarcar fora do ciclo"
+                        />
+                      )}
+                    </LatePolicyCard>
+                  )}
                   {eligiblePlan && (
                     <BillingModeCard className="span-2">
                       <BillingModeHeader>
@@ -3718,7 +4240,11 @@ export default function Agendamentos() {
                           $active={form.billing_mode === "covered_by_plan"}
                           disabled={!!(editingId && form.status === "done")}
                           onClick={() =>
-                            setForm((prev) => ({ ...prev, billing_mode: "covered_by_plan" }))
+                            setForm((prev) => ({
+                              ...prev,
+                              billing_mode: "covered_by_plan",
+                              patient_credit_id: "",
+                            }))
                           }
                         >
                           <strong>Mensal</strong>
@@ -3737,6 +4263,44 @@ export default function Agendamentos() {
                         </BillingModeOption>
                       </BillingModeOptions>
                     </BillingModeCard>
+                  )}
+                  {replacementCreditsForPatient.length > 0 && (
+                    <Field className="span-2">
+                      Reposição de sessão
+                      <select
+                        name="session_replacement_credit_id"
+                        value={form.session_replacement_credit_id}
+                        onChange={handleFormChange}
+                      >
+                        <option value="">Não usar reposição</option>
+                        {replacementCreditsForPatient.map((credit) => (
+                          <option key={credit.id} value={credit.id}>
+                            #{credit.id} - vence em {credit.expires_at} - {credit.reason}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  )}
+                  {form.billing_mode !== "covered_by_plan" && patientCreditsForPatient.length > 0 && (
+                    <Field className="span-2">
+                      Pacote avulso
+                      <select
+                        name="patient_credit_id"
+                        value={form.patient_credit_id}
+                        onChange={handleFormChange}
+                      >
+                        <option value="">Nao usar pacote</option>
+                        {patientCreditsForPatient.map((credit) => {
+                          const remaining = Number(credit.total_sessions || 0) - Number(credit.used_sessions || 0);
+                          const creditServiceName = credit.Service?.name || "Pacote avulso";
+                          return (
+                            <option key={credit.id} value={credit.id}>
+                              {creditServiceName} - {remaining} de {credit.total_sessions} restantes
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </Field>
                   )}
                   <Field className="span-2">
                     Inicio *
@@ -3861,7 +4425,7 @@ export default function Agendamentos() {
                         <RepeatRow>
                           {repeatMode === "count" && (
                             <RepeatField className="full">
-                              <RepeatLabel>Quantas sessoes?</RepeatLabel>
+                              <RepeatLabel>Quantas sessões?</RepeatLabel>
                               <RepeatInline>
                                 <input
                                   type="number"
@@ -3872,18 +4436,18 @@ export default function Agendamentos() {
                                   }
                                   placeholder="Ex.: 10"
                                 />
-                                <span>sessoes</span>
+                                <span>sessões</span>
                               </RepeatInline>
                             </RepeatField>
                           )}
                           {repeatMode === "month" && (
                             <RepeatField className="full">
-                              <RepeatLabel>Vigencia mensal</RepeatLabel>
+                              <RepeatLabel>Vigência mensal</RepeatLabel>
                               <RepeatReadonlyValue>
                                 {monthlyValiditySummary}
                               </RepeatReadonlyValue>
                               <small>
-                                Atualizado automaticamente com base na data de inicio.
+                                Atualizado automaticamente com base na data de início.
                               </small>
                             </RepeatField>
                           )}
@@ -3908,8 +4472,8 @@ export default function Agendamentos() {
                             <RepeatField className="full">
                               <RepeatLabel>Agenda do plano</RepeatLabel>
                               <RepeatReadonlyValue>
-                                Agenda fixa do plano. O sistema cria os proximos dias
-                                automaticamente e mantem a agenda futura pelo job recorrente.
+                                Agenda fixa do plano. O sistema cria os próximos dias
+                                automaticamente e mantém a agenda futura pelo job recorrente.
                               </RepeatReadonlyValue>
                             </RepeatField>
                           )}
@@ -4052,7 +4616,7 @@ export default function Agendamentos() {
 
                 {recurrenceBlockedSelectedCount > 0 && (
                   <RecurrenceOverrideField>
-                    <span>Motivo do override (obrigatorio)</span>
+                    <span>Motivo do override (obrigatório)</span>
                     <textarea
                       rows={3}
                       value={recurrencePreview.override_reason || ""}
@@ -4228,7 +4792,7 @@ export default function Agendamentos() {
             <DeleteFlowCard>
               <ModalHeader>
                 <h3>
-                  {deleteModal.step === "choice" ? "Excluir agendamento" : "Revisar exclusao"}
+                  {deleteModal.step === "choice" ? "Excluir agendamento" : "Revisar exclusão"}
                 </h3>
                 <IconButton
                   type="button"
@@ -4245,9 +4809,7 @@ export default function Agendamentos() {
                       <RecurrenceSummaryItem>
                         <small>Paciente</small>
                         <strong>
-                          {deleteModal.session?.Patient?.full_name ||
-                            deleteModal.session?.Patient?.name ||
-                            "Paciente"}
+                          {getPatientDisplayName(deleteModal.session)}
                         </strong>
                       </RecurrenceSummaryItem>
                       <RecurrenceSummaryItem>
@@ -4288,7 +4850,7 @@ export default function Agendamentos() {
                             : undefined
                         }
                       >
-                        <strong>Revisar exclusao de varios</strong>
+                        <strong>Revisar exclusão de vários</strong>
                         <FaChevronRight aria-hidden="true" />
                       </DeleteChoiceButton>
                     </DeleteChoiceGrid>
@@ -4297,7 +4859,7 @@ export default function Agendamentos() {
                   <>
                     <RecurrenceSummaryGrid>
                       <RecurrenceSummaryItem>
-                        <small>Total na revisao</small>
+                        <small>Total na revisão</small>
                         <strong>{deleteModal.candidates.length}</strong>
                       </RecurrenceSummaryItem>
                       <RecurrenceSummaryItem>
@@ -4365,10 +4927,10 @@ export default function Agendamentos() {
                       })}
                     </DeleteReviewList>
                     <RecurrenceOverrideField>
-                      <span>Motivo da exclusao</span>
+                      <span>Motivo da exclusão</span>
                       <textarea
                         rows={3}
-                        placeholder="Descreva o motivo da exclusao"
+                        placeholder="Descreva o motivo da exclusão"
                         value={deleteModal.reason}
                         onChange={(event) =>
                           setDeleteModal((previous) => ({
@@ -4629,6 +5191,161 @@ const NotificationBadge = styled.span`
   justify-content: center;
   font-weight: 800;
   font-size: 0.72rem;
+`;
+
+const OperationalAlertsPanel = styled.section`
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 16px;
+  margin-bottom: 18px;
+`;
+
+const OperationalAlertsHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+
+  @media (max-width: 760px) {
+    flex-direction: column;
+  }
+`;
+
+const OperationalAlertsTitle = styled.h2`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+  color: #0f172a;
+`;
+
+const OperationalAlertsSubtitle = styled.p`
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #64748b;
+`;
+
+const OperationalAlertsCounts = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+`;
+
+const OperationalAlertCounter = styled.span`
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: ${({ $severity }) => {
+    if ($severity === "high") return "#991b1b";
+    if ($severity === "medium") return "#92400e";
+    return "#334155";
+  }};
+  background: ${({ $severity }) => {
+    if ($severity === "high") return "#fee2e2";
+    if ($severity === "medium") return "#fef3c7";
+    return "#e2e8f0";
+  }};
+`;
+
+const OperationalAlertsList = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+`;
+
+const OperationalAlertItem = styled.article`
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 10px;
+  border: 1px solid ${({ $severity }) => {
+    if ($severity === "high") return "#fecaca";
+    if ($severity === "medium") return "#fde68a";
+    return "#cbd5e1";
+  }};
+  border-left: 4px solid ${({ $severity }) => {
+    if ($severity === "high") return "#dc2626";
+    if ($severity === "medium") return "#d97706";
+    return "#64748b";
+  }};
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+`;
+
+const OperationalAlertSeverity = styled.span`
+  align-self: start;
+  border-radius: 999px;
+  padding: 4px 8px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: ${({ $severity }) => {
+    if ($severity === "high") return "#991b1b";
+    if ($severity === "medium") return "#92400e";
+    return "#334155";
+  }};
+  background: ${({ $severity }) => {
+    if ($severity === "high") return "#fee2e2";
+    if ($severity === "medium") return "#fef3c7";
+    return "#e2e8f0";
+  }};
+`;
+
+const OperationalAlertBody = styled.div`
+  min-width: 0;
+`;
+
+const OperationalAlertTopline = styled.div`
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: #0f172a;
+
+  strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  span {
+    font-weight: 800;
+  }
+`;
+
+const OperationalAlertPatient = styled.div`
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 700;
+
+  a {
+    color: #2563eb;
+    text-decoration: none;
+  }
+`;
+
+const OperationalAlertMeta = styled.div`
+  margin-top: 3px;
+  font-size: 12px;
+  color: #475569;
+`;
+
+const OperationalAlertAction = styled.div`
+  margin-top: 5px;
+  font-size: 12px;
+  color: #0f172a;
+`;
+
+const OperationalAlertsEmpty = styled.div`
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 13px;
+  color: #64748b;
+  background: #f8fafc;
 `;
 
 const PendingDrawerPanel = styled.div`
@@ -6358,10 +7075,10 @@ const PatientAttentionDot = styled.span`
   }};
   border: 1.5px solid
     ${(props) => {
-      if (props.$tone === "high") return "#c53b32";
-      if (props.$tone === "medium") return "#b87400";
-      return "rgba(106, 121, 92, 0.4)";
-    }};
+    if (props.$tone === "high") return "#c53b32";
+    if (props.$tone === "medium") return "#b87400";
+    return "rgba(106, 121, 92, 0.4)";
+  }};
   box-shadow: ${(props) =>
     props.$tone === "undefined" ? "none" : "0 0 0 2px rgba(255, 255, 255, 0.6)"};
 `;
@@ -6509,6 +7226,38 @@ const ScheduleContextCard = styled.div`
   span {
     color: #556649;
     font-size: 0.82rem;
+  }
+`;
+
+const LatePolicyCard = styled.div`
+  border: 1px solid rgba(196, 146, 73, 0.28);
+  border-radius: 10px;
+  padding: 12px;
+  background: rgba(214, 170, 104, 0.1);
+  display: grid;
+  gap: 10px;
+
+  textarea {
+    border-radius: 10px;
+    border: 1px solid rgba(106, 121, 92, 0.2);
+    padding: 10px 12px;
+    font-size: 0.95rem;
+    color: #1b1b1b;
+    background: #fff;
+    resize: vertical;
+  }
+`;
+
+const LatePolicyToggle = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1b1b1b;
+  font-size: 0.9rem;
+
+  input {
+    width: 16px;
+    height: 16px;
   }
 `;
 

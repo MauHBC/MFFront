@@ -88,7 +88,7 @@ export default function PatientSelfSignup() {
       .catch((error) => {
         if (!active) return;
         setInviteError(
-          error?.response?.data?.error || "Convite invalido ou expirado.",
+          error?.response?.data?.error || "Convite inválido ou expirado.",
         );
       })
       .finally(() => {
@@ -138,7 +138,7 @@ export default function PatientSelfSignup() {
         return;
       }
       if (!form.consent_data_processing || !form.consent_info_truth) {
-        toast.error("Confirme os consentimentos obrigatorios.");
+        toast.error("Confirme os consentimentos obrigatórios.");
         return;
       }
 
@@ -207,7 +207,7 @@ export default function PatientSelfSignup() {
       } catch (error) {
         const message =
           error?.response?.data?.error ||
-          "Nao foi possivel enviar o cadastro.";
+          "Não foi possível enviar o cadastro.";
         toast.error(message);
       } finally {
         setIsSaving(false);

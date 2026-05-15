@@ -13,9 +13,10 @@ import {
   ModuleTitle,
   ModuleSubtitle,
 } from "../../components/AppModuleShell";
+import { getPatientDisplayName, getPatientSearchText } from "../../utils/patientSearch";
 
 function getPatientName(patient) {
-  return (patient?.full_name || patient?.name || "Paciente").trim();
+  return getPatientDisplayName(patient).trim();
 }
 
 function normalizeSearchValue(value) {
@@ -28,17 +29,12 @@ function normalizeSearchValue(value) {
 }
 
 function buildPatientSearchIndex(patient) {
-  return normalizeSearchValue([
-    getPatientName(patient),
-    patient?.email,
-    patient?.phone,
-    patient?.cpf,
-    patient?.document,
+  return normalizeSearchValue(`${getPatientSearchText(patient)} ${[
     patient?.address_street,
     patient?.address_number,
     patient?.address_city,
     patient?.address_state,
-  ].filter(Boolean).join(" "));
+  ].filter(Boolean).join(" ")}`);
 }
 
 export default function PatientsSearch() {
@@ -57,7 +53,7 @@ export default function PatientsSearch() {
       } catch (error) {
         const message =
           error?.response?.data?.error ||
-          "Nao foi possivel carregar os pacientes.";
+          "Não foi possível carregar os pacientes.";
         toast.error(message);
       } finally {
         setIsLoading(false);
@@ -189,7 +185,7 @@ export default function PatientsSearch() {
                           ? `, ${patient.address_number}`
                           : ""
                         }`
-                        : "Endereco nao informado"}
+                        : "Endereço não informado"}
                     </span>
                   </InfoRow>
                 </CardBody>

@@ -284,7 +284,7 @@ const slugify = (name) =>
     .slice(0, 40) || `svc_${Date.now()}`;
 
 const getPatientPlanPatientName = (pp) =>
-  pp?.Patient?.full_name || pp?.Patient?.name || "";
+  pp?.Patient ? getPatientDisplayName(pp.Patient) : "";
 
 const comparePatientPlans = (left, right) => {
   const byName = getPatientPlanPatientName(left).localeCompare(
@@ -528,7 +528,7 @@ export default function Planos() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return () => {};
+    if (typeof window === "undefined") return () => { };
     const media = window.matchMedia("(max-width: 960px)");
     const handleChange = () => {
       setIsMobile(media.matches);
@@ -915,11 +915,11 @@ export default function Planos() {
         return;
       }
       if (!ppForm.starts_at) {
-        toast.error("Informe a data de inicio do plano.");
+        toast.error("Informe a data de início do plano.");
         return;
       }
       if (!isValidDateOnly(ppForm.starts_at)) {
-        toast.error("Informe uma data de inicio valida.");
+        toast.error("Informe uma data de início válida.");
         return;
       }
       setIsSaving(true);
@@ -1073,7 +1073,7 @@ export default function Planos() {
   const handleSchedChange = useCallback((e) => {
     const { name, value, type, checked } = e.target;
     if (name === "date" && isWeekendDateOnly(value)) {
-      toast.error("Escolha um dia util para a primeira sessao.");
+      toast.error("Escolha um dia util para a primeira sessão.");
       setSched(name, "");
       return;
     }
@@ -1110,7 +1110,7 @@ export default function Planos() {
         return;
       }
       if (isWeekendDateOnly(schedForm.date)) {
-        toast.error("Escolha um dia util para a primeira sessao.");
+        toast.error("Escolha um dia util para a primeira sessão.");
         return;
       }
       if (!schedForm.time) {
@@ -1304,9 +1304,9 @@ export default function Planos() {
             <PromptText>
               Deseja agendar as sessões de{" "}
               <strong>
-                {schedPrompt.Patient?.full_name ||
-                  patients.find((p) => p.id === schedPrompt.patient_id)?.full_name ||
-                  "paciente"}
+                {schedPrompt.Patient
+                  ? getPatientDisplayName(schedPrompt.Patient)
+                  : getPatientDisplayName(patients.find((p) => p.id === schedPrompt.patient_id))}
               </strong>{" "}
               na agenda agora?
               {schedPrompt.ServicePlan?.sessions_per_week && (
@@ -1684,9 +1684,9 @@ export default function Planos() {
           {schedPlan && (
             <SchedPlanInfo>
               <strong>
-                {schedPlan.Patient?.full_name ||
-                  patients.find((p) => p.id === schedPlan.patient_id)?.full_name ||
-                  "Paciente"}
+                {schedPlan.Patient
+                  ? getPatientDisplayName(schedPlan.Patient)
+                  : getPatientDisplayName(patients.find((p) => p.id === schedPlan.patient_id))}
               </strong>
               <span>
                 {schedPlan.ServicePlan?.name || "Plano"}
@@ -1865,375 +1865,375 @@ export default function Planos() {
             </MobileMenuButton>
           </Header>
 
-        {/* ---- Patient Plans tab ---- */}
-        {activeTab === "patient-plans" && (
-          <ModuleBody>
-            <AppToolbar>
-              <AppToolbarLeft>
-                <PatientSearchField
-                  mode="filter"
-                  value={ppPatientSearch}
-                  onChange={setPpPatientSearch}
-                />
-                <ToolbarFilterField>
-                  <span>Status</span>
-                  <select
-                    value={ppFilterStatus}
-                    onChange={(e) => setPpFilterStatus(e.target.value)}
-                  >
-                    <option value="active">Ativo</option>
-                    <option value="canceled">Cancelado</option>
-                    <option value="">Todos os status</option>
-                    <option value="paused">Pausado</option>
-                  </select>
-                </ToolbarFilterField>
-              </AppToolbarLeft>
-              <PrimaryButton type="button" onClick={openPpCreate}>
-                <FaPlus /> Adicionar Paciente
-              </PrimaryButton>
-            </AppToolbar>
+          {/* ---- Patient Plans tab ---- */}
+          {activeTab === "patient-plans" && (
+            <ModuleBody>
+              <AppToolbar>
+                <AppToolbarLeft>
+                  <PatientSearchField
+                    mode="filter"
+                    value={ppPatientSearch}
+                    onChange={setPpPatientSearch}
+                  />
+                  <ToolbarFilterField>
+                    <span>Status</span>
+                    <select
+                      value={ppFilterStatus}
+                      onChange={(e) => setPpFilterStatus(e.target.value)}
+                    >
+                      <option value="active">Ativo</option>
+                      <option value="canceled">Cancelado</option>
+                      <option value="">Todos os status</option>
+                      <option value="paused">Pausado</option>
+                    </select>
+                  </ToolbarFilterField>
+                </AppToolbarLeft>
+                <PrimaryButton type="button" onClick={openPpCreate}>
+                  <FaPlus /> Adicionar Paciente
+                </PrimaryButton>
+              </AppToolbar>
 
-            <TableWrap>
-              <DataTable>
-                <thead>
-                  <tr>
-                    <TH>Paciente</TH>
-                    <TH>Plano</TH>
-                    <TH>Frequência</TH>
-                    <TH>Vencimento</TH>
-                    <TH>Início</TH>
-                    <TH>Profissional</TH>
-                    <TH>Dias</TH>
-                    <TH>Status</TH>
-                    <ActionTH>Ações</ActionTH>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isPatientPlansLoading && (
+              <TableWrap>
+                <DataTable>
+                  <thead>
                     <tr>
-                      <td colSpan={9}>
-                        <DataLoadingState text="Carregando pacientes com plano..." compact />
-                      </td>
+                      <TH>Paciente</TH>
+                      <TH>Plano</TH>
+                      <TH>Frequência</TH>
+                      <TH>Vencimento</TH>
+                      <TH>Início</TH>
+                      <TH>Profissional</TH>
+                      <TH>Dias</TH>
+                      <TH>Status</TH>
+                      <ActionTH>Ações</ActionTH>
                     </tr>
-                  )}
-                  {!isPatientPlansLoading && patientPlansError && (
-                    <tr>
-                      <td colSpan={9}>
-                        <DataLoadingState tone="error" compact>
-                          {patientPlansError}
-                        </DataLoadingState>
-                      </td>
-                    </tr>
-                  )}
-                  {!isPatientPlansLoading && !patientPlansError && displayedPatientPlans.length === 0 && (
-                    <tr>
-                      <td colSpan={9}>
-                        <Empty>Nenhum vínculo encontrado.</Empty>
-                      </td>
-                    </tr>
-                  )}
-                  {!isPatientPlansLoading && !patientPlansError && displayedPatientPlans.map((pp) => {
-                    const si = getPatientPlanStatusInfo(pp);
-                    const freqLabel = pp.ServicePlan?.sessions_per_week
-                      ? `${pp.ServicePlan.sessions_per_week}x/sem`
-                      : pp.ServicePlan?.frequency_label || "-";
-                    const scheduleInfo = getPatientPlanScheduleInfo(pp, professionals);
-                    return (
-                      <tr key={pp.id}>
-                        <TD>
-                          <strong>
-                            {pp.Patient?.full_name || pp.Patient?.name || "-"}
-                          </strong>
-                        </TD>
-                        <TD>{pp.ServicePlan?.name || "-"}</TD>
-                        <TD>{freqLabel}</TD>
-                        <TD>Dia {pp.anchor_day}</TD>
-                        <TD>{formatDateBR(pp.starts_at)}</TD>
-                        <TD>{scheduleInfo.professionalName}</TD>
-                        <TD>{scheduleInfo.weekdayText}</TD>
-                        <TD>
-                          <StatusPill $tone={si.tone}>{si.label}</StatusPill>
-                        </TD>
-                        <ActionTD>
-                          <ActionMenuWrap>
-                            <ActionMenuButton
-                              type="button"
-                              title="Ações do plano"
-                              aria-label="Ações do plano"
-                              onClick={(event) => togglePpActionMenu(event, pp.id)}
-                            >
-                              <FaEllipsisV />
-                            </ActionMenuButton>
-                          </ActionMenuWrap>
-                          {openPpActionMenuId === pp.id && ppActionMenuPosition && (
-                            <ActionMenuList
-                              style={{
-                                top: ppActionMenuPosition.top,
-                                left: ppActionMenuPosition.left,
-                              }}
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                            {pp.status === "active" && (
-                              <ActionMenuItem
-                                type="button"
-                                title="Agendar sessões deste plano na agenda"
-                                onClick={() => {
-                                  closePpActionMenu();
-                                  openSchedDrawer(pp);
-                                }}
-                              >
-                                <FaCalendarAlt /> Agendar
-                              </ActionMenuItem>
-                            )}
-                            {pp.status !== "canceled" && (
-                              <ActionMenuItem
-                                type="button"
-                                onClick={() => {
-                                  closePpActionMenu();
-                                  openPpEdit(pp);
-                                }}
-                              >
-                                Editar
-                              </ActionMenuItem>
-                            )}
-                            {pp.status === "active" && (
-                              <ActionMenuItem
-                                type="button"
-                                onClick={() => {
-                                  closePpActionMenu();
-                                  handlePpPause(pp);
-                                }}
-                              >
-                                Pausar
-                              </ActionMenuItem>
-                            )}
-                            {pp.status === "paused" && (
-                              <ActionMenuItem
-                                type="button"
-                                onClick={() => {
-                                  closePpActionMenu();
-                                  handlePpResume(pp);
-                                }}
-                              >
-                                Retomar
-                              </ActionMenuItem>
-                            )}
-                            {pp.status !== "canceled" && (
-                              <ActionMenuDangerItem
-                                type="button"
-                                onClick={() => {
-                                  closePpActionMenu();
-                                  handlePpCancel(pp);
-                                }}
-                              >
-                                Cancelar
-                              </ActionMenuDangerItem>
-                            )}
-                            </ActionMenuList>
-                          )}
-                        </ActionTD>
+                  </thead>
+                  <tbody>
+                    {isPatientPlansLoading && (
+                      <tr>
+                        <td colSpan={9}>
+                          <DataLoadingState text="Carregando pacientes com plano..." compact />
+                        </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </DataTable>
-            </TableWrap>
-          </ModuleBody>
-        )}
+                    )}
+                    {!isPatientPlansLoading && patientPlansError && (
+                      <tr>
+                        <td colSpan={9}>
+                          <DataLoadingState tone="error" compact>
+                            {patientPlansError}
+                          </DataLoadingState>
+                        </td>
+                      </tr>
+                    )}
+                    {!isPatientPlansLoading && !patientPlansError && displayedPatientPlans.length === 0 && (
+                      <tr>
+                        <td colSpan={9}>
+                          <Empty>Nenhum vínculo encontrado.</Empty>
+                        </td>
+                      </tr>
+                    )}
+                    {!isPatientPlansLoading && !patientPlansError && displayedPatientPlans.map((pp) => {
+                      const si = getPatientPlanStatusInfo(pp);
+                      const freqLabel = pp.ServicePlan?.sessions_per_week
+                        ? `${pp.ServicePlan.sessions_per_week}x/sem`
+                        : pp.ServicePlan?.frequency_label || "-";
+                      const scheduleInfo = getPatientPlanScheduleInfo(pp, professionals);
+                      return (
+                        <tr key={pp.id}>
+                          <TD>
+                            <strong>
+                              {pp.Patient ? getPatientDisplayName(pp.Patient) : "-"}
+                            </strong>
+                          </TD>
+                          <TD>{pp.ServicePlan?.name || "-"}</TD>
+                          <TD>{freqLabel}</TD>
+                          <TD>Dia {pp.anchor_day}</TD>
+                          <TD>{formatDateBR(pp.starts_at)}</TD>
+                          <TD>{scheduleInfo.professionalName}</TD>
+                          <TD>{scheduleInfo.weekdayText}</TD>
+                          <TD>
+                            <StatusPill $tone={si.tone}>{si.label}</StatusPill>
+                          </TD>
+                          <ActionTD>
+                            <ActionMenuWrap>
+                              <ActionMenuButton
+                                type="button"
+                                title="Ações do plano"
+                                aria-label="Ações do plano"
+                                onClick={(event) => togglePpActionMenu(event, pp.id)}
+                              >
+                                <FaEllipsisV />
+                              </ActionMenuButton>
+                            </ActionMenuWrap>
+                            {openPpActionMenuId === pp.id && ppActionMenuPosition && (
+                              <ActionMenuList
+                                style={{
+                                  top: ppActionMenuPosition.top,
+                                  left: ppActionMenuPosition.left,
+                                }}
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                {pp.status === "active" && (
+                                  <ActionMenuItem
+                                    type="button"
+                                    title="Agendar sessões deste plano na agenda"
+                                    onClick={() => {
+                                      closePpActionMenu();
+                                      openSchedDrawer(pp);
+                                    }}
+                                  >
+                                    <FaCalendarAlt /> Agendar
+                                  </ActionMenuItem>
+                                )}
+                                {pp.status !== "canceled" && (
+                                  <ActionMenuItem
+                                    type="button"
+                                    onClick={() => {
+                                      closePpActionMenu();
+                                      openPpEdit(pp);
+                                    }}
+                                  >
+                                    Editar
+                                  </ActionMenuItem>
+                                )}
+                                {pp.status === "active" && (
+                                  <ActionMenuItem
+                                    type="button"
+                                    onClick={() => {
+                                      closePpActionMenu();
+                                      handlePpPause(pp);
+                                    }}
+                                  >
+                                    Pausar
+                                  </ActionMenuItem>
+                                )}
+                                {pp.status === "paused" && (
+                                  <ActionMenuItem
+                                    type="button"
+                                    onClick={() => {
+                                      closePpActionMenu();
+                                      handlePpResume(pp);
+                                    }}
+                                  >
+                                    Retomar
+                                  </ActionMenuItem>
+                                )}
+                                {pp.status !== "canceled" && (
+                                  <ActionMenuDangerItem
+                                    type="button"
+                                    onClick={() => {
+                                      closePpActionMenu();
+                                      handlePpCancel(pp);
+                                    }}
+                                  >
+                                    Cancelar
+                                  </ActionMenuDangerItem>
+                                )}
+                              </ActionMenuList>
+                            )}
+                          </ActionTD>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </DataTable>
+              </TableWrap>
+            </ModuleBody>
+          )}
 
-        {/* ---- Service Plans tab ---- */}
-        {activeTab === "service-plans" && (
-          <ModuleBody>
-            <AppToolbar>
-              <AppToolbarLeft>
-                <select
-                  value={spFilterServiceId}
-                  onChange={(e) => setSpFilterServiceId(e.target.value)}
-                >
-                  <option value="">Todos os serviços</option>
-                  {services.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </AppToolbarLeft>
-              <PrimaryButton type="button" onClick={openSpCreate}>
-                <FaPlus /> Novo Plano
-              </PrimaryButton>
-            </AppToolbar>
+          {/* ---- Service Plans tab ---- */}
+          {activeTab === "service-plans" && (
+            <ModuleBody>
+              <AppToolbar>
+                <AppToolbarLeft>
+                  <select
+                    value={spFilterServiceId}
+                    onChange={(e) => setSpFilterServiceId(e.target.value)}
+                  >
+                    <option value="">Todos os serviços</option>
+                    {services.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </AppToolbarLeft>
+                <PrimaryButton type="button" onClick={openSpCreate}>
+                  <FaPlus /> Novo Plano
+                </PrimaryButton>
+              </AppToolbar>
 
-            <TableWrap>
-              <DataTable>
-                <thead>
-                  <tr>
-                    <TH>Nome</TH>
-                    <TH>Serviço</TH>
-                    <TH>Frequência</TH>
-                    <TH>Preço/mês</TH>
-                    <TH>Status</TH>
-                    <TH>Ações</TH>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isServicePlansLoading && (
+              <TableWrap>
+                <DataTable>
+                  <thead>
                     <tr>
-                      <td colSpan={6}>
-                        <DataLoadingState text="Carregando planos mensais..." compact />
-                      </td>
+                      <TH>Nome</TH>
+                      <TH>Serviço</TH>
+                      <TH>Frequência</TH>
+                      <TH>Preço/mês</TH>
+                      <TH>Status</TH>
+                      <TH>Ações</TH>
                     </tr>
-                  )}
-                  {!isServicePlansLoading && servicePlansError && (
-                    <tr>
-                      <td colSpan={6}>
-                        <DataLoadingState tone="error" compact>
-                          {servicePlansError}
-                        </DataLoadingState>
-                      </td>
-                    </tr>
-                  )}
-                  {!isServicePlansLoading && !servicePlansError && filteredServicePlans.length === 0 && (
-                    <tr>
-                      <td colSpan={6}>
-                        <Empty>Nenhum plano encontrado.</Empty>
-                      </td>
-                    </tr>
-                  )}
-                  {!isServicePlansLoading && !servicePlansError && filteredServicePlans.map((sp) => (
-                    <tr key={sp.id}>
-                      <TD>
-                        <strong>{sp.name}</strong>
-                      </TD>
-                      <TD>{sp.Service?.name || "-"}</TD>
-                      <TD>
-                        {sp.frequency_label ||
-                          (sp.sessions_per_week
-                            ? `${sp.sessions_per_week}x/sem`
-                            : "-")}
-                      </TD>
-                      <TD>{formatPrice(sp.price_cents)}</TD>
-                      <TD>
-                        <StatusPill $tone={sp.is_active ? "active" : "canceled"}>
-                          {sp.is_active ? "Ativo" : "Inativo"}
-                        </StatusPill>
-                      </TD>
-                      <TD>
-                        <RowActions>
-                          <RowActionButton
-                            type="button"
-                            onClick={() => openSpEdit(sp)}
-                          >
-                            Editar
-                          </RowActionButton>
-                          {sp.is_active && (
-                            <DangerButton
-                              type="button"
-                              onClick={() => handleSpDeactivate(sp)}
-                            >
-                              Inativar
-                            </DangerButton>
-                          )}
-                        </RowActions>
-                      </TD>
-                    </tr>
-                  ))}
-                </tbody>
-              </DataTable>
-            </TableWrap>
-          </ModuleBody>
-        )}
-
-        {/* ---- Services tab ---- */}
-        {activeTab === "services" && (
-          <ModuleBody>
-            <AppToolbar>
-              <AppToolbarLeft />
-              <PrimaryButton type="button" onClick={openSvcCreate}>
-                <FaPlus /> Novo Serviço
-              </PrimaryButton>
-            </AppToolbar>
-
-            <TableWrap>
-              <DataTable>
-                <thead>
-                  <tr>
-                    <TH>Cor</TH>
-                    <TH>Nome</TH>
-                    <TH>Duração padrão</TH>
-                    <TH>Valor avulso</TH>
-                    <TH>Status</TH>
-                    <TH>Ações</TH>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isServicesLoading && (
-                    <tr>
-                      <td colSpan={6}>
-                        <DataLoadingState text="Carregando serviços..." compact />
-                      </td>
-                    </tr>
-                  )}
-                  {!isServicesLoading && servicesError && (
-                    <tr>
-                      <td colSpan={6}>
-                        <DataLoadingState tone="error" compact>
-                          {servicesError}
-                        </DataLoadingState>
-                      </td>
-                    </tr>
-                  )}
-                  {!isServicesLoading && !servicesError && services.length === 0 && (
-                    <tr>
-                      <td colSpan={6}>
-                        <Empty>Nenhum serviço cadastrado.</Empty>
-                      </td>
-                    </tr>
-                  )}
-                  {!isServicesLoading && !servicesError && services.map((svc) => {
-                    const activePrice = servicePriceMap.get(svc.id);
-                    return (
-                      <tr key={svc.id}>
+                  </thead>
+                  <tbody>
+                    {isServicePlansLoading && (
+                      <tr>
+                        <td colSpan={6}>
+                          <DataLoadingState text="Carregando planos mensais..." compact />
+                        </td>
+                      </tr>
+                    )}
+                    {!isServicePlansLoading && servicePlansError && (
+                      <tr>
+                        <td colSpan={6}>
+                          <DataLoadingState tone="error" compact>
+                            {servicePlansError}
+                          </DataLoadingState>
+                        </td>
+                      </tr>
+                    )}
+                    {!isServicePlansLoading && !servicePlansError && filteredServicePlans.length === 0 && (
+                      <tr>
+                        <td colSpan={6}>
+                          <Empty>Nenhum plano encontrado.</Empty>
+                        </td>
+                      </tr>
+                    )}
+                    {!isServicePlansLoading && !servicePlansError && filteredServicePlans.map((sp) => (
+                      <tr key={sp.id}>
                         <TD>
-                          <ServiceColorDot style={{ background: svc.color || "#6a795c" }} />
+                          <strong>{sp.name}</strong>
                         </TD>
+                        <TD>{sp.Service?.name || "-"}</TD>
                         <TD>
-                          <strong>{svc.name}</strong>
+                          {sp.frequency_label ||
+                            (sp.sessions_per_week
+                              ? `${sp.sessions_per_week}x/sem`
+                              : "-")}
                         </TD>
+                        <TD>{formatPrice(sp.price_cents)}</TD>
                         <TD>
-                          {svc.default_duration_minutes
-                            ? `${svc.default_duration_minutes} min`
-                            : "-"}
-                        </TD>
-                        <TD>{activePrice ? formatPrice(activePrice.price_cents) : "-"}</TD>
-                        <TD>
-                          <StatusPill $tone={svc.is_active !== false ? "active" : "canceled"}>
-                            {svc.is_active !== false ? "Ativo" : "Inativo"}
+                          <StatusPill $tone={sp.is_active ? "active" : "canceled"}>
+                            {sp.is_active ? "Ativo" : "Inativo"}
                           </StatusPill>
                         </TD>
                         <TD>
                           <RowActions>
                             <RowActionButton
                               type="button"
-                              onClick={() => openSvcEdit(svc)}
+                              onClick={() => openSpEdit(sp)}
                             >
                               Editar
                             </RowActionButton>
-                            <RowActionButton
-                              type="button"
-                              onClick={() => handleSvcToggle(svc)}
-                            >
-                              {svc.is_active !== false ? "Inativar" : "Ativar"}
-                            </RowActionButton>
+                            {sp.is_active && (
+                              <DangerButton
+                                type="button"
+                                onClick={() => handleSpDeactivate(sp)}
+                              >
+                                Inativar
+                              </DangerButton>
+                            )}
                           </RowActions>
                         </TD>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </DataTable>
-            </TableWrap>
-          </ModuleBody>
-        )}
+                    ))}
+                  </tbody>
+                </DataTable>
+              </TableWrap>
+            </ModuleBody>
+          )}
+
+          {/* ---- Services tab ---- */}
+          {activeTab === "services" && (
+            <ModuleBody>
+              <AppToolbar>
+                <AppToolbarLeft />
+                <PrimaryButton type="button" onClick={openSvcCreate}>
+                  <FaPlus /> Novo Serviço
+                </PrimaryButton>
+              </AppToolbar>
+
+              <TableWrap>
+                <DataTable>
+                  <thead>
+                    <tr>
+                      <TH>Cor</TH>
+                      <TH>Nome</TH>
+                      <TH>Duração padrão</TH>
+                      <TH>Valor avulso</TH>
+                      <TH>Status</TH>
+                      <TH>Ações</TH>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {isServicesLoading && (
+                      <tr>
+                        <td colSpan={6}>
+                          <DataLoadingState text="Carregando serviços..." compact />
+                        </td>
+                      </tr>
+                    )}
+                    {!isServicesLoading && servicesError && (
+                      <tr>
+                        <td colSpan={6}>
+                          <DataLoadingState tone="error" compact>
+                            {servicesError}
+                          </DataLoadingState>
+                        </td>
+                      </tr>
+                    )}
+                    {!isServicesLoading && !servicesError && services.length === 0 && (
+                      <tr>
+                        <td colSpan={6}>
+                          <Empty>Nenhum serviço cadastrado.</Empty>
+                        </td>
+                      </tr>
+                    )}
+                    {!isServicesLoading && !servicesError && services.map((svc) => {
+                      const activePrice = servicePriceMap.get(svc.id);
+                      return (
+                        <tr key={svc.id}>
+                          <TD>
+                            <ServiceColorDot style={{ background: svc.color || "#6a795c" }} />
+                          </TD>
+                          <TD>
+                            <strong>{svc.name}</strong>
+                          </TD>
+                          <TD>
+                            {svc.default_duration_minutes
+                              ? `${svc.default_duration_minutes} min`
+                              : "-"}
+                          </TD>
+                          <TD>{activePrice ? formatPrice(activePrice.price_cents) : "-"}</TD>
+                          <TD>
+                            <StatusPill $tone={svc.is_active !== false ? "active" : "canceled"}>
+                              {svc.is_active !== false ? "Ativo" : "Inativo"}
+                            </StatusPill>
+                          </TD>
+                          <TD>
+                            <RowActions>
+                              <RowActionButton
+                                type="button"
+                                onClick={() => openSvcEdit(svc)}
+                              >
+                                Editar
+                              </RowActionButton>
+                              <RowActionButton
+                                type="button"
+                                onClick={() => handleSvcToggle(svc)}
+                              >
+                                {svc.is_active !== false ? "Inativar" : "Ativar"}
+                              </RowActionButton>
+                            </RowActions>
+                          </TD>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </DataTable>
+              </TableWrap>
+            </ModuleBody>
+          )}
         </SidebarMainArea>
       </SidebarShellLayout>
 
@@ -2567,4 +2567,3 @@ const PromptActions = styled.div`
   gap: 10px;
   flex-wrap: wrap;
 `;
-

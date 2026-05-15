@@ -34,7 +34,7 @@ const TREATMENT_GOAL_OPTIONS = [
 
 const ATTENTION_LEVEL_OPTIONS = [
   { value: "low", label: "Baixa" },
-  { value: "medium", label: "Media" },
+  { value: "medium", label: "Média" },
   { value: "high", label: "Alta" },
 ];
 
@@ -87,6 +87,7 @@ export default function PatientsNew() {
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({
     full_name: "",
+    nickname: "",
     email: "",
     phone: "",
     referral_source: "",
@@ -186,6 +187,7 @@ export default function PatientsNew() {
       );
       const payload = {
         full_name: name,
+        nickname: clean(form.nickname),
         email: clean(form.email),
         phone: clean(form.phone),
         referral_source: clean(form.referral_source),
@@ -232,7 +234,7 @@ export default function PatientsNew() {
       } catch (error) {
         const message =
           error?.response?.data?.error ||
-          "Nao foi possivel salvar o paciente.";
+          "Não foi possível salvar o paciente.";
         toast.error(message);
       } finally {
         setIsSaving(false);
@@ -274,6 +276,17 @@ export default function PatientsNew() {
                   placeholder="Nome do paciente"
                   autoComplete="off"
                   required
+                />
+              </Field>
+              <Field>
+                Apelido
+                <input
+                  name="nickname"
+                  value={form.nickname}
+                  onChange={handleChange}
+                  placeholder="Nome de exibicao"
+                  autoComplete="off"
+                  maxLength={80}
                 />
               </Field>
               <Field>

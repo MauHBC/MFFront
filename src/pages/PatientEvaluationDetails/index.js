@@ -313,7 +313,7 @@ export default function PatientEvaluationDetails() {
     } catch (error) {
       const message =
         error?.response?.data?.error ||
-        "Nao foi possivel carregar a avaliacao.";
+        "Não foi possível carregar a avaliação.";
       toast.error(message);
     } finally {
       setIsLoading(false);

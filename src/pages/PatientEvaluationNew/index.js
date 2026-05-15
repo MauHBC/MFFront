@@ -132,7 +132,7 @@ export default function PatientEvaluationNew() {
       } catch (error) {
         const message =
           error?.response?.data?.error ||
-          "Nao foi possivel carregar os formularios.";
+          "Não foi possível carregar os formulários.";
         toast.error(message);
       } finally {
         setIsLoading(false);
@@ -156,7 +156,7 @@ export default function PatientEvaluationNew() {
       } catch (error) {
         const message =
           error?.response?.data?.error ||
-          "Nao foi possivel carregar o formulario.";
+          "Não foi possível carregar o formulário.";
         toast.error(message);
       } finally {
         setIsLoading(false);
@@ -509,7 +509,7 @@ export default function PatientEvaluationNew() {
         history.push(`/pacientes/${patientId}`);
       } catch (error) {
         const message =
-          error?.response?.data?.error || "Nao foi possivel salvar o formulario.";
+          error?.response?.data?.error || "Não foi possível salvar o formulário.";
         toast.error(message);
       } finally {
         setIsSaving(false);
@@ -590,7 +590,7 @@ export default function PatientEvaluationNew() {
                   ))}
                 </SectionsGrid>
                 {orderedSections.length === 0 && (
-                  <EmptyState>Este formulario nao possui secoes.</EmptyState>
+                  <EmptyState>Este formulário não possui seções.</EmptyState>
                 )}
                 {conclusionSection && (
                   <SectionCard>

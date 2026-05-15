@@ -65,6 +65,7 @@ import {
   updateSpecialSchedulingEvent,
 } from "../../services/scheduling";
 import {
+  getPatientDisplayName,
   getPatientSearchText,
   normalizeSearchText,
 } from "../../utils/patientSearch";
@@ -156,7 +157,7 @@ const HOLIDAY_SOURCE_SET = new Set(HOLIDAY_SOURCE_OPTIONS.map((option) => option
 const HOLIDAY_SCHEDULING_OPTIONS = [
   {
     value: "block",
-    label: "Clinica nao funciona e a agenda fica bloqueada",
+    label: "Clínica não funciona e a agenda fica bloqueada",
     help: "Mantem o comportamento atual de bloqueio e avisos de feriado na agenda.",
   },
   {
@@ -522,8 +523,6 @@ const toDateTimeLocalInputValue = (value = new Date()) => {
   const pad = (item) => String(item).padStart(2, "0");
   return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
 };
-
-const getPatientDisplayName = (patient) => patient?.full_name || patient?.name || "Paciente";
 
 const getMonthRangeFromInputValue = (value) => {
   const parsed = parseMonthInputValue(value);
@@ -1102,7 +1101,7 @@ export default function Financeiro() {
       if (series.repeat_interval === 2) return `${weekdays}x/15 dias`;
       return `${weekdays}x a cada ${series.repeat_interval} semanas`;
     }
-    if (series.occurrence_count) return `Serie (${series.occurrence_count} sessoes)`;
+    if (series.occurrence_count) return `Série (${series.occurrence_count} sessões)`;
     return "Recorrente";
   }, []);
 
@@ -1119,7 +1118,7 @@ export default function Financeiro() {
     if (status === "partial") return "Parcial";
     if (status === "canceled") return "Cancelado";
     if (status === "overdue") return "Vencido";
-    if (status === "missing") return "Sem lancamento";
+    if (status === "missing") return "Sem lançamento";
     if (status === "covered_by_plan") return "Coberto pelo plano";
     return "Pendente";
   }, []);
@@ -1129,9 +1128,9 @@ export default function Financeiro() {
     const allocated = Number(allocatedAmount || 0);
     const remaining = Math.max(0, amount - allocated);
 
-    if (allocated <= 0) return "Guardado como credito";
-    if (remaining <= 0) return "Usado em cobrancas";
-    return "Parte usada, parte em credito";
+    if (allocated <= 0) return "Guardado como crédito";
+    if (remaining <= 0) return "Usado em cobranças";
+    return "Parte usada, parte em crédito";
   }, []);
 
   const holidayRows = useMemo(
@@ -1177,7 +1176,7 @@ export default function Financeiro() {
       setPayments(paymentsResponse.data || []);
       setRecurringExpenses(recurringResponse.data || []);
     } catch (error) {
-      toast.error("Nao foi possivel carregar o financeiro.");
+      toast.error("Não foi possível carregar o financeiro.");
     } finally {
       setLoading(false);
     }
@@ -1197,7 +1196,7 @@ export default function Financeiro() {
       setBillingCycles(response.data || []);
       setHasBillingCyclesLoaded(true);
     } catch (error) {
-      toast.error("Nao foi possivel carregar as mensalidades.");
+      toast.error("Não foi possível carregar as mensalidades.");
     } finally {
       setIsBillingCyclesLoading(false);
     }
@@ -1216,7 +1215,7 @@ export default function Financeiro() {
       setAttendanceSessions(response.data || []);
       setHasAttendanceLoaded(true);
     } catch (error) {
-      toast.error("Nao foi possivel carregar atendimentos.");
+      toast.error("Não foi possível carregar atendimentos.");
       setHasAttendanceLoaded(true);
     }
     finally {
@@ -1235,7 +1234,7 @@ export default function Financeiro() {
       const items = Array.isArray(response.data) ? response.data : [];
       setHolidays(items.filter((item) => HOLIDAY_SOURCE_SET.has(item.source_type)));
     } catch (error) {
-      toast.error("Nao foi possivel carregar os feriados.");
+      toast.error("Não foi possível carregar os feriados.");
     } finally {
       setIsHolidayLoading(false);
     }
@@ -1727,7 +1726,7 @@ export default function Financeiro() {
       setBillingCycleSessionsPreview((prev) => ({
         ...prev,
         isLoading: false,
-        error: getUserFacingApiError(error, "Nao foi possivel carregar as sessoes do ciclo."),
+        error: getUserFacingApiError(error, "Não foi possível carregar as sessões do ciclo."),
       }));
     }
   }, []);
@@ -1901,7 +1900,7 @@ export default function Financeiro() {
       setIsHolidayOpen(false);
       await loadHolidays();
     } catch (error) {
-      toast.error(getUserFacingApiError(error, "Nao foi possivel salvar o feriado."));
+      toast.error(getUserFacingApiError(error, "Não foi possível salvar o feriado."));
     } finally {
       setIsHolidaySaving(false);
     }
@@ -1915,7 +1914,7 @@ export default function Financeiro() {
         toast.success("Feriado excluido.");
         await loadHolidays();
       } catch (error) {
-        toast.error(getUserFacingApiError(error, "Nao foi possivel excluir o feriado."));
+        toast.error(getUserFacingApiError(error, "Não foi possível excluir o feriado."));
       }
     },
     [loadHolidays],
@@ -1940,7 +1939,7 @@ export default function Financeiro() {
         await loadHolidays();
       } catch (error) {
         toast.error(
-          getUserFacingApiError(error, "Nao foi possivel atualizar o comportamento do feriado."),
+          getUserFacingApiError(error, "Não foi possível atualizar o comportamento do feriado."),
         );
       } finally {
         setHolidayUpdatingId(null);
@@ -2042,7 +2041,7 @@ export default function Financeiro() {
       return;
     }
     if (!entryForm.type) {
-      toast.error("Selecione o tipo do lancamento.");
+      toast.error("Selecione o tipo do lançamento.");
       return;
     }
     if (Number.isNaN(amountValue) || amountValue <= 0) {
@@ -2069,7 +2068,7 @@ export default function Financeiro() {
       closeEntryModal();
       loadData();
     } catch (error) {
-      toast.error("Nao foi possivel salvar o lancamento.");
+      toast.error("Não foi possível salvar o lançamento.");
     }
   }, [entryForm, closeEntryModal, loadData]);
 
@@ -2089,7 +2088,7 @@ export default function Financeiro() {
       });
       const createdEntryId = Number(response?.data?.id || 0);
       if (!createdEntryId) {
-        throw new Error("Nao foi possivel preparar o recebimento avulso.");
+        throw new Error("Não foi possível preparar o recebimento avulso.");
       }
       return createdEntryId;
     },
@@ -2191,27 +2190,27 @@ export default function Financeiro() {
       return;
     }
     if (isSessionBatchPayment && !sessionBatchSessionIds.length) {
-      toast.error("Selecione as sessoes do lote.");
+      toast.error("Selecione as sessões do lote.");
       return;
     }
     if (isSessionBatchPayment && Number.isFinite(batchDiscountPerSessionValue) && batchDiscountPerSessionValue < 0) {
-      toast.error("Desconto por sessao nao pode ser negativo.");
+      toast.error("Desconto por sessão não pode ser negativo.");
       return;
     }
     if (Number.isFinite(discountValue) && discountValue < 0) {
-      toast.error("Desconto nao pode ser negativo.");
+      toast.error("Desconto não pode ser negativo.");
       return;
     }
     if (Number.isFinite(surchargeValue) && surchargeValue < 0) {
-      toast.error("Acrescimo nao pode ser negativo.");
+      toast.error("Acréscimo não pode ser negativo.");
       return;
     }
     if (paymentForm.entry_id && discountCents > baseCentsForValidation) {
-      toast.error("O desconto nao pode ser maior que o valor original.");
+      toast.error("O desconto não pode ser maior que o valor original.");
       return;
     }
     if (isSessionBatchPayment && batchDiscountCents > batchOriginalTotalCents) {
-      toast.error("O desconto do lote nao pode ser maior que o valor original.");
+      toast.error("O desconto do lote não pode ser maior que o valor original.");
       return;
     }
     if (
@@ -2223,7 +2222,7 @@ export default function Financeiro() {
       return;
     }
     if (paymentForm.entry_id && paymentForm.convert_entry_to_installments && isAlreadyInstallmentCharge) {
-      toast.error("Esta cobranca ja esta parcelada. Registre apenas a quitacao.");
+      toast.error("Esta cobrança já está parcelada. Registre apenas a quitação.");
       return;
     }
     if (shouldConvertEntryToInstallments) {
@@ -2260,11 +2259,11 @@ export default function Financeiro() {
 
       if (allocationMode === "manual" && !isSessionBatchPayment) {
         if (!allocationItems.length) {
-          toast.error("Informe as cobrancas para alocar.");
+          toast.error("Informe as cobranças para alocar.");
           return;
         }
         if (allocationTotal > effectiveAmountCents) {
-          toast.error("O valor distribuido nao pode ser maior que o recebimento.");
+          toast.error("O valor distribuído não pode ser maior que o recebimento.");
           return;
         }
       }
@@ -2349,7 +2348,7 @@ export default function Financeiro() {
       toast.error(
         getUserFacingApiError(
           error,
-          "Nao foi possivel registrar o recebimento. Tente novamente em instantes.",
+          "Não foi possível registrar o recebimento. Tente novamente em instantes.",
         ),
       );
     } finally {
@@ -2374,11 +2373,11 @@ export default function Financeiro() {
     async (entryId) => {
       try {
         await applyCreditToFinancialEntry(entryId);
-        toast.success("Credito aplicado na cobranca.");
+        toast.success("Crédito aplicado na cobrança.");
         loadData();
         loadAttendance();
       } catch (error) {
-        toast.error("Nao foi possivel usar o credito.");
+        toast.error("Não foi possível usar o crédito.");
       }
     },
     [loadAttendance, loadData],
@@ -2389,8 +2388,7 @@ export default function Financeiro() {
     return attendanceSessions
       .map((session) => {
         const entry = entryBySessionId.get(session.id) || null;
-        const patientName =
-          session?.Patient?.full_name || session?.Patient?.name || "Paciente";
+        const patientName = getPatientDisplayName(session?.Patient);
         const professionalName =
           session?.professional?.name || session?.professional?.email || "-";
         const serviceName =
@@ -2598,7 +2596,7 @@ export default function Financeiro() {
           id: `manual-payment-${payment.id}`,
           starts_at: payment.paid_at,
           patientId,
-          patientName: patient?.full_name || patient?.name || "Paciente",
+          patientName: getPatientDisplayName(patient),
           professionalId: null,
           professionalName: "-",
           serviceName: resolveManualReceiptLabel(entry),
@@ -2785,7 +2783,7 @@ export default function Financeiro() {
           id: `installment-due-${entryId}-${dueInstallment.id || dueInstallment.installment_number}`,
           starts_at: dueInstallment.due_date,
           patientId,
-          patientName: patient?.full_name || patient?.name || "Paciente",
+          patientName: getPatientDisplayName(patient),
           professionalId,
           professionalName:
             linkedSession?.professional?.name ||
@@ -2916,12 +2914,12 @@ export default function Financeiro() {
 
   const openSelectedSessionsPaymentModal = useCallback(() => {
     if (!attendanceBatchSelectedRows.length) {
-      toast.error("Selecione as sessoes para receber.");
+      toast.error("Selecione as sessões para receber.");
       return;
     }
 
     if (attendanceBatchSelectedPatientIds.length !== 1) {
-      toast.error("Selecione apenas sessoes do mesmo paciente.");
+      toast.error("Selecione apenas sessões do mesmo paciente.");
       return;
     }
 
@@ -3028,11 +3026,9 @@ export default function Financeiro() {
       (row) => Number(row.patientId || 0) === selectedAttendancePatientId,
     );
 
-    const patientName =
-      activeAttendancePatient?.full_name
-      || activeAttendancePatient?.name
-      || patientSummary?.patientName
-      || "Paciente";
+    const patientName = activeAttendancePatient
+      ? getPatientDisplayName(activeAttendancePatient)
+      : patientSummary?.patientName || "Paciente";
 
     return {
       patientId: selectedAttendancePatientId,
@@ -3343,27 +3339,27 @@ export default function Financeiro() {
       }
     }
 
-	    const finalChargedCents = Math.max(0, baseCents - effectiveDiscountCents + surchargeCents);
-	    const openAfterCents = Math.max(0, finalChargedCents - receivedCents);
-	    const creditAfterCents = Math.max(0, receivedCents - finalChargedCents);
-	    const hasAdjustment = effectiveDiscountCents > 0 || surchargeCents > 0;
-	    const batchOriginalPerSessionCents = sessionBatchCount > 0
-	      ? Math.floor(baseCents / Math.max(1, sessionBatchCount))
-	      : 0;
+    const finalChargedCents = Math.max(0, baseCents - effectiveDiscountCents + surchargeCents);
+    const openAfterCents = Math.max(0, finalChargedCents - receivedCents);
+    const creditAfterCents = Math.max(0, receivedCents - finalChargedCents);
+    const hasAdjustment = effectiveDiscountCents > 0 || surchargeCents > 0;
+    const batchOriginalPerSessionCents = sessionBatchCount > 0
+      ? Math.floor(baseCents / Math.max(1, sessionBatchCount))
+      : 0;
 
-	    return {
-	      baseCents,
+    return {
+      baseCents,
       receivedCents,
       discountCents: effectiveDiscountCents,
       surchargeCents,
       finalChargedCents,
       openAfterCents,
       creditAfterCents,
-	      hasAdjustment,
-	      batchOriginalTotalCents: baseCents,
-	      batchOriginalPerSessionCents,
-	      batchDiscountPerSessionCents,
-	      batchFinalPerSessionCents,
+      hasAdjustment,
+      batchOriginalTotalCents: baseCents,
+      batchOriginalPerSessionCents,
+      batchDiscountPerSessionCents,
+      batchFinalPerSessionCents,
       batchSessionCount: sessionBatchCount,
       originalInstallmentsCount,
       installmentsCount,
@@ -3397,7 +3393,7 @@ export default function Financeiro() {
     return Math.max(0, Number(paymentPreview.baseCents || 0));
   }, [entryMap, paymentForm.entry_id, paymentPreview.baseCents]);
   const sessionBatchBalanceLabel = useMemo(() => {
-    if (paymentPreview.creditAfterCents > 0) return "Saldo em credito";
+    if (paymentPreview.creditAfterCents > 0) return "Saldo em crédito";
     if (paymentPreview.openAfterCents > 0) return "Falta receber";
     return "Diferenca";
   }, [paymentPreview.creditAfterCents, paymentPreview.openAfterCents]);
@@ -3544,7 +3540,7 @@ export default function Financeiro() {
       closeCategoryModal();
       loadData();
     } catch (error) {
-      toast.error("Nao foi possivel salvar a categoria.");
+      toast.error("Não foi possível salvar a categoria.");
     }
   }, [categoryForm, closeCategoryModal, loadData, editingCategoryId]);
 
@@ -3565,13 +3561,13 @@ export default function Financeiro() {
       closeMethodModal();
       loadData();
     } catch (error) {
-      toast.error("Nao foi possivel salvar a forma de pagamento.");
+      toast.error("Não foi possível salvar a forma de pagamento.");
     }
   }, [methodForm, closeMethodModal, loadData, editingMethodId]);
 
   const handleSaveService = useCallback(async () => {
     if (!serviceForm.name.trim()) {
-      toast.error("Informe o nome do servico.");
+      toast.error("Informe o nome do serviço.");
       return;
     }
 
@@ -3629,7 +3625,7 @@ export default function Financeiro() {
       closeServiceModal();
       loadData();
     } catch (error) {
-      toast.error("Nao foi possivel salvar o servico.");
+      toast.error("Não foi possível salvar o serviço.");
     } finally {
       setIsServiceSaving(false);
     }
@@ -3648,7 +3644,7 @@ export default function Financeiro() {
         await updateFinancialCategory(category.id, { is_active: !category.is_active });
         loadData();
       } catch (error) {
-        toast.error("Nao foi possivel atualizar a categoria.");
+        toast.error("Não foi possível atualizar a categoria.");
       }
     },
     [loadData],
@@ -3660,7 +3656,7 @@ export default function Financeiro() {
         await updatePaymentMethod(method.id, { is_active: !method.is_active });
         loadData();
       } catch (error) {
-        toast.error("Nao foi possivel atualizar a forma de pagamento.");
+        toast.error("Não foi possível atualizar a forma de pagamento.");
       }
     },
     [loadData],
@@ -3672,7 +3668,7 @@ export default function Financeiro() {
         await axios.put(`/services/${service.id}`, { is_active: !service.is_active });
         loadData();
       } catch (error) {
-        toast.error("Nao foi possivel atualizar o servico.");
+        toast.error("Não foi possível atualizar o serviço.");
       }
     },
     [loadData],
@@ -3685,7 +3681,7 @@ export default function Financeiro() {
         toast.success("Servico excluido.");
         loadData();
       } catch (error) {
-        toast.error("Nao foi possivel excluir o servico.");
+        toast.error("Não foi possível excluir o serviço.");
       }
     },
     [loadData],
@@ -3761,7 +3757,7 @@ export default function Financeiro() {
       closeRecurringModal();
       loadData();
     } catch (error) {
-      toast.error("Nao foi possivel salvar a despesa fixa.");
+      toast.error("Não foi possível salvar a despesa fixa.");
     }
   }, [recurringForm, editingRecurringId, closeRecurringModal, loadData]);
 
@@ -3771,7 +3767,7 @@ export default function Financeiro() {
         await updateFinancialRecurringExpense(item.id, { is_active: !item.is_active });
         loadData();
       } catch (error) {
-        toast.error("Nao foi possivel atualizar a despesa fixa.");
+        toast.error("Não foi possível atualizar a despesa fixa.");
       }
     },
     [loadData],
@@ -3794,7 +3790,7 @@ export default function Financeiro() {
           entry.type === "income" ? "Receita" : "Despesa",
           entry.description || "",
           category?.name || "",
-          patient?.full_name || "",
+          patient ? getPatientDisplayName(patient) : "",
           value,
           entry.status || "",
         ];
@@ -3829,7 +3825,7 @@ export default function Financeiro() {
         const value = (Number(payment.amount_cents || 0) / 100).toFixed(2);
         return [
           payment.paid_at ? new Date(payment.paid_at).toISOString() : "",
-          patient?.full_name || "",
+          patient ? getPatientDisplayName(patient) : "",
           method?.name || "",
           payment.installments || "",
           value,
@@ -3862,7 +3858,7 @@ export default function Financeiro() {
           </GhostButton>
           <PrimaryButton type="button" onClick={openEntryModal}>
             <FaPlus />
-            Novo lancamento
+            Novo lançamento
           </PrimaryButton>
         </HeaderActions>
       </SectionHeader>
@@ -3870,7 +3866,7 @@ export default function Financeiro() {
       {loading ? (
         <SectionLoader>
           <Spinner />
-          Carregando lancamentos...
+          Carregando lançamentos...
         </SectionLoader>
       ) : (
         <>
@@ -3954,7 +3950,7 @@ export default function Financeiro() {
           </FiltersRow>
 
           {filteredEntries.length === 0 ? (
-            <EmptyState>Sem lancamentos cadastrados.</EmptyState>
+            <EmptyState>Sem lançamentos cadastrados.</EmptyState>
           ) : (
             <EntriesTable>
               <thead>
@@ -4005,7 +4001,7 @@ export default function Financeiro() {
                       <td>{entry.reference_date || "-"}</td>
                       <td>{entry.description || "-"}</td>
                       <td>{category?.name || "-"}</td>
-                      <td>{patient?.full_name || "-"}</td>
+                      <td>{patient ? getPatientDisplayName(patient) : "-"}</td>
                       <td>
                         <CellStack>
                           <strong>{formatCurrency(entry.amount_cents)}</strong>
@@ -4034,7 +4030,7 @@ export default function Financeiro() {
                                         handleApplyCreditToEntry(entry.id);
                                       }}
                                     >
-                                      Usar credito
+                                      Usar crédito
                                     </ActionMenuItem>
                                   )}
                                   {status !== "paid" && (
@@ -4146,7 +4142,7 @@ export default function Financeiro() {
     if (attendanceView === "sessions" && isAttendancePatientRequired) {
       attendanceContent = (
         <AttendanceRequiredPatientNotice>
-          Selecione um paciente nos filtros para visualizar o detalhe por sessao.
+          Selecione um paciente nos filtros para visualizar o detalhe por sessão.
         </AttendanceRequiredPatientNotice>
       );
     }
@@ -4195,17 +4191,17 @@ export default function Financeiro() {
                         checked={areAllAttendanceBatchRowsSelected}
                         onChange={handleToggleAllAttendanceSessionSelections}
                         disabled={attendanceBatchSelectableRows.length === 0}
-                        aria-label="Selecionar todas as sessoes elegiveis"
+                        aria-label="Selecionar todas as sessões elegíveis"
                       />
                     </th>
-	                  )}
-	                  <th>Data</th>
-	                  <th>Profissional</th>
-	                  <th>Servico</th>
-	                  <th>Valor</th>
-	                  <th>Detalhe</th>
-		                  <th>Status</th>
-	                  <th>Obs.</th>
+                  )}
+                  <th>Data</th>
+                  <th>Profissional</th>
+                  <th>Servico</th>
+                  <th>Valor</th>
+                  <th>Detalhe</th>
+                  <th>Status</th>
+                  <th>Obs.</th>
                 </tr>
               </thead>
               <tbody>
@@ -4225,10 +4221,10 @@ export default function Financeiro() {
                     installmentNote = row.manualUsageLabel || null;
                   } else if (row.isProjectedInstallmentRow && row.dueInstallment) {
                     installmentNote = `Parcela ${row.dueInstallment.installment_number} de ${row.installmentCount}`;
-	                  } else if (row.isInstallmentPlan) {
-	                    installmentNote = `Parcela 1/${row.installmentCount}`;
-	                  }
-		                  return (
+                  } else if (row.isInstallmentPlan) {
+                    installmentNote = `Parcela 1/${row.installmentCount}`;
+                  }
+                  return (
                     <tr key={row.id}>
                       {ENABLE_SESSION_BATCH_PAYMENT && (
                         <td>
@@ -4238,22 +4234,22 @@ export default function Financeiro() {
                               value={row.id}
                               checked={isBatchSelected}
                               onChange={handleAttendanceSessionSelectionChange}
-                              aria-label={`Selecionar sessao ${row.patientName} ${formatDate(row.starts_at)}`}
+                              aria-label={`Selecionar sessão ${row.patientName} ${formatDate(row.starts_at)}`}
                             />
                           ) : (
                             <AttendanceSelectionPlaceholder>-</AttendanceSelectionPlaceholder>
                           )}
                         </td>
                       )}
-	                      <td>
-	                        <AttendanceCellStack>
-	                          <AttendancePrimaryText>{formatDate(row.starts_at)}</AttendancePrimaryText>
-	                          <AttendanceSecondaryText>{formatWeekday(row.starts_at)}</AttendanceSecondaryText>
-	                        </AttendanceCellStack>
-	                      </td>
-	                      <td>
-	                        <AttendancePrimaryText>{row.professionalName}</AttendancePrimaryText>
-	                      </td>
+                      <td>
+                        <AttendanceCellStack>
+                          <AttendancePrimaryText>{formatDate(row.starts_at)}</AttendancePrimaryText>
+                          <AttendanceSecondaryText>{formatWeekday(row.starts_at)}</AttendanceSecondaryText>
+                        </AttendanceCellStack>
+                      </td>
+                      <td>
+                        <AttendancePrimaryText>{row.professionalName}</AttendancePrimaryText>
+                      </td>
                       <td>
                         <AttendanceCellStack>
                           <AttendancePrimaryText>{row.serviceName}</AttendancePrimaryText>
@@ -4293,28 +4289,28 @@ export default function Financeiro() {
                               Acordo: {formatCurrency(row.installmentAgreementTotalCents)}
                             </AttendanceSecondaryText>
                           )}
-	                          {row.isInstallmentPlan
-	                            && !row.isProjectedInstallmentRow
-	                            && row.firstInstallmentOpenCents > 0 && (
-	                              <AttendanceSecondaryText>
-	                                Residual em aberto: {formatCurrency(row.firstInstallmentOpenCents)}
-	                              </AttendanceSecondaryText>
-	                            )}
-		                        </AttendanceCellStack>
-		                      </td>
-	                      <td>
-	                        <AttendanceStatusBadge $status={status}>
-	                          {statusLabel}
-	                        </AttendanceStatusBadge>
-	                      </td>
-	                      <td>
-	                        <AttendanceNoteText>
-	                          {row.isManualReceiptRow
-	                            ? row.manualNote || "-"
-	                            : row.entry?.notes || row.payment?.note || "-"}
-	                        </AttendanceNoteText>
-	                      </td>
-		                    </tr>
+                          {row.isInstallmentPlan
+                            && !row.isProjectedInstallmentRow
+                            && row.firstInstallmentOpenCents > 0 && (
+                              <AttendanceSecondaryText>
+                                Residual em aberto: {formatCurrency(row.firstInstallmentOpenCents)}
+                              </AttendanceSecondaryText>
+                            )}
+                        </AttendanceCellStack>
+                      </td>
+                      <td>
+                        <AttendanceStatusBadge $status={status}>
+                          {statusLabel}
+                        </AttendanceStatusBadge>
+                      </td>
+                      <td>
+                        <AttendanceNoteText>
+                          {row.isManualReceiptRow
+                            ? row.manualNote || "-"
+                            : row.entry?.notes || row.payment?.note || "-"}
+                        </AttendanceNoteText>
+                      </td>
+                    </tr>
                   );
                 })}
               </tbody>
@@ -4330,7 +4326,7 @@ export default function Financeiro() {
           <div>
             <AttendanceHeadingTitle>Atendimentos</AttendanceHeadingTitle>
             <AttendanceHeadingSubtitle>
-              O que foi atendido, o que gerou cobranca, recebimentos manuais e o que ainda falta
+              O que foi atendido, o que gerou cobrança, recebimentos manuais e o que ainda falta
               receber.
             </AttendanceHeadingSubtitle>
           </div>
@@ -4421,7 +4417,7 @@ export default function Financeiro() {
 
             <AttendanceCard>
               <AttendanceCardHeader>
-                <AttendanceCardTitle>Resumo de cobranca</AttendanceCardTitle>
+                <AttendanceCardTitle>Resumo de cobrança</AttendanceCardTitle>
               </AttendanceCardHeader>
               <AttendanceMetricsGrid>
                 <AttendanceMetricCard>
@@ -4495,9 +4491,9 @@ export default function Financeiro() {
                   <AttendanceFilterMetaText>
                     Filtro ativo de paciente:{" "}
                     <strong>
-                      {activeAttendancePatient?.full_name ||
-                        activeAttendancePatient?.name ||
-                        "Paciente selecionado"}
+                      {activeAttendancePatient
+                        ? getPatientDisplayName(activeAttendancePatient)
+                        : "Paciente selecionado"}
                     </strong>
                   </AttendanceFilterMetaText>
                   <AttendanceClearAction type="button" onClick={handleClearAttendancePatientFilter}>
@@ -4525,7 +4521,7 @@ export default function Financeiro() {
                     title={
                       canOpenAttendanceSessionsView
                         ? undefined
-                        : "Selecione um paciente para ver por sessao"
+                        : "Selecione um paciente para ver por sessão"
                     }
                   >
                     Por sessão
@@ -4569,7 +4565,7 @@ export default function Financeiro() {
       <SectionHeader>
         <div>
           <SectionTitle>Recebimentos</SectionTitle>
-          <SectionSubtitle>Entradas de caixa, uso em cobrancas e saldo ainda disponivel.</SectionSubtitle>
+          <SectionSubtitle>Entradas de caixa, uso em cobranças e saldo ainda disponível.</SectionSubtitle>
         </div>
         <HeaderActions>
           <GhostButton type="button" onClick={() => handleExportPayments()}>
@@ -4599,11 +4595,11 @@ export default function Financeiro() {
                 <SummaryValue>{formatCurrency(paymentsSummary.totalReceived)}</SummaryValue>
               </SummaryCard>
               <SummaryCard>
-                <SummaryLabel>Ja usado em cobrancas</SummaryLabel>
+                <SummaryLabel>Já usado em cobranças</SummaryLabel>
                 <SummaryValue>{formatCurrency(paymentsSummary.totalAllocated)}</SummaryValue>
               </SummaryCard>
               <SummaryCard>
-                <SummaryLabel>Saldo em credito</SummaryLabel>
+                <SummaryLabel>Saldo em crédito</SummaryLabel>
                 <SummaryValue>{formatCurrency(paymentsSummary.totalCredit)}</SummaryValue>
               </SummaryCard>
             </SummaryGrid>
@@ -4625,7 +4621,7 @@ export default function Financeiro() {
                   <option value="">Todos</option>
                   {patients.map((patient) => (
                     <option key={patient.id} value={patient.id}>
-                      {patient.full_name || patient.name}
+                      {getPatientDisplayName(patient)}
                     </option>
                   ))}
                 </Select>
@@ -4692,7 +4688,7 @@ export default function Financeiro() {
                     <th>Data</th>
                     <th>Paciente</th>
                     <th>Valor recebido</th>
-                    <th>Usado em cobrancas</th>
+                    <th>Usado em cobranças</th>
                     <th>Saldo disponivel</th>
                     <th>Forma de pagamento</th>
                     <th>Parcelas do pagamento</th>
@@ -4711,7 +4707,7 @@ export default function Financeiro() {
                     return (
                       <tr key={payment.id}>
                         <td>{payment.paid_at ? new Date(payment.paid_at).toLocaleString() : "-"}</td>
-                        <td>{patient?.full_name || "-"}</td>
+                        <td>{patient ? getPatientDisplayName(patient) : "-"}</td>
                         <td>{formatCurrency(payment.amount_cents)}</td>
                         <td>{formatCurrency(allocated)}</td>
                         <td>{formatCurrency(remaining)}</td>
@@ -4730,7 +4726,7 @@ export default function Financeiro() {
           <Panel>
             <PanelHeader>
               <div>
-                <PanelTitle>Baixas nas cobrancas</PanelTitle>
+                <PanelTitle>Baixas nas cobranças</PanelTitle>
                 <SectionSubtitle>Cada linha mostra onde um recebimento foi aplicado.</SectionSubtitle>
               </div>
             </PanelHeader>
@@ -4757,7 +4753,7 @@ export default function Financeiro() {
                     return (
                       <tr key={`${allocation.payment_id}-${allocation.entry_id}`}>
                         <td>{payment?.paid_at ? new Date(payment.paid_at).toLocaleString() : "-"}</td>
-                        <td>{patient?.full_name || "-"}</td>
+                        <td>{patient ? getPatientDisplayName(patient) : "-"}</td>
                         <td>{entry?.description || "-"}</td>
                         <td>{formatCurrency(allocation.amount_cents)}</td>
                         <td>{entry?.reference_date || "-"}</td>
@@ -4934,7 +4930,7 @@ export default function Financeiro() {
                   {billingCyclesFilteredRows.map((cycle) => {
                     const financial = resolveBillingCycleFinancial(cycle);
                     const { entry } = financial;
-                    const patientName = cycle.Patient?.full_name || "-";
+                    const patientName = cycle.Patient ? getPatientDisplayName(cycle.Patient) : "-";
                     const planName = cycle.ServicePlan?.name || "-";
                     const periodStart = formatDateOnlyBR(cycle.cycle_start);
                     const periodEnd = formatDateOnlyBR(cycle.cycle_end);
@@ -4989,7 +4985,7 @@ export default function Financeiro() {
                                 Registrar recebimento
                               </AttendanceSmallAction>
                             ) : (
-                              <AttendanceOriginBadge>Sem cobranca</AttendanceOriginBadge>
+                              <AttendanceOriginBadge>Sem cobrança</AttendanceOriginBadge>
                             )}
                           </AttendanceRowActions>
                         </td>
@@ -5340,11 +5336,11 @@ export default function Financeiro() {
       content = (
         <SectionLoader>
           <Spinner />
-          Carregando servicos...
+          Carregando serviços...
         </SectionLoader>
       );
     } else if (services.length === 0) {
-      content = <EmptyState>Sem servicos cadastrados.</EmptyState>;
+      content = <EmptyState>Sem serviços cadastrados.</EmptyState>;
     }
 
     return (
@@ -5352,11 +5348,11 @@ export default function Financeiro() {
         <SectionHeader>
           <div>
             <SectionTitle>Servicos</SectionTitle>
-            <SectionSubtitle>Gerencie servicos, valores e disponibilidade.</SectionSubtitle>
+            <SectionSubtitle>Gerencie serviços, valores e disponibilidade.</SectionSubtitle>
           </div>
           <PrimaryButton type="button" onClick={() => openServiceModal()}>
             <FaPlus />
-            Novo servico
+            Novo serviço
           </PrimaryButton>
         </SectionHeader>
         {content}
@@ -5460,7 +5456,7 @@ export default function Financeiro() {
             <p>{formatCurrency(reportIndicators.totalReceived)}</p>
           </ReportCard>
           <ReportCard>
-            <h4>Sessoes nao quitadas</h4>
+            <h4>Sessões não quitadas</h4>
             <p>{reportIndicators.unpaidSessions}</p>
           </ReportCard>
           <ReportCard>
@@ -5469,7 +5465,7 @@ export default function Financeiro() {
           </ReportCard>
           <ReportCard>
             <h4>Lancamentos filtrados</h4>
-            <p>Exporta os lancamentos atuais com os filtros selecionados.</p>
+            <p>Exporta os lançamentos atuais com os filtros selecionados.</p>
             <GhostButton type="button" onClick={handleExportCsv}>
               Exportar CSV
             </GhostButton>
@@ -5497,11 +5493,10 @@ export default function Financeiro() {
   }
 
   const previewCycle = billingCycleSessionsPreview.cycle;
-  const previewPatientName = previewCycle?.Patient?.full_name || "-";
+  const previewPatientName = previewCycle?.Patient ? getPatientDisplayName(previewCycle.Patient) : "-";
   const previewPlanName = previewCycle?.ServicePlan?.name || "-";
   const previewPeriodLabel = previewCycle
-    ? `${formatDateOnlyBR(previewCycle.cycle_start)}${
-      previewCycle.cycle_end ? ` — ${formatDateOnlyBR(previewCycle.cycle_end)}` : ""
+    ? `${formatDateOnlyBR(previewCycle.cycle_start)}${previewCycle.cycle_end ? ` — ${formatDateOnlyBR(previewCycle.cycle_end)}` : ""
     }`
     : "-";
 
@@ -5658,7 +5653,7 @@ export default function Financeiro() {
                   !billingCycleSessionsPreview.error &&
                   billingCycleSessionsPreview.sessions.length === 0 && (
                     <EmptyState>Nenhuma sessÃ£o vinculada a este ciclo.</EmptyState>
-                )}
+                  )}
                 {!billingCycleSessionsPreview.isLoading &&
                   !billingCycleSessionsPreview.error &&
                   billingCycleSessionsPreview.sessions.length > 0 && (
@@ -5686,7 +5681,7 @@ export default function Financeiro() {
                         </tbody>
                       </SimpleTable>
                     </TableScroll>
-                )}
+                  )}
               </ModalBody>
               <ModalActions>
                 <SecondaryButton type="button" onClick={closeBillingCycleSessionsPreview}>
@@ -5705,8 +5700,8 @@ export default function Financeiro() {
             <ModalCard>
               <ModalHeader>
                 <div>
-                  <ModalTitle>Novo lancamento</ModalTitle>
-                  <ModalSubtitle>Preencha os dados do lancamento.</ModalSubtitle>
+                  <ModalTitle>Novo lançamento</ModalTitle>
+                  <ModalSubtitle>Preencha os dados do lançamento.</ModalSubtitle>
                 </div>
                 <IconButton type="button" onClick={closeEntryModal}>
                   <FaTimes />
@@ -5783,7 +5778,7 @@ export default function Financeiro() {
                       <option value="">Selecione</option>
                       {patients.map((item) => (
                         <option key={item.id} value={item.id}>
-                          {item.full_name}
+                          {getPatientDisplayName(item)}
                         </option>
                       ))}
                     </Select>
@@ -5823,28 +5818,28 @@ export default function Financeiro() {
         </>
       )}
 
-	      {isPaymentOpen && (
-	        <>
-	          <ModalOverlay>
-	            <ModalCard>
-	              <ModalHeader>
-	                <ModalHeaderText>
-	                  <ModalTitle>Registrar recebimento</ModalTitle>
-	                  {isSessionBatchPayment && (
-	                    <ModalContextLine>
-	                      <span>Paciente</span>
-	                      <strong title={paymentModalContext?.sessionBatch?.patientName || "Paciente"}>
-	                        {paymentModalContext?.sessionBatch?.patientName || "Paciente"}
-	                      </strong>
-	                    </ModalContextLine>
-	                  )}
-	                  {!isSessionBatchPayment && paymentModalSubtitle && (
-	                    <ModalSubtitle>{paymentModalSubtitle}</ModalSubtitle>
-	                  )}
-	                </ModalHeaderText>
-	                <IconButton type="button" onClick={closePaymentModal}>
-	                  <FaTimes />
-	                </IconButton>
+      {isPaymentOpen && (
+        <>
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <ModalHeaderText>
+                  <ModalTitle>Registrar recebimento</ModalTitle>
+                  {isSessionBatchPayment && (
+                    <ModalContextLine>
+                      <span>Paciente</span>
+                      <strong title={paymentModalContext?.sessionBatch?.patientName || "Paciente"}>
+                        {paymentModalContext?.sessionBatch?.patientName || "Paciente"}
+                      </strong>
+                    </ModalContextLine>
+                  )}
+                  {!isSessionBatchPayment && paymentModalSubtitle && (
+                    <ModalSubtitle>{paymentModalSubtitle}</ModalSubtitle>
+                  )}
+                </ModalHeaderText>
+                <IconButton type="button" onClick={closePaymentModal}>
+                  <FaTimes />
+                </IconButton>
               </ModalHeader>
               <ModalBody>
                 {isSimplifiedInstallmentPayment && (
@@ -5883,11 +5878,11 @@ export default function Financeiro() {
                   <>
                     {paymentForm.entry_id && (
                       <ChargeAmountBanner>
-                        <span>Valor da cobranca</span>
+                        <span>Valor da cobrança</span>
                         <strong>{formatCurrency(selectedChargeAmountCents)}</strong>
                       </ChargeAmountBanner>
                     )}
-	                    <FormGrid>
+                    <FormGrid>
                       {!paymentForm.entry_id && !isSessionBatchPayment && (
                         <Field>
                           <Label htmlFor="payment-patient">Paciente</Label>
@@ -5965,7 +5960,7 @@ export default function Financeiro() {
                       </Field>
                       {isSessionBatchPayment && (
                         <Field>
-                          <Label htmlFor="payment-batch-discount">Desconto por sessao</Label>
+                          <Label htmlFor="payment-batch-discount">Desconto por sessão</Label>
                           <CurrencyInputGroup>
                             <CurrencyPrefix>R$</CurrencyPrefix>
                             <CurrencyInput
@@ -5990,7 +5985,7 @@ export default function Financeiro() {
                               checked={Boolean(paymentForm.convert_entry_to_installments)}
                               onChange={handlePaymentChange}
                             />
-                            <span>Parcelamento da cobranca</span>
+                            <span>Parcelamento da cobrança</span>
                           </InlineCheckLabel>
                           {paymentForm.convert_entry_to_installments && (
                             <NestedField>
@@ -6016,7 +6011,7 @@ export default function Financeiro() {
                         && paymentForm.convert_entry_to_installments && (
                           <Field>
                             <MutedText>
-                              Ao confirmar, a cobranca vira parcelada. A 1ª parcela vence na data do recebimento e sera baixada agora. As demais ficam para os meses seguintes.
+                              Ao confirmar, a cobrança vira parcelada. A 1ª parcela vence na data do recebimento e será baixada agora. As demais ficam para os meses seguintes.
                             </MutedText>
                           </Field>
                         )}
@@ -6063,59 +6058,59 @@ export default function Financeiro() {
                             value={paymentForm.allocation_mode}
                             onChange={handlePaymentChange}
                           >
-                            <option value="credit">Guardar como credito</option>
-                            <option value="auto">Quitar cobrancas automaticamente</option>
-                            <option value="manual">Escolher cobrancas manualmente</option>
+                            <option value="credit">Guardar como crédito</option>
+                            <option value="auto">Quitar cobranças automaticamente</option>
+                            <option value="manual">Escolher cobranças manualmente</option>
                           </Select>
                         </Field>
                       )}
-	                    </FormGrid>
-	                    {isSessionBatchPayment && (
-	                      <PaymentPreviewBox>
-	                        <PaymentPreviewTitle>Resumo da cobranca</PaymentPreviewTitle>
-	                        <PaymentPreviewRow>
-	                          <span>Valor por sessao</span>
-	                          <PaymentPreviewValue>
-	                            {paymentPreview.discountCents > 0 && (
-	                              <DiscountFlag>com desconto</DiscountFlag>
-	                            )}
-	                            <strong>
-	                              {formatCurrency(
-	                                paymentPreview.discountCents > 0
-	                                  ? paymentPreview.batchFinalPerSessionCents || 0
-	                                  : paymentPreview.batchOriginalPerSessionCents || 0,
-	                              )}
-	                            </strong>
-	                          </PaymentPreviewValue>
-	                        </PaymentPreviewRow>
-	                        <PaymentPreviewRow>
-	                          <span>Quantidade de sessoes</span>
-	                          <strong>{paymentPreview.batchSessionCount || 0}</strong>
-	                        </PaymentPreviewRow>
-	                        <PaymentPreviewRow $total>
-	                          <span>Total da cobranca</span>
-	                          <strong>{formatCurrency(paymentPreview.finalChargedCents || 0)}</strong>
-	                        </PaymentPreviewRow>
-	                        <PaymentPreviewSectionTitle>Resumo do pagamento</PaymentPreviewSectionTitle>
-	                        <PaymentPreviewRow $emphasis>
-	                          <span>Valor recebido</span>
-	                          <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
-	                        </PaymentPreviewRow>
-	                        <PaymentPreviewRow $balance={paymentPreview.openAfterCents > 0 || paymentPreview.creditAfterCents > 0}>
-	                          <span>{sessionBatchBalanceLabel}</span>
-	                          <strong>
-	                            {formatCurrency(
-	                              paymentPreview.creditAfterCents > 0
-	                                ? paymentPreview.creditAfterCents
-	                                : paymentPreview.openAfterCents,
-	                            )}
-	                          </strong>
-	                        </PaymentPreviewRow>
-	                      </PaymentPreviewBox>
-	                    )}
+                    </FormGrid>
+                    {isSessionBatchPayment && (
+                      <PaymentPreviewBox>
+                        <PaymentPreviewTitle>Resumo da cobrança</PaymentPreviewTitle>
+                        <PaymentPreviewRow>
+                          <span>Valor por sessão</span>
+                          <PaymentPreviewValue>
+                            {paymentPreview.discountCents > 0 && (
+                              <DiscountFlag>com desconto</DiscountFlag>
+                            )}
+                            <strong>
+                              {formatCurrency(
+                                paymentPreview.discountCents > 0
+                                  ? paymentPreview.batchFinalPerSessionCents || 0
+                                  : paymentPreview.batchOriginalPerSessionCents || 0,
+                              )}
+                            </strong>
+                          </PaymentPreviewValue>
+                        </PaymentPreviewRow>
+                        <PaymentPreviewRow>
+                          <span>Quantidade de sessões</span>
+                          <strong>{paymentPreview.batchSessionCount || 0}</strong>
+                        </PaymentPreviewRow>
+                        <PaymentPreviewRow $total>
+                          <span>Total da cobrança</span>
+                          <strong>{formatCurrency(paymentPreview.finalChargedCents || 0)}</strong>
+                        </PaymentPreviewRow>
+                        <PaymentPreviewSectionTitle>Resumo do pagamento</PaymentPreviewSectionTitle>
+                        <PaymentPreviewRow $emphasis>
+                          <span>Valor recebido</span>
+                          <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
+                        </PaymentPreviewRow>
+                        <PaymentPreviewRow $balance={paymentPreview.openAfterCents > 0 || paymentPreview.creditAfterCents > 0}>
+                          <span>{sessionBatchBalanceLabel}</span>
+                          <strong>
+                            {formatCurrency(
+                              paymentPreview.creditAfterCents > 0
+                                ? paymentPreview.creditAfterCents
+                                : paymentPreview.openAfterCents,
+                            )}
+                          </strong>
+                        </PaymentPreviewRow>
+                      </PaymentPreviewBox>
+                    )}
                     {!isSimplifiedInstallmentPayment && paymentForm.entry_id && paymentPreview.originalInstallmentsCount > 1 && (
                       <MutedText>
-                        Esta cobranca ja esta parcelada. Neste fluxo, registre apenas a quitacao da parcela em aberto.
+                        Esta cobrança já está parcelada. Neste fluxo, registre apenas a quitação da parcela em aberto.
                       </MutedText>
                     )}
                     <Field>
@@ -6132,7 +6127,7 @@ export default function Financeiro() {
                       <PaymentPreviewBox>
                         <PaymentPreviewTitle>Resumo da operacao</PaymentPreviewTitle>
                         <PaymentPreviewRow>
-                          <span>Valor da cobranca</span>
+                          <span>Valor da cobrança</span>
                           <strong>{formatCurrency(selectedChargeAmountCents)}</strong>
                         </PaymentPreviewRow>
                         {paymentPreview.discountCents > 0 && (
@@ -6160,7 +6155,7 @@ export default function Financeiro() {
                         <PaymentPreviewRow>
                           <span>
                             {paymentPreview.creditAfterCents > 0
-                              ? "Saldo em credito"
+                              ? "Saldo em crédito"
                               : "Valor pendente"}
                           </span>
                           <strong>
@@ -6174,7 +6169,7 @@ export default function Financeiro() {
                         {(paymentPreview.installmentsCount > 1 || paymentForm.convert_entry_to_installments) && (
                           <>
                             <PaymentPreviewRow>
-                              <span>Parcelamento da cobranca</span>
+                              <span>Parcelamento da cobrança</span>
                               <strong>
                                 {`${paymentPreview.installmentsCount}x de ${formatCurrency(paymentPreview.installmentUnitCents)}`}
                               </strong>
@@ -6191,9 +6186,9 @@ export default function Financeiro() {
                     )}
                     {!paymentForm.entry_id && !isSessionBatchPayment && paymentForm.allocation_mode === "manual" && (
                       <Field>
-                        <Label>Escolher cobrancas</Label>
+                        <Label>Escolher cobranças</Label>
                         {openEntriesForPayment.length === 0 ? (
-                          <MutedText>Sem cobrancas em aberto para este paciente.</MutedText>
+                          <MutedText>Sem cobranças em aberto para este paciente.</MutedText>
                         ) : (
                           <>
                             <SimpleTable>
@@ -6256,7 +6251,7 @@ export default function Financeiro() {
               <ModalHeader>
                 <div>
                   <ModalTitle>{editingCategoryId ? "Editar categoria" : "Nova categoria"}</ModalTitle>
-                  <ModalSubtitle>Organize os lancamentos.</ModalSubtitle>
+                  <ModalSubtitle>Organize os lançamentos.</ModalSubtitle>
                 </div>
                 <IconButton type="button" onClick={closeCategoryModal}>
                   <FaTimes />
@@ -6355,7 +6350,7 @@ export default function Financeiro() {
             <ModalCard>
               <ModalHeader>
                 <div>
-                  <ModalTitle>{editingServiceId ? "Editar servico" : "Novo servico"}</ModalTitle>
+                  <ModalTitle>{editingServiceId ? "Editar serviço" : "Novo serviço"}</ModalTitle>
                   <ModalSubtitle>Gerencie nome, valor e disponibilidade.</ModalSubtitle>
                 </div>
                 <IconButton
@@ -8007,15 +8002,15 @@ const PaymentPreviewRow = styled.div`
 
   strong {
     font-size: ${({ $emphasis, $total }) => {
-      if ($total) return "18px";
-      if ($emphasis) return "16px";
-      return "14px";
-    }};
+    if ($total) return "18px";
+    if ($emphasis) return "16px";
+    return "14px";
+  }};
     color: ${({ $balance, $discount }) => {
-      if ($discount) return "#a33a2b";
-      if ($balance) return "#7a3f14";
-      return "#2f2f2f";
-    }};
+    if ($discount) return "#a33a2b";
+    if ($balance) return "#7a3f14";
+    return "#2f2f2f";
+  }};
     white-space: nowrap;
   }
 
