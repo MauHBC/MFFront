@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import styled, { css } from "styled-components";
 import { toast } from "react-toastify";
-import { FaInfoCircle, FaListAlt, FaPhoneAlt, FaUserAlt } from "react-icons/fa";
+import { FaInfoCircle, FaListAlt, FaPhoneAlt, FaTimes, FaUserAlt } from "react-icons/fa";
 
 import DataLoadingState from "../../components/DataLoadingState";
 import axios from "../../services/axios";
@@ -100,9 +100,9 @@ const ATTENTION_LEVEL_STYLES = {
 };
 
 const FREQUENCY_RANGE_OPTIONS = [
-  { value: 1, label: "Mes atual" },
-  { value: 3, label: "Ultimos 3 meses" },
-  { value: 6, label: "Ultimos 6 meses" },
+  { value: 3, label: "Últimos 3 meses" },
+  { value: 6, label: "Últimos 6 meses" },
+  { value: 12, label: "Últimos 12 meses" },
 ];
 
 const ENDED_SESSION_STATUSES = new Set(["done", "no_show", "canceled"]);
@@ -183,6 +183,27 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatTime(value) {
+  if (!value) return "--:--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--:--";
+  return date.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatSessionStatus(status) {
+  const map = {
+    scheduled: "Agendada",
+    done: "Realizada",
+    no_show: "Falta",
+    canceled: "Cancelada",
+    suspended: "Suspensa",
+  };
+  return map[status] || valueOrDash(status);
 }
 
 function startOfMonth(date) {
@@ -284,6 +305,39 @@ function buildFrequencySummary(sessions, rangeMonths, policy = DEFAULT_OPERATION
       hasAlert: alerts.length > 0,
     };
   });
+}
+
+function buildFrequencyPeriodSummary(months) {
+  const totals = (months || []).reduce(
+    (accumulator, month) => ({
+      scheduled: accumulator.scheduled + month.scheduled,
+      done: accumulator.done + month.done,
+      noShow: accumulator.noShow + month.noShow,
+      reschedules: accumulator.reschedules + month.reschedules,
+      canceled: accumulator.canceled + month.canceled,
+      closed: accumulator.closed + month.closed,
+    }),
+    {
+      scheduled: 0,
+      done: 0,
+      noShow: 0,
+      reschedules: 0,
+      canceled: 0,
+      closed: 0,
+    },
+  );
+
+  return {
+    ...totals,
+    attendanceRate: totals.closed > 0
+      ? Math.round((totals.done / totals.closed) * 100)
+      : null,
+  };
+}
+
+function getAttendanceTone(rate) {
+  if (rate === null || rate === undefined) return "neutral";
+  return rate >= 75 ? "positive" : "attention";
 }
 
 function formatBoolean(value) {
@@ -438,6 +492,9 @@ export default function PatientDetails() {
   const [patient, setPatient] = useState(null);
   const [evaluations, setEvaluations] = useState([]);
   const [frequencySessions, setFrequencySessions] = useState([]);
+  const [perSessionSessions, setPerSessionSessions] = useState([]);
+  const [perSessionSeries, setPerSessionSeries] = useState([]);
+  const [selectedPackage, setSelectedPackage] = useState(null);
   const [replacementCredits, setReplacementCredits] = useState([]);
   const [operationalPolicy, setOperationalPolicy] = useState(DEFAULT_OPERATIONAL_POLICY);
   const [frequencyRangeMonths, setFrequencyRangeMonths] = useState(3);
@@ -456,6 +513,8 @@ export default function PatientDetails() {
           patientResponse,
           evalResponse,
           sessionsResponse,
+          allSessionsResponse,
+          sessionSeriesResponse,
           replacementCreditsResponse,
           operationalPolicyResponse,
         ] = await Promise.all([
@@ -468,6 +527,8 @@ export default function PatientDetails() {
               to: formatDateParam(sessionsTo),
             },
           }),
+          axios.get("/sessions", { params: { patient_id: id } }),
+          axios.get("/session-series", { params: { patient_id: id } }),
           axios.get("/session-replacement-credits", { params: { patient_id: id } }),
           axios.get("/unit-scheduling-policy"),
         ]);
@@ -475,6 +536,12 @@ export default function PatientDetails() {
         setEvaluations(Array.isArray(evalResponse.data) ? evalResponse.data : []);
         setFrequencySessions(
           Array.isArray(sessionsResponse.data) ? sessionsResponse.data : [],
+        );
+        setPerSessionSessions(
+          Array.isArray(allSessionsResponse.data) ? allSessionsResponse.data : [],
+        );
+        setPerSessionSeries(
+          Array.isArray(sessionSeriesResponse.data) ? sessionSeriesResponse.data : [],
         );
         setReplacementCredits(
           Array.isArray(replacementCreditsResponse.data) ? replacementCreditsResponse.data : [],
@@ -548,10 +615,107 @@ export default function PatientDetails() {
     () => buildFrequencySummary(frequencySessions, frequencyRangeMonths, operationalPolicy),
     [frequencyRangeMonths, frequencySessions, operationalPolicy],
   );
-  const hasFrequencyAlert = useMemo(
-    () => frequencySummary.some((month) => month.hasAlert),
+  const frequencyPeriodSummary = useMemo(
+    () => buildFrequencyPeriodSummary(frequencySummary),
     [frequencySummary],
   );
+  const perSessionSeriesById = useMemo(() => {
+    const map = new Map();
+    perSessionSeries.forEach((series) => {
+      if (series.id) map.set(Number(series.id), series);
+    });
+    return map;
+  }, [perSessionSeries]);
+
+  const perSessionItems = useMemo(() => {
+    const eligibleSessions = perSessionSessions
+      .filter((session) => (session.billing_mode || "per_session") === "per_session")
+      .sort((first, second) => new Date(first.starts_at || 0) - new Date(second.starts_at || 0));
+    const sessionsBySeriesId = new Map();
+    const singleSessions = [];
+
+    eligibleSessions.forEach((session) => {
+      const seriesId = Number(session.series_id || session.series?.id || 0);
+      if (seriesId) {
+        const list = sessionsBySeriesId.get(seriesId) || [];
+        list.push(session);
+        sessionsBySeriesId.set(seriesId, list);
+        return;
+      }
+      singleSessions.push(session);
+    });
+
+    const buildSessionDetail = (session) => {
+      return {
+        id: session.id,
+        starts_at: session.starts_at,
+        dateLabel: formatDate(session.starts_at),
+        timeLabel: formatTime(session.starts_at),
+        serviceName: session.Service?.name || session.service?.name || valueOrDash(session.service_type),
+        professionalName: session.professional?.name || "-",
+        status: session.status || "scheduled",
+        statusLabel: formatSessionStatus(session.status || "scheduled"),
+      };
+    };
+
+    const packageItems = Array.from(sessionsBySeriesId.entries()).map(([seriesId, sessions]) => {
+      const series = perSessionSeriesById.get(Number(seriesId)) || sessions[0]?.series || {};
+      const sessionDetails = sessions.map(buildSessionDetail);
+      const totalSessions = Number(series.occurrence_count || 0)
+        || Number(sessions[0]?.recurring_total || 0)
+        || sessions.length;
+      const doneCount = sessions.filter((session) => session.status === "done").length;
+      const noShowCount = sessions.filter((session) => session.status === "no_show").length;
+      const scheduledCount = sessions.filter((session) => session.status === "scheduled").length;
+      const canceledCount = sessions.filter((session) => session.status === "canceled").length;
+      const serviceName = series.Service?.name
+        || sessions[0]?.Service?.name
+        || sessions[0]?.service?.name
+        || "Pacote de sessões";
+
+      return {
+        id: `series-${seriesId}`,
+        kind: "package",
+        sourceId: seriesId,
+        serviceName,
+        referenceDate: sessions[0]?.starts_at || series.starts_at || null,
+        totalSessions,
+        doneCount,
+        noShowCount,
+        scheduledCount,
+        canceledCount,
+        sessions: sessionDetails,
+      };
+    });
+
+    const singleItems = singleSessions.map((session) => {
+      const detail = buildSessionDetail(session);
+      return {
+        id: `session-${session.id}`,
+        kind: "single",
+        sourceId: session.id,
+        serviceName: detail.serviceName || "Sessão avulsa",
+        referenceDate: session.starts_at,
+        totalSessions: 1,
+        doneCount: session.status === "done" ? 1 : 0,
+        noShowCount: session.status === "no_show" ? 1 : 0,
+        scheduledCount: session.status === "scheduled" ? 1 : 0,
+        canceledCount: session.status === "canceled" ? 1 : 0,
+        status: session.status || "scheduled",
+        sessions: [detail],
+      };
+    });
+
+    return [...packageItems, ...singleItems]
+      .sort((first, second) => {
+        const firstDate = new Date(first.referenceDate || 0).getTime();
+        const secondDate = new Date(second.referenceDate || 0).getTime();
+        return (Number.isNaN(firstDate) ? 0 : firstDate) - (Number.isNaN(secondDate) ? 0 : secondDate);
+      });
+  }, [
+    perSessionSeriesById,
+    perSessionSessions,
+  ]);
 
   const isTreatmentGoalOtherSelected = editForm.treatment_goal_options.includes(
     "other",
@@ -569,41 +733,13 @@ export default function PatientDetails() {
   const showResumo = useCallback(() => setActiveTab(TABS.resumo), []);
   const showHistorico = useCallback(() => setActiveTab(TABS.historico), []);
   const showDados = useCallback(() => setActiveTab(TABS.dados), []);
+  const closePackageModal = useCallback(() => setSelectedPackage(null), []);
 
   const reloadReplacementCredits = useCallback(async () => {
     if (!id) return;
     const response = await axios.get("/session-replacement-credits", { params: { patient_id: id } });
     setReplacementCredits(Array.isArray(response.data) ? response.data : []);
   }, [id]);
-
-  const handleCreateReplacementCredit = useCallback(async () => {
-    if (!id) return;
-    // eslint-disable-next-line no-alert
-    const reason = window.prompt("Motivo da reposição:");
-    if (reason === null) return;
-    const normalizedReason = reason.trim();
-    if (!normalizedReason) {
-      toast.error("Informe o motivo da reposição.");
-      return;
-    }
-    // eslint-disable-next-line no-alert
-    const sourceSessionText = window.prompt("ID da sessão de origem (opcional):", "");
-    const sourceSessionId = Number(String(sourceSessionText || "").trim());
-
-    try {
-      await axios.post("/session-replacement-credits", {
-        patient_id: Number(id),
-        reason: normalizedReason,
-        source_session_id: Number.isInteger(sourceSessionId) && sourceSessionId > 0
-          ? sourceSessionId
-          : null,
-      });
-      toast.success("Reposicao criada.");
-      await reloadReplacementCredits();
-    } catch (error) {
-      toast.error(error?.response?.data?.error || "Não foi possível criar a reposição.");
-    }
-  }, [id, reloadReplacementCredits]);
 
   const handleCancelReplacementCredit = useCallback(async (creditId) => {
     // eslint-disable-next-line no-alert
@@ -854,9 +990,9 @@ export default function PatientDetails() {
             </HeaderTitle>
           </div>
           <HeaderActions>
-            <AddLink to={`/pacientes/${id}/avaliacoes/nova`}>
+            {/* <AddLink to={`/pacientes/${id}/avaliacoes/nova`}>
               Adicionar registro
-            </AddLink>
+            </AddLink> */}
             <LinkGhostButton to="/pacientes/consultar">Voltar</LinkGhostButton>
           </HeaderActions>
         </Header>
@@ -874,7 +1010,7 @@ export default function PatientDetails() {
             onClick={showHistorico}
             $active={activeTab === TABS.historico}
           >
-            Historico
+            Histórico
           </TabButton>
           <TabButton
             type="button"
@@ -912,79 +1048,8 @@ export default function PatientDetails() {
             <InfoCard>
               <FrequencyHeader>
                 <CardTitle>
-                  <FaListAlt /> Resumo de frequência e agenda
+                  <FaListAlt /> Reposições de sessão
                 </CardTitle>
-                <FrequencyRangeControl
-                  value={frequencyRangeMonths}
-                  onChange={(event) => setFrequencyRangeMonths(Number(event.target.value))}
-                  aria-label="Período do resumo de frequência"
-                >
-                  {FREQUENCY_RANGE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </FrequencyRangeControl>
-              </FrequencyHeader>
-              {hasFrequencyAlert && (
-                <FrequencyAlert>
-                  Paciente com faltas/remarcações recorrentes. Avaliar manualmente a manutenção dos horários futuros.
-                </FrequencyAlert>
-              )}
-              <FrequencyGrid>
-                {frequencySummary.map((month) => (
-                  <FrequencyMonthCard key={month.key} $alert={month.hasAlert}>
-                    <FrequencyMonthHeader>
-                      <strong>{month.label}</strong>
-                      {month.hasAlert && <FrequencyAlertPill>Alerta</FrequencyAlertPill>}
-                    </FrequencyMonthHeader>
-                    <FrequencyStats>
-                      <FrequencyStat>
-                        <span>Agendadas</span>
-                        <strong>{month.scheduled}</strong>
-                      </FrequencyStat>
-                      <FrequencyStat>
-                        <span>Realizadas</span>
-                        <strong>{month.done}</strong>
-                      </FrequencyStat>
-                      <FrequencyStat>
-                        <span>Faltas</span>
-                        <strong>{month.noShow}</strong>
-                      </FrequencyStat>
-                      <FrequencyStat>
-                        <span>Remarcacoes</span>
-                        <strong>{month.reschedules}</strong>
-                      </FrequencyStat>
-                      <FrequencyStat>
-                        <span>Cancelamentos</span>
-                        <strong>{month.canceled}</strong>
-                      </FrequencyStat>
-                      <FrequencyStat>
-                        <span>Comparecimento</span>
-                        <strong>
-                          {month.attendanceRate === null ? "-" : `${month.attendanceRate}%`}
-                        </strong>
-                      </FrequencyStat>
-                    </FrequencyStats>
-                    {month.alerts.length > 0 && (
-                      <FrequencyAlertList>
-                        {month.alerts.map((alert) => (
-                          <li key={alert}>{alert}</li>
-                        ))}
-                      </FrequencyAlertList>
-                    )}
-                  </FrequencyMonthCard>
-                ))}
-              </FrequencyGrid>
-            </InfoCard>
-            <InfoCard>
-              <FrequencyHeader>
-                <CardTitle>
-                  <FaListAlt /> Reposicoes de sessão
-                </CardTitle>
-                <CardButton type="button" $primary onClick={handleCreateReplacementCredit}>
-                  Criar reposição
-                </CardButton>
               </FrequencyHeader>
               {replacementCredits.length === 0 && (
                 <EmptyState>Nenhuma reposição registrada.</EmptyState>
@@ -1022,6 +1087,152 @@ export default function PatientDetails() {
 
         {!isLoading && activeTab === TABS.historico && (
           <Section>
+            <InfoCard>
+              <FrequencyHeader>
+                <CardTitle>
+                  <FaListAlt /> Frequência e presença
+                </CardTitle>
+                <FrequencyRangeControl
+                  value={frequencyRangeMonths}
+                  onChange={(event) => setFrequencyRangeMonths(Number(event.target.value))}
+                  aria-label="Período da análise de frequência"
+                >
+                  {FREQUENCY_RANGE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </FrequencyRangeControl>
+              </FrequencyHeader>
+              <FrequencySummaryGrid>
+                <FrequencySummaryCard>
+                  <span>Agendadas</span>
+                  <strong>{frequencyPeriodSummary.scheduled}</strong>
+                </FrequencySummaryCard>
+                <FrequencySummaryCard>
+                  <span>Realizadas</span>
+                  <strong>{frequencyPeriodSummary.done}</strong>
+                </FrequencySummaryCard>
+                <FrequencySummaryCard $tone={frequencyPeriodSummary.noShow > 0 ? "attention" : "neutral"}>
+                  <span>Faltas</span>
+                  <strong>{frequencyPeriodSummary.noShow}</strong>
+                </FrequencySummaryCard>
+                <FrequencySummaryCard>
+                  <span>Cancelamentos</span>
+                  <strong>{frequencyPeriodSummary.canceled}</strong>
+                </FrequencySummaryCard>
+                <FrequencySummaryCard $tone={frequencyPeriodSummary.reschedules > 0 ? "attention" : "neutral"}>
+                  <span>Remarcações</span>
+                  <strong>{frequencyPeriodSummary.reschedules}</strong>
+                </FrequencySummaryCard>
+                <FrequencySummaryCard $tone={getAttendanceTone(frequencyPeriodSummary.attendanceRate)}>
+                  <span>Comparecimento</span>
+                  <strong>
+                    {frequencyPeriodSummary.attendanceRate === null
+                      ? "-"
+                      : `${frequencyPeriodSummary.attendanceRate}%`}
+                  </strong>
+                </FrequencySummaryCard>
+              </FrequencySummaryGrid>
+              <FrequencyTableWrap>
+                <FrequencyTable>
+                  <thead>
+                    <tr>
+                      <th>Mês</th>
+                      <th>Agendadas</th>
+                      <th>Realizadas</th>
+                      <th>Faltas</th>
+                      <th>Remarcações</th>
+                      <th>Cancelamentos</th>
+                      <th>Comparecimento</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {frequencySummary.map((month) => (
+                      <tr key={month.key}>
+                        <td>
+                          <strong>{month.label}</strong>
+                        </td>
+                        <td>{month.scheduled}</td>
+                        <td>{month.done}</td>
+                        <td>
+                          <FrequencyCellHighlight $active={month.noShow > 0}>
+                            {month.noShow}
+                          </FrequencyCellHighlight>
+                        </td>
+                        <td>
+                          <FrequencyCellHighlight $active={month.reschedules > 0}>
+                            {month.reschedules}
+                          </FrequencyCellHighlight>
+                        </td>
+                        <td>{month.canceled}</td>
+                        <td>
+                          <AttendanceRatePill $tone={getAttendanceTone(month.attendanceRate)}>
+                            {month.attendanceRate === null ? "-" : `${month.attendanceRate}%`}
+                          </AttendanceRatePill>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </FrequencyTable>
+              </FrequencyTableWrap>
+            </InfoCard>
+            <InfoCard>
+              <FrequencyHeader>
+                <CardTitle>
+                  <FaListAlt /> Pacotes e sessões avulsas
+                </CardTitle>
+              </FrequencyHeader>
+              {perSessionItems.length === 0 && (
+                <EmptyState>Nenhum pacote ou sessão avulsa encontrada para este paciente.</EmptyState>
+              )}
+              {perSessionItems.length > 0 && (
+                <PackageTableWrap>
+                  <PackageTable>
+                    <thead>
+                      <tr>
+                        <th>Tipo</th>
+                        <th>Serviço</th>
+                        <th>Data inicial</th>
+                        <th>Total</th>
+                        <th>Realizadas</th>
+                        <th>Faltas</th>
+                        <th>Canceladas</th>
+                        <th>Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {perSessionItems.map((item) => (
+                        <tr key={item.id}>
+                          <td>
+                            <TypePill $kind={item.kind}>
+                              {item.kind === "package" ? "Pacote" : "Avulsa"}
+                            </TypePill>
+                          </td>
+                          <td>
+                            <strong>{item.serviceName}</strong>
+                          </td>
+                          <td>{formatDate(item.referenceDate)}</td>
+                          <td>{item.totalSessions}</td>
+                          <td>{item.doneCount}</td>
+                          <td>{item.noShowCount}</td>
+                          <td>{item.canceledCount}</td>
+                          <td>
+                            {item.kind === "package" ? (
+                              <CardButton type="button" onClick={() => setSelectedPackage(item)}>
+                                Ver sessões
+                              </CardButton>
+                            ) : (
+                              <span>-</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </PackageTable>
+                </PackageTableWrap>
+              )}
+            </InfoCard>
             {evaluations.length === 0 && (
               <EmptyState>Nenhuma avaliacao encontrada.</EmptyState>
             )}
@@ -1072,7 +1283,7 @@ export default function PatientDetails() {
                   {isAttentionLevelMissing && (
                     <AttentionMissingPill>Atenção não definida</AttentionMissingPill>
                   )}
-                  {isPersonalEditing && <EditingBadge>Em edicao</EditingBadge>}
+                  {isPersonalEditing && <EditingBadge>Em edição</EditingBadge>}
                 </CardHeaderInfo>
                 {renderSectionActions(EDIT_SECTIONS.personal)}
               </CardHeader>
@@ -1293,7 +1504,7 @@ export default function PatientDetails() {
                   <CardTitle>
                     <FaPhoneAlt /> Contato
                   </CardTitle>
-                  {isContactEditing && <EditingBadge>Em edicao</EditingBadge>}
+                  {isContactEditing && <EditingBadge>Em edição</EditingBadge>}
                 </CardHeaderInfo>
                 {renderSectionActions(EDIT_SECTIONS.contact)}
               </CardHeader>
@@ -1413,7 +1624,7 @@ export default function PatientDetails() {
               <CardHeader>
                 <CardHeaderInfo>
                   <CardTitle>Endereco</CardTitle>
-                  {isAddressEditing && <EditingBadge>Em edicao</EditingBadge>}
+                  {isAddressEditing && <EditingBadge>Em edição</EditingBadge>}
                 </CardHeaderInfo>
                 {renderSectionActions(EDIT_SECTIONS.address)}
               </CardHeader>
@@ -1539,7 +1750,7 @@ export default function PatientDetails() {
               <CardHeader>
                 <CardHeaderInfo>
                   <CardTitle>Contato de emergencia</CardTitle>
-                  {isEmergencyEditing && <EditingBadge>Em edicao</EditingBadge>}
+                  {isEmergencyEditing && <EditingBadge>Em edição</EditingBadge>}
                 </CardHeaderInfo>
                 {renderSectionActions(EDIT_SECTIONS.emergency)}
               </CardHeader>
@@ -1604,7 +1815,7 @@ export default function PatientDetails() {
               <CardHeader>
                 <CardHeaderInfo>
                   <CardTitle>Informacoes clinicas</CardTitle>
-                  {isClinicalEditing && <EditingBadge>Em edicao</EditingBadge>}
+                  {isClinicalEditing && <EditingBadge>Em edição</EditingBadge>}
                 </CardHeaderInfo>
                 {renderSectionActions(EDIT_SECTIONS.clinical)}
               </CardHeader>
@@ -1694,7 +1905,7 @@ export default function PatientDetails() {
               <CardHeader>
                 <CardHeaderInfo>
                   <CardTitle>Consentimentos</CardTitle>
-                  {isConsentEditing && <EditingBadge>Em edicao</EditingBadge>}
+                  {isConsentEditing && <EditingBadge>Em edição</EditingBadge>}
                 </CardHeaderInfo>
                 {renderSectionActions(EDIT_SECTIONS.consent)}
               </CardHeader>
@@ -1765,6 +1976,50 @@ export default function PatientDetails() {
             </InfoCard>
           </Section>
         )}
+        {selectedPackage && (
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <div>
+                  <ModalTitle>Sessões do pacote</ModalTitle>
+                  <ModalSubtitle>
+                    <strong>{selectedPackage.serviceName}</strong>
+                    <span>
+                      {selectedPackage.doneCount}/{selectedPackage.totalSessions} realizadas
+                    </span>
+                  </ModalSubtitle>
+                </div>
+                <IconButton type="button" onClick={closePackageModal} aria-label="Fechar">
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <PackageSessionTableWrap>
+                <PackageSessionTable>
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Horário</th>
+                      <th>Profissional</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedPackage.sessions.map((session) => (
+                      <tr key={session.id}>
+                        <td>{session.dateLabel}</td>
+                        <td>{session.timeLabel}</td>
+                        <td>{session.professionalName}</td>
+                        <td>
+                          <StatusPill>{session.statusLabel}</StatusPill>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </PackageSessionTable>
+              </PackageSessionTableWrap>
+            </ModalCard>
+          </ModalOverlay>
+        )}
       </PageContent>
     </PageWrapper>
   );
@@ -1792,17 +2047,17 @@ const HeaderActions = styled.div`
   flex-wrap: wrap;
 `;
 
-const AddLink = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 18px;
-  border-radius: 10px;
-  background: #6a795c;
-  color: #fff;
-  text-decoration: none;
-  font-weight: 700;
-`;
+// const AddLink = styled(Link)`
+//   display: inline-flex;
+//   align-items: center;
+//   justify-content: center;
+//   padding: 10px 18px;
+//   border-radius: 10px;
+//   background: #6a795c;
+//   color: #fff;
+//   text-decoration: none;
+//   font-weight: 700;
+// `;
 
 const Tabs = styled.div`
   display: flex;
@@ -1924,88 +2179,160 @@ const FrequencyRangeControl = styled.select`
   font-weight: 700;
 `;
 
-const FrequencyAlert = styled.div`
-  margin-top: 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(165, 106, 0, 0.24);
-  background: rgba(165, 106, 0, 0.1);
-  color: #7a5000;
-  padding: 10px 12px;
-  font-size: 0.9rem;
-  font-weight: 700;
-`;
-
-const FrequencyGrid = styled.div`
+const FrequencySummaryGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
   margin-top: 14px;
 `;
 
-const FrequencyMonthCard = styled.div`
-  border-radius: 12px;
-  border: 1px solid
-    ${(props) => (props.$alert ? "rgba(165, 106, 0, 0.28)" : "rgba(106, 121, 92, 0.16)")};
-  background: ${(props) => (props.$alert ? "rgba(165, 106, 0, 0.06)" : "#fcfdf8")};
-  padding: 12px;
-`;
-
-const FrequencyMonthHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-
-  strong {
-    color: #1b1b1b;
-    text-transform: capitalize;
-  }
-`;
-
-const FrequencyAlertPill = styled.span`
-  border-radius: 999px;
-  padding: 3px 8px;
-  background: rgba(165, 106, 0, 0.12);
-  color: #7a5000;
-  font-size: 0.75rem;
-  font-weight: 800;
-`;
-
-const FrequencyStats = styled.div`
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-`;
-
-const FrequencyStat = styled.div`
-  min-width: 0;
+const FrequencySummaryCard = styled.div`
   border-radius: 10px;
-  background: #fff;
-  border: 1px solid rgba(106, 121, 92, 0.12);
-  padding: 8px;
+  border: 1px solid
+    ${(props) => {
+    if (props.$tone === "positive") return "rgba(79, 124, 66, 0.28)";
+    if (props.$tone === "attention") return "rgba(165, 106, 0, 0.26)";
+    return "rgba(106, 121, 92, 0.14)";
+  }};
+  background: ${(props) => {
+    if (props.$tone === "positive") return "rgba(79, 124, 66, 0.08)";
+    if (props.$tone === "attention") return "rgba(165, 106, 0, 0.08)";
+    return "#fcfdf8";
+  }};
+  padding: 12px;
 
   span {
     display: block;
     color: #6a795c;
     font-size: 0.78rem;
-    font-weight: 700;
+    font-weight: 800;
   }
 
   strong {
     display: block;
-    margin-top: 2px;
+    margin-top: 4px;
     color: #1b1b1b;
-    font-size: 1.05rem;
+    font-size: 1.35rem;
   }
 `;
 
-const FrequencyAlertList = styled.ul`
-  margin: 10px 0 0;
-  padding-left: 18px;
-  color: #7a5000;
-  font-size: 0.86rem;
-  font-weight: 700;
+const FrequencyTableWrap = styled.div`
+  margin-top: 14px;
+  overflow-x: auto;
+`;
+
+const FrequencyTable = styled.table`
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+
+  th,
+  td {
+    border-bottom: 1px solid rgba(106, 121, 92, 0.12);
+    padding: 10px 8px;
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  th {
+    color: #6a795c;
+    font-size: 0.78rem;
+    font-weight: 900;
+  }
+
+  td {
+    color: #1b1b1b;
+    font-size: 0.9rem;
+  }
+
+  td:first-child {
+    text-transform: capitalize;
+  }
+`;
+
+const PackageTableWrap = styled.div`
+  margin-top: 14px;
+  overflow-x: auto;
+`;
+
+const PackageTable = styled.table`
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 780px;
+
+  th,
+  td {
+    border-bottom: 1px solid rgba(106, 121, 92, 0.12);
+    padding: 10px 8px;
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  th {
+    color: #6a795c;
+    font-size: 0.74rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  td {
+    color: #1b1b1b;
+    font-size: 0.9rem;
+  }
+`;
+
+const TypePill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  border-radius: 999px;
+  padding: 5px 9px;
+  border: 1px solid
+    ${(props) => (props.$kind === "package" ? "rgba(106, 121, 92, 0.22)" : "rgba(165, 106, 0, 0.22)")};
+  background: ${(props) => (props.$kind === "package" ? "rgba(106, 121, 92, 0.09)" : "rgba(165, 106, 0, 0.09)")};
+  color: ${(props) => (props.$kind === "package" ? "#55644c" : "#7a5000")};
+  font-size: 0.78rem;
+  font-weight: 900;
+`;
+
+const StatusPill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: ${(props) => (props.$financial ? "rgba(106, 121, 92, 0.09)" : "#f2f4ef")};
+  color: #3f4f38;
+  font-size: 0.76rem;
+  font-weight: 900;
+`;
+
+const FrequencyCellHighlight = styled.span`
+  color: ${(props) => (props.$active ? "#8a5a00" : "#1b1b1b")};
+  font-weight: ${(props) => (props.$active ? "900" : "700")};
+`;
+
+const AttendanceRatePill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: ${(props) => {
+    if (props.$tone === "positive") return "rgba(79, 124, 66, 0.12)";
+    if (props.$tone === "attention") return "rgba(165, 106, 0, 0.12)";
+    return "rgba(106, 121, 92, 0.1)";
+  }};
+  color: ${(props) => {
+    if (props.$tone === "positive") return "#4f7c42";
+    if (props.$tone === "attention") return "#8a5a00";
+    return "#55644c";
+  }};
+  font-size: 0.78rem;
+  font-weight: 900;
 `;
 
 const ReplacementCreditList = styled.div`
@@ -2241,6 +2568,101 @@ const HistoryHeader = styled.div`
   h3 {
     margin: 0;
     color: #1b1b1b;
+  }
+`;
+
+const ModalOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(27, 27, 27, 0.42);
+`;
+
+const ModalCard = styled.div`
+  width: min(860px, 100%);
+  max-height: min(720px, calc(100vh - 40px));
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.22);
+`;
+
+const ModalHeader = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 18px 12px;
+  border-bottom: 1px solid rgba(106, 121, 92, 0.12);
+`;
+
+const ModalTitle = styled.h2`
+  margin: 0;
+  color: #1b1b1b;
+  font-size: 1.25rem;
+`;
+
+const ModalSubtitle = styled.div`
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  color: #6a795c;
+  font-size: 0.92rem;
+
+  strong {
+    color: #2d3629;
+  }
+`;
+
+const IconButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.2);
+  background: #fff;
+  color: #55644c;
+  cursor: pointer;
+`;
+
+const PackageSessionTableWrap = styled.div`
+  max-height: 560px;
+  overflow: auto;
+`;
+
+const PackageSessionTable = styled.table`
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 540px;
+
+  th,
+  td {
+    border-bottom: 1px solid rgba(106, 121, 92, 0.12);
+    padding: 11px 14px;
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  th {
+    background: #f7f9f4;
+    color: #6a795c;
+    font-size: 0.76rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  td {
+    color: #1b1b1b;
+    font-size: 0.9rem;
   }
 `;
 

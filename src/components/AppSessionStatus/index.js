@@ -12,7 +12,7 @@ import styled from "styled-components";
  *   SessionStatusButton    — botão de ação com cores vivas por status (interativo)
  *
  * Props comuns:
- *   $status  — "scheduled" | "done" | "no_show" | "canceled"
+ *   $status  — "scheduled" | "done" | "no_show" | "canceled" | "suspended"
  *   $active  — boolean — indica o status atualmente selecionado (SessionStatusButton)
  */
 
@@ -52,6 +52,15 @@ export const SESSION_STATUS_COLORS = {
     textActive: "#fff",
     pillBg: "rgba(123, 58, 58, 0.12)",
     pillText: "#7b3a3a",
+  },
+  suspended: {
+    border: "rgba(106, 121, 92, 0.22)",
+    bgInactive: "rgba(106, 121, 92, 0.1)",
+    bgActive: "#60665c",
+    textInactive: "#60665c",
+    textActive: "#fff",
+    pillBg: "rgba(106, 121, 92, 0.1)",
+    pillText: "#60665c",
   },
 };
 

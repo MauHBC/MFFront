@@ -54,6 +54,9 @@ export const createFinancialPayment = (payload) =>
 export const applyCreditToFinancialEntry = (id) =>
   api.post(`/financial-entries/${id}/apply-credit`);
 
+export const applyScopedFinancialCredit = (payload) =>
+  api.post('/financial-payments/apply-scoped-credit', payload);
+
 export const listPatientCredits = (params) =>
   api.get('/patient-credits', { params });
 
@@ -96,11 +99,14 @@ export const createPatientPlan = (payload) =>
 export const updatePatientPlan = (id, payload) =>
   api.put(`/patient-plans/${id}`, payload);
 
-export const pausePatientPlan = (id) =>
-  api.post(`/patient-plans/${id}/pause`);
+export const pausePatientPlan = (id, payload = {}) =>
+  api.post(`/patient-plans/${id}/pause`, payload);
 
-export const resumePatientPlan = (id) =>
-  api.post(`/patient-plans/${id}/resume`);
+export const previewResumePatientPlan = (id, payload = {}) =>
+  api.post(`/patient-plans/${id}/resume-preview`, payload);
+
+export const resumePatientPlan = (id, payload = {}) =>
+  api.post(`/patient-plans/${id}/resume`, payload);
 
 export const cancelPatientPlan = (id, payload = {}) =>
   api.post(`/patient-plans/${id}/cancel`, payload);
@@ -145,6 +151,7 @@ export default {
   createPatientPlan,
   updatePatientPlan,
   pausePatientPlan,
+  previewResumePatientPlan,
   resumePatientPlan,
   cancelPatientPlan,
   listBillingCycles,

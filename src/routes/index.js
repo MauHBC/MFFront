@@ -63,6 +63,12 @@ export default function Routes() {
           component={isPlansModuleEnabled ? Planos : Page404}
           isClosed={isPlansModuleEnabled}
         />
+        <MyRoute
+          exact
+          path="/planos/pacientes/:patientPlanId"
+          component={isPlansModuleEnabled ? Planos : Page404}
+          isClosed={isPlansModuleEnabled}
+        />
 
         {/* Rota para páginas não encontradas ou sem acesso */}
         <MyRoute exact path="/semAcesso/" component={SemAcesso} isClosed={false} />

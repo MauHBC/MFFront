@@ -40,11 +40,11 @@ const HOLIDAY_SCHEDULING_OPTIONS = [
   {
     value: "block",
     label: "Clínica não funciona e a agenda fica bloqueada",
-    help: "Mantem o comportamento atual de bloqueio e avisos de feriado na agenda.",
+    help: "Mantém o comportamento atual de bloqueio e avisos de feriado na agenda.",
   },
   {
     value: "open",
-    label: "Clinica funciona normalmente",
+    label: "Clínica funciona normalmente",
     help: "O feriado fica apenas informativo e a agenda continua liberada.",
   },
 ];
@@ -107,8 +107,8 @@ const getHolidaySchedulingPayload = (mode) => {
 
 const getHolidaySchedulingLabel = (item) =>
   getHolidaySchedulingMode(item) === "open"
-    ? "Clinica funciona"
-    : "Clinica fechada";
+    ? "Clínica funciona"
+    : "Clínica fechada";
 
 const getHolidaySchedulingDescription = (item) =>
   getHolidaySchedulingMode(item) === "open"
@@ -117,6 +117,7 @@ const getHolidaySchedulingDescription = (item) =>
 
 export default function SchedulingEvents() {
   const [holidays, setHolidays] = useState([]);
+  const [activeTab, setActiveTab] = useState("holidays");
   const [isHolidayLoading, setIsHolidayLoading] = useState(false);
   const [isHolidaySaving, setIsHolidaySaving] = useState(false);
   const [holidayUpdatingId, setHolidayUpdatingId] = useState(null);
@@ -191,8 +192,8 @@ export default function SchedulingEvents() {
   const handleSaveOperationalPolicy = useCallback(async () => {
     const payload = {};
     const fieldLabels = {
-      late_change_minimum_notice_hours: "prazo minimo",
-      monthly_reschedule_limit: "limite de remarcacoes",
+      late_change_minimum_notice_hours: "prazo mínimo",
+      monthly_reschedule_limit: "limite mensal de remarcações",
       monthly_absence_limit: "limite de faltas",
       replacement_credit_validity_days: "validade da reposição",
       replacement_credit_expiring_alert_days: "dias de alerta de reposição",
@@ -362,7 +363,7 @@ export default function SchedulingEvents() {
             <th>Data</th>
             <th>Tipo</th>
             <th>Funcionamento</th>
-            <th>Acoes</th>
+            <th>Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -433,130 +434,150 @@ export default function SchedulingEvents() {
       >
         <Header>
           <div>
-            <HeaderTitle>Feriados</HeaderTitle>
+            <HeaderTitle>Configurações da Agenda</HeaderTitle>
             <HeaderSubtitle>
-              Defina os feriados e se a clinica vai funcionar ou bloquear a agenda em cada data.
+              Organize feriados e regras operacionais usadas pela agenda da clínica.
             </HeaderSubtitle>
           </div>
           <BackLink to="/agendamentos">Voltar</BackLink>
         </Header>
 
-        <Section>
-          <SectionHeader>
-            <div>
-              <SectionTitle>Regras operacionais de agenda</SectionTitle>
-              <SectionSubtitle>
-                Configure prazos, limites mensais e alertas usados nas proximas validacoes.
-              </SectionSubtitle>
-            </div>
-            <HeaderActions>
-              <GhostButton type="button" onClick={loadOperationalPolicy} disabled={isPolicyLoading}>
-                Atualizar
-              </GhostButton>
-              <PrimaryButton
-                type="button"
-                onClick={handleSaveOperationalPolicy}
-                disabled={isPolicyLoading || isPolicySaving}
-              >
-                {isPolicySaving ? <ButtonSpinner /> : "Salvar regras"}
-              </PrimaryButton>
-            </HeaderActions>
-          </SectionHeader>
+        <Tabs aria-label="Configurações da Agenda">
+          <TabButton
+            type="button"
+            $active={activeTab === "holidays"}
+            onClick={() => setActiveTab("holidays")}
+          >
+            Feriados
+          </TabButton>
+          <TabButton
+            type="button"
+            $active={activeTab === "rules"}
+            onClick={() => setActiveTab("rules")}
+          >
+            Regras operacionais
+          </TabButton>
+        </Tabs>
 
-          {isPolicyLoading ? (
-            <DataLoadingState text="Carregando regras operacionais..." />
-          ) : (
-            <PolicyGrid>
-              <Field>
-                <Label htmlFor="late-change-hours">Prazo minimo sem falta (horas)</Label>
-                <Input
-                  id="late-change-hours"
-                  type="number"
-                  min="1"
-                  step="1"
-                  name="late_change_minimum_notice_hours"
-                  value={operationalPolicyForm.late_change_minimum_notice_hours}
-                  onChange={handleOperationalPolicyChange}
-                />
-                <MutedText>Padrao atual: 24 horas.</MutedText>
-              </Field>
-              <Field>
-                <Label htmlFor="monthly-reschedule-limit">Limite mensal de remarcacoes</Label>
-                <Input
-                  id="monthly-reschedule-limit"
-                  type="number"
-                  min="1"
-                  step="1"
-                  name="monthly_reschedule_limit"
-                  value={operationalPolicyForm.monthly_reschedule_limit}
-                  onChange={handleOperationalPolicyChange}
-                />
-                <MutedText>Padrao atual: 2 por paciente.</MutedText>
-              </Field>
-              <Field>
-                <Label htmlFor="monthly-absence-limit">Limite mensal de faltas</Label>
-                <Input
-                  id="monthly-absence-limit"
-                  type="number"
-                  min="1"
-                  step="1"
-                  name="monthly_absence_limit"
-                  value={operationalPolicyForm.monthly_absence_limit}
-                  onChange={handleOperationalPolicyChange}
-                />
-                <MutedText>Padrao atual: 2 por paciente.</MutedText>
-              </Field>
-              <Field>
-                <Label htmlFor="replacement-validity-days">Validade da reposição (dias)</Label>
-                <Input
-                  id="replacement-validity-days"
-                  type="number"
-                  min="1"
-                  step="1"
-                  name="replacement_credit_validity_days"
-                  value={operationalPolicyForm.replacement_credit_validity_days}
-                  onChange={handleOperationalPolicyChange}
-                />
-                <MutedText>Padrao atual: 30 dias.</MutedText>
-              </Field>
-              <Field>
-                <Label htmlFor="replacement-alert-days">Alerta de reposição vencendo (dias)</Label>
-                <Input
-                  id="replacement-alert-days"
-                  type="number"
-                  min="1"
-                  step="1"
-                  name="replacement_credit_expiring_alert_days"
-                  value={operationalPolicyForm.replacement_credit_expiring_alert_days}
-                  onChange={handleOperationalPolicyChange}
-                />
-                <MutedText>Padrao atual: 7 dias antes do vencimento.</MutedText>
-              </Field>
-            </PolicyGrid>
-          )}
-        </Section>
+        {activeTab === "holidays" && (
+          <Section>
+            <SectionHeader>
+              <div>
+                <SectionTitle>Feriados</SectionTitle>
+                <SectionSubtitle>
+                  Controle os dias que aparecem na agenda como liberados ou bloqueados.
+                </SectionSubtitle>
+              </div>
+              <HeaderActions>
+                <GhostButton type="button" onClick={loadHolidays}>
+                  Atualizar
+                </GhostButton>
+                <PrimaryButton type="button" onClick={openHolidayModal}>
+                  <FaPlus />
+                  Novo feriado
+                </PrimaryButton>
+              </HeaderActions>
+            </SectionHeader>
 
-        <Section>
-          <SectionHeader>
-            <div>
-              <SectionTitle>Feriados</SectionTitle>
-              <SectionSubtitle>
-                Controle os dias que aparecem na agenda como liberados ou bloqueados.
-              </SectionSubtitle>
-            </div>
-            <HeaderActions>
-              <GhostButton type="button" onClick={loadHolidays}>
-                Atualizar
-              </GhostButton>
-              <PrimaryButton type="button" onClick={openHolidayModal}>
-                <FaPlus />
-                Novo feriado
-              </PrimaryButton>
-            </HeaderActions>
-          </SectionHeader>
+            {content}
+          </Section>
+        )}
 
-          {content}
-        </Section>
+        {activeTab === "rules" && (
+          <Section>
+            <SectionHeader>
+              <div>
+                <SectionTitle>Regras operacionais</SectionTitle>
+                <SectionSubtitle>
+                  Configure prazos, limites mensais e alertas usados nas próximas validações.
+                </SectionSubtitle>
+              </div>
+            </SectionHeader>
+
+            {isPolicyLoading ? (
+              <DataLoadingState text="Carregando regras operacionais..." />
+            ) : (
+              <>
+                <PolicyList>
+                  <PolicyField>
+                    <Label htmlFor="late-change-hours">Prazo mínimo sem falta</Label>
+                    <Input
+                      id="late-change-hours"
+                      type="number"
+                      min="1"
+                      step="1"
+                      name="late_change_minimum_notice_hours"
+                      value={operationalPolicyForm.late_change_minimum_notice_hours}
+                      onChange={handleOperationalPolicyChange}
+                    />
+                    <MutedText>Tempo mínimo, em horas, para remarcar ou cancelar sem virar falta.</MutedText>
+                  </PolicyField>
+                  <PolicyField>
+                    <Label htmlFor="monthly-reschedule-limit">Limite mensal de remarcações</Label>
+                    <Input
+                      id="monthly-reschedule-limit"
+                      type="number"
+                      min="1"
+                      step="1"
+                      name="monthly_reschedule_limit"
+                      value={operationalPolicyForm.monthly_reschedule_limit}
+                      onChange={handleOperationalPolicyChange}
+                    />
+                    <MutedText>Quantidade mensal permitida antes de exigir exceção justificada.</MutedText>
+                  </PolicyField>
+                  <PolicyField>
+                    <Label htmlFor="monthly-absence-limit">Limite mensal de faltas</Label>
+                    <Input
+                      id="monthly-absence-limit"
+                      type="number"
+                      min="1"
+                      step="1"
+                      name="monthly_absence_limit"
+                      value={operationalPolicyForm.monthly_absence_limit}
+                      onChange={handleOperationalPolicyChange}
+                    />
+                    <MutedText>Quantidade mensal usada para alertar a equipe sobre faltas recorrentes.</MutedText>
+                  </PolicyField>
+                  <PolicyField>
+                    <Label htmlFor="replacement-validity-days">Validade da reposição</Label>
+                    <Input
+                      id="replacement-validity-days"
+                      type="number"
+                      min="1"
+                      step="1"
+                      name="replacement_credit_validity_days"
+                      value={operationalPolicyForm.replacement_credit_validity_days}
+                      onChange={handleOperationalPolicyChange}
+                    />
+                    <MutedText>Prazo padrão, em dias, para créditos operacionais de reposição.</MutedText>
+                  </PolicyField>
+                  <PolicyField>
+                    <Label htmlFor="replacement-alert-days">Alerta de reposição vencendo</Label>
+                    <Input
+                      id="replacement-alert-days"
+                      type="number"
+                      min="1"
+                      step="1"
+                      name="replacement_credit_expiring_alert_days"
+                      value={operationalPolicyForm.replacement_credit_expiring_alert_days}
+                      onChange={handleOperationalPolicyChange}
+                    />
+                    <MutedText>Quantos dias antes do vencimento a reposição aparece nos alertas.</MutedText>
+                  </PolicyField>
+                </PolicyList>
+                <PolicyActions>
+                  <PrimaryButton
+                    type="button"
+                    onClick={handleSaveOperationalPolicy}
+                    disabled={isPolicyLoading || isPolicySaving}
+                  >
+                    {isPolicySaving ? <ButtonSpinner /> : "Salvar alterações"}
+                  </PrimaryButton>
+                </PolicyActions>
+              </>
+            )}
+          </Section>
+        )}
 
         {isHolidayOpen && (
           <>
@@ -611,7 +632,7 @@ export default function SchedulingEvents() {
                       </Select>
                     </Field>
                     <Field>
-                      <Label htmlFor="holiday-scheduling-mode">Funcionamento da clinica</Label>
+                      <Label htmlFor="holiday-scheduling-mode">Funcionamento da clínica</Label>
                       <Select
                         id="holiday-scheduling-mode"
                         name="scheduling_mode"
@@ -649,7 +670,7 @@ export default function SchedulingEvents() {
                         <Input
                           id="holiday-city"
                           name="city_name"
-                          placeholder="Sao Paulo"
+                          placeholder="São Paulo"
                           value={holidayForm.city_name}
                           onChange={handleHolidayChange}
                         />
@@ -715,10 +736,60 @@ const HeaderActions = styled.div`
   flex-wrap: wrap;
 `;
 
-const PolicyGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 16px;
+const Tabs = styled.div`
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(106, 121, 92, 0.2);
+  border-radius: 12px;
+  background: #f7f8f4;
+
+  @media (max-width: 520px) {
+    display: flex;
+    width: 100%;
+  }
+`;
+
+const TabButton = styled.button`
+  min-height: 38px;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 14px;
+  background: ${(props) => (props.$active ? "#fff" : "transparent")};
+  color: ${(props) => (props.$active ? "#3f5137" : "#66715f")};
+  box-shadow: ${(props) => (props.$active ? "0 1px 4px rgba(0, 0, 0, 0.08)" : "none")};
+  font-weight: 700;
+  cursor: pointer;
+
+  @media (max-width: 520px) {
+    flex: 1;
+  }
+`;
+
+const PolicyList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 560px;
+`;
+
+const PolicyField = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+
+  input {
+    max-width: 180px;
+  }
+`;
+
+const PolicyActions = styled.div`
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 22px;
 `;
 
 const SectionTitle = styled.h2`

@@ -178,7 +178,7 @@ Badges de status e informação.
 | Componente | Prop | Resultado |
 |---|---|---|
 | `StatusPill` | `$tone="active"` | Verde |
-| `StatusPill` | `$tone="paused"` | Âmbar |
+| `StatusPill` | `$tone="paused"` | Amarelo |
 | `StatusPill` | `$tone="canceled"` / default | Cinza |
 | `InfoPill` | — | Azul sutil (avisos, notas) |
 | `NeutralPill` | — | Cinza neutro |

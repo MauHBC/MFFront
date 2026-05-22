@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
+import { useHistory, useLocation, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
   FaBars,
   FaCalendarAlt,
   FaChevronLeft,
-  FaEllipsisV,
   FaLayerGroup,
   FaPlus,
   FaTags,
@@ -63,6 +63,7 @@ import {
   createPatientPlan,
   updatePatientPlan,
   pausePatientPlan,
+  previewResumePatientPlan,
   resumePatientPlan,
   cancelPatientPlan,
 } from "../../services/financial";
@@ -84,6 +85,17 @@ const WEEKDAY_OPTIONS = [
   { value: 4, label: "Qui" },
   { value: 5, label: "Sex" },
 ];
+
+const START_HOUR = 7;
+const END_HOUR = 20;
+const PLAN_HOUR_OPTIONS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, index) => {
+  const hour = START_HOUR + index;
+  const padded = String(hour).padStart(2, "0");
+  return {
+    value: `${padded}:00`,
+    label: `${padded}h`,
+  };
+});
 
 const PROFESSIONAL_GROUP_SLUG = "profissional";
 
@@ -174,6 +186,19 @@ const formatDateBR = (value) => {
   const s = String(value).slice(0, 10);
   const [y, m, d] = s.split("-");
   return d && m && y ? `${d}/${m}/${y}` : s;
+};
+
+const formatDateTimeBR = (value) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return formatDateBR(value);
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 };
 
 const daysInMonth = (year, month) => new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -268,6 +293,95 @@ const getPatientPlanScheduleInfo = (pp, professionals = []) => {
   };
 };
 
+const getPlanSeriesList = (pp) => {
+  if (Array.isArray(pp?.sessionSeries)) return pp.sessionSeries;
+  if (Array.isArray(pp?.SessionSeries)) return pp.SessionSeries;
+  return [];
+};
+
+const getPrimaryPlanSeries = (pp) => {
+  const seriesList = getPlanSeriesList(pp);
+  return seriesList.find((item) => item.lifecycle_status !== "ended")
+    || seriesList[0]
+    || null;
+};
+
+const getSeriesSessions = (series) => {
+  if (Array.isArray(series?.sessions)) return series.sessions;
+  if (Array.isArray(series?.Sessions)) return series.Sessions;
+  return [];
+};
+
+const getPlanBillingCycles = (pp) => {
+  if (Array.isArray(pp?.BillingCycles)) return pp.BillingCycles;
+  if (Array.isArray(pp?.billingCycles)) return pp.billingCycles;
+  return [];
+};
+
+const getBillingCycleSessions = (cycle) => {
+  if (Array.isArray(cycle?.Sessions)) return cycle.Sessions;
+  if (Array.isArray(cycle?.sessions)) return cycle.sessions;
+  return [];
+};
+
+const formatTimeBR = (value) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const getHourTimeValue = (value) => {
+  if (!value) return "";
+  if (/^\d{2}:\d{2}$/.test(String(value))) {
+    return `${String(value).slice(0, 2)}:00`;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${String(date.getHours()).padStart(2, "0")}:00`;
+};
+
+const buildDateTimeWithHour = (dateValue, timeValue) => {
+  if (!dateValue || !timeValue) return null;
+  const date = String(dateValue).slice(0, 10);
+  const hour = String(timeValue).slice(0, 2).padStart(2, "0");
+  return `${date}T${hour}:00:00`;
+};
+
+const getPatientPlanAgendaInfo = (pp, professionals = []) => {
+  const seriesList = getPlanSeriesList(pp);
+  const activeSeries = getPrimaryPlanSeries(pp);
+  const seriesSessions = seriesList.flatMap(getSeriesSessions);
+  const legacySessions = getPlanBillingCycles(pp).flatMap(getBillingCycleSessions);
+  const futureSessionsById = new Map();
+
+  [...seriesSessions, ...legacySessions].forEach((session) => {
+    if (session?.id) futureSessionsById.set(String(session.id), session);
+  });
+
+  const futureSessions = Array.from(futureSessionsById.values())
+    .sort((left, right) => String(left.starts_at || "").localeCompare(String(right.starts_at || "")));
+  const hasFutureSessions = futureSessions.length > 0;
+  const scheduleInfo = getPatientPlanScheduleInfo(pp, professionals);
+  const firstFutureSession = futureSessions[0] || null;
+
+  return {
+    label: hasFutureSessions ? "Configurada" : "Pendente",
+    tone: hasFutureSessions ? "active" : "paused",
+    isConfigured: hasFutureSessions,
+    futureSessionsCount: futureSessions.length,
+    seriesId: activeSeries?.id || null,
+    professionalUserId: activeSeries?.professional_user_id || "",
+    weekdays: normalizeWeekdays(activeSeries?.weekdays),
+    professionalName: scheduleInfo.professionalName,
+    weekdayText: scheduleInfo.weekdayText,
+    timeText: formatTimeBR(activeSeries?.starts_at || firstFutureSession?.starts_at),
+  };
+};
+
 const normalizeSessionsPerWeek = (value) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 1) return null;
@@ -302,16 +416,15 @@ const comparePatientPlans = (left, right) => {
 };
 
 const isPlanCancellationProgrammed = (pp) => (
-  pp?.status === "active"
-  && !!pp?.ends_at
-  && String(pp.ends_at).slice(0, 10) >= todayDateOnly()
-  && !!String(pp?.cancellation_reason || "").trim()
+  pp?.status === "canceled"
+  && !!pp?.cancellation_effective_on
+  && String(pp.cancellation_effective_on).slice(0, 10) > todayDateOnly()
 );
 
 const getPatientPlanStatusInfo = (pp) => {
   if (isPlanCancellationProgrammed(pp)) {
     return {
-      label: `Cancelamento programado · ativo até ${formatDateBR(pp.ends_at)}`,
+      label: `Ativo até ${formatDateBR(pp.cancellation_effective_on)}`,
       tone: "active",
     };
   }
@@ -359,12 +472,44 @@ const EMPTY_PP = {
   starts_at: "",
   ends_at: "",
   notes: "",
+  professional_user_id: "",
+  weekdays: [],
+  time: "08:00",
 };
 
 const makeEmptyPpForm = () => ({
   ...EMPTY_PP,
   starts_at: todayDateOnly(),
 });
+
+const buildPpEditFormFromPlan = (pp) => ({
+  patient_id: String(pp?.patient_id || ""),
+  service_plan_id: String(pp?.service_plan_id || ""),
+  anchor_day: String(pp?.anchor_day || ""),
+  starts_at: pp?.starts_at ? String(pp.starts_at).slice(0, 10) : "",
+  ends_at: pp?.ends_at ? String(pp.ends_at).slice(0, 10) : "",
+  notes: pp?.notes || "",
+  professional_user_id: String(getPrimaryPlanSeries(pp)?.professional_user_id || ""),
+  weekdays: normalizeWeekdays(getPrimaryPlanSeries(pp)?.weekdays),
+  time: getHourTimeValue(getPrimaryPlanSeries(pp)?.starts_at) || "08:00",
+});
+
+const getPatientPlanPauseInfo = (pp) => {
+  const pauses = Array.isArray(pp?.pauses) ? pp.pauses : [];
+  const current = pauses.find((pause) => pause.status === "active")
+    || pauses.find((pause) => pause.status === "scheduled");
+  if (!current) return null;
+
+  if (current.status === "scheduled") {
+    return current.is_indefinite
+      ? `Pausa programada a partir de ${formatDateBR(current.starts_on)}`
+      : `Pausa programada de ${formatDateBR(current.starts_on)} a ${formatDateBR(current.ends_on)}`;
+  }
+
+  return current.is_indefinite
+    ? `Pausa por tempo indeterminado desde ${formatDateBR(current.starts_on)}`
+    : `Pausa ativa desde ${formatDateBR(current.starts_on)} até ${formatDateBR(current.ends_on)}`;
+};
 
 const ANCHOR_DAY_OPTIONS = Array.from({ length: 31 }, (_, index) => index + 1);
 
@@ -380,10 +525,20 @@ const EMPTY_SCHED = {
 };
 
 const EMPTY_CANCEL = {
-  effectiveMode: "today",
   effectiveDate: todayDateOnly(),
   reason: "",
 };
+
+const makeEmptyPauseForm = () => ({
+  starts_on: todayDateOnly(),
+  ends_on: "",
+  is_indefinite: true,
+  reason: "",
+});
+
+const makeEmptyResumeForm = () => ({
+  resumes_on: todayDateOnly(),
+});
 
 const EMPTY_SVC = {
   name: "",
@@ -403,6 +558,10 @@ const STATUS_INFO = {
 // ---------------------------------------------------------------------------
 
 export default function Planos() {
+  const history = useHistory();
+  const location = useLocation();
+  const { patientPlanId } = useParams();
+  const isPatientPlanDetailPage = !!patientPlanId;
   const [activeTab, setActiveTab] = useState("patient-plans");
   const [isSaving, setIsSaving] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -436,15 +595,25 @@ export default function Planos() {
   const [isPatientPlansLoading, setIsPatientPlansLoading] = useState(false);
   const [patientPlansError, setPatientPlansError] = useState("");
   const [ppPatientSearch, setPpPatientSearch] = useState("");
-  const [ppFilterStatus, setPpFilterStatus] = useState("active");
+  const [ppFilterStatus, setPpFilterStatus] = useState("");
+  const [ppFocusedPlanId, setPpFocusedPlanId] = useState("");
   const [ppDrawerOpen, setPpDrawerOpen] = useState(false);
   const [ppEditingId, setPpEditingId] = useState(null);
   const [ppEditingStatus, setPpEditingStatus] = useState(null);
   const [ppForm, setPpForm] = useState(makeEmptyPpForm);
+  const [ppPausePlan, setPpPausePlan] = useState(null);
+  const [ppPauseForm, setPpPauseForm] = useState(makeEmptyPauseForm);
+  const [ppResumePlan, setPpResumePlan] = useState(null);
+  const [ppResumeForm, setPpResumeForm] = useState(makeEmptyResumeForm);
+  const [ppResumePreview, setPpResumePreview] = useState(null);
+  const [ppResumePreviewLoading, setPpResumePreviewLoading] = useState(false);
   const [ppCancelPlan, setPpCancelPlan] = useState(null);
   const [ppCancelForm, setPpCancelForm] = useState(EMPTY_CANCEL);
-  const [openPpActionMenuId, setOpenPpActionMenuId] = useState(null);
-  const [ppActionMenuPosition, setPpActionMenuPosition] = useState(null);
+  const [ppDetailPlan, setPpDetailPlan] = useState(null);
+  const [ppDetailLoading, setPpDetailLoading] = useState(false);
+  const [ppDetailError, setPpDetailError] = useState("");
+  const [ppDetailEditing, setPpDetailEditing] = useState(false);
+  const [ppDetailEditForm, setPpDetailEditForm] = useState(makeEmptyPpForm);
 
   // Schedule sessions drawer (open from PatientPlan row)
   const [schedDrawerOpen, setSchedDrawerOpen] = useState(false);
@@ -511,10 +680,56 @@ export default function Planos() {
     }
   }, [ppFilterStatus]);
 
+  const loadPatientPlanDetail = useCallback(async (id) => {
+    if (!id) return null;
+    setPpDetailLoading(true);
+    setPpDetailError("");
+    try {
+      const res = await axios.get(`/patient-plans/${id}`);
+      setPpDetailPlan(res.data || null);
+      return res.data || null;
+    } catch (err) {
+      const message = err?.response?.data?.error || "Erro ao carregar detalhes do plano.";
+      setPpDetailError(message);
+      setPpDetailPlan(null);
+      return null;
+    } finally {
+      setPpDetailLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadBaseData();
     loadServicePlans();
   }, [loadBaseData, loadServicePlans]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || "");
+    const tab = params.get("tab");
+    const patientId = params.get("patient_id");
+    const patientName = params.get("patient_name");
+    const queryPatientPlanId = params.get("patient_plan_id");
+    const status = params.get("status");
+
+    if (tab === "patient-plans" || patientId || queryPatientPlanId) {
+      setActiveTab("patient-plans");
+    }
+
+    if (status !== null) {
+      setPpFilterStatus(status);
+    }
+
+    if (queryPatientPlanId) {
+      setPpFocusedPlanId(queryPatientPlanId);
+    }
+
+    if (patientId) {
+      const patient = patients.find((item) => String(item.id) === String(patientId));
+      setPpPatientSearch(patient ? getPatientDisplayName(patient) : patientName || "");
+    } else if (patientName) {
+      setPpPatientSearch(patientName);
+    }
+  }, [location.search, patients]);
 
   useEffect(() => {
     try {
@@ -551,14 +766,19 @@ export default function Planos() {
   }, [activeTab, loadPatientPlans]);
 
   useEffect(() => {
-    if (!openPpActionMenuId) return undefined;
-    const closeMenu = () => {
-      setOpenPpActionMenuId(null);
-      setPpActionMenuPosition(null);
-    };
-    window.addEventListener("click", closeMenu);
-    return () => window.removeEventListener("click", closeMenu);
-  }, [openPpActionMenuId]);
+    if (!patientPlanId) {
+      setPpDetailPlan(null);
+      setPpDetailError("");
+      setPpDetailLoading(false);
+      setPpDetailEditing(false);
+      setPpDetailEditForm(makeEmptyPpForm());
+      return;
+    }
+    setActiveTab("patient-plans");
+    setPpDetailEditing(false);
+    setPpDetailEditForm(makeEmptyPpForm());
+    loadPatientPlanDetail(patientPlanId);
+  }, [loadPatientPlanDetail, patientPlanId]);
 
   // ---- Derived ----
 
@@ -599,11 +819,12 @@ export default function Planos() {
     const needle = normalizeSearchText(ppPatientSearch);
     return patientPlans
       .filter((pp) => {
+        if (ppFocusedPlanId && String(pp.id) !== String(ppFocusedPlanId)) return false;
         if (!needle) return true;
         return getPatientSearchText(pp?.Patient).includes(needle);
       })
       .sort(comparePatientPlans);
-  }, [patientPlans, ppPatientSearch]);
+  }, [patientPlans, ppFocusedPlanId, ppPatientSearch]);
 
   const ppCyclePreview = useMemo(() => {
     if (!ppForm.starts_at) return null;
@@ -620,18 +841,15 @@ export default function Planos() {
   );
 
   const isSchedFormComplete = useMemo(() => {
-    const duration = Number(schedForm.duration_minutes);
     const hasProfessional = !!schedForm.professional_user_id;
     const hasRequiredDate = !!schedForm.date && !isWeekendDateOnly(schedForm.date);
     const hasRequiredTime = !!schedForm.time;
-    const hasValidDuration = Number.isFinite(duration) && duration >= 15;
     const hasRequiredWeekdays = schedWeekdayLimit
       ? schedForm.weekdays.length === schedWeekdayLimit
       : schedForm.weekdays.length > 0;
     return hasProfessional
       && hasRequiredDate
       && hasRequiredTime
-      && hasValidDuration
       && hasRequiredWeekdays;
   }, [schedForm, schedWeekdayLimit]);
 
@@ -676,7 +894,7 @@ export default function Planos() {
       const hasPriceInput = String(svcForm.price || "").trim() !== "";
       const priceCents = parseMoneyInput(svcForm.price);
       if (hasPriceInput && (!priceCents || priceCents <= 0)) {
-        toast.error("Informe um valor avulso maior que zero ou deixe em branco.");
+        toast.error("Informe um valor por sessão maior que zero ou deixe em branco.");
         return;
       }
       setIsSaving(true);
@@ -873,23 +1091,139 @@ export default function Planos() {
     setPpDrawerOpen(true);
   }, []);
 
-  const openPpEdit = useCallback((pp) => {
-    if (pp.status === "canceled") {
+  const openPpDetails = useCallback((pp) => {
+    if (!pp?.id) return;
+    history.push(`/planos/pacientes/${pp.id}`);
+  }, [history]);
+
+  const handlePpDetailEditChange = useCallback((e) => {
+    const { name, value } = e.target;
+    setPpDetailEditForm((prev) => {
+      if (name === "service_plan_id") {
+        const selectedPlan = [
+          ...activeServicePlans,
+          ppDetailPlan?.ServicePlan,
+        ].filter(Boolean).find((sp) => String(sp.id) === String(value));
+        const limit = normalizeSessionsPerWeek(selectedPlan?.sessions_per_week);
+        const weekdays = Array.isArray(prev.weekdays) ? prev.weekdays : [];
+        return {
+          ...prev,
+          [name]: value,
+          weekdays: limit ? weekdays.slice(0, limit) : weekdays,
+        };
+      }
+      return { ...prev, [name]: value };
+    });
+  }, [activeServicePlans, ppDetailPlan]);
+
+  const togglePpDetailWeekday = useCallback((day) => {
+    setPpDetailEditForm((prev) => {
+      const current = Array.isArray(prev.weekdays) ? prev.weekdays : [];
+      const selectedPlan = [
+        ...activeServicePlans,
+        ppDetailPlan?.ServicePlan,
+      ].filter(Boolean).find((sp) => String(sp.id) === String(prev.service_plan_id));
+      const limit = normalizeSessionsPerWeek(selectedPlan?.sessions_per_week);
+      if (limit && !current.includes(day) && current.length >= limit) {
+        return prev;
+      }
+      const next = current.includes(day)
+        ? current.filter((item) => item !== day)
+        : [...current, day].sort((a, b) => a - b);
+      return { ...prev, weekdays: next };
+    });
+  }, [activeServicePlans, ppDetailPlan]);
+
+  const startPpDetailEditing = useCallback(() => {
+    if (!ppDetailPlan) return;
+    if (ppDetailPlan.status === "canceled") {
       toast.error("Vínculos cancelados não podem ser editados.");
       return;
     }
-    setPpEditingId(pp.id);
-    setPpEditingStatus(pp.status);
-    setPpForm({
-      patient_id: String(pp.patient_id || ""),
-      service_plan_id: String(pp.service_plan_id || ""),
-      anchor_day: String(pp.anchor_day || ""),
-      starts_at: pp.starts_at ? String(pp.starts_at).slice(0, 10) : "",
-      ends_at: pp.ends_at ? String(pp.ends_at).slice(0, 10) : "",
-      notes: pp.notes || "",
-    });
-    setPpDrawerOpen(true);
-  }, []);
+    setPpDetailEditForm(buildPpEditFormFromPlan(ppDetailPlan));
+    setPpDetailEditing(true);
+  }, [ppDetailPlan]);
+
+  const cancelPpDetailEditing = useCallback(() => {
+    setPpDetailEditForm(buildPpEditFormFromPlan(ppDetailPlan));
+    setPpDetailEditing(false);
+  }, [ppDetailPlan]);
+
+  const savePpDetailEditing = useCallback(async () => {
+    if (!ppDetailPlan?.id) return;
+    if (!ppDetailEditForm.service_plan_id) {
+      toast.error("Selecione o plano comercial.");
+      return;
+    }
+    const anchor = Number(ppDetailEditForm.anchor_day);
+    if (!ppDetailEditForm.anchor_day || Number.isNaN(anchor) || anchor < 1 || anchor > 31) {
+      toast.error("Dia de vencimento deve ser entre 1 e 31.");
+      return;
+    }
+    if (!ppDetailEditForm.starts_at) {
+      toast.error("Informe a data de início do plano.");
+      return;
+    }
+    if (!isValidDateOnly(ppDetailEditForm.starts_at)) {
+      toast.error("Informe uma data de início válida.");
+      return;
+    }
+    const currentAgenda = getPatientPlanAgendaInfo(ppDetailPlan, professionals);
+    const seriesId = currentAgenda?.seriesId;
+    const selectedPlan = [
+      ...activeServicePlans,
+      ppDetailPlan?.ServicePlan,
+    ].filter(Boolean).find((sp) => String(sp.id) === String(ppDetailEditForm.service_plan_id));
+    const weekdayLimit = normalizeSessionsPerWeek(selectedPlan?.sessions_per_week);
+    if (seriesId && !ppDetailEditForm.professional_user_id) {
+      toast.error("Selecione o profissional.");
+      return;
+    }
+    if (seriesId && ppDetailEditForm.weekdays.length === 0) {
+      toast.error("Selecione pelo menos um dia da semana.");
+      return;
+    }
+    if (seriesId && weekdayLimit && ppDetailEditForm.weekdays.length !== weekdayLimit) {
+      toast.error(`Selecione exatamente ${weekdayLimit} dia(s) da semana para este plano.`);
+      return;
+    }
+    if (seriesId && !ppDetailEditForm.time) {
+      toast.error("Informe o horário.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await updatePatientPlan(ppDetailPlan.id, {
+        patient_id: Number(ppDetailPlan.patient_id),
+        service_plan_id: Number(ppDetailEditForm.service_plan_id),
+        anchor_day: anchor,
+        starts_at: ppDetailEditForm.starts_at,
+        ends_at: ppDetailEditForm.ends_at || null,
+        notes: ppDetailEditForm.notes.trim() || null,
+      });
+      if (seriesId) {
+        const currentSeries = getPrimaryPlanSeries(ppDetailPlan);
+        const rawSeriesDate = String(currentSeries?.starts_at || "").slice(0, 10);
+        const rawPlanDate = String(ppDetailPlan.starts_at || "").slice(0, 10);
+        let seriesDate = ppDetailEditForm.starts_at;
+        if (isValidDateOnly(rawPlanDate)) seriesDate = rawPlanDate;
+        if (isValidDateOnly(rawSeriesDate)) seriesDate = rawSeriesDate;
+        await axios.put(`/session-series/${seriesId}`, {
+          professional_user_id: Number(ppDetailEditForm.professional_user_id),
+          weekdays: ppDetailEditForm.weekdays,
+          starts_at: buildDateTimeWithHour(seriesDate, ppDetailEditForm.time),
+        });
+      }
+      toast.success("Vínculo atualizado.");
+      setPpDetailEditing(false);
+      await loadPatientPlans();
+      await loadPatientPlanDetail(ppDetailPlan.id);
+    } catch (err) {
+      toast.error(err?.response?.data?.error || "Erro ao salvar vínculo.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [activeServicePlans, loadPatientPlanDetail, loadPatientPlans, ppDetailEditForm, ppDetailPlan, professionals]);
 
   const closePpDrawer = useCallback(() => {
     setPpDrawerOpen(false);
@@ -937,6 +1271,7 @@ export default function Planos() {
           toast.success("Vínculo atualizado.");
           closePpDrawer();
           await loadPatientPlans();
+          if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
         } else {
           const res = await createPatientPlan(payload);
           toast.success("Vínculo criado!");
@@ -954,46 +1289,148 @@ export default function Planos() {
         setIsSaving(false);
       }
     },
-    [ppForm, ppEditingId, closePpDrawer, loadPatientPlans, activeServicePlans],
+    [ppForm, ppEditingId, closePpDrawer, loadPatientPlans, activeServicePlans, patientPlanId, loadPatientPlanDetail],
   );
 
-  const handlePpPause = useCallback(
-    async (pp) => {
-      // eslint-disable-next-line no-alert
-      const ok = window.confirm("Pausar este plano?\n\nCiclos mensais não serão gerados enquanto pausado.");
-      if (!ok) return;
-      try {
-        await pausePatientPlan(pp.id);
-        toast.success("Plano pausado.");
+	  const handlePpPause = useCallback(
+	    (pp) => {
+	      if (isSaving || ppPausePlan || ppResumePlan || ppCancelPlan) return;
+	      setPpPauseForm(makeEmptyPauseForm());
+	      setPpPausePlan(pp);
+	    },
+	    [isSaving, ppPausePlan, ppResumePlan, ppCancelPlan],
+	  );
+
+	  const closePpPauseModal = useCallback(() => {
+	    setPpPausePlan(null);
+	    setPpPauseForm(makeEmptyPauseForm());
+	  }, []);
+
+  const handlePpPauseConfirm = useCallback(
+	    async () => {
+	      if (!ppPausePlan || isSaving) return;
+	      if (!isValidDateOnly(ppPauseForm.starts_on)) {
+	        toast.error("Informe uma data de início válida.");
+	        return;
+	      }
+	      if (!ppPauseForm.is_indefinite) {
+	        if (!isValidDateOnly(ppPauseForm.ends_on)) {
+	          toast.error("Informe uma data fim válida ou marque tempo indeterminado.");
+	          return;
+	        }
+	        if (ppPauseForm.ends_on < ppPauseForm.starts_on) {
+	          toast.error("A data fim não pode ser anterior ao início.");
+	          return;
+	        }
+	      }
+	      setIsSaving(true);
+	      try {
+	        await pausePatientPlan(ppPausePlan.id, {
+	          starts_on: ppPauseForm.starts_on,
+	          ends_on: ppPauseForm.is_indefinite ? null : ppPauseForm.ends_on,
+	          is_indefinite: ppPauseForm.is_indefinite,
+	          reason: ppPauseForm.reason.trim() || null,
+	        });
+	        toast.success("Plano pausado.");
+	        closePpPauseModal();
         await loadPatientPlans();
+        if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
       } catch (err) {
         toast.error(err?.response?.data?.error || "Erro ao pausar plano.");
+      } finally {
+        setIsSaving(false);
       }
     },
-    [loadPatientPlans],
-  );
+	    [closePpPauseModal, isSaving, loadPatientPlans, patientPlanId, ppPauseForm, ppPausePlan, loadPatientPlanDetail],
+	  );
 
   const handlePpResume = useCallback(
-    async (pp) => {
+    (pp) => {
+      if (isSaving || ppPausePlan || ppResumePlan || ppCancelPlan) return;
+      setPpResumeForm(makeEmptyResumeForm());
+      setPpResumePreview(null);
+      setPpResumePlan(pp);
+    },
+    [isSaving, ppPausePlan, ppResumePlan, ppCancelPlan],
+  );
+
+  const closePpResumeModal = useCallback(() => {
+    setPpResumePlan(null);
+    setPpResumeForm(makeEmptyResumeForm());
+    setPpResumePreview(null);
+    setPpResumePreviewLoading(false);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const loadPreview = async () => {
+      if (!ppResumePlan || !isValidDateOnly(ppResumeForm.resumes_on)) {
+        setPpResumePreview(null);
+        return;
+      }
+      setPpResumePreviewLoading(true);
       try {
-        await resumePatientPlan(pp.id);
+        const res = await previewResumePatientPlan(ppResumePlan.id, {
+          resumes_on: ppResumeForm.resumes_on,
+        });
+        if (active) setPpResumePreview(res.data || null);
+      } catch (err) {
+        if (active) {
+          setPpResumePreview(null);
+          toast.error(err?.response?.data?.error || "Erro ao revisar retomada.");
+        }
+      } finally {
+        if (active) setPpResumePreviewLoading(false);
+      }
+    };
+    loadPreview();
+    return () => {
+      active = false;
+    };
+  }, [ppResumeForm.resumes_on, ppResumePlan]);
+
+  const handlePpResumeConfirm = useCallback(
+    async () => {
+      if (!ppResumePlan || isSaving) return;
+      if (!isValidDateOnly(ppResumeForm.resumes_on)) {
+        toast.error("Informe uma data de retomada válida.");
+        return;
+      }
+      setIsSaving(true);
+      try {
+        await resumePatientPlan(ppResumePlan.id, {
+          resumes_on: ppResumeForm.resumes_on,
+        });
         toast.success("Plano retomado.");
+        closePpResumeModal();
         await loadPatientPlans();
+        if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
       } catch (err) {
         toast.error(err?.response?.data?.error || "Erro ao retomar plano.");
+      } finally {
+        setIsSaving(false);
       }
     },
-    [loadPatientPlans],
+    [
+      closePpResumeModal,
+      isSaving,
+      loadPatientPlans,
+      patientPlanId,
+      ppResumeForm.resumes_on,
+      ppResumePlan,
+      loadPatientPlanDetail,
+    ],
   );
 
 
   const handlePpCancel = useCallback((pp) => {
+    if (isSaving || ppPausePlan || ppResumePlan || ppCancelPlan) return;
     setPpCancelPlan(pp);
     setPpCancelForm({
       ...EMPTY_CANCEL,
       effectiveDate: todayDateOnly(),
     });
-  }, []);
+  }, [isSaving, ppPausePlan, ppResumePlan, ppCancelPlan]);
 
   const closePpCancelModal = useCallback(() => {
     setPpCancelPlan(null);
@@ -1003,13 +1440,11 @@ export default function Planos() {
   const handlePpCancelSubmit = useCallback(
     async (e) => {
       e.preventDefault();
-      if (!ppCancelPlan) return;
+      if (!ppCancelPlan || isSaving) return;
 
-      const effectiveDate = ppCancelForm.effectiveMode === "today"
-        ? todayDateOnly()
-        : ppCancelForm.effectiveDate;
+      const { effectiveDate } = ppCancelForm;
       if (!effectiveDate) {
-        toast.error("Informe ate quando o plano ficara ativo.");
+        toast.error("Informe a data para cancelar o plano.");
         return;
       }
       if (effectiveDate < todayDateOnly()) {
@@ -1032,13 +1467,14 @@ export default function Planos() {
           : "Cancelamento programado.");
         closePpCancelModal();
         await loadPatientPlans();
+        if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
       } catch (err) {
         toast.error(err?.response?.data?.error || "Erro ao cancelar vínculo.");
       } finally {
         setIsSaving(false);
       }
     },
-    [ppCancelPlan, ppCancelForm, closePpCancelModal, loadPatientPlans],
+    [ppCancelPlan, ppCancelForm, isSaving, closePpCancelModal, loadPatientPlans, patientPlanId, loadPatientPlanDetail],
   );
 
   // ---- Schedule sessions handlers ----
@@ -1162,6 +1598,7 @@ export default function Planos() {
           : `${count} sessão(ões) criada(s) na agenda!`);
         closeSchedDrawer();
         await loadPatientPlans();
+        if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
       } catch (err) {
         const msg = err?.response?.data?.error || "Erro ao criar agendamentos.";
         toast.error(msg);
@@ -1169,7 +1606,7 @@ export default function Planos() {
         setIsSaving(false);
       }
     },
-    [schedPlan, schedForm, schedWeekdayLimit, closeSchedDrawer, loadPatientPlans],
+    [schedPlan, schedForm, schedWeekdayLimit, closeSchedDrawer, loadPatientPlans, patientPlanId, loadPatientPlanDetail],
   );
 
   // ---- Sidebar handlers ----
@@ -1204,46 +1641,16 @@ export default function Planos() {
 
   const handleSectionChange = useCallback(
     (section) => {
+      if (isPatientPlanDetailPage) {
+        history.push("/planos");
+      }
       setActiveTab(section);
-      setOpenPpActionMenuId(null);
-      setPpActionMenuPosition(null);
       if (isMobile) {
         closeSidebar();
       }
     },
-    [closeSidebar, isMobile],
+    [closeSidebar, history, isMobile, isPatientPlanDetailPage],
   );
-
-  const closePpActionMenu = useCallback(() => {
-    setOpenPpActionMenuId(null);
-    setPpActionMenuPosition(null);
-  }, []);
-
-  const togglePpActionMenu = useCallback((event, ppId) => {
-    event.stopPropagation();
-    if (openPpActionMenuId === ppId) {
-      closePpActionMenu();
-      return;
-    }
-
-    const rect = event.currentTarget.getBoundingClientRect();
-    const menuWidth = 168;
-    const menuHeight = 190;
-    const gap = 8;
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-    const opensUp = rect.bottom + gap + menuHeight > viewportHeight && rect.top > menuHeight;
-    const top = opensUp
-      ? Math.max(gap, rect.top - menuHeight - gap)
-      : Math.min(rect.bottom + gap, viewportHeight - menuHeight - gap);
-    const left = Math.min(
-      Math.max(gap, rect.right - menuWidth),
-      viewportWidth - menuWidth - gap,
-    );
-
-    setPpActionMenuPosition({ top, left, opensUp });
-    setOpenPpActionMenuId(ppId);
-  }, [closePpActionMenu, openPpActionMenuId]);
 
   // ---- Drawer visibility ----
 
@@ -1264,6 +1671,14 @@ export default function Planos() {
   let ppSubmitLabel = "Vincular";
   if (ppEditingId) ppSubmitLabel = "Salvar";
   if (isSaving) ppSubmitLabel = "Salvando...";
+  const ppPauseSummary = ppPausePlan ? getPatientPlanSummary(ppPausePlan) : null;
+  const ppResumeSummary = ppResumePlan ? getPatientPlanSummary(ppResumePlan) : null;
+  const ppResumeOkSessions = Array.isArray(ppResumePreview?.resumable_sessions)
+    ? ppResumePreview.resumable_sessions
+    : [];
+  const ppResumeConflictSessions = Array.isArray(ppResumePreview?.conflicted_sessions)
+    ? ppResumePreview.conflicted_sessions
+    : [];
   const ppCancelSummary = ppCancelPlan ? getPatientPlanSummary(ppCancelPlan) : null;
   let sidebarToggleLabel = "Recolher menu";
   let sidebarToggleIcon = <FaChevronLeft />;
@@ -1285,13 +1700,88 @@ export default function Planos() {
     },
     services: {
       title: "Serviços",
-      subtitle: "Configure serviços, duração, cor e valor avulso.",
+      subtitle: "Configure serviços, duração, cor e valor por sessão.",
     },
   }[activeTab] || {
     title: "Serviços e Planos",
     subtitle: "Cadastro de serviços, valores e planos mensais.",
   };
+  if (isPatientPlanDetailPage) {
+    activeSectionInfo.title = "Detalhes do plano do paciente";
+    activeSectionInfo.subtitle = "";
+  }
 
+  const ppDetailSummary = ppDetailPlan ? getPatientPlanSummary(ppDetailPlan) : null;
+  const ppDetailStatus = ppDetailPlan ? getPatientPlanStatusInfo(ppDetailPlan) : null;
+	  const ppDetailAgenda = ppDetailPlan
+	    ? getPatientPlanAgendaInfo(ppDetailPlan, professionals)
+	    : null;
+	  const ppDetailPauseInfo = ppDetailPlan ? getPatientPlanPauseInfo(ppDetailPlan) : null;
+  const ppDetailPlanOptions = useMemo(() => {
+    const options = [...activeServicePlans];
+    const currentPlan = ppDetailPlan?.ServicePlan;
+    if (currentPlan?.id && !options.some((sp) => String(sp.id) === String(currentPlan.id))) {
+      options.push(currentPlan);
+    }
+    return options.sort((left, right) => (
+      String(left?.name || "").localeCompare(String(right?.name || ""), "pt-BR", {
+        sensitivity: "base",
+      })
+    ));
+  }, [activeServicePlans, ppDetailPlan]);
+  const ppDetailEditingPlan = ppDetailPlanOptions.find(
+    (sp) => String(sp.id) === String(ppDetailEditForm.service_plan_id),
+  );
+  const ppDetailEditingFrequency = ppDetailEditingPlan?.sessions_per_week
+    ? `${ppDetailEditingPlan.sessions_per_week}x/sem`
+    : ppDetailEditingPlan?.frequency_label || ppDetailSummary?.frequency || "-";
+  const ppDetailWeekdayLimit = normalizeSessionsPerWeek(ppDetailEditingPlan?.sessions_per_week);
+  const isPpStatusActionBusy = Boolean(isSaving || ppPausePlan || ppResumePlan || ppCancelPlan);
+  const isPpDetailDataLoading = ppDetailLoading && !ppDetailPlan;
+  const ppDetailText = (value) => (
+    <strong>{isPpDetailDataLoading ? "-" : value || "-"}</strong>
+  );
+  let ppDetailEditActions = null;
+  if (!isPpDetailDataLoading && ppDetailEditing) {
+    ppDetailEditActions = (
+      <>
+        <GhostButton
+          type="button"
+          onClick={cancelPpDetailEditing}
+          disabled={isSaving}
+        >
+          Cancelar edição
+        </GhostButton>
+        <SaveBtn
+          type="button"
+          onClick={savePpDetailEditing}
+          disabled={isSaving}
+        >
+          {isSaving ? "Salvando..." : "Salvar"}
+        </SaveBtn>
+      </>
+    );
+  } else if (!isPpDetailDataLoading && ppDetailPlan?.status !== "canceled") {
+    ppDetailEditActions = (
+      <GhostButton type="button" onClick={startPpDetailEditing}>
+        Editar
+      </GhostButton>
+    );
+  }
+  let ppDetailAgendaActions = null;
+  if (!isPpDetailDataLoading && ppDetailAgenda?.isConfigured) {
+    ppDetailAgendaActions = null;
+  } else if (!isPpDetailDataLoading) {
+    ppDetailAgendaActions = (
+      <PrimaryButton
+        type="button"
+        disabled={ppDetailPlan?.status !== "active" || ppDetailEditing}
+        onClick={() => openSchedDrawer(ppDetailPlan)}
+      >
+        <FaCalendarAlt /> Configurar agenda
+      </PrimaryButton>
+    );
+  }
   return (
     <SidebarShellWrapper $collapsed={isSidebarCollapsed}>
       {anyDrawerOpen && <DrawerBackdrop onClick={handleBackdropClick} />}
@@ -1328,6 +1818,183 @@ export default function Planos() {
         </PromptOverlay>
       )}
 
+      {ppPausePlan && (
+        <PromptOverlay>
+          <PromptCard>
+            <PromptTitle>Pausar plano mensal</PromptTitle>
+            {ppPauseSummary && (
+              <CancelPlanSummary>
+                <strong>{ppPauseSummary.patientName}</strong>
+                <span>
+                  {ppPauseSummary.planName}
+                  {ppPauseSummary.serviceName ? ` · ${ppPauseSummary.serviceName}` : ""}
+                </span>
+	                <small>
+	                  As sessões futuras dentro da pausa serão suspensas na agenda.
+	                </small>
+	              </CancelPlanSummary>
+	            )}
+	            <PauseFormGrid>
+	              <Field>
+	                <span>Início da pausa</span>
+	                <input
+	                  id="pause-starts-on"
+	                  type="date"
+	                  value={ppPauseForm.starts_on}
+	                  onChange={(event) =>
+	                    setPpPauseForm((prev) => ({ ...prev, starts_on: event.target.value }))
+	                  }
+	                  disabled={isSaving}
+	                />
+	              </Field>
+	              <Field>
+	                <span>Fim da pausa</span>
+	                <input
+	                  id="pause-ends-on"
+	                  type="date"
+	                  value={ppPauseForm.ends_on}
+	                  onChange={(event) =>
+	                    setPpPauseForm((prev) => ({ ...prev, ends_on: event.target.value }))
+	                  }
+	                  disabled={isSaving || ppPauseForm.is_indefinite}
+	                />
+	              </Field>
+	              <PauseCheckboxLabel>
+	                <input
+	                  type="checkbox"
+	                  checked={ppPauseForm.is_indefinite}
+	                  onChange={(event) =>
+	                    setPpPauseForm((prev) => ({
+	                      ...prev,
+	                      is_indefinite: event.target.checked,
+	                      ends_on: event.target.checked ? "" : prev.ends_on,
+	                    }))
+	                  }
+	                  disabled={isSaving}
+	                />
+	                Tempo indeterminado
+	              </PauseCheckboxLabel>
+	              <Field>
+	                <span>Motivo/observação</span>
+	                <textarea
+	                  id="pause-reason"
+	                  value={ppPauseForm.reason}
+	                  onChange={(event) =>
+	                    setPpPauseForm((prev) => ({ ...prev, reason: event.target.value }))
+	                  }
+	                  disabled={isSaving}
+	                  rows={3}
+	                  placeholder="Informe o motivo da pausa"
+	                />
+	              </Field>
+	            </PauseFormGrid>
+	            <PromptActions>
+              <GhostButton type="button" onClick={closePpPauseModal} disabled={isSaving}>
+                Voltar
+              </GhostButton>
+              <PrimaryButton type="button" onClick={handlePpPauseConfirm} disabled={isSaving}>
+                {isSaving ? "Pausando..." : "Confirmar pausa"}
+              </PrimaryButton>
+            </PromptActions>
+          </PromptCard>
+        </PromptOverlay>
+      )}
+
+      {ppResumePlan && (
+        <PromptOverlay>
+          <PromptCard>
+            <PromptTitle>Retomar plano mensal</PromptTitle>
+            {ppResumeSummary && (
+              <CancelPlanSummary>
+                <strong>{ppResumeSummary.patientName}</strong>
+                <span>
+                  {ppResumeSummary.planName}
+                  {ppResumeSummary.serviceName ? ` · ${ppResumeSummary.serviceName}` : ""}
+                </span>
+                <small>
+                  Ciclos mensais voltarão a ser gerados conforme a regra do plano.
+                </small>
+              </CancelPlanSummary>
+            )}
+	            <PauseFormGrid>
+	              <Field>
+	                <span>Data de retomada</span>
+	                <input
+	                  id="resume-on"
+	                  type="date"
+	                  value={ppResumeForm.resumes_on}
+	                  onChange={(event) =>
+	                    setPpResumeForm((prev) => ({ ...prev, resumes_on: event.target.value }))
+	                  }
+	                  disabled={isSaving}
+	                />
+	              </Field>
+	            </PauseFormGrid>
+	            <ResumePreviewPanel>
+	              <ResumePreviewHeader>
+	                <strong>Prévia da retomada</strong>
+	                {ppResumePreviewLoading && <DataLoadingState text="Atualizando prévia..." compact />}
+	              </ResumePreviewHeader>
+	              {ppResumePreview?.pause && (
+	                <ResumePauseSummary>
+	                  Pausa ativa desde {formatDateBR(ppResumePreview.pause.starts_on)}
+	                  {ppResumePreview.pause.is_indefinite
+	                    ? " por tempo indeterminado"
+	                    : ` até ${formatDateBR(ppResumePreview.pause.ends_on)}`}
+	                </ResumePauseSummary>
+	              )}
+	              {!ppResumePreviewLoading && ppResumeOkSessions.length === 0 && ppResumeConflictSessions.length === 0 && (
+	                <ResumePreviewEmpty>
+	                  Nenhuma sessão suspensa futura a partir desta data.
+	                </ResumePreviewEmpty>
+	              )}
+	              {ppResumeOkSessions.length > 0 && (
+	                <ResumePreviewSection>
+	                  <ResumePreviewSectionTitle>Sessões que podem ser retomadas</ResumePreviewSectionTitle>
+	                  <ResumePreviewList>
+	                    {ppResumeOkSessions.map((session) => (
+	                      <ResumePreviewItem key={session.id} $tone="ok">
+	                        <span>
+	                          {formatDateTimeBR(session.starts_at)} — {session.service_name || "Serviço"}
+	                        </span>
+	                        <strong>OK</strong>
+	                      </ResumePreviewItem>
+	                    ))}
+	                  </ResumePreviewList>
+	                </ResumePreviewSection>
+	              )}
+	              {ppResumeConflictSessions.length > 0 && (
+	                <ResumePreviewSection>
+	                  <ResumePreviewSectionTitle>Sessões com conflito ou ajuste</ResumePreviewSectionTitle>
+	                  <ResumePreviewList>
+	                    {ppResumeConflictSessions.map((session) => (
+	                      <ResumePreviewItem key={session.id} $tone="warning">
+	                        <span>
+	                          {formatDateTimeBR(session.starts_at)} — {session.service_name || "Serviço"}
+	                        </span>
+	                        <strong>{session.conflict_reason || "Precisa de revisão"}</strong>
+	                      </ResumePreviewItem>
+	                    ))}
+	                  </ResumePreviewList>
+	                </ResumePreviewSection>
+	              )}
+	            </ResumePreviewPanel>
+            <PromptActions>
+              <GhostButton type="button" onClick={closePpResumeModal} disabled={isSaving}>
+                Voltar
+              </GhostButton>
+	              <PrimaryButton
+	                type="button"
+	                onClick={handlePpResumeConfirm}
+	                disabled={isSaving || ppResumePreviewLoading}
+	              >
+                {isSaving ? "Retomando..." : "Confirmar retomada"}
+              </PrimaryButton>
+            </PromptActions>
+          </PromptCard>
+        </PromptOverlay>
+      )}
+
       {ppCancelPlan && (
         <PromptOverlay>
           <PromptCard as="form" onSubmit={handlePpCancelSubmit}>
@@ -1346,77 +2013,55 @@ export default function Planos() {
                   Início: {ppCancelSummary.startsAt} · Vencimento: {ppCancelSummary.dueDay}
                 </small>
               </CancelPlanSummary>
-            )}
-            <Field>
-              Plano ativo até quando?
-              <ModeToggle>
-                <ModeBtn
-                  type="button"
-                  $active={ppCancelForm.effectiveMode === "today"}
-                  onClick={() => setPpCancelForm((prev) => ({
-                    ...prev,
-                    effectiveMode: "today",
-                    effectiveDate: todayDateOnly(),
-                  }))}
-                >
-                  Hoje
-                </ModeBtn>
-                <ModeBtn
-                  type="button"
-                  $active={ppCancelForm.effectiveMode === "custom"}
-                  onClick={() => setPpCancelForm((prev) => ({
-                    ...prev,
-                    effectiveMode: "custom",
-                  }))}
-                >
-                  Escolher data
-                </ModeBtn>
-              </ModeToggle>
-            </Field>
-            {ppCancelForm.effectiveMode === "custom" && (
-              <Field>
-                Data final *
-                <input
-                  type="date"
-                  min={todayDateOnly()}
-                  value={ppCancelForm.effectiveDate}
-                  onChange={(e) => {
-                    const nextDate = e.target.value;
-                    if (nextDate && nextDate < todayDateOnly()) {
-                      toast.error("A data de cancelamento não pode ser anterior a hoje.");
-                      setPpCancelForm((prev) => ({
-                        ...prev,
-                        effectiveDate: todayDateOnly(),
-                      }));
-                      return;
-                    }
+	            )}
+            <InlineAlert $tone="danger">
+              Sessões automáticas do plano a partir desta data serão removidas da agenda.
+              Sessões anteriores não serão alteradas. O financeiro não será ajustado nesta etapa.
+            </InlineAlert>
+	            <Field>
+              Cancelar a partir de *
+              <input
+                type="date"
+                min={todayDateOnly()}
+                value={ppCancelForm.effectiveDate}
+                disabled={isSaving}
+                onChange={(e) => {
+                  const nextDate = e.target.value;
+                  if (nextDate && nextDate < todayDateOnly()) {
+                    toast.error("A data de cancelamento não pode ser anterior a hoje.");
                     setPpCancelForm((prev) => ({
                       ...prev,
-                      effectiveDate: nextDate,
+                      effectiveDate: todayDateOnly(),
                     }));
-                  }}
-                />
-              </Field>
-            )}
+                    return;
+                  }
+                  setPpCancelForm((prev) => ({
+                    ...prev,
+                    effectiveDate: nextDate,
+                  }));
+                }}
+              />
+            </Field>
             <Field>
               Motivo do cancelamento *
               <textarea
                 rows={4}
-                value={ppCancelForm.reason}
-                onChange={(e) => setPpCancelForm((prev) => ({
+	                value={ppCancelForm.reason}
+	                disabled={isSaving}
+	                onChange={(e) => setPpCancelForm((prev) => ({
                   ...prev,
                   reason: e.target.value,
                 }))}
                 placeholder="Descreva o motivo para auditoria..."
               />
             </Field>
-            <PromptActions>
-              <GhostButton type="button" onClick={closePpCancelModal}>
+	            <PromptActions>
+              <GhostButton type="button" onClick={closePpCancelModal} disabled={isSaving}>
                 Voltar
               </GhostButton>
-              <DangerButton type="submit" disabled={isSaving}>
-                Confirmar cancelamento
-              </DangerButton>
+	              <DangerButton type="submit" disabled={isSaving}>
+	                {isSaving ? "Cancelando..." : "Confirmar cancelamento"}
+	              </DangerButton>
             </PromptActions>
           </PromptCard>
         </PromptOverlay>
@@ -1464,9 +2109,9 @@ export default function Planos() {
                 style={{ width: 48, height: 36, padding: 2 }}
               />
             </Field>
-            <DrawerSectionTitle>Atendimento avulso</DrawerSectionTitle>
+            <DrawerSectionTitle>Atendimento por sessão</DrawerSectionTitle>
             <Field>
-              Valor avulso
+              Valor por sessão
               <input
                 name="price"
                 value={svcForm.price}
@@ -1475,7 +2120,7 @@ export default function Planos() {
                 inputMode="decimal"
               />
               <FieldHint>
-                Deixe em branco se este serviço não for usado em atendimento avulso.
+                Deixe em branco se este serviço não for usado em atendimento por sessão.
               </FieldHint>
             </Field>
             <DrawerFooter>
@@ -1690,13 +2335,7 @@ export default function Planos() {
               </strong>
               <span>
                 {schedPlan.ServicePlan?.name || "Plano"}
-                {schedPlan.ServicePlan?.sessions_per_week
-                  ? ` · ${schedPlan.ServicePlan.sessions_per_week}x/sem`
-                  : ""}
               </span>
-              <SchedPlanNote>
-                As sessões criadas serão vinculadas automaticamente ao plano mensal (cobertas pela mensalidade).
-              </SchedPlanNote>
             </SchedPlanInfo>
           )}
           <form onSubmit={handleSchedSubmit}>
@@ -1727,24 +2366,17 @@ export default function Planos() {
             </Field>
             <Field>
               Horário *
-              <input
+              <select
                 name="time"
-                type="time"
                 value={schedForm.time}
                 onChange={handleSchedChange}
-              />
-            </Field>
-            <Field>
-              Duração (minutos)
-              <input
-                name="duration_minutes"
-                type="number"
-                min="15"
-                max="240"
-                step="5"
-                value={schedForm.duration_minutes}
-                onChange={handleSchedChange}
-              />
+              >
+                {PLAN_HOUR_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </Field>
             <Field>
               Dias da semana *
@@ -1857,7 +2489,7 @@ export default function Planos() {
           <Header>
             <HeaderText>
               <Title>{activeSectionInfo.title}</Title>
-              <Subtitle>{activeSectionInfo.subtitle}</Subtitle>
+              {activeSectionInfo.subtitle && <Subtitle>{activeSectionInfo.subtitle}</Subtitle>}
             </HeaderText>
             <MobileMenuButton type="button" onClick={openSidebar}>
               <FaBars />
@@ -1865,27 +2497,289 @@ export default function Planos() {
             </MobileMenuButton>
           </Header>
 
+          {isPatientPlanDetailPage && (
+            <ModuleBody>
+              {ppDetailError && !ppDetailLoading && (
+                <DataLoadingState tone="error" compact>
+                  {ppDetailError}
+                </DataLoadingState>
+              )}
+              {!ppDetailError && (
+                <PlanDetailPage>
+                  <PlanDetailHero>
+                    <PlanDetailTitleGroup>
+                      <PlanDetailEyebrow>Plano do paciente</PlanDetailEyebrow>
+                      <PlanDetailPatient>
+                        {isPpDetailDataLoading ? "-" : ppDetailSummary?.patientName || "-"}
+                      </PlanDetailPatient>
+                      <PlanDetailSubtitle>
+                        {isPpDetailDataLoading ? "-" : (
+                          <>
+                            {ppDetailSummary?.planName || "-"}
+                            {ppDetailSummary?.serviceName ? ` · ${ppDetailSummary.serviceName}` : ""}
+                          </>
+                        )}
+                      </PlanDetailSubtitle>
+	                      <PlanDetailBadges>
+	                        {!isPpDetailDataLoading && (
+	                          <>
+	                            <StatusPill $tone={ppDetailStatus?.tone}>
+	                              {ppDetailStatus?.label || "-"}
+	                            </StatusPill>
+	                            <StatusPill $tone={ppDetailAgenda?.tone}>
+	                              {ppDetailAgenda?.label || "-"}
+	                            </StatusPill>
+	                          </>
+		                        )}
+		                      </PlanDetailBadges>
+	                      {ppDetailPauseInfo && (
+	                        <PlanDetailPauseNote>{ppDetailPauseInfo}</PlanDetailPauseNote>
+	                      )}
+	                    </PlanDetailTitleGroup>
+                    <PlanDetailTopActions>
+                      {ppDetailAgendaActions}
+                      {ppDetailPlan?.status === "active" && (
+		                        <GhostButton
+	                          type="button"
+	                          onClick={() => handlePpPause(ppDetailPlan)}
+	                          disabled={ppDetailEditing || isPpStatusActionBusy}
+	                        >
+                          Pausar plano
+                        </GhostButton>
+                      )}
+	                      {!ppDetailEditing && ppDetailPlan?.status === "paused" && (
+		                        <GhostButton
+		                          type="button"
+		                          onClick={() => handlePpResume(ppDetailPlan)}
+	                          disabled={ppDetailEditing || isPpStatusActionBusy}
+	                        >
+	                          Retomar plano
+	                        </GhostButton>
+	                      )}
+	                      {!ppDetailEditing && ppDetailPlan && ppDetailPlan.status !== "canceled" && (
+		                        <DangerButton
+		                          type="button"
+		                          onClick={() => handlePpCancel(ppDetailPlan)}
+	                          disabled={ppDetailEditing || isPpStatusActionBusy}
+	                        >
+                          Cancelar plano
+                        </DangerButton>
+                      )}
+                    </PlanDetailTopActions>
+                  </PlanDetailHero>
+
+                  <PlanDetailSection $editing={ppDetailEditing}>
+                    <PlanDetailSectionHeader>
+                      <PlanDetailsBlockTitle>Resumo do plano</PlanDetailsBlockTitle>
+	                      <PlanDetailsActions>
+                        {ppDetailEditActions}
+                      </PlanDetailsActions>
+                    </PlanDetailSectionHeader>
+                    {isPpDetailDataLoading && (
+                      <PlanBlockLoading>
+                        <DataLoadingState text="Carregando dados do plano..." compact />
+                      </PlanBlockLoading>
+                    )}
+                    <PlanSummaryList>
+                      <PlanSummaryItem>
+                        <PlanSummaryLabel>Plano comercial</PlanSummaryLabel>
+                        <PlanSummaryValue>
+                        {ppDetailEditing ? (
+                          <PlanDetailField
+                            as="select"
+                            name="service_plan_id"
+                            value={ppDetailEditForm.service_plan_id}
+                            onChange={handlePpDetailEditChange}
+                          >
+                            <option value="">Selecione...</option>
+                            {ppDetailPlanOptions.map((sp) => (
+                              <option key={sp.id} value={sp.id}>
+                                {sp.name}
+                                {sp.Service?.name ? ` (${sp.Service.name})` : ""}
+                              </option>
+                            ))}
+                          </PlanDetailField>
+                        ) : (
+                          ppDetailText(ppDetailSummary?.planName)
+                        )}
+                        </PlanSummaryValue>
+                      </PlanSummaryItem>
+                      <PlanSummaryItem>
+                        <PlanSummaryLabel>Frequência</PlanSummaryLabel>
+                        <PlanSummaryValue>
+                          {ppDetailEditing
+                            ? <strong>{ppDetailEditingFrequency}</strong>
+                            : ppDetailText(ppDetailSummary?.frequency)}
+                        </PlanSummaryValue>
+                      </PlanSummaryItem>
+                      <PlanSummaryItem>
+                        <PlanSummaryLabel>Data de início</PlanSummaryLabel>
+                        <PlanSummaryValue>
+                        {ppDetailEditing ? (
+                          <PlanDetailField
+                            name="starts_at"
+                            type="date"
+                            $compact
+                            value={ppDetailEditForm.starts_at}
+                            onChange={handlePpDetailEditChange}
+                          />
+                        ) : (
+                          ppDetailText(ppDetailSummary?.startsAt)
+                        )}
+                        </PlanSummaryValue>
+                      </PlanSummaryItem>
+                      <PlanSummaryItem>
+                        <PlanSummaryLabel>Dia de vencimento</PlanSummaryLabel>
+                        <PlanSummaryValue>
+                        {ppDetailEditing ? (
+                          <PlanDetailField
+                            as="select"
+                            name="anchor_day"
+                            $compact
+                            value={ppDetailEditForm.anchor_day}
+                            onChange={handlePpDetailEditChange}
+                          >
+                            <option value="">Selecione...</option>
+                            {ANCHOR_DAY_OPTIONS.map((day) => (
+                              <option key={day} value={day}>
+                                {day}
+                              </option>
+                            ))}
+                          </PlanDetailField>
+                        ) : (
+                          ppDetailText(ppDetailSummary?.dueDay)
+                        )}
+                        </PlanSummaryValue>
+                      </PlanSummaryItem>
+                      <PlanSummaryItem>
+                        <PlanSummaryLabel>Profissional</PlanSummaryLabel>
+                        <PlanSummaryValue>
+                          {ppDetailEditing && ppDetailAgenda?.seriesId ? (
+                            <PlanDetailField
+                              as="select"
+                              name="professional_user_id"
+                              value={ppDetailEditForm.professional_user_id}
+                              onChange={handlePpDetailEditChange}
+                            >
+                              <option value="">Selecione um profissional</option>
+                              {professionals.map((pr) => (
+                                <option key={pr.id} value={pr.id}>
+                                  {pr.name}
+                                </option>
+                              ))}
+                            </PlanDetailField>
+                          ) : (
+                            ppDetailText(ppDetailAgenda?.professionalName)
+                          )}
+                        </PlanSummaryValue>
+                      </PlanSummaryItem>
+                      <PlanSummaryItem>
+                        <PlanSummaryLabel>Dias da semana</PlanSummaryLabel>
+                        <PlanSummaryValue>
+                          {ppDetailEditing && ppDetailAgenda?.seriesId ? (
+                            <>
+                              <WeekdayPicker>
+                                {WEEKDAY_OPTIONS.map((opt) => {
+                                  const selectedWeekdays = ppDetailEditForm.weekdays || [];
+                                  const isActive = selectedWeekdays.includes(opt.value);
+                                  const isDisabled = !!(
+                                    ppDetailWeekdayLimit
+                                    && !isActive
+                                    && selectedWeekdays.length >= ppDetailWeekdayLimit
+                                  );
+                                  return (
+                                    <WeekdayBtn
+                                      key={opt.value}
+                                      type="button"
+                                      $active={isActive}
+                                      disabled={isDisabled}
+                                      onClick={() => togglePpDetailWeekday(opt.value)}
+                                    >
+                                      {opt.label}
+                                    </WeekdayBtn>
+                                  );
+                                })}
+                              </WeekdayPicker>
+                              {ppDetailWeekdayLimit && (
+                                <FieldHint>
+                                  Selecione {ppDetailWeekdayLimit} dia(s) para este plano.
+                                </FieldHint>
+                              )}
+                            </>
+                          ) : (
+                            ppDetailText(ppDetailAgenda?.weekdayText)
+                          )}
+                        </PlanSummaryValue>
+                      </PlanSummaryItem>
+                      <PlanSummaryItem>
+                        <PlanSummaryLabel>Horário</PlanSummaryLabel>
+                        <PlanSummaryValue>
+                          {ppDetailEditing && ppDetailAgenda?.seriesId ? (
+                            <PlanDetailField
+                              as="select"
+                              name="time"
+                              $compact
+                              value={ppDetailEditForm.time}
+                              onChange={handlePpDetailEditChange}
+                            >
+                              {PLAN_HOUR_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </PlanDetailField>
+                          ) : (
+                            ppDetailText(ppDetailAgenda?.timeText)
+                          )}
+                        </PlanSummaryValue>
+                      </PlanSummaryItem>
+                      <PlanSummaryItem>
+                        <PlanSummaryLabel>Observações</PlanSummaryLabel>
+                        <PlanSummaryValue>
+                        {ppDetailEditing ? (
+                        <PlanDetailField
+                          as="textarea"
+                          name="notes"
+                          value={ppDetailEditForm.notes}
+                          onChange={handlePpDetailEditChange}
+                          rows={3}
+                        />
+                        ) : (
+                          ppDetailText(String(ppDetailPlan?.notes || "").trim())
+                        )}
+                        </PlanSummaryValue>
+                      </PlanSummaryItem>
+                    </PlanSummaryList>
+                  </PlanDetailSection>
+                </PlanDetailPage>
+              )}
+            </ModuleBody>
+          )}
+
           {/* ---- Patient Plans tab ---- */}
-          {activeTab === "patient-plans" && (
+          {activeTab === "patient-plans" && !isPatientPlanDetailPage && (
             <ModuleBody>
               <AppToolbar>
                 <AppToolbarLeft>
                   <PatientSearchField
                     mode="filter"
                     value={ppPatientSearch}
-                    onChange={setPpPatientSearch}
+                    onChange={(value) => {
+                      setPpFocusedPlanId("");
+                      setPpPatientSearch(value);
+                    }}
                   />
                   <ToolbarFilterField>
                     <span>Status</span>
-                    <select
-                      value={ppFilterStatus}
-                      onChange={(e) => setPpFilterStatus(e.target.value)}
-                    >
-                      <option value="active">Ativo</option>
-                      <option value="canceled">Cancelado</option>
-                      <option value="">Todos os status</option>
-                      <option value="paused">Pausado</option>
-                    </select>
+	                    <select
+	                      value={ppFilterStatus}
+	                      onChange={(e) => setPpFilterStatus(e.target.value)}
+	                    >
+	                      <option value="">Todos os status</option>
+	                      <option value="active">Ativo</option>
+	                      <option value="paused">Pausado</option>
+	                      <option value="canceled">Cancelado</option>
+	                    </select>
                   </ToolbarFilterField>
                 </AppToolbarLeft>
                 <PrimaryButton type="button" onClick={openPpCreate}>
@@ -1900,25 +2794,22 @@ export default function Planos() {
                       <TH>Paciente</TH>
                       <TH>Plano</TH>
                       <TH>Frequência</TH>
-                      <TH>Vencimento</TH>
-                      <TH>Início</TH>
-                      <TH>Profissional</TH>
-                      <TH>Dias</TH>
+                      <TH>Agenda</TH>
                       <TH>Status</TH>
-                      <ActionTH>Ações</ActionTH>
+                      <ActionTH>Detalhes</ActionTH>
                     </tr>
                   </thead>
                   <tbody>
                     {isPatientPlansLoading && (
                       <tr>
-                        <td colSpan={9}>
+                        <td colSpan={6}>
                           <DataLoadingState text="Carregando pacientes com plano..." compact />
                         </td>
                       </tr>
                     )}
                     {!isPatientPlansLoading && patientPlansError && (
                       <tr>
-                        <td colSpan={9}>
+                        <td colSpan={6}>
                           <DataLoadingState tone="error" compact>
                             {patientPlansError}
                           </DataLoadingState>
@@ -1927,7 +2818,7 @@ export default function Planos() {
                     )}
                     {!isPatientPlansLoading && !patientPlansError && displayedPatientPlans.length === 0 && (
                       <tr>
-                        <td colSpan={9}>
+                        <td colSpan={6}>
                           <Empty>Nenhum vínculo encontrado.</Empty>
                         </td>
                       </tr>
@@ -1937,7 +2828,7 @@ export default function Planos() {
                       const freqLabel = pp.ServicePlan?.sessions_per_week
                         ? `${pp.ServicePlan.sessions_per_week}x/sem`
                         : pp.ServicePlan?.frequency_label || "-";
-                      const scheduleInfo = getPatientPlanScheduleInfo(pp, professionals);
+                      const agendaInfo = getPatientPlanAgendaInfo(pp, professionals);
                       return (
                         <tr key={pp.id}>
                           <TD>
@@ -1947,90 +2838,16 @@ export default function Planos() {
                           </TD>
                           <TD>{pp.ServicePlan?.name || "-"}</TD>
                           <TD>{freqLabel}</TD>
-                          <TD>Dia {pp.anchor_day}</TD>
-                          <TD>{formatDateBR(pp.starts_at)}</TD>
-                          <TD>{scheduleInfo.professionalName}</TD>
-                          <TD>{scheduleInfo.weekdayText}</TD>
+                          <TD>
+                            <StatusPill $tone={agendaInfo.tone}>{agendaInfo.label}</StatusPill>
+                          </TD>
                           <TD>
                             <StatusPill $tone={si.tone}>{si.label}</StatusPill>
                           </TD>
                           <ActionTD>
-                            <ActionMenuWrap>
-                              <ActionMenuButton
-                                type="button"
-                                title="Ações do plano"
-                                aria-label="Ações do plano"
-                                onClick={(event) => togglePpActionMenu(event, pp.id)}
-                              >
-                                <FaEllipsisV />
-                              </ActionMenuButton>
-                            </ActionMenuWrap>
-                            {openPpActionMenuId === pp.id && ppActionMenuPosition && (
-                              <ActionMenuList
-                                style={{
-                                  top: ppActionMenuPosition.top,
-                                  left: ppActionMenuPosition.left,
-                                }}
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                {pp.status === "active" && (
-                                  <ActionMenuItem
-                                    type="button"
-                                    title="Agendar sessões deste plano na agenda"
-                                    onClick={() => {
-                                      closePpActionMenu();
-                                      openSchedDrawer(pp);
-                                    }}
-                                  >
-                                    <FaCalendarAlt /> Agendar
-                                  </ActionMenuItem>
-                                )}
-                                {pp.status !== "canceled" && (
-                                  <ActionMenuItem
-                                    type="button"
-                                    onClick={() => {
-                                      closePpActionMenu();
-                                      openPpEdit(pp);
-                                    }}
-                                  >
-                                    Editar
-                                  </ActionMenuItem>
-                                )}
-                                {pp.status === "active" && (
-                                  <ActionMenuItem
-                                    type="button"
-                                    onClick={() => {
-                                      closePpActionMenu();
-                                      handlePpPause(pp);
-                                    }}
-                                  >
-                                    Pausar
-                                  </ActionMenuItem>
-                                )}
-                                {pp.status === "paused" && (
-                                  <ActionMenuItem
-                                    type="button"
-                                    onClick={() => {
-                                      closePpActionMenu();
-                                      handlePpResume(pp);
-                                    }}
-                                  >
-                                    Retomar
-                                  </ActionMenuItem>
-                                )}
-                                {pp.status !== "canceled" && (
-                                  <ActionMenuDangerItem
-                                    type="button"
-                                    onClick={() => {
-                                      closePpActionMenu();
-                                      handlePpCancel(pp);
-                                    }}
-                                  >
-                                    Cancelar
-                                  </ActionMenuDangerItem>
-                                )}
-                              </ActionMenuList>
-                            )}
+                            <RowActionButton type="button" onClick={() => openPpDetails(pp)}>
+                              Detalhes
+                            </RowActionButton>
                           </ActionTD>
                         </tr>
                       );
@@ -2042,7 +2859,7 @@ export default function Planos() {
           )}
 
           {/* ---- Service Plans tab ---- */}
-          {activeTab === "service-plans" && (
+          {activeTab === "service-plans" && !isPatientPlanDetailPage && (
             <ModuleBody>
               <AppToolbar>
                 <AppToolbarLeft>
@@ -2144,7 +2961,7 @@ export default function Planos() {
           )}
 
           {/* ---- Services tab ---- */}
-          {activeTab === "services" && (
+          {activeTab === "services" && !isPatientPlanDetailPage && (
             <ModuleBody>
               <AppToolbar>
                 <AppToolbarLeft />
@@ -2160,7 +2977,7 @@ export default function Planos() {
                       <TH>Cor</TH>
                       <TH>Nome</TH>
                       <TH>Duração padrão</TH>
-                      <TH>Valor avulso</TH>
+                      <TH>Valor por sessão</TH>
                       <TH>Status</TH>
                       <TH>Ações</TH>
                     </tr>
@@ -2331,68 +3148,208 @@ const DrawerSectionTitle = styled.h3`
   }
 `;
 
-const ActionMenuWrap = styled.div`
-  display: inline-flex;
-  justify-content: flex-end;
-`;
-
-const ActionMenuButton = styled.button`
-  width: 32px;
-  height: 32px;
-  border: 1px solid rgba(106, 121, 92, 0.24);
-  border-radius: 8px;
-  background: #fff;
-  color: #3d5230;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 0.12s;
-
-  &:hover {
-    background: rgba(106, 121, 92, 0.08);
-  }
-`;
-
-const ActionMenuList = styled.div`
-  position: fixed;
-  z-index: 3000;
-  width: 168px;
-  padding: 6px;
-  border: 1px solid rgba(106, 121, 92, 0.16);
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+const PlanDetailPage = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 16px;
 `;
 
-const ActionMenuItem = styled.button`
-  width: 100%;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: #3d5230;
-  padding: 8px 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  text-align: left;
-  font-size: 0.84rem;
-  font-weight: 600;
-  cursor: pointer;
+const PlanDetailHero = styled.section`
+  align-items: flex-start;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  border-radius: 14px;
+  background: #fbfcf8;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
 
-  &:hover {
-    background: rgba(106, 121, 92, 0.08);
+  @media (max-width: 760px) {
+    flex-direction: column;
   }
 `;
 
-const ActionMenuDangerItem = styled(ActionMenuItem)`
-  color: #992222;
+const PlanDetailTitleGroup = styled.div`
+  min-width: 0;
+`;
 
-  &:hover {
-    background: rgba(200, 70, 70, 0.07);
+const PlanDetailEyebrow = styled.span`
+  color: #6a795c;
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+`;
+
+const PlanDetailPatient = styled.h2`
+  color: #1b1b1b;
+  font-size: clamp(1.35rem, 2vw, 2rem);
+  line-height: 1.15;
+  margin: 0;
+`;
+
+const PlanDetailSubtitle = styled.p`
+  color: #526247;
+  font-size: 0.98rem;
+  font-weight: 700;
+  margin: 8px 0 0;
+`;
+
+const PlanDetailBadges = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+`;
+
+const PlanDetailTopActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+
+  @media (max-width: 760px) {
+    justify-content: flex-start;
+  }
+`;
+
+const PlanDetailSection = styled.section`
+  border: ${(props) => (props.$editing ? "2px" : "1px")} solid
+    ${(props) => (props.$editing ? "rgba(190, 92, 92, 0.58)" : "rgba(106, 121, 92, 0.18)")};
+  border-radius: 16px;
+  background: ${(props) => (props.$editing ? "#fffdf7" : "#fff")};
+  box-shadow: ${(props) => (
+    props.$editing
+      ? "0 0 0 4px rgba(190, 92, 92, 0.08), 0 14px 30px rgba(190, 92, 92, 0.08)"
+      : "0 10px 24px rgba(0, 0, 0, 0.05)"
+  )};
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+`;
+
+const PlanDetailSectionHeader = styled.div`
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 4px;
+
+  @media (max-width: 640px) {
+    flex-direction: column;
+  }
+`;
+
+const PlanSummaryList = styled.div`
+  display: grid;
+  gap: 8px;
+`;
+
+const PlanSummaryItem = styled.div`
+  align-items: start;
+  border-bottom: 1px solid rgba(106, 121, 92, 0.12);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(170px, 260px) minmax(0, 1fr);
+  min-width: 0;
+  padding-bottom: 6px;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  strong {
+    color: #1b1b1b;
+    display: block;
+    font-size: 0.96rem;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+`;
+
+const PlanSummaryLabel = styled.span`
+  color: #55644c;
+  display: block;
+  font-size: 0.87rem;
+  font-weight: 700;
+`;
+
+const PlanSummaryValue = styled.div`
+  color: #2d3629;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  min-width: 0;
+  overflow: hidden;
+  white-space: pre-wrap;
+  width: 100%;
+  word-break: break-word;
+`;
+
+const PlanBlockLoading = styled.div`
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 44px;
+`;
+
+const PlanDetailField = styled.input`
+  border: 1px solid rgba(106, 121, 92, 0.22);
+  border-radius: 10px;
+  background: #fff;
+  box-sizing: border-box;
+  color: #1b1b1b;
+  display: block;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 700;
+  max-width: ${(props) => (props.$compact ? "220px" : "100%")};
+  min-height: 38px;
+  padding: 7px 11px;
+  width: ${(props) => (props.$compact ? "220px" : "100%")};
+
+  &:focus {
+    border-color: rgba(106, 121, 92, 0.55);
+    box-shadow: 0 0 0 3px rgba(106, 121, 92, 0.12);
+    outline: none;
+  }
+
+  &[as="textarea"],
+  textarea& {
+    min-height: 74px;
+    resize: vertical;
+  }
+`;
+
+const PlanDetailPauseNote = styled.div`
+  color: #7a5a18;
+  font-size: 0.88rem;
+  font-weight: 700;
+`;
+
+const PlanDetailsBlockTitle = styled.h3`
+  margin: 0;
+  color: #354a2c;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+`;
+
+const PlanDetailsActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  ${PlanDetailSectionHeader} & {
+    justify-content: flex-end;
   }
 `;
 
@@ -2459,22 +3416,6 @@ const WeekdayBtn = styled.button`
   }
 `;
 
-const ModeToggle = styled.div`
-  display: flex;
-  gap: 4px;
-  margin-top: 6px;
-`;
-
-const ModeBtn = styled.button`
-  padding: 5px 12px;
-  border-radius: 6px;
-  border: 1px solid ${({ $active }) => ($active ? "#6a795c" : "#d4d8ce")};
-  background: ${({ $active }) => ($active ? "#6a795c" : "#fff")};
-  color: ${({ $active }) => ($active ? "#fff" : "#555")};
-  font-size: 0.82rem;
-  cursor: pointer;
-`;
-
 const SchedPlanInfo = styled.div`
   display: flex;
   flex-direction: column;
@@ -2497,12 +3438,6 @@ const SchedPlanInfo = styled.div`
   }
 `;
 
-const SchedPlanNote = styled.p`
-  font-size: 0.77rem;
-  color: #888;
-  margin: 4px 0 0;
-`;
-
 const PromptOverlay = styled.div`
   position: fixed;
   inset: 0;
@@ -2517,7 +3452,7 @@ const PromptCard = styled.div`
   background: #fff;
   border-radius: 16px;
   padding: 32px 28px;
-  max-width: 440px;
+  max-width: 560px;
   width: 90%;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
 `;
@@ -2560,6 +3495,134 @@ const CancelPlanSummary = styled.div`
     color: #687263;
     font-size: 0.82rem;
   }
+`;
+
+const InlineAlert = styled.div`
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(197, 95, 64, 0.28);
+  background: rgba(197, 95, 64, 0.08);
+  color: #8a3b20;
+  font-size: 0.86rem;
+  line-height: 1.45;
+`;
+
+const PauseFormGrid = styled.div`
+  display: grid;
+  gap: 14px;
+  margin: 0 0 22px;
+
+  ${Field} {
+    margin: 0;
+  }
+
+  textarea {
+    border: 1px solid rgba(106, 121, 92, 0.22);
+    border-radius: 10px;
+    box-sizing: border-box;
+    color: #1b1b1b;
+    font: inherit;
+    min-height: 84px;
+    padding: 10px 12px;
+    resize: vertical;
+    width: 100%;
+  }
+`;
+
+const PauseCheckboxLabel = styled.label`
+  align-items: center;
+  color: #516046;
+  display: inline-flex;
+  font-size: 0.92rem;
+  font-weight: 700;
+  gap: 8px;
+
+  input {
+    accent-color: #6a795c;
+    height: 16px;
+    width: 16px;
+  }
+`;
+
+const ResumePreviewPanel = styled.div`
+  background: #f8faf6;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  margin: 0 0 22px;
+  padding: 14px;
+`;
+
+const ResumePreviewHeader = styled.div`
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+
+  strong {
+    color: #2f3d2a;
+    font-size: 0.95rem;
+    font-weight: 900;
+  }
+`;
+
+const ResumePauseSummary = styled.div`
+  color: #65715d;
+  font-size: 0.86rem;
+  font-weight: 700;
+`;
+
+const ResumePreviewSection = styled.div`
+  display: grid;
+  gap: 8px;
+`;
+
+const ResumePreviewSectionTitle = styled.div`
+  color: #4d5d44;
+  font-size: 0.82rem;
+  font-weight: 900;
+`;
+
+const ResumePreviewList = styled.div`
+  display: grid;
+  gap: 6px;
+`;
+
+const ResumePreviewItem = styled.div`
+  align-items: center;
+  background: ${(props) => (props.$tone === "warning" ? "#fff5ed" : "#f1f7ee")};
+  border: 1px solid ${(props) => (props.$tone === "warning"
+    ? "rgba(198, 104, 44, 0.24)"
+    : "rgba(106, 121, 92, 0.18)")};
+  border-radius: 10px;
+  color: #293225;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 9px 10px;
+
+  span {
+    font-size: 0.86rem;
+    line-height: 1.35;
+  }
+
+  strong {
+    color: ${(props) => (props.$tone === "warning" ? "#a6451c" : "#3f6d37")};
+    font-size: 0.78rem;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+`;
+
+const ResumePreviewEmpty = styled.div`
+  border: 1px dashed rgba(106, 121, 92, 0.22);
+  border-radius: 10px;
+  color: #6f7869;
+  font-size: 0.88rem;
+  padding: 12px;
+  text-align: center;
 `;
 
 const PromptActions = styled.div`

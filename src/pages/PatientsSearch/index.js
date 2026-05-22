@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useHistory } from "react-router-dom";
 import styled from "styled-components";
 import { FaSearch, FaPhoneAlt, FaUser, FaList, FaThLarge } from "react-icons/fa";
 import { toast } from "react-toastify";
@@ -38,6 +38,7 @@ function buildPatientSearchIndex(patient) {
 }
 
 export default function PatientsSearch() {
+  const history = useHistory();
   const [isLoading, setIsLoading] = useState(false);
   const [patients, setPatients] = useState([]);
   const [query, setQuery] = useState("");
@@ -148,11 +149,27 @@ export default function PatientsSearch() {
         {!isLoading && (viewMode === "list" ? (
           <List>
             {sortedPatients.map((patient, index) => (
-              <ListItem key={patient.id || `${getPatientName(patient)}-${index}`}>
+              <ListItem
+                key={patient.id || `${getPatientName(patient)}-${index}`}
+                role={patient.id ? "link" : undefined}
+                tabIndex={patient.id ? 0 : undefined}
+                $clickable={!!patient.id}
+                onClick={() => {
+                  if (patient.id) history.push(`/pacientes/${patient.id}`);
+                }}
+                onKeyDown={(event) => {
+                  if (!patient.id) return;
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    history.push(`/pacientes/${patient.id}`);
+                  }
+                }}
+              >
                 <PatientName>{getPatientName(patient)}</PatientName>
                 <DetailsButton
                   to={patient.id ? `/pacientes/${patient.id}` : "/pacientes/consultar"}
                   $disabled={!patient.id}
+                  onClick={(event) => event.stopPropagation()}
                 >
                   Ver detalhes
                 </DetailsButton>
@@ -297,6 +314,7 @@ const ListItem = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  cursor: ${(props) => (props.$clickable ? "pointer" : "default")};
   transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 
   &:hover,
@@ -304,6 +322,11 @@ const ListItem = styled.div`
     background: rgba(162, 177, 144, 0.12);
     border-color: rgba(106, 121, 92, 0.42);
     box-shadow: 0 6px 16px rgba(106, 121, 92, 0.18);
+  }
+
+  &:focus-visible {
+    outline: 3px solid rgba(106, 121, 92, 0.28);
+    outline-offset: 2px;
   }
 
   @media (max-width: 620px) {

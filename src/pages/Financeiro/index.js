@@ -57,6 +57,7 @@ import {
   createFinancialRecurringExpense,
   updateFinancialRecurringExpense,
   listBillingCycles,
+  listPatientCredits,
 } from "../../services/financial";
 import {
   createSpecialSchedulingEvent,
@@ -98,20 +99,20 @@ const emptyPayment = {
   allocation_mode: "entry",
 };
 
-const STANDALONE_PAYMENT_ANCHOR_DESCRIPTION = "Recebimento avulso (sistema)";
+const STANDALONE_PAYMENT_ANCHOR_DESCRIPTION = "Recebimento por sessão (sistema)";
+const LEGACY_STANDALONE_PAYMENT_ANCHOR_DESCRIPTION = "Recebimento avulso (sistema)";
 const STANDALONE_PAYMENT_ANCHOR_NOTE =
-  "Entrada tecnica automatica para viabilizar recebimento avulso.";
-const ENABLE_SESSION_BATCH_PAYMENT =
-  String(process.env.REACT_APP_FINANCIAL_SESSION_BATCH_PAYMENT_ENABLED || "true")
-    .trim()
-    .toLowerCase() === "true";
-
+  "Entrada técnica automática para viabilizar recebimento por sessão.";
 const isManualReceiptEntry = (entry) =>
   Boolean(entry && entry.type === "income" && !entry.session_id);
 
 const resolveManualReceiptLabel = (entry) => {
   const description = String(entry?.description || "").trim();
-  if (!description || description === STANDALONE_PAYMENT_ANCHOR_DESCRIPTION) {
+  if (
+    !description ||
+    description === STANDALONE_PAYMENT_ANCHOR_DESCRIPTION ||
+    description === LEGACY_STANDALONE_PAYMENT_ANCHOR_DESCRIPTION
+  ) {
     return "Recebimento manual";
   }
   return description;
@@ -127,17 +128,15 @@ const resolveManualReceiptStatus = (amountCents, allocatedCents) => {
   return "partial";
 };
 
-const isSessionBatchEligibleRow = (row) => {
-  if (!ENABLE_SESSION_BATCH_PAYMENT || !row) return false;
-  if (row.isManualReceiptRow || row.isProjectedInstallmentRow) return false;
-  if (!row.entry || row.isInstallmentPlan) return false;
-  if (row.billing_mode === "covered_by_plan") return false;
+const resolveGroupedFinancialStatus = (amountCents, paidCents, openCents) => {
+  const amount = Number(amountCents || 0);
+  const paid = Number(paidCents || 0);
+  const open = Number(openCents || 0);
 
-  const status = String(row.financialStatus || "").toLowerCase();
-  if (!["pending", "partial"].includes(status)) return false;
-  if (Number(row.openCents || 0) <= 0) return false;
-
-  return Number(row.id || 0) > 0 && Number(row.patientId || row.entry?.patient_id || 0) > 0;
+  if (amount <= 0) return "missing";
+  if (open <= 0) return "paid";
+  if (paid > 0) return "partial";
+  return "pending";
 };
 
 const HOLIDAY_SOURCE_OPTIONS = [
@@ -186,14 +185,6 @@ const formatDate = (value) => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "-";
   return parsed.toLocaleDateString("pt-BR");
-};
-
-const formatWeekday = (value) => {
-  if (!value) return "-";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "-";
-  const weekday = parsed.toLocaleDateString("pt-BR", { weekday: "long" });
-  return weekday ? weekday.charAt(0).toUpperCase() + weekday.slice(1) : "-";
 };
 
 const parseCurrencyInputToNumber = (value) => {
@@ -582,6 +573,13 @@ const formatBillingCycleSessionStatus = (status) => {
   return "Agendada";
 };
 
+const formatPackageSessionStatus = (status) => {
+  if (status === "done") return "Concluída";
+  if (status === "no_show") return "Falta";
+  if (status === "canceled") return "Cancelada";
+  return "Agendada";
+};
+
 const getCurrentMonthRange = () => {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -609,6 +607,8 @@ export default function Financeiro() {
   const [services, setServices] = useState([]);
   const [servicePrices, setServicePrices] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [patientCredits, setPatientCredits] = useState([]);
+  const [attendanceSeries, setAttendanceSeries] = useState([]);
   const [recurringExpenses, setRecurringExpenses] = useState([]);
   const [attendanceSessions, setAttendanceSessions] = useState([]);
   const [holidays, setHolidays] = useState([]);
@@ -646,14 +646,20 @@ export default function Financeiro() {
       start: range.start,
       end: range.end,
       search: "",
-      status: "done",
+      status: "all",
       financial: "all",
       patient_id: "",
       professional_id: "",
     };
   });
-  const [attendanceView, setAttendanceView] = useState("patients");
   const [attendanceDrilldownPatientId, setAttendanceDrilldownPatientId] = useState(null);
+  const [attendanceDetailSessions, setAttendanceDetailSessions] = useState({
+    patientId: null,
+    sessions: [],
+    isLoading: false,
+    error: "",
+  });
+  const [selectedAttendancePackageId, setSelectedAttendancePackageId] = useState(null);
   const [attendancePeriodMode, setAttendancePeriodMode] = useState("month");
   const [attendancePeriodMonth, setAttendancePeriodMonth] = useState(() =>
     toMonthInputValue(new Date()),
@@ -700,7 +706,6 @@ export default function Financeiro() {
   const [paymentAllocations, setPaymentAllocations] = useState({});
   const [paymentPatientQuery, setPaymentPatientQuery] = useState("");
   const [isPaymentPatientSearchFocused, setIsPaymentPatientSearchFocused] = useState(false);
-  const [selectedAttendanceSessionIds, setSelectedAttendanceSessionIds] = useState([]);
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState({ name: "", type: "income", color: "" });
   const [editingCategoryId, setEditingCategoryId] = useState(null);
@@ -843,9 +848,14 @@ export default function Financeiro() {
   }, [attendanceFilters.patient_id, patientMap]);
 
   const selectedAttendancePatientId = useMemo(
-    () => normalizeId(attendanceFilters.patient_id),
-    [attendanceFilters.patient_id],
+    () => normalizeId(attendanceDrilldownPatientId || attendanceFilters.patient_id),
+    [attendanceDrilldownPatientId, attendanceFilters.patient_id],
   );
+
+  const selectedAttendancePatient = useMemo(() => {
+    if (!selectedAttendancePatientId) return null;
+    return patientMap.get(selectedAttendancePatientId) || null;
+  }, [patientMap, selectedAttendancePatientId]);
 
   const servicePriceMap = useMemo(() => {
     const map = new Map();
@@ -1094,7 +1104,7 @@ export default function Financeiro() {
 
   const formatRecurrence = useCallback((session) => {
     const series = session?.series;
-    if (!series) return "Avulso";
+    if (!series) return "Por sessão";
     const weekdays = Array.isArray(series.weekdays) ? series.weekdays.length : 0;
     if (weekdays > 0) {
       if (series.repeat_interval === 1) return `${weekdays}x/semana`;
@@ -1107,7 +1117,8 @@ export default function Financeiro() {
 
   const formatDateOnlyBR = useCallback((dateStr) => {
     if (!dateStr) return "-";
-    const parts = String(dateStr).split("-");
+    const dateOnlyValue = String(dateStr).slice(0, 10);
+    const parts = dateOnlyValue.split("-");
     if (parts.length !== 3) return dateStr;
     return `${parts[2]}/${parts[1]}/${parts[0]}`;
   }, []);
@@ -1156,6 +1167,8 @@ export default function Financeiro() {
         servicePricesResponse,
         paymentsResponse,
         recurringResponse,
+        patientCreditsResponse,
+        sessionSeriesResponse,
       ] = await Promise.all([
         listFinancialEntries(),
         listFinancialCategories(),
@@ -1165,6 +1178,8 @@ export default function Financeiro() {
         listServicePrices(),
         listFinancialPayments(),
         listFinancialRecurringExpenses(),
+        listPatientCredits(),
+        axios.get("/session-series"),
       ]);
 
       setEntries(entriesResponse.data || []);
@@ -1175,6 +1190,8 @@ export default function Financeiro() {
       setServicePrices(servicePricesResponse.data || []);
       setPayments(paymentsResponse.data || []);
       setRecurringExpenses(recurringResponse.data || []);
+      setPatientCredits(patientCreditsResponse.data || []);
+      setAttendanceSeries(sessionSeriesResponse.data || []);
     } catch (error) {
       toast.error("Não foi possível carregar o financeiro.");
     } finally {
@@ -1347,18 +1364,24 @@ export default function Financeiro() {
     setIsPaymentPatientSearchFocused(false);
   }, []);
 
-  const openCreditModal = useCallback(() => {
+  const openCreditModal = useCallback((patient = null) => {
+    const patientId = patient?.id ? String(patient.id) : "";
+    const patientName = patientId ? getPatientDisplayName(patient) : "";
+
     setPaymentForm({
       ...emptyPayment,
       entry_id: null,
-      patient_id: "",
-      allocation_mode: "credit",
+      patient_id: patientId,
+      allocation_mode: "auto",
       amount: "",
-      paid_at: toDateTimeLocalInputValue(new Date()),
+      paid_at: toDateInputValue(new Date()),
     });
     setPaymentAllocations({});
-    setPaymentModalContext(null);
-    setPaymentPatientQuery("");
+    setPaymentModalContext(patientId ? {
+      fixedPatient: true,
+      patientName,
+    } : null);
+    setPaymentPatientQuery(patientName);
     setIsPaymentPatientSearchFocused(false);
     setIsPaymentOpen(true);
   }, []);
@@ -1496,9 +1519,6 @@ export default function Financeiro() {
     setAttendanceFilters((prev) => ({ ...prev, [name]: value }));
     if (name === "patient_id") {
       setAttendanceDrilldownPatientId(null);
-      if (!value) {
-        setAttendanceView("patients");
-      }
     }
   }, []);
 
@@ -1731,28 +1751,55 @@ export default function Financeiro() {
     }
   }, []);
 
-  const handleViewPatientSessions = useCallback((patientId) => {
+  const handleViewPatientSessions = useCallback(async (patientId) => {
     if (!patientId) return;
-    setAttendanceDrilldownPatientId(String(patientId));
-    setAttendanceFilters((prev) => ({ ...prev, patient_id: String(patientId) }));
-    setAttendanceView("sessions");
+    const normalizedPatientId = String(patientId);
+    setAttendanceDrilldownPatientId(normalizedPatientId);
+    setAttendanceDetailSessions({
+      patientId: normalizedPatientId,
+      sessions: [],
+      isLoading: true,
+      error: "",
+    });
+
+    try {
+      const response = await axios.get("/sessions", {
+        params: { patient_id: normalizedPatientId },
+      });
+      setAttendanceDetailSessions({
+        patientId: normalizedPatientId,
+        sessions: Array.isArray(response.data) ? response.data : [],
+        isLoading: false,
+        error: "",
+      });
+    } catch (error) {
+      setAttendanceDetailSessions({
+        patientId: normalizedPatientId,
+        sessions: [],
+        isLoading: false,
+        error: getUserFacingApiError(error, "Não foi possível carregar as sessões do paciente."),
+      });
+    }
   }, []);
 
-  const handleAttendanceViewChange = useCallback(
-    (view) => {
-      if (view === "sessions" && !attendanceFilters.patient_id) return;
-      setAttendanceView(view);
-      if (
-        view === "patients" &&
-        attendanceDrilldownPatientId &&
-        attendanceFilters.patient_id === attendanceDrilldownPatientId
-      ) {
-        setAttendanceFilters((prev) => ({ ...prev, patient_id: "" }));
-        setAttendanceDrilldownPatientId(null);
-      }
-    },
-    [attendanceDrilldownPatientId, attendanceFilters.patient_id],
-  );
+  const handleClosePatientSessions = useCallback(() => {
+    setAttendanceDrilldownPatientId(null);
+    setSelectedAttendancePackageId(null);
+    setAttendanceDetailSessions({
+      patientId: null,
+      sessions: [],
+      isLoading: false,
+      error: "",
+    });
+  }, []);
+
+  const handleOpenPackageSessions = useCallback((packageId) => {
+    setSelectedAttendancePackageId(packageId ? String(packageId) : null);
+  }, []);
+
+  const handleClosePackageSessions = useCallback(() => {
+    setSelectedAttendancePackageId(null);
+  }, []);
 
   const handleActionMenuToggle = useCallback((event) => {
     const detailsEl = event.currentTarget;
@@ -2088,7 +2135,7 @@ export default function Financeiro() {
       });
       const createdEntryId = Number(response?.data?.id || 0);
       if (!createdEntryId) {
-        throw new Error("Não foi possível preparar o recebimento avulso.");
+        throw new Error("Não foi possível preparar o recebimento por sessão.");
       }
       return createdEntryId;
     },
@@ -2236,9 +2283,19 @@ export default function Financeiro() {
       setIsPaymentSaving(true);
       const selectedPatientId = normalizeId(paymentForm.patient_id);
       const selectedPaymentMethodId = normalizeId(paymentForm.payment_method_id);
-      const allocationMode = paymentForm.entry_id
+      let allocationMode = paymentForm.entry_id
         ? "entry"
         : paymentForm.allocation_mode || "none";
+      const hasOpenEntriesForSelectedPatient = entries.some((entry) => {
+        if (entry.type !== "income" || Number(entry.patient_id) !== selectedPatientId) return false;
+        const financial = entryFinancialMap.get(entry.id);
+        const open = financial?.open ?? Math.max(0, Number(entry.amount_cents || 0));
+        const status = financial?.status || entry.status;
+        return open > 0 && status !== "canceled";
+      });
+      if (!paymentForm.entry_id && !isSessionBatchPayment && allocationMode !== "manual" && !hasOpenEntriesForSelectedPatient) {
+        allocationMode = "credit";
+      }
       const paymentReferenceDate = isSimplifiedInstallmentPayment
         ? String(paymentModalContext?.installmentDueDate || "").slice(0, 10)
         : String(paymentForm.paid_at || "").slice(0, 10);
@@ -2268,9 +2325,10 @@ export default function Financeiro() {
         }
       }
 
+      const paidAtDateValue = String(paymentForm.paid_at || "").slice(0, 10);
       const paidAtIso = isSimplifiedInstallmentPayment && paymentModalContext?.installmentDueDate
         ? new Date(`${String(paymentModalContext.installmentDueDate).slice(0, 10)}T09:00:00`).toISOString()
-        : new Date(paymentForm.paid_at).toISOString();
+        : new Date(`${paidAtDateValue}T09:00:00`).toISOString();
 
       if (isSessionBatchPayment) {
         const adjustmentReason = paymentForm.note.trim() || "Desconto aplicado no recebimento em lote";
@@ -2292,7 +2350,6 @@ export default function Financeiro() {
         toast.success("Recebimento em lote registrado.");
         closePaymentModal();
         setPaymentAllocations({});
-        setSelectedAttendanceSessionIds([]);
         loadData();
         if (hasBillingCyclesLoaded) loadBillingCycles();
         return;
@@ -2358,6 +2415,7 @@ export default function Financeiro() {
     isPaymentSaving,
     paymentForm,
     paymentAllocations,
+    entries,
     entryFinancialMap,
     entryMap,
     paymentModalContext,
@@ -2366,7 +2424,6 @@ export default function Financeiro() {
     loadData,
     loadBillingCycles,
     hasBillingCyclesLoaded,
-    setSelectedAttendanceSessionIds,
   ]);
 
   const handleApplyCreditToEntry = useCallback(
@@ -2467,6 +2524,8 @@ export default function Financeiro() {
           professionalName,
           serviceId,
           serviceName,
+          seriesId: session.series_id || session?.series?.id || null,
+          patientCreditId: session.patient_credit_id || session?.PatientCredit?.id || null,
           recurrence: formatRecurrence(session),
           billing_mode: billingMode,
           amountCents,
@@ -2537,6 +2596,46 @@ export default function Financeiro() {
     attendanceFilters.patient_id,
     attendanceFilters.professional_id,
     attendanceRows,
+  ]);
+
+  const attendanceVisibleCredits = useMemo(() => {
+    const search = normalizeSearchText(attendanceFilters.search);
+    const selectedPatientId = normalizeId(attendanceFilters.patient_id);
+
+    return patientCredits.filter((credit) => {
+      const patientId = Number(credit.patient_id || 0);
+      if (!patientId) return false;
+      if (selectedPatientId && patientId !== selectedPatientId) return false;
+
+      const patient = credit.Patient || patientMap.get(patientId);
+      if (search && !getPatientSearchText(patient).includes(search)) return false;
+
+      const sourceEntry = credit.FinancialEntry || (credit.source_entry_id
+        ? entryMap.get(credit.source_entry_id)
+        : null);
+      const financial = sourceEntry?.id ? entryFinancialMap.get(sourceEntry.id) : null;
+      const financialStatus = financial?.status || sourceEntry?.status || (sourceEntry ? "pending" : "missing");
+      if (attendanceFilters.financial === "pending" && financialStatus !== "pending") return false;
+      if (attendanceFilters.financial === "partial" && financialStatus !== "partial") return false;
+      if (attendanceFilters.financial === "paid" && financialStatus !== "paid") return false;
+      if (attendanceFilters.financial === "missing" && financialStatus !== "missing") return false;
+      const referenceDate = sourceEntry?.reference_date || credit.created_at || credit.updated_at;
+      return !referenceDate || isDateOnlyWithinRange(
+        referenceDate,
+        attendanceFilters.start,
+        attendanceFilters.end,
+      );
+    });
+  }, [
+    attendanceFilters.end,
+    attendanceFilters.financial,
+    attendanceFilters.patient_id,
+    attendanceFilters.search,
+    attendanceFilters.start,
+    entryFinancialMap,
+    entryMap,
+    patientCredits,
+    patientMap,
   ]);
 
   const attendanceManualPaymentRows = useMemo(() => {
@@ -2837,134 +2936,6 @@ export default function Financeiro() {
     sessionById,
   ]);
 
-  const attendanceBatchSelectableRows = useMemo(() => {
-    if (!ENABLE_SESSION_BATCH_PAYMENT) return [];
-    return attendanceSessionRows.filter((row) => isSessionBatchEligibleRow(row));
-  }, [attendanceSessionRows]);
-
-  const attendanceBatchSelectableIds = useMemo(
-    () => new Set(attendanceBatchSelectableRows.map((row) => Number(row.id || 0)).filter(Boolean)),
-    [attendanceBatchSelectableRows],
-  );
-
-  const attendanceBatchSelectedRows = useMemo(() => {
-    if (!selectedAttendanceSessionIds.length) return [];
-    const selectedIds = new Set(
-      selectedAttendanceSessionIds.map((value) => Number(value || 0)).filter(Boolean),
-    );
-    return attendanceBatchSelectableRows.filter((row) => selectedIds.has(Number(row.id || 0)));
-  }, [attendanceBatchSelectableRows, selectedAttendanceSessionIds]);
-
-  const attendanceBatchSelectedOpenCents = useMemo(
-    () => attendanceBatchSelectedRows.reduce(
-      (sum, row) => sum + Math.max(0, Number(row.openCents || 0)),
-      0,
-    ),
-    [attendanceBatchSelectedRows],
-  );
-
-  const attendanceBatchSelectedPatientIds = useMemo(
-    () => [...new Set(
-      attendanceBatchSelectedRows
-        .map((row) => Number(row.patientId || row.entry?.patient_id || 0))
-        .filter(Boolean),
-    )],
-    [attendanceBatchSelectedRows],
-  );
-
-  const areAllAttendanceBatchRowsSelected = attendanceBatchSelectableRows.length > 0
-    && attendanceBatchSelectableRows.length === selectedAttendanceSessionIds.length;
-
-  useEffect(() => {
-    if (!ENABLE_SESSION_BATCH_PAYMENT || attendanceView !== "sessions") {
-      setSelectedAttendanceSessionIds((prev) => (prev.length ? [] : prev));
-      return;
-    }
-
-    setSelectedAttendanceSessionIds((prev) => {
-      const next = prev.filter((value) => attendanceBatchSelectableIds.has(Number(value || 0)));
-      if (next.length === prev.length) return prev;
-      return next;
-    });
-  }, [attendanceBatchSelectableIds, attendanceView]);
-
-  const handleAttendanceSessionSelectionChange = useCallback((event) => {
-    const normalizedSessionId = Number(event.target.value || 0);
-    if (!normalizedSessionId) return;
-
-    setSelectedAttendanceSessionIds((prev) => {
-      if (prev.includes(normalizedSessionId)) {
-        return prev.filter((value) => value !== normalizedSessionId);
-      }
-      return [...prev, normalizedSessionId];
-    });
-  }, []);
-
-  const handleToggleAllAttendanceSessionSelections = useCallback(() => {
-    setSelectedAttendanceSessionIds((prev) => {
-      if (
-        attendanceBatchSelectableRows.length > 0
-        && prev.length === attendanceBatchSelectableRows.length
-      ) {
-        return [];
-      }
-      return attendanceBatchSelectableRows.map((row) => Number(row.id || 0)).filter(Boolean);
-    });
-  }, [attendanceBatchSelectableRows]);
-
-  const openSelectedSessionsPaymentModal = useCallback(() => {
-    if (!attendanceBatchSelectedRows.length) {
-      toast.error("Selecione as sessões para receber.");
-      return;
-    }
-
-    if (attendanceBatchSelectedPatientIds.length !== 1) {
-      toast.error("Selecione apenas sessões do mesmo paciente.");
-      return;
-    }
-
-    const orderedRows = [...attendanceBatchSelectedRows].sort(
-      (left, right) => new Date(left.starts_at || 0) - new Date(right.starts_at || 0),
-    );
-    const patientName = orderedRows[0]?.patientName || "Paciente";
-    const patientId = attendanceBatchSelectedPatientIds[0];
-
-    setPaymentForm({
-      ...emptyPayment,
-      entry_id: null,
-      patient_id: String(patientId),
-      payment_method_id: "",
-      allocation_mode: "manual",
-      amount: formatCurrencyInput(attendanceBatchSelectedOpenCents / 100),
-      paid_at: toDateTimeLocalInputValue(new Date()),
-    });
-    setPaymentModalContext({
-      sessionBatch: {
-        patientId,
-        patientName,
-        sessionIds: orderedRows.map((row) => Number(row.id || 0)).filter(Boolean),
-        totalOpenCents: attendanceBatchSelectedOpenCents,
-        sessions: orderedRows.map((row) => ({
-          id: Number(row.id || 0),
-          starts_at: row.starts_at,
-          serviceId: row.serviceId,
-          serviceName: row.serviceName,
-          professionalName: row.professionalName,
-          amountCents: Math.max(0, Number(row.amountCents || row.openCents || 0)),
-          openCents: Math.max(0, Number(row.openCents || 0)),
-        })),
-      },
-    });
-    setPaymentAllocations({});
-    setPaymentPatientQuery(patientName);
-    setIsPaymentPatientSearchFocused(false);
-    setIsPaymentOpen(true);
-  }, [
-    attendanceBatchSelectedOpenCents,
-    attendanceBatchSelectedPatientIds,
-    attendanceBatchSelectedRows,
-  ]);
-
   const attendanceByPatient = useMemo(() => {
     const map = new Map();
     const collator = new Intl.Collator("pt-BR", {
@@ -2972,8 +2943,37 @@ export default function Financeiro() {
       ignorePunctuation: true,
       numeric: true,
     });
+    attendanceVisibleCredits.forEach((credit) => {
+      const patientId = Number(credit.patient_id || 0);
+      if (!patientId) return;
+      const patient = credit.Patient || patientMap.get(patientId);
+      const sourceEntry = credit.FinancialEntry || (credit.source_entry_id
+        ? entryMap.get(credit.source_entry_id)
+        : null);
+      const financial = sourceEntry?.id ? entryFinancialMap.get(sourceEntry.id) : null;
+      const amountCents = Number(sourceEntry?.amount_cents || 0);
+      const paidCents = Math.min(amountCents, Number(financial?.paid || 0));
+      const openCents = Math.max(0, Number(financial?.open ?? amountCents - paidCents));
+      const existing = map.get(patientId);
+      const base = existing || {
+        patientId,
+        patientName: getPatientDisplayName(patient),
+        sessions: 0,
+        totalCents: 0,
+        openCents: 0,
+        paidCents: 0,
+        lastSession: sourceEntry?.reference_date || credit.created_at,
+      };
+      base.sessions += Number(credit.total_sessions || 0);
+      base.totalCents += amountCents;
+      base.openCents += openCents;
+      base.paidCents += paidCents;
+      map.set(patientId, base);
+    });
+
     attendanceVisibleRows.forEach((row) => {
       if (!row.patientId) return;
+      if (row.patientCreditId) return;
       const existing = map.get(row.patientId);
       const base = existing || {
         patientId: row.patientId,
@@ -3015,7 +3015,15 @@ export default function Financeiro() {
         };
       })
       .sort((a, b) => collator.compare(a.patientName || "", b.patientName || ""));
-  }, [attendanceVisibleRows, attendanceManualPaymentRows, creditBalanceByPatient]);
+  }, [
+    attendanceManualPaymentRows,
+    attendanceVisibleCredits,
+    attendanceVisibleRows,
+    creditBalanceByPatient,
+    entryFinancialMap,
+    entryMap,
+    patientMap,
+  ]);
 
   const attendanceSelectedPatientSummary = useMemo(() => {
     if (!selectedAttendancePatientId) return null;
@@ -3026,8 +3034,8 @@ export default function Financeiro() {
       (row) => Number(row.patientId || 0) === selectedAttendancePatientId,
     );
 
-    const patientName = activeAttendancePatient
-      ? getPatientDisplayName(activeAttendancePatient)
+    const patientName = selectedAttendancePatient
+      ? getPatientDisplayName(selectedAttendancePatient)
       : patientSummary?.patientName || "Paciente";
 
     return {
@@ -3042,46 +3050,204 @@ export default function Financeiro() {
         creditBalanceByPatient.get(selectedAttendancePatientId) || patientSummary?.creditsAvailable || 0,
     };
   }, [
-    activeAttendancePatient,
     attendanceByPatient,
     attendanceSessionRows,
     creditBalanceByPatient,
+    selectedAttendancePatient,
     selectedAttendancePatientId,
   ]);
 
+  const attendanceSelectedPatientRows = useMemo(() => {
+    if (!selectedAttendancePatientId) return [];
+    return attendanceSessionRows.filter(
+      (row) => Number(row.patientId || 0) === selectedAttendancePatientId,
+    );
+  }, [attendanceSessionRows, selectedAttendancePatientId]);
+
+  const attendanceSelectedPatientPackages = useMemo(() => {
+    if (!selectedAttendancePatientId) return [];
+
+    const sessionsBySeriesId = new Map();
+    const detailSessionsById = new Map();
+    attendanceDetailSessions.sessions.forEach((session) => {
+      if (session?.id) detailSessionsById.set(Number(session.id), session);
+      const seriesId = Number(session?.series_id || session?.series?.id || 0);
+      if (!seriesId) return;
+      const list = sessionsBySeriesId.get(seriesId) || [];
+      list.push(session);
+      sessionsBySeriesId.set(seriesId, list);
+    });
+
+    const seriesPackages = attendanceSeries
+      .filter((series) => {
+        if (Number(series.patient_id || 0) !== selectedAttendancePatientId) return false;
+        if (series.patient_plan_id) return false;
+        return true;
+      })
+      .map((series) => {
+        const service =
+          series?.Service ||
+          (series.service_id ? serviceMap.get(series.service_id) : null) ||
+          null;
+        const packageSessions = (sessionsBySeriesId.get(Number(series.id || 0)) || [])
+          .sort((first, second) => new Date(first.starts_at || 0) - new Date(second.starts_at || 0));
+        const seriesRows = attendanceSelectedPatientRows.filter(
+          (row) => Number(row.seriesId || 0) === Number(series.id || 0),
+        );
+        const totalSessions = Number(series.occurrence_count || 0) || packageSessions.length;
+        const usedSessions = packageSessions.filter(
+          (session) => String(session.status || "").toLowerCase() === "done",
+        ).length;
+        const referenceDate = packageSessions[0]?.starts_at || series.starts_at || null;
+        const amountCents = seriesRows.reduce((sum, row) => sum + Number(row.amountCents || 0), 0);
+        const paidCents = seriesRows.reduce((sum, row) => sum + Number(row.paidCents || 0), 0);
+        const openCents = seriesRows.reduce((sum, row) => sum + Number(row.openCents || 0), 0);
+        const financialStatus = resolveGroupedFinancialStatus(amountCents, paidCents, openCents);
+
+        return {
+          id: `series-${series.id}`,
+          sourceId: series.id,
+          kind: "series",
+          serviceName: service?.name || "Pacote de sessões",
+          referenceDate,
+          totalSessions,
+          usedSessions,
+          balance: Math.max(0, totalSessions - usedSessions),
+          expiresAt: series.until_date || null,
+          amountCents,
+          paidCents,
+          openCents,
+          financialStatus,
+          sessions: packageSessions,
+        };
+      })
+      .sort((first, second) => String(first.serviceName || "").localeCompare(String(second.serviceName || "")));
+
+    const standalonePackages = attendanceSelectedPatientRows
+      .filter((row) => {
+        if (row.seriesId || row.patientCreditId) return false;
+        if (row.isManualReceiptRow || row.isProjectedInstallmentRow) return false;
+        return Number(row.id || 0) > 0;
+      })
+      .map((row) => {
+        const sessionId = Number(row.id || 0);
+        const linkedSession = detailSessionsById.get(sessionId) || sessionById.get(sessionId) || {
+          id: sessionId,
+          starts_at: row.starts_at,
+          service_id: row.serviceId,
+          status: row.financialStatus === "paid" ? "done" : "scheduled",
+          professional: { name: row.professionalName },
+        };
+        const isDone = String(linkedSession.status || "").toLowerCase() === "done";
+        const financialStatus = resolveGroupedFinancialStatus(
+          row.amountCents,
+          row.paidCents,
+          row.openCents,
+        );
+
+        return {
+          id: `session-${sessionId}`,
+          sourceId: sessionId,
+          kind: "single",
+          serviceName: row.serviceName || "Sessão individual",
+          referenceDate: linkedSession.starts_at || row.starts_at || null,
+          totalSessions: 1,
+          usedSessions: isDone ? 1 : 0,
+          balance: isDone ? 0 : 1,
+          expiresAt: null,
+          amountCents: Number(row.amountCents || 0),
+          paidCents: Number(row.paidCents || 0),
+          openCents: Number(row.openCents || 0),
+          financialStatus,
+          sessions: [linkedSession],
+        };
+      });
+
+    const matchesSelectedPeriod = (item) => {
+      const referenceDate = item?.referenceDate;
+      if (!referenceDate) return true;
+      return isDateOnlyWithinRange(
+        String(referenceDate).slice(0, 10),
+        attendanceFilters.start,
+        attendanceFilters.end,
+      );
+    };
+
+    return [...seriesPackages, ...standalonePackages].filter(matchesSelectedPeriod).sort((first, second) => {
+      const firstDate = new Date(first.referenceDate || 0).getTime();
+      const secondDate = new Date(second.referenceDate || 0).getTime();
+      const safeFirstDate = Number.isNaN(firstDate) ? 0 : firstDate;
+      const safeSecondDate = Number.isNaN(secondDate) ? 0 : secondDate;
+      if (safeFirstDate === safeSecondDate) {
+        return String(first.serviceName || "").localeCompare(String(second.serviceName || ""));
+      }
+      return safeFirstDate - safeSecondDate;
+    });
+  }, [
+    attendanceDetailSessions.sessions,
+    attendanceSelectedPatientRows,
+    attendanceSeries,
+    attendanceFilters.end,
+    attendanceFilters.start,
+    selectedAttendancePatientId,
+    serviceMap,
+    sessionById,
+  ]);
+
+  const selectedAttendancePackage = useMemo(() => {
+    if (!selectedAttendancePackageId) return null;
+    return attendanceSelectedPatientPackages.find(
+      (item) => String(item.id) === String(selectedAttendancePackageId),
+    ) || null;
+  }, [attendanceSelectedPatientPackages, selectedAttendancePackageId]);
+
+  const attendanceUnlinkedPatientRows = useMemo(() => {
+    if (!selectedAttendancePatientId) return [];
+    const linkedSessionIds = new Set();
+    attendanceSelectedPatientPackages.forEach((item) => {
+      item.sessions.forEach((session) => {
+        if (session?.id) linkedSessionIds.add(Number(session.id));
+      });
+    });
+
+    return attendanceSelectedPatientRows.filter((row) => {
+      if (row.isManualReceiptRow) return true;
+      if (row.isProjectedInstallmentRow) return true;
+      const rowId = Number(row.id || 0);
+      if (rowId && linkedSessionIds.has(rowId)) return false;
+      return !row.seriesId && !row.patientCreditId;
+    });
+  }, [
+    selectedAttendancePatientId,
+    attendanceSelectedPatientPackages,
+    attendanceSelectedPatientRows,
+  ]);
+
   const attendanceSummary = useMemo(() => {
-    const openPatients = new Set();
     const data = {
-      total: attendanceRows.length,
+      total: 0,
       openSessions: 0,
-      openPatients: 0,
+      openPatients: attendanceByPatient.filter((row) => Number(row.openCents || 0) > 0).length,
       pendingAmount: 0,
       paidAmount: 0,
       expectedAmount: 0,
       creditsAvailable: 0,
     };
 
-    attendanceRows.forEach((row) => {
-      const status = row.financialStatus || "missing";
-      if (status === "covered_by_plan") return;
-      if (status === "paid") {
-        data.paidAmount += Number(row.paidCents || 0);
-      } else {
-        data.openSessions += 1;
-        data.pendingAmount += Number(row.openCents || 0);
-        if (row.patientId) openPatients.add(row.patientId);
-      }
+    attendanceByPatient.forEach((row) => {
+      data.total += Number(row.sessions || 0);
+      data.expectedAmount += Number(row.totalCents || 0);
+      data.paidAmount += Number(row.paidCents || 0);
+      data.pendingAmount += Number(row.openCents || 0);
+      if (Number(row.openCents || 0) > 0) data.openSessions += Number(row.sessions || 0);
     });
 
     creditBalanceByPatient.forEach((value) => {
       data.creditsAvailable += value;
     });
 
-    data.openPatients = openPatients.size;
-    data.expectedAmount = data.paidAmount + data.pendingAmount;
-
     return data;
-  }, [attendanceRows, creditBalanceByPatient]);
+  }, [attendanceByPatient, creditBalanceByPatient]);
 
   const resolveBillingCycleFinancial = useCallback((cycle) => {
     const entry = cycle?.FinancialEntry || (cycle?.financial_entry_id
@@ -3156,9 +3322,6 @@ export default function Financeiro() {
     data.activePlans = activePlanIds.size;
     return data;
   }, [billingCyclesFilteredRows, resolveBillingCycleFinancial]);
-
-  const isAttendancePatientRequired = attendanceView === "sessions" && !selectedAttendancePatientId;
-  const canOpenAttendanceSessionsView = !!selectedAttendancePatientId;
 
   const attendancePeriodLabel = useMemo(() => {
     if (attendancePeriodMode === "year") {
@@ -4066,18 +4229,16 @@ export default function Financeiro() {
   );
 
   const renderAttendance = () => {
-    const isAttendanceBusy = isAttendanceLoading || (loading && !hasAttendanceLoaded);
+    const isAttendanceInitialLoading = isAttendanceLoading && !hasAttendanceLoaded;
+    const isAttendanceRefreshing = isAttendanceLoading && hasAttendanceLoaded;
     const periodSuffix = attendancePeriodLabel ? ` — ${attendancePeriodLabel}` : "";
-    const attendanceTitle =
-      attendanceView === "patients"
-        ? `Resumo por paciente${periodSuffix}`
-        : `Atendimentos por sessão${periodSuffix}`;
+    const attendanceTitle = `Resumo por paciente${periodSuffix}`;
 
     let attendanceContent = (
       <AttendanceEmptyState>Sem atendimentos no periodo.</AttendanceEmptyState>
     );
 
-    if (attendanceView === "patients" && attendanceByPatient.length > 0) {
+    if (attendanceByPatient.length > 0) {
       attendanceContent = (
         <AttendanceTableCard>
           <AttendanceTableScroll>
@@ -4085,8 +4246,7 @@ export default function Financeiro() {
               <thead>
                 <tr>
                   <th>Paciente</th>
-                  <th>Sessoes</th>
-                  <th>Receita esperada</th>
+                  <th>Valor</th>
                   <th>A receber</th>
                   <th>Recebido</th>
                   <th>Credito</th>
@@ -4102,9 +4262,6 @@ export default function Financeiro() {
                           {row.patientName}
                         </AttendancePatientSummaryName>
                       </AttendanceCellStack>
-                    </td>
-                    <td>
-                      <AttendancePrimaryText>{row.sessions}</AttendancePrimaryText>
                     </td>
                     <td>
                       <AttendanceMoneyText>{formatCurrency(row.totalCents)}</AttendanceMoneyText>
@@ -4126,7 +4283,7 @@ export default function Financeiro() {
                           type="button"
                           onClick={() => handleViewPatientSessions(row.patientId)}
                         >
-                          Ver sessões
+                          Detalhes
                         </AttendanceSmallAction>
                       </AttendanceRowActions>
                     </td>
@@ -4139,293 +4296,150 @@ export default function Financeiro() {
       );
     }
 
-    if (attendanceView === "sessions" && isAttendancePatientRequired) {
-      attendanceContent = (
-        <AttendanceRequiredPatientNotice>
-          Selecione um paciente nos filtros para visualizar o detalhe por sessão.
-        </AttendanceRequiredPatientNotice>
-      );
-    }
+    if (attendanceDrilldownPatientId && attendanceSelectedPatientSummary) {
+      let packageContent = <AttendanceEmptyState>Nenhum pacote de sessões encontrado para este paciente.</AttendanceEmptyState>;
 
-    if (
-      attendanceView === "sessions"
-      && !isAttendancePatientRequired
-      && attendanceSessionRows.length > 0
-    ) {
-      attendanceContent = (
-        <AttendanceTableCard>
-          {ENABLE_SESSION_BATCH_PAYMENT && (
-            <AttendanceBatchToolbar>
-              <AttendanceBatchSummary>
-                <strong>{attendanceBatchSelectedRows.length}</strong>
-                {" "}
-                selecionada(s)
-                {attendanceBatchSelectedRows.length > 0 && (
-                  <>
-                    {" "}
-                    com
-                    {" "}
-                    <strong>{formatCurrency(attendanceBatchSelectedOpenCents)}</strong>
-                    {" "}
-                    em aberto
-                  </>
-                )}
-              </AttendanceBatchSummary>
-              <AttendancePrimaryAction
-                type="button"
-                onClick={openSelectedSessionsPaymentModal}
-                disabled={attendanceBatchSelectedRows.length === 0}
-              >
-                Receber selecionadas
-              </AttendancePrimaryAction>
-            </AttendanceBatchToolbar>
-          )}
-          <AttendanceTableScroll>
-            <AttendanceDataTable $sessionDetail>
-              <thead>
-                <tr>
-                  {ENABLE_SESSION_BATCH_PAYMENT && (
-                    <th>
-                      <AttendanceSelectionCheckbox
-                        type="checkbox"
-                        checked={areAllAttendanceBatchRowsSelected}
-                        onChange={handleToggleAllAttendanceSessionSelections}
-                        disabled={attendanceBatchSelectableRows.length === 0}
-                        aria-label="Selecionar todas as sessões elegíveis"
-                      />
-                    </th>
-                  )}
-                  <th>Data</th>
-                  <th>Profissional</th>
-                  <th>Servico</th>
-                  <th>Valor</th>
-                  <th>Detalhe</th>
-                  <th>Status</th>
-                  <th>Obs.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {attendanceSessionRows.map((row) => {
-                  const status = row.financialStatus || "missing";
-                  const statusLabel = formatFinancialStatus(status);
-                  const isBatchSelectable = isSessionBatchEligibleRow(row);
-                  const isBatchSelected = selectedAttendanceSessionIds.includes(Number(row.id || 0));
-                  let installmentSummary = "-";
-                  if (row.isManualReceiptRow) {
-                    installmentSummary = row.paymentMethod || "-";
-                  } else if (row.isInstallmentPlan) {
-                    installmentSummary = `${row.installmentCount}x de ${formatCurrency(row.installmentUnitCents)}`;
-                  }
-                  let installmentNote = null;
-                  if (row.isManualReceiptRow) {
-                    installmentNote = row.manualUsageLabel || null;
-                  } else if (row.isProjectedInstallmentRow && row.dueInstallment) {
-                    installmentNote = `Parcela ${row.dueInstallment.installment_number} de ${row.installmentCount}`;
-                  } else if (row.isInstallmentPlan) {
-                    installmentNote = `Parcela 1/${row.installmentCount}`;
-                  }
-                  return (
-                    <tr key={row.id}>
-                      {ENABLE_SESSION_BATCH_PAYMENT && (
-                        <td>
-                          {isBatchSelectable ? (
-                            <AttendanceSelectionCheckbox
-                              type="checkbox"
-                              value={row.id}
-                              checked={isBatchSelected}
-                              onChange={handleAttendanceSessionSelectionChange}
-                              aria-label={`Selecionar sessão ${row.patientName} ${formatDate(row.starts_at)}`}
-                            />
-                          ) : (
-                            <AttendanceSelectionPlaceholder>-</AttendanceSelectionPlaceholder>
-                          )}
-                        </td>
-                      )}
+      if (attendanceDetailSessions.isLoading) {
+        packageContent = <AttendanceEmptyState>Carregando pacotes do paciente...</AttendanceEmptyState>;
+      } else if (attendanceDetailSessions.error) {
+        packageContent = <AttendanceEmptyState>{attendanceDetailSessions.error}</AttendanceEmptyState>;
+      } else if (attendanceSelectedPatientPackages.length > 0) {
+        packageContent = (
+          <AttendanceTableCard>
+            <AttendanceTableScroll>
+              <AttendanceOverviewTable>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Serviço</th>
+                    <th>Realizado</th>
+                    <th>Valor</th>
+                    <th>Recebido</th>
+                    <th>A receber</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attendanceSelectedPatientPackages.map((item) => (
+                    <PatientSummaryRow key={item.id} $hasOpen={item.openCents > 0}>
                       <td>
-                        <AttendanceCellStack>
-                          <AttendancePrimaryText>{formatDate(row.starts_at)}</AttendancePrimaryText>
-                          <AttendanceSecondaryText>{formatWeekday(row.starts_at)}</AttendanceSecondaryText>
-                        </AttendanceCellStack>
+                        <AttendancePrimaryText>
+                          {formatDateOnlyBR(item.referenceDate)}
+                        </AttendancePrimaryText>
                       </td>
                       <td>
-                        <AttendancePrimaryText>{row.professionalName}</AttendancePrimaryText>
+                        <AttendancePrimaryText>{item.serviceName}</AttendancePrimaryText>
                       </td>
                       <td>
-                        <AttendanceCellStack>
-                          <AttendancePrimaryText>{row.serviceName}</AttendancePrimaryText>
-                          {row.isManualReceiptRow && (
-                            <AttendanceOriginBadge>Lancamento manual</AttendanceOriginBadge>
-                          )}
-                        </AttendanceCellStack>
+                        <AttendancePrimaryText>
+                          {item.usedSessions}/{item.totalSessions}
+                        </AttendancePrimaryText>
                       </td>
                       <td>
-                        <AttendanceCellStack>
-                          <AttendanceMoneyText>{formatCurrency(row.displayAmountCents ?? row.amountCents)}</AttendanceMoneyText>
-                          {row.hasAdjustment && row.originalAmountCents !== row.displayAmountCents && (
-                            <AttendanceSecondaryText>
-                              Original: {formatCurrency(row.originalAmountCents)}
-                            </AttendanceSecondaryText>
-                          )}
-                        </AttendanceCellStack>
+                        <AttendanceMoneyText>
+                          {item.amountCents ? formatCurrency(item.amountCents) : "Sem cobrança gerada"}
+                        </AttendanceMoneyText>
                       </td>
                       <td>
-                        <AttendanceCellStack>
-                          <AttendancePrimaryText>{installmentSummary}</AttendancePrimaryText>
-                          {row.discountCents > 0 && (
-                            <AttendanceSecondaryText>
-                              Desconto: - {formatCurrency(row.discountCents)}
-                            </AttendanceSecondaryText>
-                          )}
-                          {row.surchargeCents > 0 && (
-                            <AttendanceSecondaryText>
-                              Acréscimo: + {formatCurrency(row.surchargeCents)}
-                            </AttendanceSecondaryText>
-                          )}
-                          {row.isManualReceiptRow && installmentNote && (
-                            <AttendanceSecondaryText>{installmentNote}</AttendanceSecondaryText>
-                          )}
-                          {row.isInstallmentPlan && row.installmentAgreementTotalCents > 0 && (
-                            <AttendanceSecondaryText>
-                              Acordo: {formatCurrency(row.installmentAgreementTotalCents)}
-                            </AttendanceSecondaryText>
-                          )}
-                          {row.isInstallmentPlan
-                            && !row.isProjectedInstallmentRow
-                            && row.firstInstallmentOpenCents > 0 && (
-                              <AttendanceSecondaryText>
-                                Residual em aberto: {formatCurrency(row.firstInstallmentOpenCents)}
-                              </AttendanceSecondaryText>
-                            )}
-                        </AttendanceCellStack>
+                        <AttendanceMoneyText>{formatCurrency(item.paidCents)}</AttendanceMoneyText>
                       </td>
                       <td>
-                        <AttendanceStatusBadge $status={status}>
-                          {statusLabel}
+                        <AttendanceOpenAmountValue $hasOpen={item.openCents > 0}>
+                          {formatCurrency(item.openCents)}
+                        </AttendanceOpenAmountValue>
+                      </td>
+                      <td>
+                        <AttendanceStatusBadge $status={item.financialStatus}>
+                          {item.amountCents ? formatFinancialStatus(item.financialStatus) : "Sem cobrança"}
                         </AttendanceStatusBadge>
                       </td>
                       <td>
-                        <AttendanceNoteText>
-                          {row.isManualReceiptRow
-                            ? row.manualNote || "-"
-                            : row.entry?.notes || row.payment?.note || "-"}
-                        </AttendanceNoteText>
+                        <AttendanceRowActions>
+                          <AttendanceSmallAction
+                            type="button"
+                            onClick={() => handleOpenPackageSessions(item.id)}
+                          >
+                            Ver sessões
+                          </AttendanceSmallAction>
+                        </AttendanceRowActions>
                       </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </AttendanceDataTable>
-          </AttendanceTableScroll>
-        </AttendanceTableCard>
+                    </PatientSummaryRow>
+                  ))}
+                </tbody>
+              </AttendanceOverviewTable>
+            </AttendanceTableScroll>
+          </AttendanceTableCard>
+        );
+      } else if (attendanceSelectedPatientRows.length > 0) {
+        packageContent = (
+          <AttendanceEmptyState>
+            Este paciente possui receitas por sessão no período, mas não há pacote vinculado encontrado.
+          </AttendanceEmptyState>
+        );
+      }
+
+      attendanceContent = (
+        <AttendancePatientDetailBlock>
+          <AttendancePatientDetailTopline>
+            <div>
+              <AttendanceHeadingTitle>
+                {attendanceSelectedPatientSummary.patientName}
+              </AttendanceHeadingTitle>
+            </div>
+            <AttendanceHeaderActions>
+              <AttendancePrimaryAction
+                type="button"
+                onClick={() => openCreditModal(
+                  selectedAttendancePatient || {
+                    id: attendanceSelectedPatientSummary.patientId,
+                    full_name: attendanceSelectedPatientSummary.patientName,
+                  },
+                )}
+              >
+                <FaPlus />
+                Registrar recebimento
+              </AttendancePrimaryAction>
+              <AttendanceGhostAction type="button" onClick={handleClosePatientSessions}>
+                ← Voltar
+              </AttendanceGhostAction>
+            </AttendanceHeaderActions>
+          </AttendancePatientDetailTopline>
+          <AttendancePatientStats>
+            <AttendancePatientStat>
+              <span>A receber</span>
+              <strong>{formatCurrency(attendanceSelectedPatientSummary.openCents)}</strong>
+            </AttendancePatientStat>
+            <AttendancePatientStat>
+              <span>Créditos</span>
+              <strong>{formatCurrency(attendanceSelectedPatientSummary.creditsAvailable)}</strong>
+            </AttendancePatientStat>
+          </AttendancePatientStats>
+          {packageContent}
+        </AttendancePatientDetailBlock>
       );
     }
 
     return (
       <AttendanceSectionSurface>
-        <AttendanceSectionHeader>
-          <div>
-            <AttendanceHeadingTitle>Atendimentos</AttendanceHeadingTitle>
-            <AttendanceHeadingSubtitle>
-              O que foi atendido, o que gerou cobrança, recebimentos manuais e o que ainda falta
-              receber.
-            </AttendanceHeadingSubtitle>
-          </div>
-          <AttendanceHeaderActions>
-            <AttendanceGhostAction type="button" onClick={loadAttendance}>
-              Atualizar
-            </AttendanceGhostAction>
-            <AttendancePrimaryAction type="button" onClick={openCreditModal}>
-              <FaPlus />
-              Registrar recebimento
-            </AttendancePrimaryAction>
-          </AttendanceHeaderActions>
-        </AttendanceSectionHeader>
-
-        {isAttendanceBusy ? (
-          <SectionLoader>
-            <Spinner />
-            Carregando atendimentos...
-          </SectionLoader>
-        ) : (
-          <>
-            <AttendancePeriodBlock>
-              <AttendancePeriodBlockLeft>
-                <AttendancePeriodBlockLabel>Competência financeira</AttendancePeriodBlockLabel>
-                <AttendancePeriodBlockValue>{attendancePeriodLabel}</AttendancePeriodBlockValue>
-              </AttendancePeriodBlockLeft>
-              <AttendancePeriodBlockRight>
-                <AttendanceTabGroup>
-                  <AttendanceTabButton
-                    type="button"
-                    $active={attendancePeriodMode === "month"}
-                    onClick={() => handleAttendancePeriodModeChange("month")}
-                  >
-                    Mês
-                  </AttendanceTabButton>
-                  <AttendanceTabButton
-                    type="button"
-                    $active={attendancePeriodMode === "year"}
-                    onClick={() => handleAttendancePeriodModeChange("year")}
-                  >
-                    Visão anual
-                  </AttendanceTabButton>
-                </AttendanceTabGroup>
-                {attendancePeriodLabel && (
-                  <AttendancePeriodControls>
-                    <AttendancePeriodButton type="button" onClick={handleAttendancePreviousMonth}>
-                      {attendancePeriodMode === "year" ? "← Ano anterior" : "← Anterior"}
-                    </AttendancePeriodButton>
-                    <AttendancePeriodChip
-                      role="button"
-                      tabIndex={0}
-                      onClick={handleAttendancePeriodTagClick}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          handleAttendancePeriodTagClick();
-                        }
-                      }}
-                    >
-                      {attendancePeriodLabel}
-                      {attendancePeriodMode === "year" ? (
-                        <AttendancePeriodYearSelect
-                          aria-label="Selecionar ano"
-                          value={attendancePeriodYear}
-                          onChange={handleAttendanceYearPickerChange}
-                        >
-                          {attendanceYearOptions.map((year) => (
-                            <option key={year} value={year}>{year}</option>
-                          ))}
-                        </AttendancePeriodYearSelect>
-                      ) : (
-                        <AttendancePeriodMonthInput
-                          ref={attendanceMonthPickerRef}
-                          aria-label="Selecionar mes e ano"
-                          type="month"
-                          value={attendancePeriodMonth}
-                          onChange={handleAttendanceMonthPickerChange}
-                        />
-                      )}
-                    </AttendancePeriodChip>
-                    <AttendancePeriodButton type="button" onClick={handleAttendanceNextMonth}>
-                      {attendancePeriodMode === "year" ? "Próximo ano →" : "Próximo →"}
-                    </AttendancePeriodButton>
-                  </AttendancePeriodControls>
-                )}
-              </AttendancePeriodBlockRight>
-            </AttendancePeriodBlock>
-
-            <AttendanceCard>
-              <AttendanceCardHeader>
-                <AttendanceCardTitle>Resumo de cobrança</AttendanceCardTitle>
-              </AttendanceCardHeader>
+        <>
+          <AttendanceCard>
+            <AttendanceCardHeader>
+              <AttendanceCardTitle>Resumo de cobrança</AttendanceCardTitle>
+            </AttendanceCardHeader>
+            {isAttendanceInitialLoading ? (
+              <BlockLoader>
+                <Spinner />
+                Carregando resumo de cobrança...
+              </BlockLoader>
+            ) : (
               <AttendanceMetricsGrid>
                 <AttendanceMetricCard>
-                  <AttendanceMetricLabel>Sessoes concluidas</AttendanceMetricLabel>
+                  <AttendanceMetricLabel>Sessões contratadas</AttendanceMetricLabel>
                   <AttendanceMetricValue>{attendanceSummary.total}</AttendanceMetricValue>
                 </AttendanceMetricCard>
                 <AttendanceMetricCard>
-                  <AttendanceMetricLabel>Receita esperada</AttendanceMetricLabel>
+                  <AttendanceMetricLabel>Valor</AttendanceMetricLabel>
                   <AttendanceMetricValue>{formatCurrency(attendanceSummary.expectedAmount)}</AttendanceMetricValue>
                 </AttendanceMetricCard>
                 <AttendanceMetricCard>
@@ -4437,125 +4451,162 @@ export default function Financeiro() {
                   <AttendanceMetricValue>{formatCurrency(attendanceSummary.pendingAmount)}</AttendanceMetricValue>
                 </AttendanceMetricCard>
               </AttendanceMetricsGrid>
-            </AttendanceCard>
+            )}
+          </AttendanceCard>
 
-            <AttendanceCard>
-              <AttendanceCardHeader>
-                <AttendanceCardTitle>Filtros</AttendanceCardTitle>
-              </AttendanceCardHeader>
-              <AttendanceFilterGrid>
-                <AttendanceFilterField>
-                  <AttendanceFilterLabel htmlFor="attendance-status">Status financeiro</AttendanceFilterLabel>
-                  <AttendanceFilterSelect
-                    id="attendance-status"
-                    name="financial"
-                    value={attendanceFilters.financial}
-                    onChange={handleAttendanceFilterChange}
-                  >
-                    <option value="all">Todos</option>
-                    <option value="pending">Pendentes</option>
-                    <option value="partial">Parciais</option>
-                    <option value="paid">Pagos</option>
-                  </AttendanceFilterSelect>
-                </AttendanceFilterField>
-                <AttendanceFilterField>
-                  <AttendanceFilterLabel htmlFor="attendance-professional">Profissional</AttendanceFilterLabel>
-                  <AttendanceFilterSelect
-                    id="attendance-professional"
-                    name="professional_id"
-                    value={attendanceFilters.professional_id}
-                    onChange={handleAttendanceFilterChange}
-                  >
-                    <option value="">Todos</option>
-                    {professionalOptions.map((professional) => (
-                      <option key={professional.id} value={professional.id}>
-                        {professional.name || professional.email}
-                      </option>
-                    ))}
-                  </AttendanceFilterSelect>
-                </AttendanceFilterField>
-                <AttendanceFilterField>
-                  <PatientSearchField
-                    mode="filter"
-                    inputId="attendance-search"
-                    value={attendanceFilters.search}
-                    onChange={(nextValue) => setAttendanceFilters((prev) => ({
-                      ...prev,
-                      search: nextValue,
-                    }))}
-                  />
-                </AttendanceFilterField>
-              </AttendanceFilterGrid>
-              {attendanceFilters.patient_id && (
-                <AttendanceFilterMeta>
-                  <AttendanceFilterMetaText>
-                    Filtro ativo de paciente:{" "}
-                    <strong>
-                      {activeAttendancePatient
-                        ? getPatientDisplayName(activeAttendancePatient)
-                        : "Paciente selecionado"}
-                    </strong>
-                  </AttendanceFilterMetaText>
-                  <AttendanceClearAction type="button" onClick={handleClearAttendancePatientFilter}>
-                    Limpar filtro
-                  </AttendanceClearAction>
-                </AttendanceFilterMeta>
-              )}
-            </AttendanceCard>
+          <AttendanceCard>
+            <AttendanceCardHeader>
+              <AttendanceCardTitle>Filtros</AttendanceCardTitle>
+            </AttendanceCardHeader>
+            <AttendanceFilterGrid>
+              <AttendanceFilterField>
+                <AttendanceFilterLabel htmlFor="attendance-status">Status financeiro</AttendanceFilterLabel>
+                <AttendanceFilterSelect
+                  id="attendance-status"
+                  name="financial"
+                  value={attendanceFilters.financial}
+                  onChange={handleAttendanceFilterChange}
+                >
+                  <option value="all">Todos</option>
+                  <option value="pending">Pendentes</option>
+                  <option value="partial">Parciais</option>
+                  <option value="paid">Pagos</option>
+                </AttendanceFilterSelect>
+              </AttendanceFilterField>
+              <AttendanceFilterField>
+                <AttendanceFilterLabel htmlFor="attendance-professional">Profissional</AttendanceFilterLabel>
+                <AttendanceFilterSelect
+                  id="attendance-professional"
+                  name="professional_id"
+                  value={attendanceFilters.professional_id}
+                  onChange={handleAttendanceFilterChange}
+                >
+                  <option value="">Todos</option>
+                  {professionalOptions.map((professional) => (
+                    <option key={professional.id} value={professional.id}>
+                      {professional.name || professional.email}
+                    </option>
+                  ))}
+                </AttendanceFilterSelect>
+              </AttendanceFilterField>
+              <AttendanceFilterField>
+                <PatientSearchField
+                  mode="filter"
+                  inputId="attendance-search"
+                  value={attendanceFilters.search}
+                  onChange={(nextValue) => setAttendanceFilters((prev) => ({
+                    ...prev,
+                    search: nextValue,
+                  }))}
+                />
+              </AttendanceFilterField>
+            </AttendanceFilterGrid>
+            {attendanceFilters.patient_id && (
+              <AttendanceFilterMeta>
+                <AttendanceFilterMetaText>
+                  Filtro ativo de paciente:{" "}
+                  <strong>
+                    {activeAttendancePatient
+                      ? getPatientDisplayName(activeAttendancePatient)
+                      : "Paciente selecionado"}
+                  </strong>
+                </AttendanceFilterMetaText>
+                <AttendanceClearAction type="button" onClick={handleClearAttendancePatientFilter}>
+                  Limpar filtro
+                </AttendanceClearAction>
+              </AttendanceFilterMeta>
+            )}
+          </AttendanceCard>
 
-            <AttendanceCard>
-              <AttendanceControlsRow>
-                <AttendanceTabGroup>
-                  <AttendanceTabButton
-                    type="button"
-                    $active={attendanceView === "patients"}
-                    onClick={() => handleAttendanceViewChange("patients")}
+          <AttendancePeriodBlock>
+            <AttendancePeriodBlockLeft>
+              <AttendancePeriodBlockLabel>Competência financeira</AttendancePeriodBlockLabel>
+              <AttendancePeriodBlockValue>{attendancePeriodLabel}</AttendancePeriodBlockValue>
+            </AttendancePeriodBlockLeft>
+            <AttendancePeriodBlockRight>
+              <AttendanceTabGroup>
+                <AttendanceTabButton
+                  type="button"
+                  $active={attendancePeriodMode === "month"}
+                  onClick={() => handleAttendancePeriodModeChange("month")}
+                >
+                  Mês
+                </AttendanceTabButton>
+                <AttendanceTabButton
+                  type="button"
+                  $active={attendancePeriodMode === "year"}
+                  onClick={() => handleAttendancePeriodModeChange("year")}
+                >
+                  Visão anual
+                </AttendanceTabButton>
+              </AttendanceTabGroup>
+              {attendancePeriodLabel && (
+                <AttendancePeriodControls>
+                  <AttendancePeriodButton type="button" onClick={handleAttendancePreviousMonth}>
+                    {attendancePeriodMode === "year" ? "← Ano anterior" : "← Anterior"}
+                  </AttendancePeriodButton>
+                  <AttendancePeriodChip
+                    role="button"
+                    tabIndex={0}
+                    onClick={handleAttendancePeriodTagClick}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleAttendancePeriodTagClick();
+                      }
+                    }}
                   >
-                    Por paciente
-                  </AttendanceTabButton>
-                  <AttendanceTabButton
-                    type="button"
-                    $active={attendanceView === "sessions"}
-                    disabled={!canOpenAttendanceSessionsView}
-                    onClick={() => handleAttendanceViewChange("sessions")}
-                    title={
-                      canOpenAttendanceSessionsView
-                        ? undefined
-                        : "Selecione um paciente para ver por sessão"
-                    }
-                  >
-                    Por sessão
-                  </AttendanceTabButton>
-                </AttendanceTabGroup>
-              </AttendanceControlsRow>
-              {attendanceView === "sessions" && attendanceSelectedPatientSummary && (
-                <AttendancePatientStrip>
-                  <AttendancePatientName>{attendanceSelectedPatientSummary.patientName}</AttendancePatientName>
-                  <AttendancePatientStats>
-                    <AttendancePatientStat>
-                      <span>Sessoes</span>
-                      <strong>{attendanceSelectedPatientSummary.sessions}</strong>
-                    </AttendancePatientStat>
-                    <AttendancePatientStat>
-                      <span>A receber</span>
-                      <strong>{formatCurrency(attendanceSelectedPatientSummary.openCents)}</strong>
-                    </AttendancePatientStat>
-                    <AttendancePatientStat>
-                      <span>Creditos</span>
-                      <strong>
-                        {formatCurrency(attendanceSelectedPatientSummary.creditsAvailable)}
-                      </strong>
-                    </AttendancePatientStat>
-                  </AttendancePatientStats>
-                </AttendancePatientStrip>
+                    {attendancePeriodLabel}
+                    {attendancePeriodMode === "year" ? (
+                      <AttendancePeriodYearSelect
+                        aria-label="Selecionar ano"
+                        value={attendancePeriodYear}
+                        onChange={handleAttendanceYearPickerChange}
+                      >
+                        {attendanceYearOptions.map((year) => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </AttendancePeriodYearSelect>
+                    ) : (
+                      <AttendancePeriodMonthInput
+                        ref={attendanceMonthPickerRef}
+                        aria-label="Selecionar mes e ano"
+                        type="month"
+                        value={attendancePeriodMonth}
+                        onChange={handleAttendanceMonthPickerChange}
+                      />
+                    )}
+                  </AttendancePeriodChip>
+                  <AttendancePeriodButton type="button" onClick={handleAttendanceNextMonth}>
+                    {attendancePeriodMode === "year" ? "Próximo ano →" : "Próximo →"}
+                  </AttendancePeriodButton>
+                </AttendancePeriodControls>
               )}
+            </AttendancePeriodBlockRight>
+          </AttendancePeriodBlock>
+
+          <AttendanceCard>
+            {!attendanceDrilldownPatientId && (
               <AttendanceDetailHeader>
                 <AttendanceDetailTitle>{attendanceTitle}</AttendanceDetailTitle>
+                {isAttendanceRefreshing && (
+                  <AttendanceInlineLoader>
+                    <Spinner />
+                    Atualizando dados...
+                  </AttendanceInlineLoader>
+                )}
               </AttendanceDetailHeader>
-              {attendanceContent}
-            </AttendanceCard>
-          </>
-        )}
+            )}
+            {isAttendanceInitialLoading ? (
+              <BlockLoader>
+                <Spinner />
+                Carregando resumo...
+              </BlockLoader>
+            ) : (
+              attendanceContent
+            )}
+          </AttendanceCard>
+        </>
       </AttendanceSectionSurface>
     );
   };
@@ -4850,7 +4901,7 @@ export default function Financeiro() {
               <AttendanceMetricValue>{billingCyclesSummary.activePlans}</AttendanceMetricValue>
             </AttendanceMetricCard>
             <AttendanceMetricCard>
-              <AttendanceMetricLabel>Receita esperada</AttendanceMetricLabel>
+              <AttendanceMetricLabel>Valor</AttendanceMetricLabel>
               <AttendanceMetricValue>{formatCurrency(billingCyclesSummary.expectedCents)}</AttendanceMetricValue>
             </AttendanceMetricCard>
             <AttendanceMetricCard>
@@ -5009,7 +5060,7 @@ export default function Financeiro() {
           $active={receitasView === "atendimentos"}
           onClick={() => setReceitasView("atendimentos")}
         >
-          Atendimentos
+          Por sessão
         </TabButton>
         {SHOW_DEDICATED_PAYMENTS_VIEW && (
           <TabButton
@@ -5602,7 +5653,6 @@ export default function Financeiro() {
           <Header>
             <HeaderText>
               <Title>Financeiro</Title>
-              <Subtitle>Gestao financeira simples e escalavel.</Subtitle>
             </HeaderText>
             <MobileMenuButton type="button" onClick={openSidebar}>
               <FaBars />
@@ -5622,6 +5672,160 @@ export default function Financeiro() {
       </SidebarShellLayout>
 
       {isMobile && isSidebarOpen && <AppSidebarOverlay onClick={closeSidebar} />}
+
+      {selectedAttendancePackage && attendanceSelectedPatientSummary && (
+        <>
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <div>
+                  <ModalTitle>
+                    {selectedAttendancePackage.kind === "single" ? "Sessão individual" : "Sessões do pacote"}
+                  </ModalTitle>
+                  <ModalSubtitle>
+                    <strong>{attendanceSelectedPatientSummary.patientName}</strong>
+                  </ModalSubtitle>
+                </div>
+                <IconButton type="button" onClick={handleClosePackageSessions}>
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                {attendanceDetailSessions.isLoading && (
+                  <EmptyState>Carregando sessões do paciente...</EmptyState>
+                )}
+                {!attendanceDetailSessions.isLoading && attendanceDetailSessions.error && (
+                  <EmptyState>{attendanceDetailSessions.error}</EmptyState>
+                )}
+                {!attendanceDetailSessions.isLoading
+                  && !attendanceDetailSessions.error
+                  && attendanceSelectedPatientPackages.length === 0 && (
+                    <EmptyState>
+                      {attendanceSelectedPatientRows.length > 0
+                        ? "Este paciente possui receitas por sessão no período, mas não há pacote vinculado encontrado."
+                        : "Nenhum pacote de sessões encontrado para este paciente."}
+                    </EmptyState>
+                  )}
+                {!attendanceDetailSessions.isLoading
+                  && !attendanceDetailSessions.error
+                  && [selectedAttendancePackage].map((item) => (
+                    <AttendancePackageCard key={item.id}>
+                      <AttendancePackageHeader>
+                        <div>
+                          <AttendancePackageName>
+                            {item.kind === "single"
+                              ? `${item.serviceName} — ${item.usedSessions}/${item.totalSessions}`
+                              : `${item.serviceName} — ${item.usedSessions}/${item.totalSessions}`}
+                          </AttendancePackageName>
+                          {item.expiresAt && (
+                            <AttendancePackageMeta>
+                              Validade: {item.expiresAt}
+                            </AttendancePackageMeta>
+                          )}
+                        </div>
+                      </AttendancePackageHeader>
+                      {item.sessions.length === 0 ? (
+                        <EmptyState>Nenhuma sessão vinculada a este pacote.</EmptyState>
+                      ) : (
+                        <TableScroll>
+                          <SimpleTable>
+                            <thead>
+                              <tr>
+                                <th>Data</th>
+                                <th>Serviço</th>
+                                <th>Profissional</th>
+                                <th>Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {item.sessions.map((session) => {
+                                const service =
+                                  session?.Service ||
+                                  (session.service_id ? serviceMap.get(session.service_id) : null) ||
+                                  null;
+                                const professionalName =
+                                  session?.professional?.name || session?.professional?.email || "-";
+
+                                return (
+                                  <tr key={session.id}>
+                                    <td>{formatSessionDateTimeBR(session.starts_at)}</td>
+                                    <td>{service?.name || session.service_type || item.serviceName}</td>
+                                    <td>{professionalName}</td>
+                                    <td>
+                                      <AttendanceStatusBadge $status={session.status}>
+                                        {formatPackageSessionStatus(session.status)}
+                                      </AttendanceStatusBadge>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </SimpleTable>
+                        </TableScroll>
+                      )}
+                    </AttendancePackageCard>
+                  ))}
+                {false && !attendanceDetailSessions.isLoading
+                  && !attendanceDetailSessions.error
+                  && attendanceUnlinkedPatientRows.length > 0 && (
+                    <AttendancePackageCard>
+                      <AttendancePackageHeader>
+                        <div>
+                          <AttendancePackageName>Sessões sem pacote vinculado</AttendancePackageName>
+                          <AttendancePackageMeta>
+                            Receitas por sessão encontradas no resumo, mas sem vínculo claro com pacote.
+                          </AttendancePackageMeta>
+                        </div>
+                      </AttendancePackageHeader>
+                      <TableScroll>
+                        <SimpleTable>
+                          <thead>
+                            <tr>
+                              <th>Data</th>
+                              <th>Serviço</th>
+                              <th>Profissional</th>
+                              <th>Status</th>
+                              <th>Financeiro</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {attendanceUnlinkedPatientRows.map((row) => {
+                              const linkedSession = Number(row.id || 0) ? sessionById.get(row.id) : null;
+                              const statusLabel = linkedSession
+                                ? formatPackageSessionStatus(linkedSession.status)
+                                : formatFinancialStatus(row.financialStatus);
+                              return (
+                                <tr key={row.id}>
+                                  <td>{formatSessionDateTimeBR(row.starts_at)}</td>
+                                  <td>{row.serviceName || "-"}</td>
+                                  <td>{row.professionalName || "-"}</td>
+                                  <td>
+                                    <AttendanceStatusBadge $status={linkedSession?.status || row.financialStatus}>
+                                      {statusLabel}
+                                    </AttendanceStatusBadge>
+                                  </td>
+                                  <td>
+                                    {row.entry ? formatFinancialStatus(row.financialStatus) : "Sem cobrança gerada"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </SimpleTable>
+                      </TableScroll>
+                    </AttendancePackageCard>
+                  )}
+              </ModalBody>
+              <ModalActions>
+                <SecondaryButton type="button" onClick={handleClosePackageSessions}>
+                  Fechar
+                </SecondaryButton>
+              </ModalActions>
+            </ModalCard>
+          </ModalOverlay>
+          <Backdrop onClick={handleClosePackageSessions} />
+        </>
+      )}
 
       {billingCycleSessionsPreview.open && (
         <>
@@ -5652,7 +5856,7 @@ export default function Financeiro() {
                 {!billingCycleSessionsPreview.isLoading &&
                   !billingCycleSessionsPreview.error &&
                   billingCycleSessionsPreview.sessions.length === 0 && (
-                    <EmptyState>Nenhuma sessÃ£o vinculada a este ciclo.</EmptyState>
+                    <EmptyState>Nenhuma sessão vinculada a este ciclo.</EmptyState>
                   )}
                 {!billingCycleSessionsPreview.isLoading &&
                   !billingCycleSessionsPreview.error &&
@@ -5883,7 +6087,15 @@ export default function Financeiro() {
                       </ChargeAmountBanner>
                     )}
                     <FormGrid>
-                      {!paymentForm.entry_id && !isSessionBatchPayment && (
+                      {!paymentForm.entry_id && !isSessionBatchPayment && paymentModalContext?.fixedPatient && (
+                        <Field>
+                          <Label>Paciente</Label>
+                          <FixedPatientDisplay title={paymentModalContext.patientName}>
+                            {paymentModalContext.patientName}
+                          </FixedPatientDisplay>
+                        </Field>
+                      )}
+                      {!paymentForm.entry_id && !isSessionBatchPayment && !paymentModalContext?.fixedPatient && (
                         <Field>
                           <Label htmlFor="payment-patient">Paciente</Label>
                           <SearchFieldWrapper>
@@ -5936,9 +6148,9 @@ export default function Financeiro() {
                         <Label htmlFor="payment-date">Data do recebimento</Label>
                         <Input
                           id="payment-date"
-                          type="datetime-local"
+                          type="date"
                           name="paid_at"
-                          value={paymentForm.paid_at}
+                          value={String(paymentForm.paid_at || "").slice(0, 10)}
                           onChange={handlePaymentChange}
                         />
                       </Field>
@@ -6047,21 +6259,6 @@ export default function Financeiro() {
                               placeholder="0,00"
                             />
                           </CurrencyInputGroup>
-                        </Field>
-                      )}
-                      {!paymentForm.entry_id && !isSessionBatchPayment && (
-                        <Field>
-                          <Label htmlFor="payment-allocation">Destino do valor</Label>
-                          <Select
-                            id="payment-allocation"
-                            name="allocation_mode"
-                            value={paymentForm.allocation_mode}
-                            onChange={handlePaymentChange}
-                          >
-                            <option value="credit">Guardar como crédito</option>
-                            <option value="auto">Quitar cobranças automaticamente</option>
-                            <option value="manual">Escolher cobranças manualmente</option>
-                          </Select>
                         </Field>
                       )}
                     </FormGrid>
@@ -6618,7 +6815,7 @@ export default function Financeiro() {
 
 
 const Header = styled.div`
-  margin-bottom: 24px;
+  margin-bottom: 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -6633,15 +6830,10 @@ const HeaderText = styled.div`
 `;
 
 const Title = styled.h1`
-  margin: 0 0 8px;
+  margin: 0;
   color: #2b2b2b;
   font-size: 34px;
   font-weight: 800;
-`;
-
-const Subtitle = styled.p`
-  margin: 0;
-  color: #606060;
 `;
 
 const TabsWrapper = styled.div`
@@ -7063,6 +7255,10 @@ const SectionLoader = styled.div`
   font-weight: 600;
 `;
 
+const BlockLoader = styled(SectionLoader)`
+  min-height: 96px;
+`;
+
 const Spinner = styled.span`
   width: 18px;
   height: 18px;
@@ -7083,6 +7279,20 @@ const ButtonSpinner = styled(Spinner)`
   height: 16px;
   border-color: rgba(255, 255, 255, 0.35);
   border-top-color: #fff;
+`;
+
+const AttendanceInlineLoader = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: ${ATTENDANCE_UI.colors.textSecondary};
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+
+  ${Spinner} {
+    width: 16px;
+    height: 16px;
+  }
 `;
 
 const SummaryGrid = styled.div`
@@ -7120,25 +7330,12 @@ const AttendanceSectionSurface = styled(Section)`
   box-shadow: none;
 `;
 
-const AttendanceSectionHeader = styled(SectionHeader)`
-  margin-bottom: ${ATTENDANCE_UI.spacing[3]};
-  align-items: flex-start;
-`;
-
 const AttendanceHeadingTitle = styled(SectionTitle)`
   font-size: ${ATTENDANCE_UI.font.size.lg};
   line-height: ${ATTENDANCE_UI.font.lineHeight.lg};
   font-weight: ${ATTENDANCE_UI.font.weight.semibold};
   color: ${ATTENDANCE_UI.colors.textPrimary};
   letter-spacing: -0.01em;
-`;
-
-const AttendanceHeadingSubtitle = styled(SectionSubtitle)`
-  margin-top: ${ATTENDANCE_UI.spacing[1]};
-  max-width: 720px;
-  font-size: ${ATTENDANCE_UI.font.size.md};
-  line-height: ${ATTENDANCE_UI.font.lineHeight.md};
-  color: ${ATTENDANCE_UI.colors.textSecondary};
 `;
 
 const AttendanceHeaderActions = styled(HeaderActions)`
@@ -7337,15 +7534,6 @@ const AttendanceClearAction = styled(AttendanceGhostAction)`
   font-size: ${ATTENDANCE_UI.font.size.xs};
 `;
 
-const AttendanceControlsRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: ${ATTENDANCE_UI.spacing[2]};
-  flex-wrap: wrap;
-  margin-bottom: ${ATTENDANCE_UI.spacing[2]};
-`;
-
 const AttendanceTabGroup = styled.div`
   display: inline-flex;
   align-items: center;
@@ -7423,24 +7611,50 @@ const AttendancePeriodChip = styled.div`
   cursor: pointer;
 `;
 
-const AttendancePatientStrip = styled.div`
-  margin-bottom: ${ATTENDANCE_UI.spacing[2]};
-  padding: 12px 14px;
-  border-radius: ${ATTENDANCE_UI.radius.md};
-  background: ${ATTENDANCE_UI.colors.surfaceMuted};
+const AttendancePackageCard = styled.div`
   border: 1px solid ${ATTENDANCE_UI.colors.border};
+  border-radius: ${ATTENDANCE_UI.radius.md};
+  background: ${ATTENDANCE_UI.colors.surface};
+  overflow: hidden;
+`;
+
+const AttendancePackageHeader = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: ${ATTENDANCE_UI.spacing[2]};
+  padding: 12px 14px;
+  border-bottom: 1px solid ${ATTENDANCE_UI.colors.border};
+  background: ${ATTENDANCE_UI.colors.surfaceMuted};
+`;
+
+const AttendancePackageName = styled.strong`
+  display: block;
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+`;
+
+const AttendancePackageMeta = styled.span`
+  display: block;
+  margin-top: 4px;
+  color: ${ATTENDANCE_UI.colors.textSecondary};
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+`;
+
+const AttendancePatientDetailBlock = styled.div`
+  display: grid;
+  gap: ${ATTENDANCE_UI.spacing[3]};
+`;
+
+const AttendancePatientDetailTopline = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: ${ATTENDANCE_UI.spacing[1]};
+  gap: ${ATTENDANCE_UI.spacing[2]};
   flex-wrap: wrap;
-`;
-
-const AttendancePatientName = styled.strong`
-  color: ${ATTENDANCE_UI.colors.textPrimary};
-  font-size: ${ATTENDANCE_UI.font.size.xl};
-  line-height: ${ATTENDANCE_UI.font.lineHeight.xl};
-  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
 `;
 
 const AttendancePatientStats = styled.div`
@@ -7490,48 +7704,6 @@ const AttendanceDetailTitle = styled.h3`
   font-size: ${ATTENDANCE_UI.font.size.lg};
   line-height: ${ATTENDANCE_UI.font.lineHeight.lg};
   font-weight: ${ATTENDANCE_UI.font.weight.semibold};
-`;
-
-const AttendanceBatchToolbar = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: ${ATTENDANCE_UI.spacing[2]};
-  flex-wrap: wrap;
-  padding: 12px 14px;
-  border-bottom: 1px solid ${ATTENDANCE_UI.colors.border};
-  background: ${ATTENDANCE_UI.colors.surfaceMuted};
-`;
-
-const AttendanceBatchSummary = styled.div`
-  color: ${ATTENDANCE_UI.colors.textSecondary};
-  font-size: ${ATTENDANCE_UI.font.size.sm};
-  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
-
-  strong {
-    color: ${ATTENDANCE_UI.colors.textPrimary};
-    font-weight: ${ATTENDANCE_UI.font.weight.semibold};
-  }
-`;
-
-const AttendanceSelectionCheckbox = styled.input`
-  width: 16px;
-  height: 16px;
-  accent-color: ${ATTENDANCE_UI.colors.action};
-  cursor: pointer;
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-  }
-`;
-
-const AttendanceSelectionPlaceholder = styled.span`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  color: ${ATTENDANCE_UI.colors.textMuted};
 `;
 
 const AttendanceTableCard = styled.div`
@@ -7691,13 +7863,6 @@ const AttendancePatientSummaryName = styled(AttendancePrimaryText)`
   }
 `;
 
-const AttendanceSecondaryText = styled.span`
-  color: ${ATTENDANCE_UI.colors.textTertiary};
-  font-size: ${ATTENDANCE_UI.font.size.sm};
-  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
-  font-weight: ${ATTENDANCE_UI.font.weight.regular};
-`;
-
 const AttendanceMoneyText = styled.strong`
   color: ${ATTENDANCE_UI.colors.textPrimary};
   font-size: ${ATTENDANCE_UI.font.size.md};
@@ -7774,30 +7939,22 @@ const AttendanceRowActions = styled(RowActions)`
 `;
 
 const AttendanceSmallAction = styled(SmallButton)`
-  background: ${ATTENDANCE_UI.colors.surface};
-  color: ${ATTENDANCE_UI.colors.textSecondary};
-  border: 1px solid ${ATTENDANCE_UI.colors.borderStrong};
+  background: ${ATTENDANCE_UI.colors.action};
+  color: #fff;
+  border: 1px solid ${ATTENDANCE_UI.colors.action};
   border-radius: ${ATTENDANCE_UI.radius.md};
-  padding: 8px 12px;
+  padding: 10px 14px;
   font-size: ${ATTENDANCE_UI.font.size.xs};
   line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
-  font-weight: ${ATTENDANCE_UI.font.weight.medium};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  box-shadow: 0 6px 14px rgba(95, 121, 87, 0.16);
 
   &:hover {
-    background: ${ATTENDANCE_UI.colors.surfaceMuted};
-    color: ${ATTENDANCE_UI.colors.textPrimary};
-    border-color: ${ATTENDANCE_UI.colors.borderStrong};
+    background: ${ATTENDANCE_UI.colors.actionHover};
+    color: #fff;
+    border-color: ${ATTENDANCE_UI.colors.actionHover};
+    transform: translateY(-1px);
   }
-`;
-
-const AttendanceNoteText = styled.div`
-  min-width: 0;
-  max-width: 100%;
-  white-space: normal;
-  word-break: break-word;
-  color: ${ATTENDANCE_UI.colors.textTertiary};
-  font-size: ${ATTENDANCE_UI.font.size.sm};
-  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
 `;
 
 const AttendanceEmptyState = styled(EmptyState)`
@@ -7805,14 +7962,6 @@ const AttendanceEmptyState = styled(EmptyState)`
   border: 1px dashed ${ATTENDANCE_UI.colors.borderStrong};
   border-radius: ${ATTENDANCE_UI.radius.md};
   color: ${ATTENDANCE_UI.colors.textTertiary};
-`;
-
-const AttendanceRequiredPatientNotice = styled(AttendanceEmptyState)`
-  background: rgba(95, 121, 87, 0.09);
-  border-style: solid;
-  border-color: rgba(95, 121, 87, 0.34);
-  color: ${ATTENDANCE_UI.colors.textPrimary};
-  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
 `;
 
 const ReportGrid = styled.div`
@@ -8186,6 +8335,19 @@ const Select = styled.select`
 
 const SearchFieldWrapper = styled.div`
   position: relative;
+`;
+
+const FixedPatientDisplay = styled.div`
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 10px 0;
+  color: #1f2933;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: normal;
 `;
 
 const SearchSuggestions = styled.div`
