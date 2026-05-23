@@ -1,58 +1,40 @@
 import styled from "styled-components";
+import { alpha, colors, fontSizes, radii } from "../../styles/tokens";
 
 /**
  * Tabela padrão para módulos administrativos do app.
- *
- * Padrão de referência: Planos.
- *
- * Hierarquia de uso:
- *
- *   <TableWrap>
- *     <DataTable>
- *       <thead>
- *         <tr><TH>Coluna</TH></tr>
- *       </thead>
- *       <tbody>
- *         <tr><TD>Valor</TD></tr>
- *       </tbody>
- *     </DataTable>
- *   </TableWrap>
  */
 
-/** Container externo — scroll horizontal, card com borda e fundo branco. */
 export const TableWrap = styled.div`
   overflow-x: auto;
-  border-radius: 12px;
-  border: 1px solid rgba(106, 121, 92, 0.14);
-  background: #fff;
+  border-radius: ${radii.lg};
+  border: 1px solid ${alpha.brand014};
+  background: ${colors.white};
 `;
 
-/** Elemento <table> — largura total, sem bordas colapsadas. */
 export const DataTable = styled.table`
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.88rem;
+  font-size: ${fontSizes.compact};
 `;
 
-/** Célula de cabeçalho <th>. */
 export const TH = styled.th`
   text-align: left;
   padding: 12px 14px;
-  font-size: 0.76rem;
+  font-size: ${fontSizes.tiny};
   font-weight: 700;
-  color: #6a795c;
+  color: ${colors.brand};
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-bottom: 1px solid rgba(106, 121, 92, 0.12);
+  border-bottom: 1px solid ${alpha.brand012};
   white-space: nowrap;
-  background: #fafbf8;
+  background: ${colors.tableHeaderBackground};
 `;
 
-/** Célula de dado <td>. */
 export const TD = styled.td`
   padding: 12px 14px;
-  color: #1b1b1b;
-  border-bottom: 1px solid rgba(106, 121, 92, 0.07);
+  color: ${colors.ink};
+  border-bottom: 1px solid ${alpha.brand007};
   vertical-align: middle;
 
   strong {

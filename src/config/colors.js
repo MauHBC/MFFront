@@ -1,6 +1,8 @@
-export const primaryColor = "#6A795C"; // Verde escuro
+import { colors } from "../styles/tokens";
+
+export const primaryColor = colors.brand; // Verde escuro
 export const primaryDarkColor = "#1B1B1B"; // Quase preto
-export const buttonColor = "#6A795C"; // Verde escuro
+export const buttonColor = colors.brand; // Verde escuro
 export const backgroundColorCompany = "#FFFFFF"; // Branco
 
 // Cores atualizadas para melhor contraste

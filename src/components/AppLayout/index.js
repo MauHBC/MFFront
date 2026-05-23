@@ -1,48 +1,31 @@
 import styled from "styled-components";
+import { colors, layout, spacing } from "../../styles/tokens";
 
 /**
  * Shell de layout para páginas administrativas do sistema.
  *
- * PageWrapper  — ocupa toda a viewport, aplica o offset da navbar (80px fixo)
- *                e o background padrão do app.
- * PageContent  — container centralizado com largura máxima e padding padrão.
- *
- * Padrão de referência: Planos (defaults).
- *
- * Props opcionais:
- *
- *   PageWrapper:
- *     $paddingTop    {string}  default: "90px"
- *     $paddingBottom {string}  default: "0"
- *     $background    {string}  default: "#f7f8f4"
- *
- *   PageContent:
- *     $maxWidth            {string}  default: "1200px"
- *     $paddingX            {string}  default: "24px"
- *     $paddingTop          {string}  default: "32px"
- *     $paddingBottom       {string}  default: "48px"
- *     $mobileBreakpoint    {string}  default: "768px"
- *     $mobilePaddingX      {string}  default: "16px"
- *     $mobilePaddingTop    {string}  default: "20px"
- *     $mobilePaddingBottom {string}  default: "32px"
+ * PageWrapper ocupa toda a viewport, aplica o offset da navbar fixa e o
+ * background padrão do app. PageContent centraliza o conteúdo com largura e
+ * padding consistentes entre módulos.
  */
 
 export const PageWrapper = styled.div`
   min-height: 100vh;
-  background: ${(p) => p.$background || "#f7f8f4"};
+  background: ${(p) => p.$background || colors.appBackground};
   padding-top: ${(p) => p.$paddingTop || "90px"};
   padding-bottom: ${(p) => p.$paddingBottom || "0"};
 `;
 
 export const PageContent = styled.main`
-  max-width: ${(p) => p.$maxWidth || "1200px"};
+  max-width: ${(p) => p.$maxWidth || layout.pageMaxWidth};
   margin: 0 auto;
-  padding: ${(p) => p.$paddingTop || "32px"} ${(p) => p.$paddingX || "24px"}
-    ${(p) => p.$paddingBottom || "48px"};
+  padding: ${(p) => p.$paddingTop || spacing.pageTop}
+    ${(p) => p.$paddingX || spacing.pageX}
+    ${(p) => p.$paddingBottom || spacing.pageBottom};
 
-  @media (max-width: ${(p) => p.$mobileBreakpoint || "768px"}) {
-    padding: ${(p) => p.$mobilePaddingTop || "20px"}
-      ${(p) => p.$mobilePaddingX || "16px"}
-      ${(p) => p.$mobilePaddingBottom || "32px"};
+  @media (max-width: ${(p) => p.$mobileBreakpoint || layout.mobileBreakpoint}) {
+    padding: ${(p) => p.$mobilePaddingTop || spacing.pageMobileTop}
+      ${(p) => p.$mobilePaddingX || spacing.pageMobileX}
+      ${(p) => p.$mobilePaddingBottom || spacing.pageMobileBottom};
   }
 `;

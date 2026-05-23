@@ -1,30 +1,6 @@
 import styled from "styled-components";
+import { alpha, colors, fontSizes, radii } from "../../styles/tokens";
 
-/**
- * Toolbar de linha de ações para módulos administrativos.
- *
- * Padrão de referência: Planos.
- *
- * Hierarquia de uso:
- *
- *   <AppToolbar>
- *     <AppToolbarLeft>
- *       <select>...</select>
- *     </AppToolbarLeft>
- *     <button>Ação primária</button>
- *   </AppToolbar>
- *
- * Para toolbars com dois lados explícitos:
- *
- *   <AppToolbar>
- *     <AppToolbarLeft>...</AppToolbarLeft>
- *     <AppToolbarRight>...</AppToolbarRight>
- *   </AppToolbar>
- *
- * AppToolbarSpacer empurra conteúdo para direita quando não há AppToolbarRight.
- */
-
-/** Linha principal da toolbar — distribui left/right com espaçamento padrão. */
 export const AppToolbar = styled.div`
   display: flex;
   align-items: center;
@@ -34,27 +10,22 @@ export const AppToolbar = styled.div`
   flex-wrap: wrap;
 `;
 
-/**
- * Lado esquerdo da toolbar — filtros, selects e campos de busca.
- * Inclui estilo padrão para elementos <select> filhos.
- */
 export const AppToolbarLeft = styled.div`
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
 
   select {
-    border: 1px solid rgba(106, 121, 92, 0.25);
-    border-radius: 8px;
+    border: 1px solid ${alpha.brand025};
+    border-radius: ${radii.sm};
     padding: 8px 12px;
-    font-size: 0.88rem;
-    color: #1b1b1b;
-    background: #fff;
+    font-size: ${fontSizes.compact};
+    color: ${colors.ink};
+    background: ${colors.white};
     cursor: pointer;
   }
 `;
 
-/** Lado direito da toolbar — botões de ação primária. */
 export const AppToolbarRight = styled.div`
   display: flex;
   align-items: center;
@@ -62,7 +33,6 @@ export const AppToolbarRight = styled.div`
   flex-wrap: wrap;
 `;
 
-/** Espaçador flexível — empurra conteúdo seguinte para a direita. */
 export const AppToolbarSpacer = styled.div`
   flex: 1;
 `;

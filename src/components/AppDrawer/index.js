@@ -1,31 +1,19 @@
 import styled from "styled-components";
+import { alpha, colors, layout } from "../../styles/tokens";
 
 /**
  * Drawer lateral padronizado para o app admin.
- *
- * Padrão de referência: Agendamentos / Planos.
- *
- * Uso:
- *   <AppDrawer $open={isOpen}>
- *     <DrawerHeader>...</DrawerHeader>
- *     <DrawerBody>...</DrawerBody>
- *     <DrawerFooter>...</DrawerFooter>
- *   </AppDrawer>
- *   {isOpen && <DrawerBackdrop onClick={onClose} />}
- *
- * Props:
- *   $open  {boolean}  controla visibilidade via transform (drawer sempre no DOM)
  */
 
 export const AppDrawer = styled.aside`
   position: fixed;
-  top: 80px;
+  top: ${layout.topbarHeight};
   right: 0;
   width: 440px;
   max-width: 90vw;
-  height: calc(100vh - 80px);
-  background: #fff;
-  box-shadow: -12px 0 24px rgba(0, 0, 0, 0.12);
+  height: calc(100vh - ${layout.topbarHeight});
+  background: ${colors.white};
+  box-shadow: -12px 0 24px ${alpha.drawerShadow};
   transform: ${(props) => (props.$open ? "translateX(0)" : "translateX(100%)")};
   transition: transform 0.3s ease;
   z-index: 20;
@@ -35,11 +23,11 @@ export const AppDrawer = styled.aside`
 
 export const DrawerBackdrop = styled.div`
   position: fixed;
-  top: 80px;
+  top: ${layout.topbarHeight};
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.2);
+  background: ${alpha.overlay};
   z-index: 10;
 `;
 
@@ -48,21 +36,21 @@ export const DrawerHeader = styled.div`
   align-items: center;
   justify-content: space-between;
   padding: 18px 20px 16px;
-  border-bottom: 1px solid rgba(106, 121, 92, 0.12);
+  border-bottom: 1px solid ${alpha.brand012};
   flex-shrink: 0;
 `;
 
 export const DrawerTitle = styled.h2`
   font-size: 1rem;
   font-weight: 800;
-  color: #1b1b1b;
+  color: ${colors.ink};
   margin: 0;
 `;
 
 export const DrawerCloseBtn = styled.button`
   background: none;
   border: none;
-  color: #aaa;
+  color: ${colors.softText};
   cursor: pointer;
   padding: 4px;
   font-size: 1rem;
@@ -71,7 +59,7 @@ export const DrawerCloseBtn = styled.button`
   transition: color 0.12s;
 
   &:hover {
-    color: #1b1b1b;
+    color: ${colors.ink};
   }
 `;
 
@@ -87,5 +75,5 @@ export const DrawerFooter = styled.div`
   justify-content: flex-end;
   margin-top: 24px;
   padding-top: 16px;
-  border-top: 1px solid rgba(106, 121, 92, 0.1);
+  border-top: 1px solid ${alpha.brand010};
 `;

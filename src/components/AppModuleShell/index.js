@@ -1,60 +1,37 @@
 import styled from "styled-components";
+import { alpha, colors, fontSizes, layout, radii } from "../../styles/tokens";
 
 /**
  * Shell visual dos módulos administrativos do app.
  *
  * Padrão de referência: Planos / Agendamentos.
- *
- * Hierarquia de uso:
- *
- *   <ModuleHeader>
- *     <ModuleTitle>Título da página</ModuleTitle>
- *     [<ModuleSubtitle>Descrição opcional</ModuleSubtitle>]
- *   </ModuleHeader>
- *
- *   [<ModuleActions>
- *     <button>...</button>
- *   </ModuleActions>]
- *
- *   <ModuleTabs>
- *     <ModuleTabButton $active={...} type="button" onClick={...}>Aba</ModuleTabButton>
- *   </ModuleTabs>
- *
- *   <ModuleBody>
- *     [<ModulePanel>...</ModulePanel>]
- *     ...conteúdo da aba...
- *   </ModuleBody>
  */
 
-/** Cabeçalho da página — margem inferior padrão antes das abas/conteúdo. */
 export const ModuleHeader = styled.div`
   margin-bottom: 24px;
 `;
 
-/** Título principal da página (h1). */
 export const ModuleTitle = styled.h1`
-  font-size: 2.5rem;
+  font-size: ${fontSizes.title};
   font-weight: 800;
-  color: #1b1b1b;
+  color: ${colors.ink};
   margin: 0;
 
-  @media (max-width: 859px) {
-    font-size: 1.875rem;
+  @media (max-width: ${layout.moduleBreakpoint}) {
+    font-size: ${fontSizes.titleMobile};
   }
 `;
 
-/** Subtítulo / descrição opcional abaixo do título. */
 export const ModuleSubtitle = styled.p`
   font-size: 0.938rem;
-  color: #6a795c;
+  color: ${colors.brand};
   margin: 6px 0 0;
 
-  @media (max-width: 859px) {
+  @media (max-width: ${layout.moduleBreakpoint}) {
     font-size: 0.813rem;
   }
 `;
 
-/** Faixa de ações do cabeçalho (botões, filtros globais). */
 export const ModuleActions = styled.div`
   display: flex;
   align-items: center;
@@ -63,46 +40,35 @@ export const ModuleActions = styled.div`
   margin-top: 12px;
 `;
 
-/** Barra de abas — usa padrão border-bottom linear. */
 export const ModuleTabs = styled.div`
   display: flex;
-  border-bottom: 2px solid rgba(106, 121, 92, 0.14);
+  border-bottom: 2px solid ${alpha.brand014};
   margin-bottom: 24px;
   gap: 0;
 `;
 
-/**
- * Botão de aba.
- * Props:
- *   $active  {boolean}  indica aba selecionada
- */
 export const ModuleTabButton = styled.button`
   padding: 10px 22px;
-  font-size: 0.9rem;
+  font-size: ${fontSizes.body};
   font-weight: 700;
-  color: ${(p) => (p.$active ? "#3d5230" : "#6a795c")};
+  color: ${(p) => (p.$active ? colors.brandDark : colors.brand)};
   border: none;
-  border-bottom: 2px solid ${(p) => (p.$active ? "#6a795c" : "transparent")};
+  border-bottom: 2px solid ${(p) => (p.$active ? colors.brand : "transparent")};
   background: transparent;
   cursor: pointer;
   margin-bottom: -2px;
   transition: color 0.15s;
 
   &:hover {
-    color: #3d5230;
+    color: ${colors.brandDark};
   }
 `;
 
-/** Área de conteúdo da aba/seção ativa. */
 export const ModuleBody = styled.div``;
 
-/**
- * Painel em card — para conteúdo que precisa de destaque visual
- * (borda, fundo branco, border-radius). Uso opcional dentro de ModuleBody.
- */
 export const ModulePanel = styled.div`
-  background: #fff;
-  border: 1px solid rgba(106, 121, 92, 0.14);
-  border-radius: 12px;
+  background: ${colors.white};
+  border: 1px solid ${alpha.brand014};
+  border-radius: ${radii.lg};
   padding: 20px 24px;
 `;
