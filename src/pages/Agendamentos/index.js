@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
   FaBell,
+  FaBirthdayCake,
   FaChevronLeft,
   FaChevronRight,
   FaCog,
@@ -83,6 +84,7 @@ const OPERATIONAL_ALERT_SEVERITY_ORDER = {
   medium: 1,
   low: 2,
 };
+const BIRTHDAY_ALERT_WINDOW_DAYS = 5;
 
 const inFlightAgendaRequests = new Map();
 
@@ -252,6 +254,67 @@ const groupPlanAlertsByPatient = (alerts = []) => {
 const countPlanAlertItems = (alerts = []) =>
   groupPlanAlertsByPatient(alerts).reduce((total, patientGroup) => total + patientGroup.plans.length, 0);
 
+const getBirthdayAlertDaysUntil = (alert) => {
+  const daysUntil = Number(alert?.details?.days_until);
+  return Number.isFinite(daysUntil) ? daysUntil : null;
+};
+
+const isBirthdayAlertInWindow = (alert) => {
+  const daysUntil = getBirthdayAlertDaysUntil(alert);
+  return daysUntil !== null && daysUntil >= 0 && daysUntil <= BIRTHDAY_ALERT_WINDOW_DAYS;
+};
+
+const formatDateOnlyLabel = (value) => {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  return `${match[3]}/${match[2]}/${match[1]}`;
+};
+
+const getBirthdayGroupTitle = (group) => {
+  if (group.daysUntil === 0) return "Aniversariante do dia";
+  return formatDateOnlyLabel(group.dateKey) || group.birthdayLabel || "Próximos aniversários";
+};
+
+const getBirthdayGroupSubtitle = (group) => {
+  if (group.daysUntil === 0) return group.birthdayLabel || "Hoje";
+  if (group.daysUntil === 1) return "Amanhã";
+  return `Em ${group.daysUntil} dias`;
+};
+
+const groupBirthdayAlertsByDate = (alerts = []) => {
+  const groupMap = new Map();
+
+  alerts
+    .filter(isBirthdayAlertInWindow)
+    .forEach((alert) => {
+      const daysUntil = getBirthdayAlertDaysUntil(alert);
+      const dateKey = alert.due_date || alert.details?.next_birthday || alert.details?.birthday_label || `${daysUntil}`;
+      const existing = groupMap.get(dateKey) || {
+        key: dateKey,
+        dateKey,
+        daysUntil,
+        birthdayLabel: alert.details?.birthday_label || "",
+        alerts: [],
+      };
+
+      existing.alerts.push(alert);
+      groupMap.set(dateKey, existing);
+    });
+
+  return Array.from(groupMap.values())
+    .sort((first, second) => first.daysUntil - second.daysUntil)
+    .map((group) => ({
+      ...group,
+      alerts: group.alerts.sort((first, second) =>
+        String(first.patient_name || "").localeCompare(String(second.patient_name || ""), "pt-BR", {
+          sensitivity: "base",
+        })),
+    }));
+};
+
+const countBirthdayAlertItems = (alerts = []) =>
+  alerts.filter(isBirthdayAlertInWindow).length;
+
 const buildReplacementCreditFromAlert = (alert) => ({
   id: alert?.details?.replacement_credit_id,
   patient_id: alert?.patient_id,
@@ -269,8 +332,14 @@ const buildReplacementCreditFromAlert = (alert) => ({
 
 const getPlanAlertLink = (alert) => {
   const params = new URLSearchParams();
+  if (alert?.type === "patient_plan_overdue") {
+    params.set("view", "mensalidades");
+    if (alert?.patient_name) params.set("patient_name", alert.patient_name);
+    if (alert?.due_date) params.set("month", String(alert.due_date).slice(0, 7));
+    return `/financeiro?${params.toString()}`;
+  }
+
   params.set("tab", "patient-plans");
-  params.set("status", "");
   if (alert?.patient_id) params.set("patient_id", String(alert.patient_id));
   if (alert?.patient_name) params.set("patient_name", alert.patient_name);
   if (alert?.details?.patient_plan_id) params.set("patient_plan_id", String(alert.details.patient_plan_id));
@@ -280,7 +349,7 @@ const getPlanAlertLink = (alert) => {
 const getPlanAlertDueText = (alert) => {
   if (!alert?.due_date) return alert?.status || "";
   return alert?.type === "patient_plan_overdue"
-    ? `Vencido desde ${alert.due_date}`
+    ? `Vencido desde ${formatDateOnlyLabel(alert.due_date) || alert.due_date}`
     : `Vence em ${alert.due_date}`;
 };
 
@@ -2033,6 +2102,9 @@ export default function Agendamentos() {
       if (key === "patient_plan_expiring" || key === "patient_plan_overdue") {
         return countPlanAlertItems(alerts);
       }
+      if (key === "patient_birthday") {
+        return countBirthdayAlertItems(alerts);
+      }
       return alerts.length;
     };
 
@@ -2060,6 +2132,7 @@ export default function Agendamentos() {
 
     operationalAlertGroups.forEach((group) => {
       if (fixedCategoryKeys.has(group.key)) return;
+      if (group.key === "other") return;
       const targetSection = sections.find((section) => section.key === group.section);
       if (!targetSection) return;
       targetSection.items.push({
@@ -5053,7 +5126,9 @@ export default function Agendamentos() {
                                       <span>
                                         {alert.details?.plan_name || alert.status?.split(" - ")?.[0] || "Plano"}
                                       </span>
-                                      <small>{getPlanAlertDueText(alert)}</small>
+                                      <PendingPlanDueText $overdue={alert.type === "patient_plan_overdue"}>
+                                        {getPlanAlertDueText(alert)}
+                                      </PendingPlanDueText>
                                     </div>
                                     <PendingPlanLink to={getPlanAlertLink(alert)}>
                                       Ver plano
@@ -5064,10 +5139,41 @@ export default function Agendamentos() {
                             </PendingPatientCard>
                           ))}
                         </PendingGroupDetails>
-	                      )}
-	                    {pendingCenterSelectedItem.count > 0 &&
-	                      pendingCenterSelectedItem.key === "replacement_credit" && (
-	                        <PendingGroupDetails>
+                      )}
+                    {pendingCenterSelectedItem.count > 0 &&
+                      pendingCenterSelectedItem.key === "patient_birthday" && (
+                        <BirthdayAlertList>
+                          {groupBirthdayAlertsByDate(pendingCenterSelectedItem.alerts).map((group) => (
+                            <BirthdayDateGroup key={group.key}>
+                              <BirthdayDateHeader>
+                                <strong>{getBirthdayGroupTitle(group)}</strong>
+                                <span>{getBirthdayGroupSubtitle(group)}</span>
+                              </BirthdayDateHeader>
+                              <BirthdayPatientList>
+                                {group.alerts.map((alert) => (
+                                  <BirthdayPatientRow key={alert.centerKey}>
+                                    <BirthdayIcon aria-hidden="true">
+                                      <FaBirthdayCake />
+                                    </BirthdayIcon>
+                                    <BirthdayPatientName>
+                                      {alert.patient_id ? (
+                                        <Link to={`/pacientes/${alert.patient_id}`}>
+                                          {alert.patient_name}
+                                        </Link>
+                                      ) : (
+                                        alert.patient_name
+                                      )}
+                                    </BirthdayPatientName>
+                                  </BirthdayPatientRow>
+                                ))}
+                              </BirthdayPatientList>
+                            </BirthdayDateGroup>
+                          ))}
+                        </BirthdayAlertList>
+                      )}
+                    {pendingCenterSelectedItem.count > 0 &&
+                      pendingCenterSelectedItem.key === "replacement_credit" && (
+                        <PendingGroupDetails>
 	                          {pendingCenterSelectedItem.alerts.map((alert) => (
 	                            <PendingPatientCard key={alert.centerKey}>
 	                              <PendingPatientName>
@@ -5095,12 +5201,13 @@ export default function Agendamentos() {
 	                          ))}
 	                        </PendingGroupDetails>
 	                      )}
-	                    {pendingCenterSelectedItem.kind === "operational-alert" &&
-	                      pendingCenterSelectedItem.count > 0 &&
-	                      pendingCenterSelectedItem.key !== "standalone_session_credit_expiring" &&
-	                      pendingCenterSelectedItem.key !== "patient_plan_expiring" &&
-	                      pendingCenterSelectedItem.key !== "patient_plan_overdue" &&
-	                      pendingCenterSelectedItem.key !== "replacement_credit" && (
+                    {pendingCenterSelectedItem.kind === "operational-alert" &&
+                      pendingCenterSelectedItem.count > 0 &&
+                      pendingCenterSelectedItem.key !== "standalone_session_credit_expiring" &&
+                      pendingCenterSelectedItem.key !== "patient_plan_expiring" &&
+                      pendingCenterSelectedItem.key !== "patient_plan_overdue" &&
+                      pendingCenterSelectedItem.key !== "patient_birthday" &&
+                      pendingCenterSelectedItem.key !== "replacement_credit" && (
                         <PendingGroupDetails>
                           {pendingCenterSelectedItem.alerts.map((alert) => (
                             <PendingAlertRow key={alert.centerKey} $severity={alert.severity}>
@@ -7506,6 +7613,99 @@ const PendingPlanLink = styled(Link)`
 
   &:hover {
     background: #f6f9f2;
+  }
+`;
+
+const PendingPlanDueText = styled.small`
+  color: ${({ $overdue }) => ($overdue ? "#b91c1c" : "#6a795c")} !important;
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 800;
+  margin-top: 3px;
+`;
+
+const BirthdayAlertList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`;
+
+const BirthdayDateGroup = styled.section`
+  border: 1px solid rgba(185, 108, 63, 0.18);
+  border-radius: 8px;
+  background: #fffaf5;
+  overflow: hidden;
+`;
+
+const BirthdayDateHeader = styled.div`
+  align-items: center;
+  background: #fff3e8;
+  border-bottom: 1px solid rgba(185, 108, 63, 0.14);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 10px 12px;
+
+  strong {
+    color: #7a3f1d;
+    font-size: 0.88rem;
+    font-weight: 900;
+  }
+
+  span {
+    color: #9a5a32;
+    flex: 0 0 auto;
+    font-size: 0.76rem;
+    font-weight: 800;
+  }
+`;
+
+const BirthdayPatientList = styled.div`
+  display: flex;
+  flex-direction: column;
+`;
+
+const BirthdayPatientRow = styled.div`
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+
+  & + & {
+    border-top: 1px solid rgba(185, 108, 63, 0.12);
+  }
+`;
+
+const BirthdayIcon = styled.span`
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid rgba(185, 108, 63, 0.2);
+  border-radius: 999px;
+  color: #b96c3f;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+
+  svg {
+    height: 13px;
+    width: 13px;
+  }
+`;
+
+const BirthdayPatientName = styled.strong`
+  color: #1f2933;
+  display: block;
+  font-size: 0.91rem;
+  font-weight: 800;
+  min-width: 0;
+  overflow-wrap: anywhere;
+
+  a {
+    color: inherit;
+    text-decoration: none;
   }
 `;
 

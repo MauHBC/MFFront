@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import styled from "styled-components";
 import {
   FaBars,
@@ -592,6 +593,7 @@ const getCurrentMonthRange = () => {
 };
 
 export default function Financeiro() {
+  const routeLocation = useLocation();
   const [activeSection, setActiveSection] = useState("receitas");
   const [receitasView, setReceitasView] = useState("atendimentos");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -689,6 +691,32 @@ export default function Financeiro() {
     String(new Date().getFullYear()),
   );
   const billingCyclesMonthPickerRef = useRef(null);
+  const [billingCyclesDrilldownPatientId, setBillingCyclesDrilldownPatientId] = useState(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(routeLocation.search || "");
+    const view = params.get("view") || params.get("tab");
+    if (view !== "mensalidades") return;
+
+    setActiveSection("receitas");
+    setReceitasView("mensalidades");
+
+    const month = params.get("month");
+    const parsedMonth = parseMonthInputValue(month);
+    if (parsedMonth) {
+      setBillingCyclesPeriodMode("month");
+      setBillingCyclesPeriodMonth(month);
+      setBillingCyclesPeriodYear(String(parsedMonth.year));
+    }
+
+    const patientName = String(params.get("patient_name") || "").trim();
+    if (patientName) {
+      setBillingCyclesFilters((prev) => (
+        prev.search === patientName ? prev : { ...prev, search: patientName }
+      ));
+    }
+  }, [routeLocation.search]);
+
   const [billingCycleSessionsPreview, setBillingCycleSessionsPreview] = useState({
     open: false,
     cycle: null,
@@ -1791,6 +1819,15 @@ export default function Financeiro() {
       isLoading: false,
       error: "",
     });
+  }, []);
+
+  const handleViewBillingCyclesPatient = useCallback((patientId) => {
+    if (!patientId) return;
+    setBillingCyclesDrilldownPatientId(String(patientId));
+  }, []);
+
+  const handleCloseBillingCyclesPatient = useCallback(() => {
+    setBillingCyclesDrilldownPatientId(null);
   }, []);
 
   const handleOpenPackageSessions = useCallback((packageId) => {
@@ -3299,6 +3336,77 @@ export default function Financeiro() {
     resolveBillingCycleFinancial,
   ]);
 
+  const billingCyclesByPatient = useMemo(() => {
+    const map = new Map();
+
+    billingCyclesFilteredRows.forEach((cycle) => {
+      const patientId = Number(cycle.patient_id || cycle.Patient?.id || 0);
+      const key = patientId || `patient-${cycle.Patient ? getPatientDisplayName(cycle.Patient) : "sem-paciente"}`;
+      const patientName = cycle.Patient ? getPatientDisplayName(cycle.Patient) : "Paciente";
+      const financial = resolveBillingCycleFinancial(cycle);
+      const current = map.get(key) || {
+        key,
+        patientId,
+        patientName,
+        cycles: 0,
+        amountCents: 0,
+        paidCents: 0,
+        openCents: 0,
+      };
+
+      current.cycles += 1;
+      if (financial.status !== "canceled") {
+        current.amountCents += financial.amount;
+        current.paidCents += financial.paid;
+        current.openCents += financial.open;
+      }
+      map.set(key, current);
+    });
+
+    return Array.from(map.values()).sort((a, b) =>
+      String(a.patientName || "").localeCompare(String(b.patientName || ""), "pt-BR", {
+        sensitivity: "base",
+      }));
+  }, [billingCyclesFilteredRows, resolveBillingCycleFinancial]);
+
+  const selectedBillingCyclesPatient = useMemo(() => {
+    const patientId = normalizeId(billingCyclesDrilldownPatientId);
+    if (!patientId) return null;
+    return patientMap.get(patientId) || null;
+  }, [billingCyclesDrilldownPatientId, patientMap]);
+
+  const selectedBillingCyclesPatientRows = useMemo(() => {
+    const patientId = normalizeId(billingCyclesDrilldownPatientId);
+    if (!patientId) return [];
+    return billingCyclesFilteredRows.filter((cycle) =>
+      Number(cycle.patient_id || cycle.Patient?.id || 0) === patientId);
+  }, [billingCyclesDrilldownPatientId, billingCyclesFilteredRows]);
+
+  const selectedBillingCyclesPatientSummary = useMemo(() => {
+    const patientId = normalizeId(billingCyclesDrilldownPatientId);
+    if (!patientId) return null;
+
+    const groupedSummary = billingCyclesByPatient.find((item) => item.patientId === patientId);
+    const fallbackCycle = selectedBillingCyclesPatientRows[0] || null;
+    const patientName = selectedBillingCyclesPatient
+      ? getPatientDisplayName(selectedBillingCyclesPatient)
+      : groupedSummary?.patientName || (fallbackCycle?.Patient ? getPatientDisplayName(fallbackCycle.Patient) : "Paciente");
+
+    return {
+      patientId,
+      patientName,
+      cycles: groupedSummary?.cycles || selectedBillingCyclesPatientRows.length,
+      amountCents: groupedSummary?.amountCents || 0,
+      paidCents: groupedSummary?.paidCents || 0,
+      openCents: groupedSummary?.openCents || 0,
+    };
+  }, [
+    billingCyclesByPatient,
+    billingCyclesDrilldownPatientId,
+    selectedBillingCyclesPatient,
+    selectedBillingCyclesPatientRows,
+  ]);
+
   const billingCyclesSummary = useMemo(() => {
     const activePlanIds = new Set();
     const data = {
@@ -4305,9 +4413,9 @@ export default function Financeiro() {
         packageContent = <AttendanceEmptyState>{attendanceDetailSessions.error}</AttendanceEmptyState>;
       } else if (attendanceSelectedPatientPackages.length > 0) {
         packageContent = (
-          <AttendanceTableCard>
+          <BillingCyclesInnerTableCard>
             <AttendanceTableScroll>
-              <AttendanceOverviewTable>
+              <BillingCyclesTable $detail>
                 <thead>
                   <tr>
                     <th>Data</th>
@@ -4367,9 +4475,9 @@ export default function Financeiro() {
                     </PatientSummaryRow>
                   ))}
                 </tbody>
-              </AttendanceOverviewTable>
+              </BillingCyclesTable>
             </AttendanceTableScroll>
-          </AttendanceTableCard>
+          </BillingCyclesInnerTableCard>
         );
       } else if (attendanceSelectedPatientRows.length > 0) {
         packageContent = (
@@ -4822,6 +4930,187 @@ export default function Financeiro() {
 
   const renderMensalidades = () => {
     const billingCyclesTitle = `Mensalidades${billingCyclesPeriodLabel ? ` — ${billingCyclesPeriodLabel}` : ""}`;
+    let billingCyclesContent = null;
+
+    if (billingCyclesDrilldownPatientId && selectedBillingCyclesPatientSummary) {
+      billingCyclesContent = (
+        <AttendancePatientDetailBlock>
+          <AttendancePatientDetailTopline>
+            <div>
+              <AttendanceHeadingTitle>
+                {selectedBillingCyclesPatientSummary.patientName}
+              </AttendanceHeadingTitle>
+            </div>
+            <AttendanceHeaderActions>
+              <AttendancePrimaryAction
+                type="button"
+                onClick={() => openCreditModal(
+                  selectedBillingCyclesPatient || {
+                    id: selectedBillingCyclesPatientSummary.patientId,
+                    full_name: selectedBillingCyclesPatientSummary.patientName,
+                  },
+                )}
+              >
+                <FaPlus />
+                Registrar recebimento
+              </AttendancePrimaryAction>
+              <AttendanceGhostAction type="button" onClick={handleCloseBillingCyclesPatient}>
+                ← Voltar
+              </AttendanceGhostAction>
+            </AttendanceHeaderActions>
+          </AttendancePatientDetailTopline>
+          <AttendancePatientStats>
+            <AttendancePatientStat>
+              <span>A receber</span>
+              <strong>{formatCurrency(selectedBillingCyclesPatientSummary.openCents)}</strong>
+            </AttendancePatientStat>
+            <AttendancePatientStat>
+              <span>Recebido</span>
+              <strong>{formatCurrency(selectedBillingCyclesPatientSummary.paidCents)}</strong>
+            </AttendancePatientStat>
+          </AttendancePatientStats>
+          <BillingCyclesInnerTableCard>
+            <AttendanceTableScroll>
+              <BillingCyclesTable $detail>
+                <thead>
+                  <tr>
+                    <th>Plano</th>
+                    <th>Periodo</th>
+                    <th>Valor</th>
+                    <th>Recebido</th>
+                    <th>A receber</th>
+                    <th>Status</th>
+                    <th>Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedBillingCyclesPatientRows.map((cycle) => {
+                    const financial = resolveBillingCycleFinancial(cycle);
+                    const planName = cycle.ServicePlan?.name || "-";
+                    const periodStart = formatDateOnlyBR(cycle.cycle_start);
+                    const periodEnd = formatDateOnlyBR(cycle.cycle_end);
+
+                    return (
+                      <PatientSummaryRow key={cycle.id} $hasOpen={financial.open > 0}>
+                        <td>
+                          <AttendanceOriginBadge>{planName}</AttendanceOriginBadge>
+                        </td>
+                        <td>
+                          <AttendancePrimaryText>
+                            {periodStart}{cycle.cycle_end ? ` — ${periodEnd}` : ""}
+                          </AttendancePrimaryText>
+                        </td>
+                        <td>
+                          <AttendanceMoneyText>{formatCurrency(financial.amount)}</AttendanceMoneyText>
+                        </td>
+                        <td>
+                          <AttendanceMoneyText>{formatCurrency(financial.paid)}</AttendanceMoneyText>
+                        </td>
+                        <td>
+                          <AttendanceOpenAmountValue $hasOpen={financial.open > 0}>
+                            {formatCurrency(financial.open)}
+                          </AttendanceOpenAmountValue>
+                        </td>
+                        <td>
+                          <AttendanceStatusBadge $status={financial.status}>
+                            {formatFinancialStatus(financial.status)}
+                          </AttendanceStatusBadge>
+                        </td>
+                        <td>
+                          <AttendanceRowActions>
+                            <AttendanceSmallAction
+                              type="button"
+                              onClick={() => openBillingCycleSessionsPreview(cycle)}
+                            >
+                              Ver sessões
+                            </AttendanceSmallAction>
+                          </AttendanceRowActions>
+                        </td>
+                      </PatientSummaryRow>
+                    );
+                  })}
+                </tbody>
+              </BillingCyclesTable>
+            </AttendanceTableScroll>
+          </BillingCyclesInnerTableCard>
+        </AttendancePatientDetailBlock>
+      );
+    } else {
+      billingCyclesContent = (
+        <AttendanceTableScroll>
+          {isBillingCyclesLoading && (
+            <div style={{ padding: "32px 16px", textAlign: "center", color: ATTENDANCE_UI.colors.textSecondary }}>
+              Carregando...
+            </div>
+          )}
+          {!isBillingCyclesLoading && billingCyclesByPatient.length === 0 && (
+            <div style={{ padding: "32px 16px", textAlign: "center", color: ATTENDANCE_UI.colors.textSecondary }}>
+              Nenhuma mensalidade encontrada no periodo.
+            </div>
+          )}
+          {!isBillingCyclesLoading && billingCyclesByPatient.length > 0 && (
+            <BillingCyclesTable>
+              <thead>
+                <tr>
+                  <th>Paciente</th>
+                  <th>Mensalidades</th>
+                  <th>Valor</th>
+                  <th>Recebido</th>
+                  <th>A receber</th>
+                  <th>Status</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {billingCyclesByPatient.map((row) => {
+                  const status = resolveGroupedFinancialStatus(row.amountCents, row.paidCents, row.openCents);
+
+                  return (
+                    <PatientSummaryRow key={row.key} $hasOpen={row.openCents > 0}>
+                      <td>
+                        <AttendancePrimaryText>{row.patientName}</AttendancePrimaryText>
+                      </td>
+                      <td>
+                        <AttendancePrimaryText>
+                          {row.cycles} mensalidade{row.cycles === 1 ? "" : "s"}
+                        </AttendancePrimaryText>
+                      </td>
+                      <td>
+                        <AttendanceMoneyText>{formatCurrency(row.amountCents)}</AttendanceMoneyText>
+                      </td>
+                      <td>
+                        <AttendanceMoneyText>{formatCurrency(row.paidCents)}</AttendanceMoneyText>
+                      </td>
+                      <td>
+                        <AttendanceOpenAmountValue $hasOpen={row.openCents > 0}>
+                          {formatCurrency(row.openCents)}
+                        </AttendanceOpenAmountValue>
+                      </td>
+                      <td>
+                        <AttendanceStatusBadge $status={status}>
+                          {formatFinancialStatus(status)}
+                        </AttendanceStatusBadge>
+                      </td>
+                      <td>
+                        <AttendanceRowActions>
+                          <AttendanceSmallAction
+                            type="button"
+                            onClick={() => handleViewBillingCyclesPatient(row.patientId)}
+                          >
+                            Detalhes
+                          </AttendanceSmallAction>
+                        </AttendanceRowActions>
+                      </td>
+                    </PatientSummaryRow>
+                  );
+                })}
+              </tbody>
+            </BillingCyclesTable>
+          )}
+        </AttendanceTableScroll>
+      );
+    }
+
     return (
       <AttendanceSectionSurface>
         <AttendancePeriodBlock>
@@ -4939,7 +5228,10 @@ export default function Financeiro() {
               <PatientSearchField
                 mode="filter"
                 inputId="billing-cycle-search"
-                value={billingCyclesFilters.search}
+                value={billingCyclesDrilldownPatientId && selectedBillingCyclesPatientSummary
+                  ? selectedBillingCyclesPatientSummary.patientName
+                  : billingCyclesFilters.search}
+                disabled={Boolean(billingCyclesDrilldownPatientId)}
                 onChange={(nextValue) => setBillingCyclesFilters((prev) => ({
                   ...prev,
                   search: nextValue,
@@ -4950,103 +5242,18 @@ export default function Financeiro() {
         </AttendanceCard>
 
         <AttendanceTableCard>
-          <AttendanceDetailHeader style={{ padding: `${ATTENDANCE_UI.spacing[2]} ${ATTENDANCE_UI.spacing[2]} 0` }}>
-            <AttendanceDetailTitle>{billingCyclesTitle}</AttendanceDetailTitle>
-          </AttendanceDetailHeader>
-          <AttendanceTableScroll>
-            {isBillingCyclesLoading && (
-              <div style={{ padding: "32px 16px", textAlign: "center", color: ATTENDANCE_UI.colors.textSecondary }}>
-                Carregando...
-              </div>
-            )}
-            {!isBillingCyclesLoading && billingCyclesFilteredRows.length === 0 && (
-              <div style={{ padding: "32px 16px", textAlign: "center", color: ATTENDANCE_UI.colors.textSecondary }}>
-                Nenhuma mensalidade encontrada no periodo.
-              </div>
-            )}
-            {!isBillingCyclesLoading && billingCyclesFilteredRows.length > 0 && (
-              <AttendanceDataTable>
-                <thead>
-                  <tr>
-                    <th>Paciente</th>
-                    <th>Plano</th>
-                    <th>Periodo</th>
-                    <th>Valor</th>
-                    <th>Sessões</th>
-                    <th>Status</th>
-                    <th>Ação</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {billingCyclesFilteredRows.map((cycle) => {
-                    const financial = resolveBillingCycleFinancial(cycle);
-                    const { entry } = financial;
-                    const patientName = cycle.Patient ? getPatientDisplayName(cycle.Patient) : "-";
-                    const planName = cycle.ServicePlan?.name || "-";
-                    const periodStart = formatDateOnlyBR(cycle.cycle_start);
-                    const periodEnd = formatDateOnlyBR(cycle.cycle_end);
-                    const cycleStatus = financial.status;
-
-                    const usage = cycle.usage_summary;
-                    const scheduledSessions = usage?.total_reserved ?? null;
-                    const doneSessions = usage?.total_consumed ?? null;
-                    const sessionsLabel = scheduledSessions !== null && doneSessions !== null
-                      ? `${doneSessions}/${doneSessions + scheduledSessions}`
-                      : "-";
-
-                    return (
-                      <tr key={cycle.id}>
-                        <td>
-                          <AttendancePrimaryText>{patientName}</AttendancePrimaryText>
-                        </td>
-                        <td>
-                          <AttendanceOriginBadge>{planName}</AttendanceOriginBadge>
-                        </td>
-                        <td>
-                          <AttendancePrimaryText>
-                            {periodStart}{cycle.cycle_end ? ` — ${periodEnd}` : ""}
-                          </AttendancePrimaryText>
-                        </td>
-                        <td>
-                          <AttendanceMoneyText>{formatCurrency(financial.amount)}</AttendanceMoneyText>
-                        </td>
-                        <td>
-                          <AttendancePrimaryText title="realizadas / agendadas">
-                            {sessionsLabel}
-                          </AttendancePrimaryText>
-                        </td>
-                        <td>
-                          <AttendanceStatusBadge $status={cycleStatus}>
-                            {formatFinancialStatus(cycleStatus)}
-                          </AttendanceStatusBadge>
-                        </td>
-                        <td>
-                          <AttendanceRowActions>
-                            <AttendanceSmallAction
-                              type="button"
-                              onClick={() => openBillingCycleSessionsPreview(cycle)}
-                            >
-                              Ver sessões
-                            </AttendanceSmallAction>
-                            {entry ? (
-                              <AttendanceSmallAction
-                                type="button"
-                                onClick={() => openPaymentModal({ ...entry, patient_id: cycle.patient_id })}
-                              >
-                                Registrar recebimento
-                              </AttendanceSmallAction>
-                            ) : (
-                              <AttendanceOriginBadge>Sem cobrança</AttendanceOriginBadge>
-                            )}
-                          </AttendanceRowActions>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </AttendanceDataTable>
-            )}
-          </AttendanceTableScroll>
+          {!billingCyclesDrilldownPatientId && (
+            <AttendanceDetailHeader style={{ padding: `${ATTENDANCE_UI.spacing[2]} ${ATTENDANCE_UI.spacing[2]} 0` }}>
+              <AttendanceDetailTitle>{billingCyclesTitle}</AttendanceDetailTitle>
+            </AttendanceDetailHeader>
+          )}
+          {billingCyclesDrilldownPatientId ? (
+            <BillingCyclesDetailContent>
+              {billingCyclesContent}
+            </BillingCyclesDetailContent>
+          ) : (
+            billingCyclesContent
+          )}
         </AttendanceTableCard>
       </AttendanceSectionSurface>
     );
@@ -7004,27 +7211,6 @@ const PatientSummaryRow = styled.tr`
       : ""}
 `;
 
-const AttendanceTable = styled.table`
-  width: 100%;
-  min-width: 1220px;
-  border-collapse: collapse;
-
-  th,
-  td {
-    padding: 12px 8px;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-    text-align: left;
-    font-size: 13px;
-    vertical-align: top;
-  }
-
-  th {
-    font-weight: 700;
-    color: #555;
-  }
-`;
-
-
 const TypePill = styled.span`
   display: inline-flex;
   align-items: center;
@@ -7749,82 +7935,59 @@ const AttendanceOverviewTable = styled(SimpleTable)`
   }
 `;
 
-const AttendanceDataTable = styled(AttendanceTable)`
-  width: 100%;
-  min-width: ${(props) => (props.$sessionDetail ? "0" : "1220px")};
-  table-layout: fixed;
+const BillingCyclesTable = styled(AttendanceOverviewTable)`
+  min-width: ${(props) => (props.$detail ? "0" : "900px")};
+  table-layout: ${(props) => (props.$detail ? "fixed" : "auto")};
 
-  th,
-  td {
-    padding: 16px 18px;
-    border-bottom: 1px solid ${ATTENDANCE_UI.colors.border};
-  }
+  ${(props) => (props.$detail ? `
+    th,
+    td {
+      padding-left: 12px;
+      padding-right: 12px;
+    }
 
-  ${(props) => (props.$sessionDetail ? `
     th:first-child,
     td:first-child {
-      width: 5%;
-      text-align: center;
+      width: 24%;
     }
 
     th:nth-child(2),
     td:nth-child(2) {
-      width: 14%;
+      width: 18%;
     }
 
     th:nth-child(3),
-    td:nth-child(3) {
-      width: 17%;
-    }
-
+    td:nth-child(3),
     th:nth-child(4),
-    td:nth-child(4) {
-      width: 16%;
-    }
-
+    td:nth-child(4),
     th:nth-child(5),
     td:nth-child(5) {
-      width: 12%;
+      width: 13%;
     }
 
     th:nth-child(6),
     td:nth-child(6) {
-      width: 16%;
-    }
-
-    th:nth-child(7),
-    td:nth-child(7) {
-      width: 11%;
-    }
-
-    th:nth-child(8),
-    td:nth-child(8) {
-      width: 9%;
+      width: 13%;
     }
   ` : "")}
 
-  th {
-    background: ${ATTENDANCE_UI.colors.surfaceMuted};
-    color: ${ATTENDANCE_UI.colors.textTertiary};
-    font-size: ${ATTENDANCE_UI.font.size.xs};
-    line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
-    font-weight: ${ATTENDANCE_UI.font.weight.medium};
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
-  tbody tr:nth-child(even) td {
-    background: ${ATTENDANCE_UI.colors.rowStripe};
-  }
-
-  tbody tr:hover td {
-    background: ${ATTENDANCE_UI.colors.rowHover};
-  }
-
   th:last-child,
   td:last-child {
-    text-align: ${(props) => (props.$sessionDetail ? "left" : "right")};
+    text-align: center;
+    width: ${(props) => (props.$detail ? "96px" : "120px")};
   }
+
+  td:last-child > div {
+    justify-content: center;
+  }
+`;
+
+const BillingCyclesDetailContent = styled.div`
+  padding: ${ATTENDANCE_UI.spacing[3]};
+`;
+
+const BillingCyclesInnerTableCard = styled(AttendanceTableCard)`
+  box-shadow: none;
 `;
 
 const AttendanceCellStack = styled.div`
