@@ -1661,7 +1661,10 @@ export default function Agendamentos() {
   const servicesById = useMemo(() => {
     const map = new Map();
     services.forEach((service) => {
-      if (service?.id) map.set(service.id, service);
+      if (service?.id) {
+        map.set(service.id, service);
+        map.set(String(service.id), service);
+      }
     });
     return map;
   }, [services]);
@@ -1692,6 +1695,22 @@ export default function Agendamentos() {
   const serviceColor = useCallback(
     (value) => servicesByCode.get(value)?.color || null,
     [servicesByCode],
+  );
+
+  const getSessionService = useCallback(
+    (session) => (
+      (session?.service_id && servicesById.get(session.service_id)) ||
+      (session?.service_id && servicesById.get(String(session.service_id))) ||
+      session?.Service ||
+      (session?.service_type && servicesByCode.get(session.service_type)) ||
+      null
+    ),
+    [servicesByCode, servicesById],
+  );
+
+  const getSessionServiceCode = useCallback(
+    (session) => getSessionService(session)?.code || session?.service_type || "outro",
+    [getSessionService],
   );
 
   const compareServiceGroups = useCallback(
@@ -1805,7 +1824,7 @@ export default function Agendamentos() {
     return sessions.filter((session) => {
       if (filters.status && session.status !== filters.status) return false;
       if (filters.service_type) {
-        const sessionCode = session.service_type || session.Service?.code || "";
+        const sessionCode = getSessionServiceCode(session);
         if (sessionCode !== filters.service_type) return false;
       }
       if (patientSearch) {
@@ -1814,7 +1833,7 @@ export default function Agendamentos() {
       }
       return true;
     });
-  }, [filterPatientQuery, filters, patientDirectory, sessions]);
+  }, [filterPatientQuery, filters, getSessionServiceCode, patientDirectory, sessions]);
 
   const sessionsByDay = useMemo(() => {
     const map = new Map();
@@ -1887,7 +1906,7 @@ export default function Agendamentos() {
 
       const timeGroup = timeMap.get(timeKey);
 
-      const serviceCode = session.service_type || session.Service?.code || "outro";
+      const serviceCode = getSessionServiceCode(session);
       const professionalName = session?.professional?.name || "Profissional";
       const serviceKey = `service-${serviceCode}`;
       if (!timeGroup.serviceMap.has(serviceKey)) {
@@ -1936,7 +1955,7 @@ export default function Agendamentos() {
           .sort(compareServiceGroups),
       }))
       .sort((first, second) => first.sortMinutes - second.sortMinutes);
-  }, [compareServiceGroups, compareSessionsByPatientThenId, daySessions, serviceColor, serviceName]);
+  }, [compareServiceGroups, compareSessionsByPatientThenId, daySessions, getSessionServiceCode, serviceColor, serviceName]);
 
   const selectedDaySpecialEvents = useMemo(() => {
     const key = startOfDay(selectedDate).toISOString();
@@ -1980,7 +1999,7 @@ export default function Agendamentos() {
       const dayKey = dayDate.toISOString();
       const minutes = startsAt.getHours() * 60 + startsAt.getMinutes();
       const timeKey = `${dayKey}-${minutes}`;
-      const serviceCode = session.service_type || session.Service?.code || "outro";
+      const serviceCode = getSessionServiceCode(session);
       const professionalName = session?.professional?.name || "Profissional";
       const serviceKey = `${timeKey}-${serviceCode}-${professionalName}`;
 
@@ -2050,7 +2069,7 @@ export default function Agendamentos() {
         }))
         .sort((first, second) => first.sortMinutes - second.sortMinutes),
     }));
-  }, [compareServiceGroups, compareSessionsByPatientThenId, pendingConfirmationSessions, serviceColor, serviceName]);
+  }, [compareServiceGroups, compareSessionsByPatientThenId, getSessionServiceCode, pendingConfirmationSessions, serviceColor, serviceName]);
 
   const visibleOperationalAlerts = useMemo(
     () => [...operationalAlerts]
@@ -3868,7 +3887,7 @@ export default function Agendamentos() {
 	          historyCount += 1;
 	          return;
 	        }
-	        const code = session.service_type || session.Service?.code || "outro";
+	        const code = getSessionServiceCode(session);
 	        if (!groups.has(code)) {
 	          groups.set(code, {
 	            code,
@@ -3889,7 +3908,7 @@ export default function Agendamentos() {
 	      });
 	    });
 	    return map;
-	  }, [sessionsByDay, serviceColor, serviceName]);
+	  }, [getSessionServiceCode, sessionsByDay, serviceColor, serviceName]);
 
   const visibleMonthDays = useMemo(() => {
     if (showMonthWeekend) return monthDays;
