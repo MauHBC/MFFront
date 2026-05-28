@@ -47,6 +47,7 @@ import {
   listPaymentMethods,
   createFinancialPayment,
   applyCreditToFinancialEntry,
+  applyScopedFinancialCredit,
   createFinancialCategory,
   createPaymentMethod,
   listServicePrices,
@@ -138,6 +139,63 @@ const resolveGroupedFinancialStatus = (amountCents, paidCents, openCents) => {
   if (open <= 0) return "paid";
   if (paid > 0) return "partial";
   return "pending";
+};
+
+const splitCentsByBase = (totalCents, baseList = []) => {
+  const total = Math.max(0, Number(totalCents || 0));
+  if (total <= 0 || !baseList.length) return baseList.map(() => 0);
+
+  const normalizedBase = baseList.map((value) => Math.max(0, Number(value || 0)));
+  const baseTotal = normalizedBase.reduce((sum, value) => sum + value, 0);
+  if (baseTotal <= 0) {
+    const equal = Math.floor(total / normalizedBase.length);
+    const remainder = total - equal * normalizedBase.length;
+    return normalizedBase.map((_, index) => (index === normalizedBase.length - 1 ? equal + remainder : equal));
+  }
+
+  const result = [];
+  let distributed = 0;
+  normalizedBase.forEach((base, index) => {
+    if (index === normalizedBase.length - 1) {
+      result.push(total - distributed);
+      return;
+    }
+    const share = Math.floor((total * base) / baseTotal);
+    distributed += share;
+    result.push(share);
+  });
+  return result;
+};
+
+const buildScopedAllocationItems = (scopedEntries = [], amountCents = 0, discountCents = 0) => {
+  const entries = scopedEntries
+    .map((item) => ({
+      entry_id: Number(item.entryId || item.entry_id || 0),
+      openCents: Math.max(0, Number(item.openCents || item.open_cents || 0)),
+    }))
+    .filter((item) => item.entry_id > 0 && item.openCents > 0);
+
+  if (!entries.length) return [];
+
+  const discountSplit = splitCentsByBase(
+    Math.max(0, Number(discountCents || 0)),
+    entries.map((item) => item.openCents),
+  );
+  let remaining = Math.max(0, Number(amountCents || 0));
+
+  return entries
+    .map((item, index) => {
+      if (remaining <= 0) return null;
+      const targetOpen = Math.max(0, item.openCents - Math.max(0, Number(discountSplit[index] || 0)));
+      const amount = Math.min(targetOpen, remaining);
+      remaining -= amount;
+      if (amount <= 0) return null;
+      return {
+        entry_id: item.entry_id,
+        amount_cents: amount,
+      };
+    })
+    .filter(Boolean);
 };
 
 const HOLIDAY_SOURCE_OPTIONS = [
@@ -734,6 +792,8 @@ export default function Financeiro() {
   const [paymentAllocations, setPaymentAllocations] = useState({});
   const [paymentPatientQuery, setPaymentPatientQuery] = useState("");
   const [isPaymentPatientSearchFocused, setIsPaymentPatientSearchFocused] = useState(false);
+  const [creditUseModalContext, setCreditUseModalContext] = useState(null);
+  const [isCreditUseSaving, setIsCreditUseSaving] = useState(false);
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState({ name: "", type: "income", color: "" });
   const [editingCategoryId, setEditingCategoryId] = useState(null);
@@ -1392,6 +1452,11 @@ export default function Financeiro() {
     setIsPaymentPatientSearchFocused(false);
   }, []);
 
+  const closeCreditUseModal = useCallback(() => {
+    if (isCreditUseSaving) return;
+    setCreditUseModalContext(null);
+  }, [isCreditUseSaving]);
+
   const openCreditModal = useCallback((patient = null) => {
     const patientId = patient?.id ? String(patient.id) : "";
     const patientName = patientId ? getPatientDisplayName(patient) : "";
@@ -1415,26 +1480,27 @@ export default function Financeiro() {
   }, []);
 
   useEffect(() => {
-    if (!isPaymentOpen || typeof document === "undefined") return () => { };
+    if ((!isPaymentOpen && !creditUseModalContext) || typeof document === "undefined") return () => { };
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [isPaymentOpen]);
+  }, [creditUseModalContext, isPaymentOpen]);
 
   useEffect(() => {
-    if (!isPaymentOpen || typeof document === "undefined") return () => { };
+    if ((!isPaymentOpen && !creditUseModalContext) || typeof document === "undefined") return () => { };
     const handleEscape = (event) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      closePaymentModal();
+      if (isPaymentOpen) closePaymentModal();
+      if (creditUseModalContext) closeCreditUseModal();
     };
     document.addEventListener("keydown", handleEscape);
     return () => {
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [isPaymentOpen, closePaymentModal]);
+  }, [creditUseModalContext, isPaymentOpen, closeCreditUseModal, closePaymentModal]);
 
   const handleEntryChange = useCallback((event) => {
     const { name, value } = event.target;
@@ -1522,13 +1588,6 @@ export default function Financeiro() {
     setPaymentForm((prev) => ({
       ...prev,
       [name]: formatCurrencyInput(prev[name]),
-    }));
-  }, []);
-
-  const handleAllocationChange = useCallback((entryId, value) => {
-    setPaymentAllocations((prev) => ({
-      ...prev,
-      [entryId]: sanitizePositiveCurrencyInput(value),
     }));
   }, []);
 
@@ -2189,6 +2248,14 @@ export default function Financeiro() {
     );
     const amountCents = Math.round(amountValue * 100);
     const isSessionBatchPayment = Boolean(paymentModalContext?.sessionBatch);
+    const scopedPaymentEntries = Array.isArray(paymentModalContext?.scopedPayment?.entries)
+      ? paymentModalContext.scopedPayment.entries
+      : [];
+    const isScopedPayment = scopedPaymentEntries.length > 0;
+    const scopedPaymentOriginalTotalCents = scopedPaymentEntries.reduce(
+      (sum, item) => sum + Math.max(0, Number(item.openCents || item.open_cents || 0)),
+      0,
+    );
     const sessionBatchSessionIds = Array.isArray(paymentModalContext?.sessionBatch?.sessionIds)
       ? paymentModalContext.sessionBatch.sessionIds
       : [];
@@ -2223,6 +2290,7 @@ export default function Financeiro() {
       && (
         (!isSessionBatchPayment && paymentForm.entry_id && (discountCents > 0 || surchargeCents > 0))
         || (isSessionBatchPayment && batchDiscountCents > 0)
+        || (isScopedPayment && discountCents > 0)
       );
     const entryId = Number(paymentForm.entry_id || 0);
     const entryFinancial = entryId ? entryFinancialMap.get(entryId) : null;
@@ -2293,8 +2361,20 @@ export default function Financeiro() {
       toast.error("O desconto não pode ser maior que o valor original.");
       return;
     }
+    if (isScopedPayment && discountCents > scopedPaymentOriginalTotalCents) {
+      toast.error("O desconto nao pode ser maior que o valor original.");
+      return;
+    }
     if (isSessionBatchPayment && batchDiscountCents > batchOriginalTotalCents) {
       toast.error("O desconto do lote não pode ser maior que o valor original.");
+      return;
+    }
+    if (
+      isScopedPayment
+      && discountCents > 0
+      && effectiveAmountCents !== Math.max(0, scopedPaymentOriginalTotalCents - discountCents)
+    ) {
+      toast.error("Valor recebido deve ser igual ao total final com desconto.");
       return;
     }
     if (
@@ -2323,6 +2403,9 @@ export default function Financeiro() {
       let allocationMode = paymentForm.entry_id
         ? "entry"
         : paymentForm.allocation_mode || "none";
+      if (isScopedPayment) {
+        allocationMode = "manual";
+      }
       const hasOpenEntriesForSelectedPatient = entries.some((entry) => {
         if (entry.type !== "income" || Number(entry.patient_id) !== selectedPatientId) return false;
         const financial = entryFinancialMap.get(entry.id);
@@ -2336,16 +2419,18 @@ export default function Financeiro() {
       const paymentReferenceDate = isSimplifiedInstallmentPayment
         ? String(paymentModalContext?.installmentDueDate || "").slice(0, 10)
         : String(paymentForm.paid_at || "").slice(0, 10);
-      const allocationItems = Object.entries(paymentAllocations)
-        .map(([allocationEntryId, value]) => {
-          const parsed = parseCurrencyInputToNumber(value);
-          if (Number.isNaN(parsed) || parsed <= 0) return null;
-          return {
-            entry_id: Number(allocationEntryId),
-            amount_cents: Math.round(parsed * 100),
-          };
-        })
-        .filter(Boolean);
+      const allocationItems = isScopedPayment
+        ? buildScopedAllocationItems(scopedPaymentEntries, effectiveAmountCents, discountCents)
+        : Object.entries(paymentAllocations)
+          .map(([allocationEntryId, value]) => {
+            const parsed = parseCurrencyInputToNumber(value);
+            if (Number.isNaN(parsed) || parsed <= 0) return null;
+            return {
+              entry_id: Number(allocationEntryId),
+              amount_cents: Math.round(parsed * 100),
+            };
+          })
+          .filter(Boolean);
       const allocationTotal = allocationItems.reduce(
         (sum, item) => sum + Number(item.amount_cents || 0),
         0,
@@ -2491,7 +2576,12 @@ export default function Financeiro() {
           "Servico";
         const serviceId = session?.Service?.id || session?.service_id || null;
         const price = serviceId ? servicePriceMap.get(serviceId) : null;
-        const amountCents = entry?.amount_cents ?? price?.price_cents ?? 0;
+        const sessionStatus = String(session?.status || "").toLowerCase();
+        const isCanceledWithoutEntry = !entry && sessionStatus === "canceled";
+        const originalAmountCents = entry?.amount_cents ?? price?.price_cents ?? 0;
+        const amountCents = isCanceledWithoutEntry
+          ? 0
+          : originalAmountCents;
         const paymentList = entry ? paymentsByEntryId.get(entry.id) || [] : [];
         const latestPayment = paymentList[0] || null;
         const paymentCount = paymentList.length;
@@ -2507,10 +2597,17 @@ export default function Financeiro() {
         const discountCents = Math.max(0, Number(adjustment?.discountCents || 0));
         const surchargeCents = Math.max(0, Number(adjustment?.surchargeCents || 0));
         const hasAdjustment = discountCents > 0 || surchargeCents > 0;
-        const paidCents = entryFinancial?.paid ?? 0;
+        const paidCents = isCanceledWithoutEntry ? 0 : entryFinancial?.paid ?? 0;
         const openCents =
-          entryFinancial?.open ?? Math.max(0, Number(amountCents || 0) - paidCents);
-        const status = entry ? entryFinancial?.status || entry.status || "pending" : "missing";
+          isCanceledWithoutEntry
+            ? 0
+            : entryFinancial?.open ?? Math.max(0, Number(amountCents || 0) - paidCents);
+        let status = "missing";
+        if (isCanceledWithoutEntry) {
+          status = "canceled";
+        } else if (entry) {
+          status = entryFinancial?.status || entry.status || "pending";
+        }
         const installments = entryFinancial?.installments || [];
         const configuredInstallmentCount = Math.max(
           1,
@@ -2567,7 +2664,7 @@ export default function Financeiro() {
           billing_mode: billingMode,
           amountCents,
           displayAmountCents: hasAdjustment && paidCents > 0 ? paidCents : amountCents,
-          originalAmountCents: amountCents,
+          originalAmountCents,
           discountCents,
           surchargeCents,
           hasAdjustment,
@@ -2576,6 +2673,7 @@ export default function Financeiro() {
           openCents: effectiveOpenCents,
           entry,
           financialStatus: status,
+          isCanceledWithoutEntry,
           payment: latestPayment,
           paymentCount,
           totalReceivedCents,
@@ -3136,10 +3234,40 @@ export default function Financeiro() {
           (session) => String(session.status || "").toLowerCase() === "done",
         ).length;
         const referenceDate = packageSessions[0]?.starts_at || series.starts_at || null;
+        const contractedAmountCents = seriesRows.reduce(
+          (sum, row) => sum + Number(row.originalAmountCents || row.amountCents || 0),
+          0,
+        );
         const amountCents = seriesRows.reduce((sum, row) => sum + Number(row.amountCents || 0), 0);
         const paidCents = seriesRows.reduce((sum, row) => sum + Number(row.paidCents || 0), 0);
         const openCents = seriesRows.reduce((sum, row) => sum + Number(row.openCents || 0), 0);
         const financialStatus = resolveGroupedFinancialStatus(amountCents, paidCents, openCents);
+        const usageSummary = seriesRows.reduce(
+          (usageAcc, row) => {
+            const rowStatus = String(row.financialStatus || "").toLowerCase();
+            return {
+              ...usageAcc,
+              paid: rowStatus === "paid" ? usageAcc.paid + 1 : usageAcc.paid,
+              canceledWithoutCharge: row.isCanceledWithoutEntry
+                ? usageAcc.canceledWithoutCharge + 1
+                : usageAcc.canceledWithoutCharge,
+            };
+          },
+          { paid: 0, canceledWithoutCharge: 0 },
+        );
+        packageSessions.forEach((session) => {
+          const statusValue = String(session?.status || "").toLowerCase();
+          if (statusValue === "scheduled") usageSummary.scheduled = (usageSummary.scheduled || 0) + 1;
+          if (statusValue === "done") usageSummary.done = (usageSummary.done || 0) + 1;
+          if (statusValue === "no_show") usageSummary.noShow = (usageSummary.noShow || 0) + 1;
+        });
+        const entriesById = new Map();
+        seriesRows.forEach((row) => {
+          const entryId = Number(row.entry?.id || 0);
+          const rowOpenCents = Math.max(0, Number(row.openCents || 0));
+          if (!entryId || rowOpenCents <= 0) return;
+          entriesById.set(entryId, (entriesById.get(entryId) || 0) + rowOpenCents);
+        });
 
         return {
           id: `series-${series.id}`,
@@ -3151,10 +3279,16 @@ export default function Financeiro() {
           usedSessions,
           balance: Math.max(0, totalSessions - usedSessions),
           expiresAt: series.until_date || null,
+          contractedAmountCents,
           amountCents,
           paidCents,
           openCents,
           financialStatus,
+          usageSummary,
+          entries: Array.from(entriesById.entries()).map(([entryId, entryOpenCents]) => ({
+            entryId,
+            openCents: entryOpenCents,
+          })),
           sessions: packageSessions,
         };
       })
@@ -3175,7 +3309,8 @@ export default function Financeiro() {
           status: row.financialStatus === "paid" ? "done" : "scheduled",
           professional: { name: row.professionalName },
         };
-        const isDone = String(linkedSession.status || "").toLowerCase() === "done";
+        const linkedSessionStatus = String(linkedSession.status || "").toLowerCase();
+        const isDone = linkedSessionStatus === "done";
         const financialStatus = resolveGroupedFinancialStatus(
           row.amountCents,
           row.paidCents,
@@ -3192,10 +3327,20 @@ export default function Financeiro() {
           usedSessions: isDone ? 1 : 0,
           balance: isDone ? 0 : 1,
           expiresAt: null,
+          contractedAmountCents: Number(row.originalAmountCents || row.amountCents || 0),
           amountCents: Number(row.amountCents || 0),
           paidCents: Number(row.paidCents || 0),
           openCents: Number(row.openCents || 0),
           financialStatus,
+          usageSummary: {
+            scheduled: linkedSessionStatus === "scheduled" ? 1 : 0,
+            done: isDone ? 1 : 0,
+            noShow: linkedSessionStatus === "no_show" ? 1 : 0,
+            canceledWithoutCharge: row.isCanceledWithoutEntry ? 1 : 0,
+          },
+          entries: row.entry?.id && Number(row.openCents || 0) > 0
+            ? [{ entryId: Number(row.entry.id), openCents: Number(row.openCents || 0) }]
+            : [],
           sessions: [linkedSession],
         };
       });
@@ -3407,6 +3552,215 @@ export default function Financeiro() {
     selectedBillingCyclesPatientRows,
   ]);
 
+  const openScopedPatientPaymentModal = useCallback((patient, scopedPayment) => {
+    const patientId = patient?.id ? String(patient.id) : String(scopedPayment?.patientId || "");
+    const patientName = patientId
+      ? getPatientDisplayName(patient) || scopedPayment?.patientName || "Paciente"
+      : scopedPayment?.patientName || "Paciente";
+    const totalOpenCents = Math.max(0, Number(scopedPayment?.totalOpenCents || 0));
+
+    setPaymentForm({
+      ...emptyPayment,
+      entry_id: null,
+      patient_id: patientId,
+      allocation_mode: "manual",
+      amount: totalOpenCents > 0 ? formatCurrencyInput(totalOpenCents / 100) : "",
+      discount: "",
+      paid_at: toDateInputValue(new Date()),
+    });
+    setPaymentAllocations({});
+    setPaymentModalContext({
+      fixedPatient: true,
+      patientName,
+      scopedPayment: {
+        ...scopedPayment,
+        patientId,
+        patientName,
+      },
+    });
+    setPaymentPatientQuery(patientName);
+    setIsPaymentPatientSearchFocused(false);
+    setIsPaymentOpen(true);
+  }, []);
+
+  const openAttendanceScopedPaymentModal = useCallback(() => {
+    if (!attendanceSelectedPatientSummary) return;
+
+    const entryMapById = new Map();
+    const sourcePackages = attendanceSelectedPatientPackages.length > 0
+      ? attendanceSelectedPatientPackages
+      : [];
+
+    if (sourcePackages.length > 0) {
+      sourcePackages.forEach((item) => {
+        (item.entries || []).forEach((entryItem) => {
+          const entryId = Number(entryItem.entryId || 0);
+          const openCents = Math.max(0, Number(entryItem.openCents || 0));
+          if (!entryId || openCents <= 0) return;
+          entryMapById.set(entryId, {
+            entryId,
+            openCents: (entryMapById.get(entryId)?.openCents || 0) + openCents,
+          });
+        });
+      });
+    } else {
+      attendanceSelectedPatientRows.forEach((row) => {
+        if (row.isManualReceiptRow || row.isProjectedInstallmentRow) return;
+        const entryId = Number(row.entry?.id || 0);
+        const openCents = Math.max(0, Number(row.openCents || 0));
+        if (!entryId || openCents <= 0) return;
+        entryMapById.set(entryId, {
+          entryId,
+          openCents: (entryMapById.get(entryId)?.openCents || 0) + openCents,
+        });
+      });
+    }
+
+    const entriesToReceive = [...entryMapById.values()];
+    const totalOpenCents = sourcePackages.length > 0
+      ? sourcePackages.reduce((sum, item) => sum + Math.max(0, Number(item.openCents || 0)), 0)
+      : entriesToReceive.reduce((sum, item) => sum + Number(item.openCents || 0), 0);
+
+    openScopedPatientPaymentModal(
+      selectedAttendancePatient || {
+        id: attendanceSelectedPatientSummary.patientId,
+        full_name: attendanceSelectedPatientSummary.patientName,
+      },
+      {
+        type: "per_session",
+        label: "Por sessao",
+        patientId: attendanceSelectedPatientSummary.patientId,
+        patientName: attendanceSelectedPatientSummary.patientName,
+        totalOpenCents,
+        entries: entriesToReceive,
+      },
+    );
+  }, [
+    attendanceSelectedPatientPackages,
+    attendanceSelectedPatientRows,
+    attendanceSelectedPatientSummary,
+    openScopedPatientPaymentModal,
+	    selectedAttendancePatient,
+	  ]);
+
+  const openAttendanceCreditUseModal = useCallback(() => {
+    if (!attendanceSelectedPatientSummary) return;
+
+    const creditAvailableCents = Math.max(
+      0,
+      Number(attendanceSelectedPatientSummary.creditsAvailable || 0),
+    );
+    const openCents = Math.max(0, Number(attendanceSelectedPatientSummary.openCents || 0));
+    if (creditAvailableCents <= 0 || openCents <= 0) return;
+
+    const parsedPeriodMonth = parseMonthInputValue(attendancePeriodMonth);
+    let periodLabel = "";
+    if (attendancePeriodMode === "year") {
+      periodLabel = attendancePeriodYear || "";
+    } else if (parsedPeriodMonth) {
+      periodLabel = formatMonthYear(new Date(parsedPeriodMonth.year, parsedPeriodMonth.month - 1, 1));
+    }
+
+    setCreditUseModalContext({
+      patientId: attendanceSelectedPatientSummary.patientId,
+      patientName: attendanceSelectedPatientSummary.patientName,
+      creditAvailableCents,
+      openCents,
+      periodStart: attendanceFilters.start,
+      periodEnd: attendanceFilters.end,
+      periodLabel,
+    });
+  }, [
+    attendanceFilters.end,
+    attendanceFilters.start,
+    attendancePeriodMode,
+    attendancePeriodMonth,
+    attendancePeriodYear,
+    attendanceSelectedPatientSummary,
+  ]);
+
+  const creditUsePreview = useMemo(() => {
+    if (!creditUseModalContext) return null;
+    const creditAvailableCents = Math.max(
+      0,
+      Number(creditUseModalContext.creditAvailableCents || 0),
+    );
+    const openCents = Math.max(0, Number(creditUseModalContext.openCents || 0));
+    const creditToUseCents = Math.min(creditAvailableCents, openCents);
+
+    return {
+      creditAvailableCents,
+      openCents,
+      creditToUseCents,
+      openAfterCents: Math.max(0, openCents - creditToUseCents),
+      creditRemainingCents: Math.max(0, creditAvailableCents - creditToUseCents),
+    };
+  }, [creditUseModalContext]);
+
+  const handleConfirmCreditUse = useCallback(async () => {
+    if (!creditUseModalContext || !creditUsePreview || isCreditUseSaving) return;
+
+    setIsCreditUseSaving(true);
+    try {
+      await applyScopedFinancialCredit({
+        patient_id: creditUseModalContext.patientId,
+        allocation_scope: "per_session_current_period",
+        period_start: creditUseModalContext.periodStart,
+        period_end: creditUseModalContext.periodEnd,
+      });
+      toast.success("Crédito aplicado nas cobranças pendentes.");
+      setCreditUseModalContext(null);
+      await loadData();
+      await loadAttendance();
+    } catch (error) {
+      toast.error(getUserFacingApiError(error, "Não foi possível usar o crédito."));
+    } finally {
+      setIsCreditUseSaving(false);
+    }
+  }, [
+    creditUseModalContext,
+    creditUsePreview,
+    isCreditUseSaving,
+    loadAttendance,
+    loadData,
+  ]);
+
+  const openBillingCyclesScopedPaymentModal = useCallback(() => {
+    if (!selectedBillingCyclesPatientSummary) return;
+
+    const entriesToReceive = selectedBillingCyclesPatientRows
+      .map((cycle) => {
+        const financial = resolveBillingCycleFinancial(cycle);
+        const entryId = Number(financial.entry?.id || cycle.financial_entry_id || 0);
+        const openCents = Math.max(0, Number(financial.open || 0));
+        if (!entryId || openCents <= 0 || financial.status === "canceled") return null;
+        return { entryId, openCents };
+      })
+      .filter(Boolean);
+    const totalOpenCents = entriesToReceive.reduce((sum, item) => sum + Number(item.openCents || 0), 0);
+
+    openScopedPatientPaymentModal(
+      selectedBillingCyclesPatient || {
+        id: selectedBillingCyclesPatientSummary.patientId,
+        full_name: selectedBillingCyclesPatientSummary.patientName,
+      },
+      {
+        type: "billing_cycles",
+        label: "Mensalidades",
+        patientId: selectedBillingCyclesPatientSummary.patientId,
+        patientName: selectedBillingCyclesPatientSummary.patientName,
+        totalOpenCents,
+        entries: entriesToReceive,
+      },
+    );
+  }, [
+    openScopedPatientPaymentModal,
+    resolveBillingCycleFinancial,
+    selectedBillingCyclesPatient,
+    selectedBillingCyclesPatientRows,
+    selectedBillingCyclesPatientSummary,
+  ]);
+
   const billingCyclesSummary = useMemo(() => {
     const activePlanIds = new Set();
     const data = {
@@ -3469,23 +3823,6 @@ export default function Financeiro() {
     return years;
   }, [billingCyclesPeriodYear]);
 
-  const openEntriesForPayment = useMemo(() => {
-    const patientId = Number(paymentForm.patient_id || 0);
-    if (!patientId) return [];
-    return entries
-      .filter((entry) => entry.type === "income" && Number(entry.patient_id) === patientId)
-      .map((entry) => {
-        const financial = entryFinancialMap.get(entry.id);
-        const open = financial?.open ?? Math.max(0, Number(entry.amount_cents || 0));
-        const status = financial?.status || entry.status;
-        return { entry, open, status };
-      })
-      .filter((item) => item.open > 0 && item.status !== "canceled")
-      .sort(
-        (a, b) => new Date(a.entry.reference_date || 0) - new Date(b.entry.reference_date || 0),
-      );
-  }, [entries, entryFinancialMap, paymentForm.patient_id]);
-
   const manualAllocationTotal = useMemo(() => {
     return Object.values(paymentAllocations).reduce((sum, value) => {
       const parsed = parseCurrencyInputToNumber(value);
@@ -3504,6 +3841,9 @@ export default function Financeiro() {
     const sessionBatchSessions = Array.isArray(paymentModalContext?.sessionBatch?.sessions)
       ? paymentModalContext.sessionBatch.sessions
       : [];
+    const scopedPaymentEntries = Array.isArray(paymentModalContext?.scopedPayment?.entries)
+      ? paymentModalContext.scopedPayment.entries
+      : [];
     const sessionBatchCount = sessionBatchSessions.length;
     const sessionBatchOriginalTotalCents = sessionBatchSessions.reduce(
       (sum, session) => sum + Math.max(0, Number(session.openCents || session.amountCents || 0)),
@@ -3512,6 +3852,10 @@ export default function Financeiro() {
     const sessionBatchTotalOpenCents = Math.max(
       0,
       Number(paymentModalContext?.sessionBatch?.totalOpenCents || sessionBatchOriginalTotalCents || 0),
+    );
+    const scopedPaymentTotalOpenCents = scopedPaymentEntries.reduce(
+      (sum, item) => sum + Math.max(0, Number(item.openCents || item.open_cents || 0)),
+      0,
     );
 
     const receivedCents =
@@ -3592,6 +3936,8 @@ export default function Financeiro() {
       }
     } else if (sessionBatchTotalOpenCents > 0) {
       baseCents = sessionBatchTotalOpenCents;
+    } else if (scopedPaymentTotalOpenCents > 0) {
+      baseCents = scopedPaymentTotalOpenCents;
     } else if (paymentForm.allocation_mode === "manual" && manualAllocationTotal > 0) {
       baseCents = manualAllocationTotal;
     }
@@ -3656,6 +4002,7 @@ export default function Financeiro() {
 
   const isSimplifiedInstallmentPayment = Boolean(paymentModalContext?.simplifiedInstallment);
   const isSessionBatchPayment = Boolean(paymentModalContext?.sessionBatch);
+  const isScopedPayment = Boolean(paymentModalContext?.scopedPayment);
   const selectedChargeAmountCents = useMemo(() => {
     if (!paymentForm.entry_id) return 0;
     const entryId = Number(paymentForm.entry_id);
@@ -4231,7 +4578,7 @@ export default function Financeiro() {
                   <th>Categoria</th>
                   <th>Paciente</th>
                   <th>Valor</th>
-                  <th>Status</th>
+	                    <th>Situação</th>
                   <th>Ações</th>
                 </tr>
               </thead>
@@ -4420,7 +4767,7 @@ export default function Financeiro() {
                   <tr>
                     <th>Data</th>
                     <th>Serviço</th>
-                    <th>Realizado</th>
+                    <th>Sessões</th>
                     <th>Valor</th>
                     <th>Recebido</th>
                     <th>A receber</th>
@@ -4468,7 +4815,7 @@ export default function Financeiro() {
                             type="button"
                             onClick={() => handleOpenPackageSessions(item.id)}
                           >
-                            Ver sessões
+	                            Sessões
                           </AttendanceSmallAction>
                         </AttendanceRowActions>
                       </td>
@@ -4498,12 +4845,7 @@ export default function Financeiro() {
             <AttendanceHeaderActions>
               <AttendancePrimaryAction
                 type="button"
-                onClick={() => openCreditModal(
-                  selectedAttendancePatient || {
-                    id: attendanceSelectedPatientSummary.patientId,
-                    full_name: attendanceSelectedPatientSummary.patientName,
-                  },
-                )}
+                onClick={openAttendanceScopedPaymentModal}
               >
                 <FaPlus />
                 Registrar recebimento
@@ -4522,6 +4864,15 @@ export default function Financeiro() {
               <span>Créditos</span>
               <strong>{formatCurrency(attendanceSelectedPatientSummary.creditsAvailable)}</strong>
             </AttendancePatientStat>
+            {attendanceSelectedPatientSummary.creditsAvailable > 0
+              && attendanceSelectedPatientSummary.openCents > 0 && (
+                <AttendanceCreditUseAction
+                  type="button"
+                  onClick={openAttendanceCreditUseModal}
+                >
+                  Usar crédito
+                </AttendanceCreditUseAction>
+              )}
           </AttendancePatientStats>
           {packageContent}
         </AttendancePatientDetailBlock>
@@ -4531,6 +4882,73 @@ export default function Financeiro() {
     return (
       <AttendanceSectionSurface>
         <>
+          <AttendancePeriodBlock>
+            <AttendancePeriodBlockLeft>
+              <AttendancePeriodBlockLabel>Competência financeira</AttendancePeriodBlockLabel>
+              <AttendancePeriodBlockValue>{attendancePeriodLabel}</AttendancePeriodBlockValue>
+            </AttendancePeriodBlockLeft>
+            <AttendancePeriodBlockRight>
+              <AttendanceTabGroup>
+                <AttendanceTabButton
+                  type="button"
+                  $active={attendancePeriodMode === "month"}
+                  onClick={() => handleAttendancePeriodModeChange("month")}
+                >
+                  Mês
+                </AttendanceTabButton>
+                <AttendanceTabButton
+                  type="button"
+                  $active={attendancePeriodMode === "year"}
+                  onClick={() => handleAttendancePeriodModeChange("year")}
+                >
+                  Visão anual
+                </AttendanceTabButton>
+              </AttendanceTabGroup>
+              {attendancePeriodLabel && (
+                <AttendancePeriodControls>
+                  <AttendancePeriodButton type="button" onClick={handleAttendancePreviousMonth}>
+                    {attendancePeriodMode === "year" ? "← Ano anterior" : "← Anterior"}
+                  </AttendancePeriodButton>
+                  <AttendancePeriodChip
+                    role="button"
+                    tabIndex={0}
+                    onClick={handleAttendancePeriodTagClick}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleAttendancePeriodTagClick();
+                      }
+                    }}
+                  >
+                    {attendancePeriodLabel}
+                    {attendancePeriodMode === "year" ? (
+                      <AttendancePeriodYearSelect
+                        aria-label="Selecionar ano"
+                        value={attendancePeriodYear}
+                        onChange={handleAttendanceYearPickerChange}
+                      >
+                        {attendanceYearOptions.map((year) => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </AttendancePeriodYearSelect>
+                    ) : (
+                      <AttendancePeriodMonthInput
+                        ref={attendanceMonthPickerRef}
+                        aria-label="Selecionar mes e ano"
+                        type="month"
+                        value={attendancePeriodMonth}
+                        onChange={handleAttendanceMonthPickerChange}
+                      />
+                    )}
+                  </AttendancePeriodChip>
+                  <AttendancePeriodButton type="button" onClick={handleAttendanceNextMonth}>
+                    {attendancePeriodMode === "year" ? "Próximo ano →" : "Próximo →"}
+                  </AttendancePeriodButton>
+                </AttendancePeriodControls>
+              )}
+            </AttendancePeriodBlockRight>
+          </AttendancePeriodBlock>
+
           <AttendanceCard>
             <AttendanceCardHeader>
               <AttendanceCardTitle>Resumo de cobrança</AttendanceCardTitle>
@@ -4625,73 +5043,6 @@ export default function Financeiro() {
               </AttendanceFilterMeta>
             )}
           </AttendanceCard>
-
-          <AttendancePeriodBlock>
-            <AttendancePeriodBlockLeft>
-              <AttendancePeriodBlockLabel>Competência financeira</AttendancePeriodBlockLabel>
-              <AttendancePeriodBlockValue>{attendancePeriodLabel}</AttendancePeriodBlockValue>
-            </AttendancePeriodBlockLeft>
-            <AttendancePeriodBlockRight>
-              <AttendanceTabGroup>
-                <AttendanceTabButton
-                  type="button"
-                  $active={attendancePeriodMode === "month"}
-                  onClick={() => handleAttendancePeriodModeChange("month")}
-                >
-                  Mês
-                </AttendanceTabButton>
-                <AttendanceTabButton
-                  type="button"
-                  $active={attendancePeriodMode === "year"}
-                  onClick={() => handleAttendancePeriodModeChange("year")}
-                >
-                  Visão anual
-                </AttendanceTabButton>
-              </AttendanceTabGroup>
-              {attendancePeriodLabel && (
-                <AttendancePeriodControls>
-                  <AttendancePeriodButton type="button" onClick={handleAttendancePreviousMonth}>
-                    {attendancePeriodMode === "year" ? "← Ano anterior" : "← Anterior"}
-                  </AttendancePeriodButton>
-                  <AttendancePeriodChip
-                    role="button"
-                    tabIndex={0}
-                    onClick={handleAttendancePeriodTagClick}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        handleAttendancePeriodTagClick();
-                      }
-                    }}
-                  >
-                    {attendancePeriodLabel}
-                    {attendancePeriodMode === "year" ? (
-                      <AttendancePeriodYearSelect
-                        aria-label="Selecionar ano"
-                        value={attendancePeriodYear}
-                        onChange={handleAttendanceYearPickerChange}
-                      >
-                        {attendanceYearOptions.map((year) => (
-                          <option key={year} value={year}>{year}</option>
-                        ))}
-                      </AttendancePeriodYearSelect>
-                    ) : (
-                      <AttendancePeriodMonthInput
-                        ref={attendanceMonthPickerRef}
-                        aria-label="Selecionar mes e ano"
-                        type="month"
-                        value={attendancePeriodMonth}
-                        onChange={handleAttendanceMonthPickerChange}
-                      />
-                    )}
-                  </AttendancePeriodChip>
-                  <AttendancePeriodButton type="button" onClick={handleAttendanceNextMonth}>
-                    {attendancePeriodMode === "year" ? "Próximo ano →" : "Próximo →"}
-                  </AttendancePeriodButton>
-                </AttendancePeriodControls>
-              )}
-            </AttendancePeriodBlockRight>
-          </AttendancePeriodBlock>
 
           <AttendanceCard>
             {!attendanceDrilldownPatientId && (
@@ -4944,12 +5295,7 @@ export default function Financeiro() {
             <AttendanceHeaderActions>
               <AttendancePrimaryAction
                 type="button"
-                onClick={() => openCreditModal(
-                  selectedBillingCyclesPatient || {
-                    id: selectedBillingCyclesPatientSummary.patientId,
-                    full_name: selectedBillingCyclesPatientSummary.patientName,
-                  },
-                )}
+                onClick={openBillingCyclesScopedPaymentModal}
               >
                 <FaPlus />
                 Registrar recebimento
@@ -5913,65 +6259,109 @@ export default function Financeiro() {
                         : "Nenhum pacote de sessões encontrado para este paciente."}
                     </EmptyState>
                   )}
-                {!attendanceDetailSessions.isLoading
-                  && !attendanceDetailSessions.error
-                  && [selectedAttendancePackage].map((item) => (
-                    <AttendancePackageCard key={item.id}>
-                      <AttendancePackageHeader>
-                        <div>
-                          <AttendancePackageName>
-                            {item.kind === "single"
-                              ? `${item.serviceName} — ${item.usedSessions}/${item.totalSessions}`
-                              : `${item.serviceName} — ${item.usedSessions}/${item.totalSessions}`}
-                          </AttendancePackageName>
-                          {item.expiresAt && (
-                            <AttendancePackageMeta>
-                              Validade: {item.expiresAt}
-                            </AttendancePackageMeta>
-                          )}
-                        </div>
-                      </AttendancePackageHeader>
-                      {item.sessions.length === 0 ? (
-                        <EmptyState>Nenhuma sessão vinculada a este pacote.</EmptyState>
-                      ) : (
-                        <TableScroll>
-                          <SimpleTable>
-                            <thead>
-                              <tr>
-                                <th>Data</th>
-                                <th>Serviço</th>
-                                <th>Profissional</th>
-                                <th>Status</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {item.sessions.map((session) => {
-                                const service =
-                                  session?.Service ||
-                                  (session.service_id ? serviceMap.get(session.service_id) : null) ||
-                                  null;
-                                const professionalName =
-                                  session?.professional?.name || session?.professional?.email || "-";
-
-                                return (
-                                  <tr key={session.id}>
-                                    <td>{formatSessionDateTimeBR(session.starts_at)}</td>
-                                    <td>{service?.name || session.service_type || item.serviceName}</td>
-                                    <td>{professionalName}</td>
-                                    <td>
-                                      <AttendanceStatusBadge $status={session.status}>
-                                        {formatPackageSessionStatus(session.status)}
-                                      </AttendanceStatusBadge>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </SimpleTable>
-                        </TableScroll>
-                      )}
-                    </AttendancePackageCard>
-                  ))}
+	                {!attendanceDetailSessions.isLoading
+		                  && !attendanceDetailSessions.error
+		                  && [selectedAttendancePackage].map((item) => {
+			                    const usageSummary = item.usageSummary || {};
+			                    const totalSessions = item.totalSessions || 0;
+			                    const packageDateLabel = item.expiresAt ? formatDateOnlyBR(item.expiresAt) : "";
+			                    const packageTitle = `${packageDateLabel ? `${packageDateLabel} · ` : ""}${item.serviceName} — ${totalSessions} ${totalSessions === 1 ? "sessão" : "sessões"}`;
+			                    const statusItems = [
+			                      { label: "agendadas", value: usageSummary.scheduled || 0, show: (usageSummary.scheduled || 0) > 0 },
+			                      { label: "realizadas", value: usageSummary.done || 0, show: (usageSummary.done || 0) > 0 },
+			                      { label: "faltas", value: usageSummary.noShow || 0, show: (usageSummary.noShow || 0) > 0 },
+			                      {
+			                        label: (usageSummary.canceledWithoutCharge || 0) === 1
+			                          ? "cancelada"
+			                          : "canceladas",
+			                        value: usageSummary.canceledWithoutCharge || 0,
+			                        show: (usageSummary.canceledWithoutCharge || 0) > 0,
+			                      },
+			                    ].filter((statusItem) => statusItem.show);
+			                    const distributionText = statusItems
+			                      .map((statusItem) => `${statusItem.value} ${statusItem.label}`)
+			                      .join(" · ");
+	
+		                    return (
+		                      <AttendancePackageCard key={item.id}>
+		                        <AttendancePackageHeader>
+		                          <div>
+		                            <AttendancePackageName>{packageTitle}</AttendancePackageName>
+		                          </div>
+		                        </AttendancePackageHeader>
+		                        <AttendancePackageSummary>
+			                          <AttendancePackageSummarySection>
+			                            <AttendancePackageSummaryTitle>
+			                              Distribuição das {totalSessions} sessões
+			                            </AttendancePackageSummaryTitle>
+			                            <AttendancePackageDistributionLine>
+			                              {distributionText || "Sem sessões distribuídas"}
+			                            </AttendancePackageDistributionLine>
+			                          </AttendancePackageSummarySection>
+			                          <AttendancePackageSummarySection>
+			                            <AttendancePackageSummaryTitle>Financeiro do pacote</AttendancePackageSummaryTitle>
+			                            <AttendancePackageFinanceGrid>
+			                              <AttendancePackageFinanceItem>
+			                                <span>Contratado</span>
+			                                <strong>{formatCurrency(item.contractedAmountCents || item.amountCents || 0)}</strong>
+			                              </AttendancePackageFinanceItem>
+			                              <AttendancePackageFinanceItem>
+			                                <span>Cobrável</span>
+			                                <strong>{formatCurrency(item.amountCents || 0)}</strong>
+		                              </AttendancePackageFinanceItem>
+		                              <AttendancePackageFinanceItem>
+		                                <span>Recebido</span>
+		                                <strong>{formatCurrency(item.paidCents || 0)}</strong>
+		                              </AttendancePackageFinanceItem>
+		                              <AttendancePackageFinanceItem $highlight>
+		                                <span>Pendente</span>
+		                                <strong>{formatCurrency(item.openCents || 0)}</strong>
+		                              </AttendancePackageFinanceItem>
+		                            </AttendancePackageFinanceGrid>
+		                          </AttendancePackageSummarySection>
+		                        </AttendancePackageSummary>
+	                        {item.sessions.length === 0 ? (
+	                          <EmptyState>Nenhuma sessão vinculada a este pacote.</EmptyState>
+	                        ) : (
+	                          <TableScroll>
+	                            <SimpleTable>
+	                              <thead>
+	                                <tr>
+	                                  <th>Data</th>
+	                                  <th>Serviço</th>
+	                                  <th>Profissional</th>
+	                                  <th>Status</th>
+	                                </tr>
+	                              </thead>
+	                              <tbody>
+	                                {item.sessions.map((session) => {
+	                                  const service =
+	                                    session?.Service ||
+	                                    (session.service_id ? serviceMap.get(session.service_id) : null) ||
+	                                    null;
+	                                  const professionalName =
+	                                    session?.professional?.name || session?.professional?.email || "-";
+	
+	                                  return (
+	                                    <tr key={session.id}>
+	                                      <td>{formatSessionDateTimeBR(session.starts_at)}</td>
+	                                      <td>{service?.name || session.service_type || item.serviceName}</td>
+	                                      <td>{professionalName}</td>
+	                                      <td>
+	                                        <AttendanceStatusBadge $status={session.status}>
+	                                          {formatPackageSessionStatus(session.status)}
+	                                        </AttendanceStatusBadge>
+	                                      </td>
+	                                    </tr>
+	                                  );
+	                                })}
+	                              </tbody>
+	                            </SimpleTable>
+	                          </TableScroll>
+	                        )}
+	                      </AttendancePackageCard>
+	                    );
+	                  })}
                 {false && !attendanceDetailSessions.isLoading
                   && !attendanceDetailSessions.error
                   && attendanceUnlinkedPatientRows.length > 0 && (
@@ -6229,6 +6619,75 @@ export default function Financeiro() {
         </>
       )}
 
+      {creditUseModalContext && creditUsePreview && (
+        <>
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <ModalHeaderText>
+                  <ModalTitle>Usar crédito</ModalTitle>
+                  <ModalSubtitle>
+                    Aplicar crédito financeiro nas cobranças pendentes da competência atual.
+                  </ModalSubtitle>
+                </ModalHeaderText>
+                <IconButton type="button" onClick={closeCreditUseModal} disabled={isCreditUseSaving}>
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                <PaymentPreviewBox>
+                  <PaymentPreviewRow>
+                    <span>Paciente</span>
+                    <strong>{creditUseModalContext.patientName}</strong>
+                  </PaymentPreviewRow>
+                  <PaymentPreviewRow>
+                    <span>Competência</span>
+                    <strong>{creditUseModalContext.periodLabel || "-"}</strong>
+                  </PaymentPreviewRow>
+                  <PaymentPreviewRow>
+                    <span>Crédito disponível</span>
+                    <strong>{formatCurrency(creditUsePreview.creditAvailableCents)}</strong>
+                  </PaymentPreviewRow>
+                  <PaymentPreviewRow>
+                    <span>Pendente atual</span>
+                    <strong>{formatCurrency(creditUsePreview.openCents)}</strong>
+                  </PaymentPreviewRow>
+                  <PaymentPreviewRow $emphasis>
+                    <span>Crédito a usar</span>
+                    <strong>{formatCurrency(creditUsePreview.creditToUseCents)}</strong>
+                  </PaymentPreviewRow>
+                  <PaymentPreviewRow $balance={creditUsePreview.openAfterCents > 0}>
+                    <span>Pendente após uso</span>
+                    <strong>{formatCurrency(creditUsePreview.openAfterCents)}</strong>
+                  </PaymentPreviewRow>
+                  <PaymentPreviewRow $balance={creditUsePreview.creditRemainingCents > 0}>
+                    <span>Crédito restante</span>
+                    <strong>{formatCurrency(creditUsePreview.creditRemainingCents)}</strong>
+                  </PaymentPreviewRow>
+                </PaymentPreviewBox>
+              </ModalBody>
+              <ModalActions>
+                <SecondaryButton
+                  type="button"
+                  onClick={closeCreditUseModal}
+                  disabled={isCreditUseSaving}
+                >
+                  Cancelar
+                </SecondaryButton>
+                <PrimaryButton
+                  type="button"
+                  onClick={handleConfirmCreditUse}
+                  disabled={isCreditUseSaving || creditUsePreview.creditToUseCents <= 0}
+                >
+                  {isCreditUseSaving ? <ButtonSpinner /> : "Confirmar uso do crédito"}
+                </PrimaryButton>
+              </ModalActions>
+            </ModalCard>
+          </ModalOverlay>
+          <Backdrop onClick={closeCreditUseModal} />
+        </>
+      )}
+
       {isPaymentOpen && (
         <>
           <ModalOverlay>
@@ -6434,7 +6893,7 @@ export default function Financeiro() {
                             </MutedText>
                           </Field>
                         )}
-                      {paymentForm.entry_id && (
+                      {(paymentForm.entry_id || isScopedPayment) && (
                         <Field>
                           <Label htmlFor="payment-discount">Desconto</Label>
                           <CurrencyInputGroup>
@@ -6502,6 +6961,44 @@ export default function Financeiro() {
                         </PaymentPreviewRow>
                         <PaymentPreviewRow $balance={paymentPreview.openAfterCents > 0 || paymentPreview.creditAfterCents > 0}>
                           <span>{sessionBatchBalanceLabel}</span>
+                          <strong>
+                            {formatCurrency(
+                              paymentPreview.creditAfterCents > 0
+                                ? paymentPreview.creditAfterCents
+                                : paymentPreview.openAfterCents,
+                            )}
+                          </strong>
+                        </PaymentPreviewRow>
+                      </PaymentPreviewBox>
+                    )}
+                    {isScopedPayment && (
+                      <PaymentPreviewBox>
+                        <PaymentPreviewTitle>Resumo da operacao</PaymentPreviewTitle>
+                        <PaymentPreviewRow>
+                          <span>Valor original</span>
+                          <strong>{formatCurrency(paymentPreview.baseCents || 0)}</strong>
+                        </PaymentPreviewRow>
+                        {paymentPreview.discountCents > 0 && (
+                          <PaymentPreviewRow>
+                            <span>Desconto</span>
+                            <strong>- {formatCurrency(paymentPreview.discountCents)}</strong>
+                          </PaymentPreviewRow>
+                        )}
+                        <PaymentPreviewDivider />
+                        <PaymentPreviewRow $total>
+                          <span>Total final</span>
+                          <strong>{formatCurrency(paymentPreview.finalChargedCents || 0)}</strong>
+                        </PaymentPreviewRow>
+                        <PaymentPreviewRow>
+                          <span>Valor recebido</span>
+                          <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
+                        </PaymentPreviewRow>
+                        <PaymentPreviewRow $balance={paymentPreview.openAfterCents > 0 || paymentPreview.creditAfterCents > 0}>
+                          <span>
+                            {paymentPreview.creditAfterCents > 0
+                              ? "Saldo em credito"
+                              : "Valor pendente"}
+                          </span>
                           <strong>
                             {formatCurrency(
                               paymentPreview.creditAfterCents > 0
@@ -6587,49 +7084,6 @@ export default function Financeiro() {
                           </>
                         )}
                       </PaymentPreviewBox>
-                    )}
-                    {!paymentForm.entry_id && !isSessionBatchPayment && paymentForm.allocation_mode === "manual" && (
-                      <Field>
-                        <Label>Escolher cobranças</Label>
-                        {openEntriesForPayment.length === 0 ? (
-                          <MutedText>Sem cobranças em aberto para este paciente.</MutedText>
-                        ) : (
-                          <>
-                            <SimpleTable>
-                              <thead>
-                                <tr>
-                                  <th>Data</th>
-                                  <th>Descricao</th>
-                                  <th>Em aberto</th>
-                                  <th>Alocar</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {openEntriesForPayment.map((item) => (
-                                  <tr key={item.entry.id}>
-                                    <td>{item.entry.reference_date || "-"}</td>
-                                    <td>{item.entry.description || "-"}</td>
-                                    <td>{formatCurrency(item.open)}</td>
-                                    <td>
-                                      <Input
-                                        type="text"
-                                        value={paymentAllocations[item.entry.id] || ""}
-                                        onChange={(event) =>
-                                          handleAllocationChange(item.entry.id, event.target.value)
-                                        }
-                                        placeholder="0,00"
-                                      />
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </SimpleTable>
-                            <MutedText>
-                              Total distribuido: {formatCurrency(manualAllocationTotal)}
-                            </MutedText>
-                          </>
-                        )}
-                      </Field>
                     )}
                   </>
                 )}
@@ -7830,6 +8284,80 @@ const AttendancePackageMeta = styled.span`
   line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
 `;
 
+const AttendancePackageSummary = styled.div`
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border-bottom: 1px solid ${ATTENDANCE_UI.colors.border};
+  background: ${ATTENDANCE_UI.colors.surface};
+`;
+
+const AttendancePackageSummarySection = styled.div`
+  display: grid;
+  gap: 8px;
+`;
+
+const AttendancePackageSummaryTitle = styled.strong`
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  font-size: ${ATTENDANCE_UI.font.size.xs};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  text-transform: uppercase;
+  letter-spacing: 0;
+`;
+
+const AttendancePackageDistributionLine = styled.div`
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 36px;
+  align-items: center;
+  padding: 8px 11px;
+  border: 1px solid ${ATTENDANCE_UI.colors.border};
+  border-radius: ${ATTENDANCE_UI.radius.sm};
+  background: ${ATTENDANCE_UI.colors.surfaceMuted};
+  color: ${ATTENDANCE_UI.colors.textSecondary};
+  font-size: ${ATTENDANCE_UI.font.size.xs};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+`;
+
+const AttendancePackageFinanceGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+`;
+
+const AttendancePackageFinanceItem = styled.div`
+  display: grid;
+  gap: 4px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid ${({ $highlight, $muted }) => {
+    if ($highlight) return ATTENDANCE_UI.colors.actionBorder;
+    if ($muted) return ATTENDANCE_UI.colors.dangerBorder;
+    return ATTENDANCE_UI.colors.border;
+  }};
+  border-radius: ${ATTENDANCE_UI.radius.sm};
+  background: ${({ $highlight, $muted }) => {
+    if ($highlight) return ATTENDANCE_UI.colors.actionSoft;
+    if ($muted) return ATTENDANCE_UI.colors.dangerSoft;
+    return ATTENDANCE_UI.colors.surfaceMuted;
+  }};
+
+  span {
+    color: ${ATTENDANCE_UI.colors.textSecondary};
+    font-size: ${ATTENDANCE_UI.font.size.xs};
+    line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+  }
+
+  strong {
+    color: ${ATTENDANCE_UI.colors.textPrimary};
+    font-size: ${ATTENDANCE_UI.font.size.sm};
+    line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+    font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  }
+`;
+
 const AttendancePatientDetailBlock = styled.div`
   display: grid;
   gap: ${ATTENDANCE_UI.spacing[3]};
@@ -7874,6 +8402,11 @@ const AttendancePatientStat = styled.span`
     line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
     font-weight: ${ATTENDANCE_UI.font.weight.semibold};
   }
+`;
+
+const AttendanceCreditUseAction = styled(AttendancePrimaryAction)`
+  min-height: 38px;
+  padding: 8px 14px;
 `;
 
 const AttendanceDetailHeader = styled.div`
@@ -7936,19 +8469,20 @@ const AttendanceOverviewTable = styled(SimpleTable)`
 `;
 
 const BillingCyclesTable = styled(AttendanceOverviewTable)`
-  min-width: ${(props) => (props.$detail ? "0" : "900px")};
+  min-width: ${(props) => (props.$detail ? "100%" : "900px")};
+  max-width: 100%;
   table-layout: ${(props) => (props.$detail ? "fixed" : "auto")};
 
   ${(props) => (props.$detail ? `
     th,
     td {
-      padding-left: 12px;
-      padding-right: 12px;
+      box-sizing: border-box;
+      padding: 14px 7px;
     }
 
     th:first-child,
     td:first-child {
-      width: 24%;
+      width: 10%;
     }
 
     th:nth-child(2),
@@ -7957,24 +8491,36 @@ const BillingCyclesTable = styled(AttendanceOverviewTable)`
     }
 
     th:nth-child(3),
-    td:nth-child(3),
+    td:nth-child(3) {
+      width: 8%;
+    }
+
     th:nth-child(4),
     td:nth-child(4),
     th:nth-child(5),
     td:nth-child(5) {
-      width: 13%;
+      width: 12%;
+      white-space: nowrap;
     }
 
     th:nth-child(6),
     td:nth-child(6) {
       width: 13%;
+      white-space: nowrap;
+    }
+
+    th:nth-child(7),
+    td:nth-child(7) {
+      width: 14%;
+      text-align: center;
     }
   ` : "")}
 
   th:last-child,
   td:last-child {
     text-align: center;
-    width: ${(props) => (props.$detail ? "96px" : "120px")};
+    width: ${(props) => (props.$detail ? "8%" : "120px")};
+    white-space: nowrap;
   }
 
   td:last-child > div {
@@ -8105,12 +8651,13 @@ const AttendanceSmallAction = styled(SmallButton)`
   background: ${ATTENDANCE_UI.colors.action};
   color: #fff;
   border: 1px solid ${ATTENDANCE_UI.colors.action};
-  border-radius: ${ATTENDANCE_UI.radius.md};
-  padding: 10px 14px;
+  border-radius: ${ATTENDANCE_UI.radius.sm};
+  padding: 7px 8px;
   font-size: ${ATTENDANCE_UI.font.size.xs};
   line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
   font-weight: ${ATTENDANCE_UI.font.weight.semibold};
-  box-shadow: 0 6px 14px rgba(95, 121, 87, 0.16);
+  box-shadow: 0 4px 10px rgba(95, 121, 87, 0.12);
+  white-space: nowrap;
 
   &:hover {
     background: ${ATTENDANCE_UI.colors.actionHover};

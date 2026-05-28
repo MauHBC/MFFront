@@ -15,6 +15,8 @@ import {
 } from "../../components/AppModuleShell";
 import { getPatientDisplayName, getPatientSearchText } from "../../utils/patientSearch";
 
+const PATIENTS_PER_PAGE = 10;
+
 function getPatientName(patient) {
   return getPatientDisplayName(patient).trim();
 }
@@ -43,6 +45,7 @@ export default function PatientsSearch() {
   const [patients, setPatients] = useState([]);
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState("list");
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     async function loadPatients() {
@@ -64,6 +67,10 @@ export default function PatientsSearch() {
     loadPatients();
   }, []);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [query]);
+
   const filteredPatients = useMemo(() => {
     const value = normalizeSearchValue(query);
     if (!value) return patients;
@@ -82,6 +89,20 @@ export default function PatientsSearch() {
       })
     );
   }, [filteredPatients]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedPatients.length / PATIENTS_PER_PAGE));
+  const visiblePatients = useMemo(() => {
+    const firstPatientIndex = (currentPage - 1) * PATIENTS_PER_PAGE;
+    return sortedPatients.slice(firstPatientIndex, firstPatientIndex + PATIENTS_PER_PAGE);
+  }, [currentPage, sortedPatients]);
+  const firstVisiblePatient = sortedPatients.length === 0
+    ? 0
+    : (currentPage - 1) * PATIENTS_PER_PAGE + 1;
+  const lastVisiblePatient = Math.min(currentPage * PATIENTS_PER_PAGE, sortedPatients.length);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   return (
     <PageWrapper $paddingTop="90px" $paddingBottom="60px">
@@ -136,6 +157,18 @@ export default function PatientsSearch() {
           </ViewToggle>
         </Controls>
 
+        <ResultsSummary>
+          <span>
+            {patients.length} paciente{patients.length === 1 ? "" : "s"} cadastrado
+            {patients.length === 1 ? "" : "s"}
+          </span>
+          {query.trim() && (
+            <strong>
+              {sortedPatients.length} resultado{sortedPatients.length === 1 ? "" : "s"} na busca
+            </strong>
+          )}
+        </ResultsSummary>
+
         {isLoading && (
           <ResultsPanel>
             <DataLoadingState text="Carregando pacientes..." />
@@ -148,7 +181,7 @@ export default function PatientsSearch() {
 
         {!isLoading && (viewMode === "list" ? (
           <List>
-            {sortedPatients.map((patient, index) => (
+            {visiblePatients.map((patient, index) => (
               <ListItem
                 key={patient.id || `${getPatientName(patient)}-${index}`}
                 role={patient.id ? "link" : undefined}
@@ -178,7 +211,7 @@ export default function PatientsSearch() {
           </List>
         ) : (
           <Grid>
-            {sortedPatients.map((patient, index) => (
+            {visiblePatients.map((patient, index) => (
               <Card key={patient.id || `${getPatientName(patient)}-${index}`}>
                 <CardHeader>
                   <Avatar>
@@ -219,6 +252,33 @@ export default function PatientsSearch() {
             ))}
           </Grid>
         ))}
+
+        {!isLoading && sortedPatients.length > 0 && (
+          <PaginationBar>
+            <PaginationInfo>
+              Mostrando {firstVisiblePatient}-{lastVisiblePatient} de {sortedPatients.length}
+            </PaginationInfo>
+            <PaginationControls>
+              <PaginationButton
+                type="button"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+              >
+                Anterior
+              </PaginationButton>
+              <PaginationPage>
+                Página {currentPage} de {totalPages}
+              </PaginationPage>
+              <PaginationButton
+                type="button"
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+              >
+                Próxima
+              </PaginationButton>
+            </PaginationControls>
+          </PaginationBar>
+        )}
       </PageContent>
     </PageWrapper>
   );
@@ -297,6 +357,26 @@ const ViewButton = styled.button`
   color: ${(props) => (props.$active ? "#fff" : "#6a795c")};
   font-weight: 600;
   cursor: pointer;
+`;
+
+const ResultsSummary = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  color: #6a795c;
+  font-size: 0.95rem;
+
+  strong {
+    color: #1b1b1b;
+    font-weight: 700;
+  }
+
+  @media (max-width: 620px) {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 `;
 
 const List = styled.div`
@@ -439,4 +519,63 @@ const ResultsPanel = styled.div`
   border: 1px solid rgba(106, 121, 92, 0.16);
   border-radius: 12px;
   background: #fff;
+`;
+
+const PaginationBar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 18px;
+  color: #6a795c;
+
+  @media (max-width: 620px) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+`;
+
+const PaginationInfo = styled.span`
+  font-size: 0.92rem;
+`;
+
+const PaginationControls = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  @media (max-width: 620px) {
+    justify-content: space-between;
+  }
+`;
+
+const PaginationButton = styled.button`
+  border: 1px solid rgba(106, 121, 92, 0.3);
+  border-radius: 10px;
+  background: #fff;
+  color: #6a795c;
+  cursor: pointer;
+  font-weight: 700;
+  min-width: 92px;
+  padding: 9px 12px;
+
+  &:disabled {
+    background: #f2f4ef;
+    color: #a3ad99;
+    cursor: not-allowed;
+  }
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible {
+    border-color: rgba(106, 121, 92, 0.55);
+    box-shadow: 0 0 0 3px rgba(106, 121, 92, 0.14);
+    outline: none;
+  }
+`;
+
+const PaginationPage = styled.span`
+  min-width: 108px;
+  text-align: center;
+  font-size: 0.92rem;
+  font-weight: 700;
 `;
