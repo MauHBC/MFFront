@@ -7,10 +7,10 @@ const api = axios.create({
   // baseURL: "http://localhost:3001/api",
 
   // testes locais desktop
-  baseURL: "http://localhost:3006/api",
+  // baseURL: "http://localhost:3006/api",
 
   // producao
-  // baseURL: "/api",
+  baseURL: "/api",
 });
 
 let responseInterceptorId = null;
