@@ -1,6 +1,6 @@
 export const colors = {
-  brand: "#6a795c",
-  brandDark: "#3d5230",
+  brand: "var(--clinic-primary-color, #6a795c)",
+  brandDark: "var(--clinic-secondary-color, #3d5230)",
   ink: "#1b1b1b",
   white: "#fff",
   appBackground: "#f7f8f4",

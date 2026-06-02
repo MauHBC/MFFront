@@ -15,19 +15,19 @@ export default function ServiceBox({ icon, title, subtitle }) {
 
   switch (icon) {
   case "physio":
-    getIcon = <FaUserInjured size={40} color="#6A795C" />;
+    getIcon = <FaUserInjured size={40} />;
     break;
 
   case "pilates":
-    getIcon = <FaChild size={40} color="#6A795C" />;
+    getIcon = <FaChild size={40} />;
     break;
 
   case "functional":
-    getIcon = <FaRunning size={40} color="#6A795C" />;
+    getIcon = <FaRunning size={40} />;
     break;
 
   default:
-    getIcon = <FaKey size={40} color="#6A795C" />;
+    getIcon = <FaKey size={40} />;
     break;
 }
 
@@ -51,6 +51,8 @@ const Wrapper = styled.div`
   width: 100%;
 `;
 const IconStyle = styled.div`
+  color: var(--public-primary-color, #6A795C);
+
   @media (max-width: 860px) {
     margin: 0 auto;
   }

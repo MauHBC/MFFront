@@ -1,13 +1,16 @@
 /* eslint-disable react/no-unescaped-entities */
 import React from "react";
 import { PrivacyPolicySection } from "./styled";
+import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 export default function Politica() {
+  const { displayName } = usePublicClinicContext();
+
   return (
     <PrivacyPolicySection>
       <h2>Política de Privacidade</h2>
       <p>
-        Esta política de privacidade se aplica ao aplicativo Checkpoint
+        Esta política de privacidade se aplica ao {displayName}
         (doravante referido como "Aplicativo") para dispositivos móveis, que foi
         criado por Maurício Borges (doravante referido como "Provedor de
         Serviços") para uso exclusivo pessoal e interno da empresa. Este serviço
@@ -87,8 +90,7 @@ export default function Politica() {
       <p>
         O Provedor de Serviços reterá os dados fornecidos pelo usuário enquanto
         o Aplicativo estiver em uso. Caso deseje solicitar a exclusão dos dados,
-        entre em contato com o Provedor de Serviços pelo e-mail
-        Espaço Cuidar@gmail.com, e sua solicitação será atendida em um prazo
+        entre em contato com o administrador responsável pelo seu acesso, e sua solicitação será atendida em um prazo
         razoável.
       </p>
       <br />
@@ -134,8 +136,8 @@ export default function Politica() {
       <h3>Contato</h3>
       <p>
         Se você tiver alguma dúvida sobre privacidade ao usar o Aplicativo, ou
-        tiver perguntas sobre as práticas, entre em contato com o Provedor de
-        Serviços via e-mail em espaco.cuidar@gmail.com.
+        tiver perguntas sobre as práticas, entre em contato com o administrador
+        responsável pelo seu acesso.
       </p>
       <hr />
     </PrivacyPolicySection>

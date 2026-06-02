@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="120" viewBox="0 0 360 120" role="img" aria-label="CMT Reabilitação">
+  <rect width="360" height="120" rx="16" fill="#f4fbfa"/>
+  <circle cx="62" cy="60" r="34" fill="#1F6F68"/>
+  <path d="M47 62c12-25 25-25 38 0M48 72c12 14 25 14 37 0" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/>
+  <text x="112" y="56" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#174A45">CMT</text>
+  <text x="112" y="84" font-family="Arial, sans-serif" font-size="20" fill="#1F6F68">Reabilitação</text>
+</svg>

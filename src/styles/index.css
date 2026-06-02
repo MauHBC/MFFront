@@ -39,10 +39,10 @@
   }
   a {
     text-decoration: none!important;
-    color: #6A795C;
+    color: var(--public-primary-color, #6A795C);
   }
   a:hover {
-    color: #6A795C;
+    color: var(--public-primary-color, #6A795C);
   }
   input:-webkit-autofill {
     -webkit-box-shadow:0 0 0 50px #fff inset;
@@ -104,8 +104,8 @@
     width: 100%;
   }
   .active {
-    border-bottom: 2px solid #A2B190;
-    color: #A2B190 !important;
+    border-bottom: 2px solid var(--public-accent-color, #A2B190);
+    color: var(--public-accent-color, #A2B190) !important;
   }
   .tag {
     padding: 5px 10px;
@@ -227,7 +227,7 @@
     color: #7620FF;
   }
   .orangeColor {
-    color: #A2B190;
+    color: var(--public-accent-color, #A2B190);
   }
   .lightColor {
     color: #F5F5F5;
@@ -246,13 +246,13 @@
   }
   /* BACKGROUNDS */
   .darkBg {
-    background-color: #6A795C;
+    background-color: var(--public-primary-color, #6A795C);
   }
   .purpleBg {
     background-color: #7620FF;
   }
   .orangeBg {
-    background-color: #A2B190;
+    background-color: var(--public-accent-color, #A2B190);
   }
   .lightBg {
     background-color: #F3F5F1;

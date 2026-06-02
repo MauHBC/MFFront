@@ -15,7 +15,7 @@ export const Form = styled.form`
     color: #333; /* Define a cor padrão do texto */
 
     &:focus {
-      border-color: #143610;
+      border-color: var(--public-primary-color, #143610);
     }
 
     /* Corrige o preenchimento automático do navegador */
@@ -28,7 +28,7 @@ export const Form = styled.form`
 
   button {
     height: 40px;
-    background-color: #143610;
+    background-color: var(--public-primary-color, #143610);
     border: none;
     border-radius: 8px;
     color: white;
@@ -37,7 +37,7 @@ export const Form = styled.form`
     cursor: pointer;
     
     &:hover {
-      background-color: #580cd2;
+      background-color: var(--public-secondary-color, #3d5230);
     }
   }
 `;

@@ -1,9 +1,11 @@
 import React from "react";
 import styled from "styled-components";
 import { Link } from "react-scroll";
+import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 // Assets
 
 export default function Contact() {
+  const { displayName } = usePublicClinicContext();
   const getCurrentYear = () => {
     return new Date().getFullYear();
   };
@@ -26,12 +28,12 @@ export default function Contact() {
                 className="font15 extraBold whiteColor"
                 style={{ marginLeft: "15px" }}
               >
-                Espaço Cuidar
+                {displayName}
               </h1>
             </Link>
             <StyleP className="whiteColor font13">
               © {getCurrentYear()} -{" "}
-              <span className="font13" style={{color: "#A2B190", fontWeight: 'bold'}}>Espaço Cuidar</span> All Right
+              <span className="font13" style={{color: "var(--public-accent-color, #A2B190)", fontWeight: 'bold'}}>{displayName}</span> All Right
               Reserved
             </StyleP>
 

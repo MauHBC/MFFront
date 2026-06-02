@@ -1,116 +1,113 @@
 import React from "react";
 import styled from "styled-components";
-// Components
-// import ClientSlider from "../Elements/ClientSlider";
 import ServiceBox from "../Elements/ServiceBox";
-// import FullButton from "../Buttons/FullButton";
-// Assets
-import AddImage1 from "../../assets/img/add/equipe.jpg";
-import AddImage2 from "../../assets/img/add/2.jpg";
-import AddImage3 from "../../assets/img/add/3.jpg";
-import AddImage4 from "../../assets/img/add/4.jpg";
+import { getClinicPublicProfile } from "../../config/clinicPublicProfiles";
+import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
+
+const defaultServices = {
+  title: "Recursos principais",
+  items: [
+    {
+      icon: "physio",
+      title: "Agenda",
+      subtitle: "Organização dos atendimentos",
+    },
+    {
+      icon: "pilates",
+      title: "Pacientes",
+      subtitle: "Cadastro e histórico clínico",
+    },
+    {
+      icon: "functional",
+      title: "Financeiro",
+      subtitle: "Receitas e recebimentos",
+    },
+  ],
+};
+
+const defaultAbout = {
+  title: "Sobre o sistema",
+  paragraphs: [
+    "Plataforma para centralizar a operação de clínicas em um ambiente seguro, com dados separados por clínica e fluxos essenciais para a rotina administrativa.",
+    "Antes do login, a experiência permanece neutra. Após autenticação, o sistema carrega a identidade visual da clínica vinculada ao usuário.",
+  ],
+  cards: [
+    "Isolamento por clínica",
+    "Contexto carregado após login",
+    "Base preparada para white label",
+  ],
+};
 
 export default function Services() {
+  const { publicClinic } = usePublicClinicContext();
+  const publicProfile = getClinicPublicProfile(publicClinic.clinic_id);
+  const servicesTitle = publicProfile?.services_title || defaultServices.title;
+  const services = publicProfile?.services || defaultServices.items;
+  const aboutTitle = publicProfile?.about_title || defaultAbout.title;
+  const aboutText = publicProfile?.about_text || defaultAbout.paragraphs;
+  const aboutImages = publicProfile?.about_image_urls || null;
+
   return (
     <Wrapper id="services">
-      {/* <div className="lightBg" style={{ padding: "50px 0" }}>
-        <div className="container">
-          <ClientSlider />
-        </div>
-      </div> */}
       <div className="whiteBg" style={{ padding: "60px 0" }}>
         <div className="container">
           <HeaderInfo>
-            <h1 className="font40 extraBold">Conheça nossos serviços</h1>
-            {/* <p className="font13" style={{ textAlign: "justify" }}>
-              Todos os nossos serviços são realizados com nosso app, registrado
-              com fotos e vídeos e enviado ao cliente.
-              <br />
-              Em alguns casos realizamos manutenção no momento da verificação.
-            </p> */}
+            <h1 className="font40 extraBold">{servicesTitle}</h1>
           </HeaderInfo>
-        <ServiceBoxRow className="flex">
-          <ServiceBoxWrapper>
-            <ServiceBox
-              icon="physio"
-              title="Fisioterapia"
-              subtitle="Tratamento personalizado"
-            />
-          </ServiceBoxWrapper>
-
-          <ServiceBoxWrapper>
-            <ServiceBox
-              icon="pilates"
-              title="Pilates"
-              subtitle="Força, equilíbrio e postura"
-            />
-          </ServiceBoxWrapper>
-
-          <ServiceBoxWrapper>
-            <ServiceBox
-              icon="functional"
-              title="Funcional"
-              subtitle="Movimento para o dia a dia"
-            />
-          </ServiceBoxWrapper>
-        </ServiceBoxRow>
+          <ServiceBoxRow className="flex">
+            {services.map((service) => (
+              <ServiceBoxWrapper key={service.title}>
+                <ServiceBox
+                  icon={service.icon}
+                  title={service.title}
+                  subtitle={service.subtitle}
+                />
+              </ServiceBoxWrapper>
+            ))}
+          </ServiceBoxRow>
         </div>
         <div className="lightBg">
           <div className="container">
             <Advertising className="flexSpaceCenter">
               <AddLeft>
-                {/* <h4 className="font15 semiBold">A few words about company</h4> */}
-                <h2 className="font40 extraBold">Sobre nós</h2>
-                <p className="font13" style={{ textAlign: "justify", marginBottom: "12px" }}>
-                  Somos uma clínica dedicada ao cuidado com o movimento, à recuperação funcional e à promoção da saúde.
-                  Atuamos com fisioterapia, pilates e treinamento funcional, sempre com foco em um atendimento individualizado,
-                  humanizado e baseado em evidências.
-                </p>
-
-                <p className="font13" style={{ textAlign: "justify", marginBottom: "12px" }}>
-                  Acreditamos que cada pessoa é única. Por isso, nossos tratamentos são planejados de forma personalizada,
-                  respeitando as necessidades, objetivos e limites de cada paciente, seja na reabilitação, na prevenção de
-                  lesões ou na melhora da qualidade de vida.
-                </p>
-
-                {/* <ButtonsRow
-                  className="flexNullCenter"
-                  style={{ margin: "30px 0" }}
-                >
-                  <div style={{ width: "190px" }}>
-                    <FullButton
-                      title="Get Started"
-                      // action={() => alert("clicked")}
-                    />
-                  </div>
-                  {/* <div style={{ width: "190px", marginLeft: "15px" }}>
-                    <FullButton
-                      title="Contact Us"
-                      // action={() => alert("clicked")}
-                      border
-                    />
-                  </div> */}
-                {/* </ButtonsRow> */}
+                <h2 className="font40 extraBold">{aboutTitle}</h2>
+                {aboutText.map((paragraph) => (
+                  <p
+                    key={paragraph}
+                    className="font13"
+                    style={{ textAlign: "justify", marginBottom: "12px" }}
+                  >
+                    {paragraph}
+                  </p>
+                ))}
               </AddLeft>
               <AddRight>
-                <AddRightInner>
-                  <div className="flexNullCenter">
-                    <AddImgWrapp1 className="flexCenter">
-                      <img src={AddImage1} alt="office" />
-                    </AddImgWrapp1>
-                    <AddImgWrapp2>
-                      <img src={AddImage2} alt="office" />
-                    </AddImgWrapp2>
-                  </div>
-                  <div className="flexNullCenter">
-                    <AddImgWrapp3>
-                      <img src={AddImage3} alt="office" />
-                    </AddImgWrapp3>
-                    <AddImgWrapp4>
-                      <img src={AddImage4} alt="office" />
-                    </AddImgWrapp4>
-                  </div>
-                </AddRightInner>
+                {aboutImages ? (
+                  <AddRightInner>
+                    <div className="flexNullCenter">
+                      <AddImgWrapp1 className="flexCenter">
+                        <img src={aboutImages[0]} alt={`${aboutTitle} 1`} />
+                      </AddImgWrapp1>
+                      <AddImgWrapp2>
+                        <img src={aboutImages[1]} alt={`${aboutTitle} 2`} />
+                      </AddImgWrapp2>
+                    </div>
+                    <div className="flexNullCenter">
+                      <AddImgWrapp3>
+                        <img src={aboutImages[2]} alt={`${aboutTitle} 3`} />
+                      </AddImgWrapp3>
+                      <AddImgWrapp4>
+                        <img src={aboutImages[3]} alt={`${aboutTitle} 4`} />
+                      </AddImgWrapp4>
+                    </div>
+                  </AddRightInner>
+                ) : (
+                  <AddRightInner>
+                    {defaultAbout.cards.map((card) => (
+                      <InfoCard key={card}>{card}</InfoCard>
+                    ))}
+                  </AddRightInner>
+                )}
               </AddRight>
             </Advertising>
           </div>
@@ -156,11 +153,6 @@ const Advertising = styled.div`
     margin: 80px 0 0px 0;
   }
 `;
-// const ButtonsRow = styled.div`
-//   @media (max-width: 860px) {
-//     justify-content: space-between;
-//   }
-// `;
 const AddLeft = styled.div`
   width: 50%;
   p {
@@ -193,6 +185,20 @@ const AddRight = styled.div`
 `;
 const AddRightInner = styled.div`
   width: 100%;
+  display: grid;
+  gap: 14px;
+`;
+const InfoCard = styled.div`
+  min-height: 82px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  color: var(--public-secondary-color, #3d5230);
+  font-weight: 800;
 `;
 const AddImgWrapp1 = styled.div`
   width: 48%;
@@ -202,8 +208,6 @@ const AddImgWrapp1 = styled.div`
     height: auto;
     border-radius: 1rem;
     box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
-    -webkit-box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
-    -moz-box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
   }
 `;
 const AddImgWrapp2 = styled.div`
@@ -214,8 +218,6 @@ const AddImgWrapp2 = styled.div`
     height: auto;
     border-radius: 1rem;
     box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
-    -webkit-box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
-    -moz-box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
   }
 `;
 const AddImgWrapp3 = styled.div`
@@ -226,19 +228,15 @@ const AddImgWrapp3 = styled.div`
     height: auto;
     border-radius: 1rem;
     box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
-    -webkit-box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
-    -moz-box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
   }
 `;
 const AddImgWrapp4 = styled.div`
   width: 30%;
-  margin: 0 5%auto;
+  margin: 0 5% auto;
   img {
     width: 100%;
     height: auto;
     border-radius: 1rem;
     box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
-    -webkit-box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
-    -moz-box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
   }
 `;

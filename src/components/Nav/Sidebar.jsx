@@ -4,20 +4,22 @@ import styled from "styled-components";
 import { Link as ScrollLink } from "react-scroll"; // Renomeando o Link do react-scroll
 import { Link as RouterLink } from "react-router-dom"; // Renomeando o Link do react-router-dom
 import CloseIcon from "../../assets/svg/CloseIcon";
-import Logo from "../../assets/img/Logo.png";
+import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 export default function Sidebar({ sidebarOpen, toggleSidebar }) {
+  const { displayName, logoSrc } = usePublicClinicContext();
+
   return (
     <Wrapper className="animate darkBg" sidebarOpen={sidebarOpen}>
       <SidebarHeader className="flexSpaceCenter">
         <div className="flexNullCenter">
-          <img
-              src={Logo}
-              alt="Espaço Cuidar Logo"
-              style={{ height: "40px", marginRight: "15px" }}
-          />
-          <h1 className="whiteColor font20" style={{ marginLeft: "15px", color: '#A2B190' }}>
-            Espaço Cuidar
+          {logoSrc ? (
+            <LogoImg src={logoSrc} alt={displayName} />
+          ) : (
+            <NeutralMark aria-hidden="true">SG</NeutralMark>
+          )}
+          <h1 className="whiteColor font20" style={{ marginLeft: "15px", color: "var(--public-accent-color, #A2B190)" }}>
+            {displayName}
           </h1>
         </div>
         <CloseBtn
@@ -127,6 +129,29 @@ const CloseBtn = styled.button`
   outline: none;
   background-color: transparent;
   padding: 10px;
+`;
+
+const NeutralMark = styled.span`
+  width: 40px;
+  height: 40px;
+  margin-right: 15px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  font-weight: 800;
+  letter-spacing: 0;
+`;
+
+const LogoImg = styled.img`
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  padding: 0;
+  margin-right: 15px;
 `;
 
 const UlStyle = styled.ul`

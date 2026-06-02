@@ -6,13 +6,13 @@ import { Link as RouterLink } from "react-router-dom";
 // Components
 import Sidebar from "./Sidebar";
 import Backdrop from "../Elements/Backdrop";
-// Assets
-import Logo from "../../assets/img/Logo.png";
 import BurgerIcon from "../../assets/svg/BurgerIcon";
+import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 export default function TopNavbar() {
   const [y, setY] = useState(window.scrollY);
   const [sidebarOpen, toggleSidebar] = useState(false);
+  const { displayName, logoSrc } = usePublicClinicContext();
 
   useEffect(() => {
     window.addEventListener("scroll", () => setY(window.scrollY));
@@ -31,16 +31,16 @@ export default function TopNavbar() {
       >
         <NavInner className="container flexSpaceCenter">
           <ScrollLink className="pointer flexNullCenter" to="home" smooth>
-            <img
-              src={Logo}
-              alt="Espaço Cuidar Logo"
-              style={{ height: "40px", marginRight: "15px" }}
-            />
+            {logoSrc ? (
+              <LogoImg src={logoSrc} alt={displayName} />
+            ) : (
+              <NeutralMark aria-hidden="true">SG</NeutralMark>
+            )}
             <h1
-              style={{ marginLeft: "15px", color: "#A2B190" }}
+              style={{ marginLeft: "15px", color: "var(--public-accent-color, #A2B190)" }}
               className="font20 extraBold"
             >
-              Espaço Cuidar
+              {displayName}
             </h1>
           </ScrollLink>
           <BurderWrapper
@@ -53,7 +53,7 @@ export default function TopNavbar() {
             <li className="semiBold font15 pointer">
               <ScrollLink
                 activeClass="active"
-                style={{ padding: "10px 15px", color: "#6A795C" }}
+                style={{ padding: "10px 15px", color: "var(--public-primary-color, #6A795C)" }}
                 to="home"
                 spy
                 smooth
@@ -65,7 +65,7 @@ export default function TopNavbar() {
             <li className="semiBold font15 pointer">
               <ScrollLink
                 activeClass="active"
-                style={{ padding: "10px 15px", color: "#6A795C" }}
+                style={{ padding: "10px 15px", color: "var(--public-primary-color, #6A795C)" }}
                 to="services"
                 spy
                 smooth
@@ -77,7 +77,7 @@ export default function TopNavbar() {
             <li className="semiBold font15 pointer">
               <ScrollLink
                 activeClass="active"
-                style={{ padding: "10px 15px", color: "#6A795C" }}
+                style={{ padding: "10px 15px", color: "var(--public-primary-color, #6A795C)" }}
                 to="contact"
                 spy
                 smooth
@@ -91,7 +91,7 @@ export default function TopNavbar() {
                 to="/login"
                 style={{
                   padding: "10px 15px",
-                  color: "#6A795C",
+                  color: "var(--public-primary-color, #6A795C)",
                   textDecoration: "none",
                 }}
               >
@@ -117,6 +117,26 @@ const Wrapper = styled.nav`
 const NavInner = styled.div`
   position: relative;
   height: 100%;
+`;
+const NeutralMark = styled.span`
+  width: 40px;
+  height: 40px;
+  margin-right: 15px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--public-primary-color, #6a795c);
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0;
+`;
+const LogoImg = styled.img`
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  padding: 0;
+  margin-right: 15px;
 `;
 const BurderWrapper = styled.button`
   outline: none;

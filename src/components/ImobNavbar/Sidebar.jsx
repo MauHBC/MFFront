@@ -3,21 +3,41 @@ import PropTypes from "prop-types";
 import styled from "styled-components";
 import { Link } from "react-router-dom";
 import CloseIcon from "../../assets/svg/CloseIcon";
-import Logo from "../../assets/img/Logo.png";
+import { useClinicContext } from "../../contexts/ClinicContext";
+import { useAuth } from "../../hooks/useAuth";
+import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 
 export default function Sidebar({ sidebarOpen, toggleSidebar }) {
+  const { isLoggedIn } = useAuth();
+  const { displayName: clinicName, logoSrc: clinicLogoSrc } = useClinicContext();
+  const { displayName: publicName, logoSrc: publicLogoSrc } = usePublicClinicContext();
+  const displayName = isLoggedIn ? clinicName : publicName;
+  const logoSrc = isLoggedIn ? clinicLogoSrc : publicLogoSrc;
+
   return (
-    <Wrapper className="animate" sidebarOpen={sidebarOpen}>
+    <Wrapper className="animate" sidebarOpen={sidebarOpen} $publicMode={!isLoggedIn}>
       <SidebarHeader className="flexSpaceCenter">
         <div className="flexNullCenter">
-          <img
-              src={Logo}
-              alt="Espaço Cuidar Logo"
+          {logoSrc ? (
+            <img
+              src={logoSrc}
+              alt={`${displayName} Logo`}
               style={{ height: "40px", marginRight: "15px" }}
-          />
-          <h1 className="whiteColor font20" style={{ marginLeft: "15px", color: '#A2B190' }}>
-            Espaço Cuidar
+            />
+          ) : (
+            <NeutralMark aria-hidden="true">SG</NeutralMark>
+          )}
+          <h1
+            className="whiteColor font20"
+            style={{
+              marginLeft: "15px",
+              color: isLoggedIn
+                ? "var(--clinic-accent-color, #A2B190)"
+                : "var(--public-accent-color, #A2B190)",
+            }}
+          >
+            {displayName}
           </h1>
         </div>
         <CloseBtn
@@ -86,7 +106,9 @@ const Wrapper = styled.nav`
   padding: 0 24px;
   right: ${(props) => (props.sidebarOpen ? "0px" : "-360px")};
   z-index: 9999;
-  background: #6a795c;
+  background: ${(props) => (props.$publicMode
+    ? "var(--public-primary-color, #6a795c)"
+    : "var(--clinic-primary-color, #6a795c)")};
   @media (max-width: 400px) {
     width: 100%;
     right: ${(props) => (props.sidebarOpen ? "0px" : "-100%")};
@@ -101,6 +123,21 @@ const CloseBtn = styled.button`
   outline: none;
   background-color: transparent;
   padding: 10px;
+`;
+
+const NeutralMark = styled.span`
+  width: 40px;
+  height: 40px;
+  margin-right: 15px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  font-weight: 800;
+  letter-spacing: 0;
 `;
 
 const UlStyle = styled.ul`

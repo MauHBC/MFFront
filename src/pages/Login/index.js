@@ -10,11 +10,14 @@ import * as actions from "../../store/modules/auth/actions";
 import Loading from "../../components/Loading";
 import { useIsLoggedIn } from "../../hooks/useIsLoggedIn";
 import history from "../../services/history";
+import productIdentity from "../../config/productIdentity";
+import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 export default function Login() {
   const dispatch = useDispatch();
   const isLoggedIn = useIsLoggedIn();
   const isLoading = useSelector((state) => state.auth.isLoading);
+  const { displayName, logoSrc } = usePublicClinicContext();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
 
@@ -48,7 +51,9 @@ export default function Login() {
     <Container style={{ marginTop: "180px" }}>
       <Loading isLoading={isLoading} />
 
-      <h1>Login</h1>
+      {logoSrc && <img src={logoSrc} alt={displayName} style={{ maxHeight: "72px", objectFit: "contain" }} />}
+      <h1>{displayName}</h1>
+      <p>{productIdentity.subtitle}</p>
 
       <Form onSubmit={(e) => handleSubmit(e)}>
         <input

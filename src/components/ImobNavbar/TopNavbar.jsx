@@ -6,16 +6,20 @@ import { Link as RouterLink, useHistory } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Backdrop from "../Elements/Backdrop";
 
-// Assets
-import Logo from "../../assets/img/Logo.png";
 import BurgerIcon from "../../assets/svg/BurgerIcon";
 
 // Hooks
 import { useLogout } from "../../hooks/useLogout";
 import { useAuth } from "../../hooks/useAuth";
+import { useClinicContext } from "../../contexts/ClinicContext";
+import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 export default function TopNavbar() {
   const { isLoggedIn, username } = useAuth();
+  const { displayName: clinicName, logoSrc: clinicLogoSrc } = useClinicContext();
+  const { displayName: publicName, logoSrc: publicLogoSrc } = usePublicClinicContext();
+  const displayName = isLoggedIn ? clinicName : publicName;
+  const logoSrc = isLoggedIn ? clinicLogoSrc : publicLogoSrc;
   const handleLogout = useLogout();
   const [y, setY] = useState(window.scrollY);
   const [sidebarOpen, toggleSidebar] = useState(false);
@@ -37,9 +41,13 @@ export default function TopNavbar() {
       {sidebarOpen && <Backdrop toggleSidebar={toggleSidebar} />}
       <Wrapper className="flexCenter animate">
         <NavInner className="container flexSpaceCenter">
-          <LogoWrapper to="/">
-            <img src={Logo} alt="Espaço Cuidar Logo" />
-            <h1 className="font20 extraBold">Espaço Cuidar</h1>
+          <LogoWrapper to="/" $publicMode={!isLoggedIn}>
+            {logoSrc ? (
+              <img src={logoSrc} alt={`${displayName} Logo`} />
+            ) : (
+              <NeutralMark aria-hidden="true" $publicMode={!isLoggedIn}>SG</NeutralMark>
+            )}
+            <h1 className="font20 extraBold">{displayName}</h1>
           </LogoWrapper>
 
           <BurderWrapper onClick={() => toggleSidebar(!sidebarOpen)}>
@@ -103,8 +111,26 @@ const LogoWrapper = styled(RouterLink)`
   }
 
   h1 {
-    color: #A2B190;
+    color: ${(props) => (props.$publicMode
+    ? "var(--public-accent-color, #A2B190)"
+    : "var(--clinic-accent-color, #A2B190)")};
   }
+`;
+
+const NeutralMark = styled.span`
+  width: 40px;
+  height: 40px;
+  margin-right: 15px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: ${(props) => (props.$publicMode
+    ? "var(--public-primary-color, #6a795c)"
+    : "var(--clinic-primary-color, #6a795c)")};
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0;
 `;
 
 const BurderWrapper = styled.button`
@@ -145,7 +171,7 @@ const NavItem = styled.li`
 
   a,
   button {
-    color: #6a795c;
+    color: var(--clinic-primary-color, #6a795c);
     font-weight: 600;
   }
 `;
@@ -162,6 +188,6 @@ const NavButton = styled.button`
   border: none;
   padding: 0;
   cursor: pointer;
-  color: #6a795c;
+  color: var(--clinic-primary-color, #6a795c);
   font-weight: 600;
 `;

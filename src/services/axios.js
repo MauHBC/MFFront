@@ -2,15 +2,13 @@ import axios from "axios";
 import { toast } from "react-toastify";
 import * as authActions from "../store/modules/auth/actions";
 
+const configuredApiBaseUrl = process.env.REACT_APP_API_BASE_URL;
+const apiBaseURL = configuredApiBaseUrl?.trim()
+  ? configuredApiBaseUrl.trim().replace(/\/$/, "")
+  : "/api";
+
 const api = axios.create({
-  // testes locais notebook
-  // baseURL: "http://localhost:3001/api",
-
-  // testes locais desktop
-  // baseURL: "http://localhost:3006/api",
-
-  // producao
-  baseURL: "/api",
+  baseURL: apiBaseURL,
 });
 
 let responseInterceptorId = null;

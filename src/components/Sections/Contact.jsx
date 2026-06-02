@@ -1,75 +1,100 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 import React from "react";
 import styled from "styled-components";
-// Assets
-import { FaWhatsapp, FaInstagram } from "react-icons/fa";
-// import ContactImg1 from "../../assets/img/contact-1.png";
-// import ContactImg2 from "../../assets/img/contact-2.png";
-// import ContactImg3 from "../../assets/img/contact-3.png";
+import { FaInstagram, FaLock, FaUserShield, FaWhatsapp } from "react-icons/fa";
+import { getClinicPublicProfile } from "../../config/clinicPublicProfiles";
+import productIdentity from "../../config/productIdentity";
+import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 export default function Contact() {
+  const { publicClinic } = usePublicClinicContext();
+  const publicProfile = getClinicPublicProfile(publicClinic.clinic_id);
+  const hasPublicContact = Boolean(publicProfile);
+
   return (
     <Wrapper id="contact">
       <div className="lightBg">
         <div className="container">
           <HeaderInfo>
-            <h1 className="font40 extraBold">Contatos</h1>
+            <h1 className="font40 extraBold">
+              {publicProfile?.contact_title || "Acesso ao sistema"}
+            </h1>
           </HeaderInfo>
           <div className="row" style={{ paddingBottom: "30px" }}>
             <div className="col-xs-12 col-sm-12 col-md-6 col-lg-6">
-            <ButtonRow>
-              <div style={{ textAlign: "center" }}>
-                <Button
-                  href="https://wa.me/5527988252557?text=Olá%20EspacoCuidar%2C%20gostaria%20de%20mais%20informações."
-                  target="_blank"
-                  style={{background: 'transparent'}}
-                >
-                  <FaWhatsapp size={24} color="#25D366" />
-                </Button>
-                <span>55 27 99999-9999</span> {/* Número abaixo do ícone do WhatsApp */}
-              </div>
+              {hasPublicContact ? (
+                <>
+                  <ButtonRow>
+                    <div style={{ textAlign: "center" }}>
+                      {publicProfile.contact_whatsapp ? (
+                        <Button
+                          href={publicProfile.contact_whatsapp}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ background: "transparent" }}
+                        >
+                          <FaWhatsapp size={24} color="#25D366" />
+                        </Button>
+                      ) : (
+                        <InfoBadge>
+                          <FaWhatsapp size={24} color="#25D366" />
+                        </InfoBadge>
+                      )}
+                      <span>{publicProfile.contact_phone}</span>
+                    </div>
 
-              <div style={{ textAlign: "center" }}>
-                <Button
-                  href="https://www.instagram.com/multifisioreabilitacao/"
-                  target="_blank"
-                  style={{background: 'transparent'}}
-                >
-                  <FaInstagram size={24} color="#E1306C" />
-                </Button>
-                <span>Instagram</span> {/* Texto abaixo do ícone do Instagram */}
-              </div>
-            </ButtonRow>
-              <p style={{ textAlign: 'center'}}>
-                Rua Marquês de Monte Alegre - nº 5, Jardim da Penha, Vitória - ES.
-              </p>
+                    <div style={{ textAlign: "center" }}>
+                      {publicProfile.contact_instagram ? (
+                        <Button
+                          href={publicProfile.contact_instagram}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ background: "transparent" }}
+                        >
+                          <FaInstagram size={24} color="#E1306C" />
+                        </Button>
+                      ) : (
+                        <InfoBadge>
+                          <FaInstagram size={24} color="#E1306C" />
+                        </InfoBadge>
+                      )}
+                      <span>{publicProfile.contact_instagram_label}</span>
+                    </div>
+                  </ButtonRow>
+                  <p style={{ textAlign: "center" }}>
+                    {publicProfile.contact_address}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <ButtonRow>
+                    <div style={{ textAlign: "center" }}>
+                      <InfoBadge>
+                        <FaLock size={24} />
+                      </InfoBadge>
+                      <span>Login seguro</span>
+                    </div>
+
+                    <div style={{ textAlign: "center" }}>
+                      <InfoBadge>
+                        <FaUserShield size={24} />
+                      </InfoBadge>
+                      <span>Dados por clínica</span>
+                    </div>
+                  </ButtonRow>
+                  <p style={{ textAlign: "center" }}>
+                    {productIdentity.supportText}
+                  </p>
+                </>
+              )}
             </div>
-            <div className="col-xs-12 col-sm-12 col-md-6 col-lg-6 flex">
-              {/* <div
-                style={{ width: "50%" }}
-                className="flexNullCenter flexColumn"
-              >
-                <ContactImgBox>
-                  <img src={ContactImg1} alt="office" className="radius6" />
-                </ContactImgBox>
-                <ContactImgBox>
-                  <img src={ContactImg2} alt="office" className="radius6" />
-                </ContactImgBox>
-              </div>
-              <div style={{ width: "50%" }}>
-                <div style={{ marginTop: "100px" }}>
-                  <img src={ContactImg3} alt="office" className="radius6" />
-                </div> */}
-              {/* </div> */}
-            </div>
+            <div className="col-xs-12 col-sm-12 col-md-6 col-lg-6 flex" />
           </div>
         </div>
       </div>
     </Wrapper>
   );
 }
-
-// Estilização permanece a mesma
 
 const Wrapper = styled.section`
   width: 100%;
@@ -80,13 +105,6 @@ const HeaderInfo = styled.div`
     text-align: center;
   }
 `;
-
-// const ContactImgBox = styled.div`
-//   max-width: 180px;
-//   align-self: flex-end;
-//   margin: 10px 30px 10px 0;
-// `;
-
 const ButtonRow = styled.div`
   display: flex;
   justify-content: center;
@@ -94,7 +112,6 @@ const ButtonRow = styled.div`
   margin: 20px 0 10px;
   flex-wrap: wrap;
 `;
-
 const Button = styled.a`
   display: flex;
   align-items: center;
@@ -118,9 +135,30 @@ const Button = styled.a`
   }
 
   svg {
-    width: 60px;  /* Aumente o tamanho do ??cone */
-    height: 60px; /* Aumente o tamanho do ??cone */
-    margin-right: 8px; /* Espa??o entre ??cone e texto */
+    width: 60px;
+    height: 60px;
+    margin-right: 8px;
   }
 `;
+const InfoBadge = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 10px;
+  padding: 18px 22px;
+  border-radius: 10px;
+  background-color: #fff;
+  color: #1b1b1b;
+  text-decoration: none;
+  font-size: 18px;
+  border: 1px solid rgba(106, 121, 92, 0.25);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  cursor: default;
 
+  svg {
+    width: 60px;
+    height: 60px;
+    margin-right: 8px;
+    color: var(--public-primary-color, #6a795c);
+  }
+`;
