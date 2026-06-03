@@ -1,35 +1,99 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Helmet } from "react-helmet";
-import { Router } from "react-router-dom";
+import { Router, useLocation } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
-import { Provider } from "react-redux";
+import { Provider, useSelector } from "react-redux";
 import { PersistGate } from "redux-persist/integration/react";
+import PropTypes from "prop-types";
 
 import store, { persistor } from "./store";
 import history from "./services/history";
 import Routes from "./routes";
-import { ClinicProvider } from "./contexts/ClinicContext";
-import { PublicClinicProvider } from "./contexts/PublicClinicContext";
+import { ClinicProvider, useClinicContext } from "./contexts/ClinicContext";
+import { PublicClinicProvider, usePublicClinicContext } from "./contexts/PublicClinicContext";
 import productIdentity from "./config/productIdentity";
+import TenantLoading from "./components/TenantLoading";
+
+const AUTH_PUBLIC_PATHS = new Set(["/", "/login", "/login/"]);
+
+function InitialRenderGate({ children }) {
+  const location = useLocation();
+  const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
+  const {
+    loading: clinicLoading,
+    loaded: clinicLoaded,
+  } = useClinicContext();
+  const {
+    loading: publicLoading,
+    loaded: publicLoaded,
+  } = usePublicClinicContext();
+  const isAuthPublicPath = AUTH_PUBLIC_PATHS.has(location.pathname);
+
+  useEffect(() => {
+    if (isLoggedIn && clinicLoaded && isAuthPublicPath) {
+      history.replace("/menu");
+    }
+  }, [clinicLoaded, isAuthPublicPath, isLoggedIn]);
+
+  if (isLoggedIn) {
+    if (clinicLoading || !clinicLoaded || isAuthPublicPath) {
+      return <TenantLoading />;
+    }
+  }
+
+  if (!isLoggedIn && (publicLoading || !publicLoaded)) {
+    return <TenantLoading />;
+  }
+
+  return children;
+}
+
+InitialRenderGate.propTypes = {
+  children: PropTypes.node.isRequired,
+};
+
+function AppHelmet() {
+  const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
+  const {
+    displayName: clinicDisplayName,
+    loaded: clinicLoaded,
+  } = useClinicContext();
+  const {
+    displayName: publicDisplayName,
+    loaded: publicLoaded,
+  } = usePublicClinicContext();
+  let title = "Carregando...";
+  if (isLoggedIn && clinicLoaded && clinicDisplayName) {
+    title = clinicDisplayName;
+  } else if (!isLoggedIn && publicLoaded && publicDisplayName) {
+    title = publicDisplayName;
+  }
+
+  return (
+    <Helmet>
+      <title>{title}</title>
+      <meta name="description" content={productIdentity.description} />
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin />
+      <link
+        href="https://fonts.googleapis.com/css2?family=Khula:wght@400;600;800&display=swap"
+        rel="stylesheet"
+      />
+    </Helmet>
+  );
+}
 
 function App() {
   return (
     <Provider store={store}>
-      <PersistGate persistor={persistor}>
+      <PersistGate loading={<TenantLoading />} persistor={persistor}>
         <Router history={history}>
           <PublicClinicProvider>
             <ClinicProvider>
-              <Helmet>
-                <title>{productIdentity.name}</title>
-                <meta name="description" content={productIdentity.description} />
-                <link rel="preconnect" href="https://fonts.googleapis.com" />
-                <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin />
-                <link
-                  href="https://fonts.googleapis.com/css2?family=Khula:wght@400;600;800&display=swap"
-                  rel="stylesheet"
-                />
-              </Helmet>
-              <Routes />
+              <AppHelmet />
+              <InitialRenderGate>
+                <Routes />
+              </InitialRenderGate>
               <ToastContainer autoClose={2000} className="toats-container" />
             </ClinicProvider>
           </PublicClinicProvider>
