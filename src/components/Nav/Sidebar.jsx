@@ -5,23 +5,30 @@ import { Link as ScrollLink } from "react-scroll"; // Renomeando o Link do react
 import { Link as RouterLink } from "react-router-dom"; // Renomeando o Link do react-router-dom
 import CloseIcon from "../../assets/svg/CloseIcon";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
+import TenantLoading from "../TenantLoading";
 
 export default function Sidebar({ sidebarOpen, toggleSidebar }) {
-  const { displayName, logoSrc, publicClinic } = usePublicClinicContext();
+  const { displayName, loaded, loading, logoSrc, publicClinic } = usePublicClinicContext();
   const headerLogoSrc = publicClinic.logo_header_url || logoSrc;
+  const brandLoading = loading || !loaded;
+  let brandMark = <NeutralMark aria-hidden="true">SG</NeutralMark>;
+
+  if (brandLoading) {
+    brandMark = <TenantLoading compact />;
+  } else if (headerLogoSrc) {
+    brandMark = <LogoImg src={headerLogoSrc} alt={displayName} />;
+  }
 
   return (
     <Wrapper className="animate darkBg" sidebarOpen={sidebarOpen}>
       <SidebarHeader className="flexSpaceCenter">
         <div className="flexNullCenter">
-          {headerLogoSrc ? (
-            <LogoImg src={headerLogoSrc} alt={displayName} />
-          ) : (
-            <NeutralMark aria-hidden="true">SG</NeutralMark>
+          {brandMark}
+          {!brandLoading && (
+            <h1 className="whiteColor font20" style={{ marginLeft: "15px", color: "var(--public-accent-color, #A2B190)" }}>
+              {displayName}
+            </h1>
           )}
-          <h1 className="whiteColor font20" style={{ marginLeft: "15px", color: "var(--public-accent-color, #A2B190)" }}>
-            {displayName}
-          </h1>
         </div>
         <CloseBtn
           onClick={() => toggleSidebar(!sidebarOpen)}

@@ -6,39 +6,60 @@ import CloseIcon from "../../assets/svg/CloseIcon";
 import { useClinicContext } from "../../contexts/ClinicContext";
 import { useAuth } from "../../hooks/useAuth";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
+import TenantLoading from "../TenantLoading";
 
 
 export default function Sidebar({ sidebarOpen, toggleSidebar }) {
   const { isLoggedIn } = useAuth();
-  const { displayName: clinicName, logoSrc: clinicLogoSrc } = useClinicContext();
-  const { displayName: publicName, logoSrc: publicLogoSrc } = usePublicClinicContext();
+  const {
+    displayName: clinicName,
+    loaded: clinicLoaded,
+    loading: clinicLoading,
+    logoSrc: clinicLogoSrc,
+  } = useClinicContext();
+  const {
+    displayName: publicName,
+    loaded: publicLoaded,
+    loading: publicLoading,
+    logoSrc: publicLogoSrc,
+  } = usePublicClinicContext();
   const displayName = isLoggedIn ? clinicName : publicName;
   const logoSrc = isLoggedIn ? clinicLogoSrc : publicLogoSrc;
+  const brandLoading = isLoggedIn
+    ? clinicLoading || !clinicLoaded
+    : publicLoading || !publicLoaded;
+  let brandMark = <NeutralMark aria-hidden="true">SG</NeutralMark>;
+
+  if (brandLoading) {
+    brandMark = <TenantLoading compact />;
+  } else if (logoSrc) {
+    brandMark = (
+      <img
+        src={logoSrc}
+        alt={`${displayName} Logo`}
+        style={{ height: "40px", marginRight: "15px" }}
+      />
+    );
+  }
 
   return (
     <Wrapper className="animate" sidebarOpen={sidebarOpen} $publicMode={!isLoggedIn}>
       <SidebarHeader className="flexSpaceCenter">
         <div className="flexNullCenter">
-          {logoSrc ? (
-            <img
-              src={logoSrc}
-              alt={`${displayName} Logo`}
-              style={{ height: "40px", marginRight: "15px" }}
-            />
-          ) : (
-            <NeutralMark aria-hidden="true">SG</NeutralMark>
+          {brandMark}
+          {!brandLoading && (
+            <h1
+              className="whiteColor font20"
+              style={{
+                marginLeft: "15px",
+                color: isLoggedIn
+                  ? "var(--clinic-accent-color, #A2B190)"
+                  : "var(--public-accent-color, #A2B190)",
+              }}
+            >
+              {displayName}
+            </h1>
           )}
-          <h1
-            className="whiteColor font20"
-            style={{
-              marginLeft: "15px",
-              color: isLoggedIn
-                ? "var(--clinic-accent-color, #A2B190)"
-                : "var(--public-accent-color, #A2B190)",
-            }}
-          >
-            {displayName}
-          </h1>
         </div>
         <CloseBtn
           onClick={() => toggleSidebar(!sidebarOpen)}

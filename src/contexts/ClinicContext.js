@@ -30,11 +30,18 @@ const FALLBACK_CONTEXT = {
   has_branding: false,
 };
 
+const PENDING_CONTEXT = {
+  ...FALLBACK_CONTEXT,
+  operational_name: null,
+  public_name: null,
+};
+
 const ClinicContext = createContext({
-  clinic: FALLBACK_CONTEXT,
-  loading: false,
+  clinic: PENDING_CONTEXT,
+  loading: true,
+  loaded: false,
   error: null,
-  displayName: FALLBACK_CONTEXT.public_name,
+  displayName: null,
   logoSrc: null,
 });
 
@@ -59,8 +66,9 @@ function applyFavicon(faviconUrl) {
 
 export function ClinicProvider({ children }) {
   const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
-  const [clinic, setClinic] = useState(FALLBACK_CONTEXT);
-  const [loading, setLoading] = useState(false);
+  const [clinic, setClinic] = useState(PENDING_CONTEXT);
+  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -68,13 +76,16 @@ export function ClinicProvider({ children }) {
 
     async function loadClinicContext() {
       if (!isLoggedIn) {
-        setClinic(FALLBACK_CONTEXT);
+        setClinic(PENDING_CONTEXT);
         setError(null);
+        setLoading(false);
+        setLoaded(false);
         applyBrandingVariables(FALLBACK_CONTEXT);
         return;
       }
 
       setLoading(true);
+      setLoaded(false);
       setError(null);
 
       try {
@@ -103,7 +114,10 @@ export function ClinicProvider({ children }) {
         setClinic(FALLBACK_CONTEXT);
         applyBrandingVariables(FALLBACK_CONTEXT);
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          setLoaded(true);
+        }
       }
     }
 
@@ -117,10 +131,13 @@ export function ClinicProvider({ children }) {
   const value = useMemo(() => ({
     clinic,
     loading,
+    loaded,
     error,
-    displayName: clinic.public_name || clinic.operational_name || FALLBACK_CONTEXT.public_name,
-    logoSrc: clinic.clinic_id ? clinic.logo_url || Logo : null,
-  }), [clinic, error, loading]);
+    displayName: loaded
+      ? clinic.public_name || clinic.operational_name || FALLBACK_CONTEXT.public_name
+      : null,
+    logoSrc: loaded && clinic.clinic_id ? clinic.logo_url || Logo : null,
+  }), [clinic, error, loaded, loading]);
 
   return (
     <ClinicContext.Provider value={value}>

@@ -652,6 +652,87 @@ const formatOccurrenceDate = (dateOnly, startsAt) => {
   });
 };
 
+const OCCURRENCE_WEEKDAY_LABELS = [
+  "Domingo",
+  "Segunda",
+  "Terça",
+  "Quarta",
+  "Quinta",
+  "Sexta",
+  "Sábado",
+];
+
+const formatOccurrenceCompactLabel = (occurrence) => {
+  const dateLabel = formatOccurrenceDate(occurrence?.date, occurrence?.starts_at);
+  const startTime = String(occurrence?.start_time || "").slice(0, 5);
+  const hourLabel = startTime ? `${startTime.replace(":", "h")}` : "--h--";
+  const referenceDate = occurrence?.starts_at
+    ? new Date(occurrence.starts_at)
+    : new Date(`${occurrence?.date || ""}T00:00:00`);
+  const weekdayLabel = referenceDate && !Number.isNaN(referenceDate.getTime())
+    ? OCCURRENCE_WEEKDAY_LABELS[referenceDate.getDay()]
+    : "";
+  return [dateLabel, hourLabel, weekdayLabel].filter(Boolean).join(" · ");
+};
+
+const getOccurrenceTimeValue = (occurrence) => {
+  if (occurrence?.start_time) return String(occurrence.start_time).slice(0, 5);
+  if (!occurrence?.starts_at) return "";
+  const date = new Date(occurrence.starts_at);
+  if (Number.isNaN(date.getTime())) return "";
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${hour}:${minute}`;
+};
+
+const getOccurrenceDurationMinutes = (occurrence) => {
+  const startsAt = new Date(occurrence?.starts_at);
+  const endsAt = new Date(occurrence?.ends_at);
+  if (!Number.isNaN(startsAt.getTime()) && !Number.isNaN(endsAt.getTime())) {
+    const diff = Math.round((endsAt.getTime() - startsAt.getTime()) / 60000);
+    if (diff > 0) return diff;
+  }
+  return 60;
+};
+
+const buildEditedOccurrenceTimes = (occurrence, dateValue, timeValue) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateValue || ""))) return null;
+  if (!/^\d{2}:\d{2}$/.test(String(timeValue || ""))) return null;
+  const [year, month, day] = String(dateValue).split("-").map(Number);
+  const [hour, minute] = String(timeValue).split(":").map(Number);
+  const startsAt = new Date(year, month - 1, day, hour, minute, 0, 0);
+  if (Number.isNaN(startsAt.getTime())) return null;
+  const endsAt = new Date(startsAt.getTime() + getOccurrenceDurationMinutes(occurrence) * 60000);
+  return {
+    starts_at: startsAt.toISOString(),
+    ends_at: endsAt.toISOString(),
+  };
+};
+
+const toOccurrencePreviewPayload = (occurrence, seriesPayload = {}) => ({
+  starts_at: occurrence.starts_at,
+  ends_at: occurrence.ends_at,
+  professional_user_id:
+    occurrence.professional_user_id !== undefined
+      ? occurrence.professional_user_id
+      : seriesPayload.professional_user_id || null,
+  service_id:
+    occurrence.service_id !== undefined
+      ? occurrence.service_id
+      : seriesPayload.service_id || null,
+  service_type:
+    occurrence.service_type !== undefined
+      ? occurrence.service_type
+      : seriesPayload.service_type || null,
+});
+
+const sortOccurrencesByDateTime = (occurrences) =>
+  [...occurrences].sort((first, second) => {
+    const firstTime = new Date(first?.starts_at || 0).getTime();
+    const secondTime = new Date(second?.starts_at || 0).getTime();
+    return firstTime - secondTime;
+  });
+
 const WEEKDAY_OPTIONS = [
   { value: 1, label: "Seg" },
   { value: 2, label: "Ter" },
@@ -698,7 +779,7 @@ const emptyDeleteModal = {
   candidates: [],
   selectedIds: [],
   reason: "",
-  removalIntent: null,
+  removalIntent: "reschedule",
   keepForReschedule: true,
   confirmHardRemoval: false,
 };
@@ -2406,6 +2487,140 @@ export default function Agendamentos() {
     });
   }, []);
 
+  const handleStartEditPreviewOccurrence = useCallback((occurrence) => {
+    if (!occurrence?.index) return;
+    setRecurrencePreview((previous) => {
+      if (!previous) return previous;
+      return {
+        ...previous,
+        editing_index: occurrence.index,
+        edit_date: toDateInputValue(occurrence.starts_at || occurrence.date),
+        edit_time: getOccurrenceTimeValue(occurrence),
+        edit_error: "",
+      };
+    });
+  }, []);
+
+  const handleCancelEditPreviewOccurrence = useCallback(() => {
+    setRecurrencePreview((previous) => {
+      if (!previous) return previous;
+      return {
+        ...previous,
+        editing_index: null,
+        edit_date: "",
+        edit_time: "",
+        edit_error: "",
+      };
+    });
+  }, []);
+
+  const handleSaveEditPreviewOccurrence = useCallback(async (occurrence) => {
+    if (!occurrence?.index || !recurrencePreview) return;
+
+    const editedTimes = buildEditedOccurrenceTimes(
+      occurrence,
+      recurrencePreview.edit_date,
+      recurrencePreview.edit_time,
+    );
+
+    if (!editedTimes) {
+      setRecurrencePreview((previous) =>
+        previous
+          ? {
+            ...previous,
+            edit_error: "Informe data e horário válidos.",
+          }
+          : previous);
+      return;
+    }
+
+    const draftOccurrences = recurrencePreview.occurrences.map((item) =>
+      item.index === occurrence.index
+        ? {
+          ...item,
+          ...editedTimes,
+          manually_edited: true,
+        }
+        : item);
+    const sortedDraftOccurrences = sortOccurrencesByDateTime(draftOccurrences);
+
+    setRecurrencePreview((previous) =>
+      previous
+        ? {
+          ...previous,
+          is_editing_occurrence: true,
+          edit_error: "",
+        }
+        : previous);
+
+    try {
+      const response = await previewSchedulingOccurrences({
+        ...recurrencePreview.series_payload,
+        occurrences: sortedDraftOccurrences.map((item) =>
+          toOccurrencePreviewPayload(item, recurrencePreview.series_payload)),
+      });
+      const nextOccurrences = Array.isArray(response?.data?.occurrences_preview)
+        ? response.data.occurrences_preview.map((item, index) => ({
+          ...item,
+          manually_edited: !!sortedDraftOccurrences[index]?.manually_edited,
+        }))
+        : [];
+      const validIndexes = new Set(nextOccurrences.map((item) => item.index));
+      const previousSelectedSet = new Set(recurrencePreview.selected_indexes || []);
+      const selectedByStartsAt = new Set(
+        recurrencePreview.occurrences
+          .filter((item) => previousSelectedSet.has(item.index))
+          .map((item) => item.index === occurrence.index ? editedTimes.starts_at : item.starts_at),
+      );
+      const selectedIndexes = nextOccurrences
+        .filter((item) => {
+          if (!selectedByStartsAt.has(item.starts_at)) return false;
+          if (item.status === "BLOCK" && !item.can_override_block) return false;
+          return validIndexes.has(item.index);
+        })
+        .map((item) => item.index);
+      const confirmWarningIndexes = nextOccurrences
+        .filter((item) => selectedIndexes.includes(item.index) && item.status === "WARN_CONFIRM")
+        .map((item) => item.index);
+      const forceOverrideIndexes = nextOccurrences
+        .filter(
+          (item) =>
+            selectedIndexes.includes(item.index) &&
+            item.status === "BLOCK" &&
+            item.can_override_block,
+        )
+        .map((item) => item.index);
+
+      setRecurrencePreview((previous) =>
+        previous
+          ? {
+            ...previous,
+            occurrences: nextOccurrences,
+            summary: response?.data?.summary || previous.summary,
+            selected_indexes: selectedIndexes,
+            confirm_warning_indexes: confirmWarningIndexes,
+            force_override_indexes: forceOverrideIndexes,
+            editing_index: null,
+            edit_date: "",
+            edit_time: "",
+            edit_error: "",
+            is_editing_occurrence: false,
+          }
+          : previous);
+    } catch (error) {
+      setRecurrencePreview((previous) =>
+        previous
+          ? {
+            ...previous,
+            edit_error:
+              error?.response?.data?.error ||
+              "Não foi possível recalcular esta ocorrência.",
+            is_editing_occurrence: false,
+          }
+          : previous);
+    }
+  }, [recurrencePreview]);
+
   const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
     setFilters((prev) => ({ ...prev, [name]: value }));
@@ -2464,13 +2679,25 @@ export default function Agendamentos() {
   const handleConfirmRecurrenceCreation = useCallback(async () => {
     if (!recurrencePreview?.series_payload) return;
 
-    const selectedIndexes = recurrencePreview.selected_indexes || [];
-    if (selectedIndexes.length === 0) {
+    const selectedOccurrences = sortOccurrencesByDateTime(
+      (recurrencePreview.occurrences || []).filter((occurrence) =>
+        (recurrencePreview.selected_indexes || []).includes(occurrence.index)),
+    );
+    if (selectedOccurrences.length === 0) {
       toast.error("Selecione ao menos uma ocorrencia para criar.");
       return;
     }
 
-    const forceOverrideIndexes = recurrencePreview.force_override_indexes || [];
+    const selectedIndexPositionMap = new Map(
+      selectedOccurrences.map((occurrence, index) => [occurrence.index, index + 1]),
+    );
+    const selectedIndexes = selectedOccurrences.map((_, index) => index + 1);
+    const confirmWarningIndexes = (recurrencePreview.confirm_warning_indexes || [])
+      .map((index) => selectedIndexPositionMap.get(index))
+      .filter(Boolean);
+    const forceOverrideIndexes = (recurrencePreview.force_override_indexes || [])
+      .map((index) => selectedIndexPositionMap.get(index))
+      .filter(Boolean);
     const requiresOverrideReason = forceOverrideIndexes.length > 0;
     const overrideReason = (recurrencePreview.override_reason || "").trim();
 
@@ -2486,9 +2713,14 @@ export default function Agendamentos() {
     try {
       const response = await axios.post("/session-series", {
         ...recurrencePreview.series_payload,
+        starts_at: selectedOccurrences[0].starts_at,
+        occurrence_count: selectedOccurrences.length,
+        until_date: null,
         creation_mode: "selected_only",
         occurrence_indexes: selectedIndexes,
-        confirm_warning_indexes: recurrencePreview.confirm_warning_indexes || [],
+        occurrences: selectedOccurrences.map((item) =>
+          toOccurrencePreviewPayload(item, recurrencePreview.series_payload)),
+        confirm_warning_indexes: confirmWarningIndexes,
         force_override_indexes: forceOverrideIndexes,
         override_reason: requiresOverrideReason ? overrideReason : null,
       });
@@ -2757,9 +2989,10 @@ export default function Agendamentos() {
 			      setDeleteModal({
 			        ...emptyDeleteModal,
 			        open: true,
-			        step: isPackageRemoval ? "intent" : "choice",
-			        session: targetSession,
-			        keepForReschedule: isPackageRemoval,
+				        step: "choice",
+				        session: targetSession,
+                removalIntent: "reschedule",
+				        keepForReschedule: isPackageRemoval,
 			      });
 	    },
     [pendingSessionsSource, sessions],
@@ -3051,19 +3284,40 @@ export default function Agendamentos() {
 	    requiresHardRemovalConfirmation,
 	  ]);
 
-	  const handleRemovePackageFromAgenda = useCallback(
-	    async (scope) => {
-	      if (isDeleting) return;
-	      const sessionId = Number(deleteModal.session?.id);
-	      if (!sessionId) return;
+      const handlePackageRemovalIntentChange = useCallback((event) => {
+        const intent = event.target.value === "hard_delete" ? "hard_delete" : "reschedule";
+        setDeleteModal((previous) => ({
+          ...previous,
+          removalIntent: intent,
+          keepForReschedule: intent === "reschedule",
+        }));
+      }, []);
+
+      const handlePackageRemovalScopeChange = useCallback((event) => {
+        const mode = event.target.value === "series" ? "series" : "single";
+        setDeleteModal((previous) => ({
+          ...previous,
+          mode,
+        }));
+      }, []);
+
+		  const handleRemovePackageFromAgenda = useCallback(
+		    async () => {
+		      if (isDeleting) return;
+		      const sessionId = Number(deleteModal.session?.id);
+		      if (!sessionId) return;
+          const createReplacementCredits = deleteModal.removalIntent !== "hard_delete";
 
 	      setIsDeleting(true);
 	      try {
 	        const response = await axios.post("/sessions/remove-package-futures", {
 	          session_ids: [sessionId],
-	          reason: "Removido da agenda pelo usuário.",
-	          scope,
-	          auto_resolve: true,
+		          reason: createReplacementCredits
+                ? "Removido da agenda pelo usuário."
+                : "Exclusão definitiva de lançamento equivocado ou duplicado.",
+		          scope: deleteModal.mode,
+		          auto_resolve: true,
+              create_replacement_credits: createReplacementCredits,
 	        });
 	        const totalRemoved = Number(response?.data?.total_removed || 0);
 	        const totalReplacementCredits = Number(response?.data?.total_replacement_credits || 0);
@@ -3102,7 +3356,14 @@ export default function Agendamentos() {
 	        setIsDeleting(false);
 	      }
 	    },
-	    [deleteModal.session, isDeleting, loadPendingSessions, reloadVisibleSessions],
+		    [
+          deleteModal.mode,
+          deleteModal.removalIntent,
+          deleteModal.session,
+          isDeleting,
+          loadPendingSessions,
+          reloadVisibleSessions,
+        ],
 	  );
 
 	  const applySessionStatusLocally = useCallback(({ id, status, reason, updatedSession }) => {
@@ -3579,6 +3840,12 @@ export default function Agendamentos() {
         selectedPatientCreditId = Number(form.patient_credit_id);
       }
 
+      const editReason = normalizeText(form.notes);
+      const shouldUseEditReasonAsMonthlyRescheduleException =
+        editingId
+        && editingScheduleWasChanged
+        && editReason;
+
       const payload = {
         patient_id: Number(form.patient_id),
         professional_user_id: form.professional_user_id
@@ -3592,12 +3859,16 @@ export default function Agendamentos() {
         is_initial: editingId ? !!form.is_initial : false,
         starts_at: form.starts_at,
         ends_at: form.ends_at || null,
-        notes: normalizeText(form.notes),
+        notes: editReason,
         absence_reason: normalizeText(form.absence_reason),
         late_policy_exception_justified: !!form.late_policy_exception_justified,
         late_policy_exception_reason: normalizeText(form.late_policy_exception_reason),
-        monthly_reschedule_exception_justified: !!form.monthly_reschedule_exception_justified,
-        monthly_reschedule_exception_reason: normalizeText(form.monthly_reschedule_exception_reason),
+        monthly_reschedule_exception_justified:
+          !!form.monthly_reschedule_exception_justified
+          || !!shouldUseEditReasonAsMonthlyRescheduleException,
+        monthly_reschedule_exception_reason:
+          normalizeText(form.monthly_reschedule_exception_reason)
+          || (shouldUseEditReasonAsMonthlyRescheduleException ? editReason : null),
         cycle_reschedule_exception_justified: !!form.cycle_reschedule_exception_justified,
         cycle_reschedule_exception_reason: normalizeText(form.cycle_reschedule_exception_reason),
         session_replacement_credit_id: form.session_replacement_credit_id
@@ -3710,6 +3981,11 @@ export default function Agendamentos() {
             confirm_warning_indexes: [],
             force_override_indexes: [],
             override_reason: "",
+            editing_index: null,
+            edit_date: "",
+            edit_time: "",
+            edit_error: "",
+            is_editing_occurrence: false,
           });
         } catch (error) {
           const message =
@@ -4014,6 +4290,22 @@ export default function Agendamentos() {
     () => new Set(recurrencePreview?.selected_indexes || []),
     [recurrencePreview],
   );
+
+  const recurrenceSelectedOccurrences = useMemo(() => {
+    if (!recurrencePreview) return [];
+    return sortOccurrencesByDateTime(
+      recurrencePreview.occurrences.filter((occurrence) =>
+        recurrenceSelectedSet.has(occurrence.index)),
+    );
+  }, [recurrencePreview, recurrenceSelectedSet]);
+
+  const recurrenceSequenceMap = useMemo(() => {
+    const map = new Map();
+    recurrenceSelectedOccurrences.forEach((occurrence, index) => {
+      map.set(occurrence.index, index + 1);
+    });
+    return map;
+  }, [recurrenceSelectedOccurrences]);
 
   const recurrenceBlockedSelectedCount = useMemo(() => {
     if (!recurrencePreview) return 0;
@@ -6091,24 +6383,17 @@ export default function Agendamentos() {
           <ModalOverlay>
             <RecurrencePreviewCard>
               <ModalHeader>
-                <h3>Preview de recorrencia</h3>
+	                <h3>Revisar sessões</h3>
                 <IconButton type="button" onClick={closeRecurrencePreview}>
                   <FaTimes />
                 </IconButton>
               </ModalHeader>
               <RecurrencePreviewBody>
-                <RecurrenceSummaryGrid>
-                  <RecurrenceSummaryItem>
-                    <small>Total</small>
-                    <strong>{recurrencePreview?.summary?.total || 0}</strong>
-                  </RecurrenceSummaryItem>
-                  <RecurrenceSummaryItem>
-                    <small>Disponiveis</small>
-                    <strong>
-                      {(recurrencePreview?.summary?.available || 0) +
-                        (recurrencePreview?.summary?.info || 0)}
-                    </strong>
-                  </RecurrenceSummaryItem>
+	                <RecurrenceSummaryGrid>
+	                  <RecurrenceSummaryItem>
+		                    <small>Sessões selecionadas</small>
+	                    <strong>{recurrenceSelectedOccurrences.length}</strong>
+	                  </RecurrenceSummaryItem>
                   <RecurrenceSummaryItem $variant="warn">
                     <small>Alertas</small>
                     <strong>{recurrencePreview?.summary?.warn || 0}</strong>
@@ -6119,19 +6404,21 @@ export default function Agendamentos() {
                   </RecurrenceSummaryItem>
                 </RecurrenceSummaryGrid>
 
-                <RecurrenceHint>
-                  Selecione explicitamente o que sera criado. Nada e persistido sem confirmacao.
-                </RecurrenceHint>
+		                <RecurrenceSectionDivider>
+		                  <span>Sessões da recorrência</span>
+		                </RecurrenceSectionDivider>
 
                 <RecurrenceList>
-                  {recurrencePreview.occurrences.map((occurrence) => {
-                    const isSelected = recurrenceSelectedSet.has(occurrence.index);
-                    const isBlocked = occurrence.status === "BLOCK";
-                    const isSelectable =
-                      !isBlocked || occurrence.can_override_block;
-                    return (
-                      <RecurrenceRow
-                        key={`occ-${occurrence.index}`}
+	                  {recurrencePreview.occurrences.map((occurrence) => {
+	                    const isSelected = recurrenceSelectedSet.has(occurrence.index);
+	                    const isBlocked = occurrence.status === "BLOCK";
+	                    const isSelectable =
+	                      !isBlocked || occurrence.can_override_block;
+	                    const selectedPosition = recurrenceSequenceMap.get(occurrence.index);
+	                    const isEditing = recurrencePreview.editing_index === occurrence.index;
+	                    return (
+	                      <RecurrenceRow
+	                        key={`occ-${occurrence.index}`}
                         $status={occurrence.status}
                         $selected={isSelected}
                       >
@@ -6145,20 +6432,93 @@ export default function Agendamentos() {
                             }
                             onChange={() => handleTogglePreviewOccurrence(occurrence)}
                           />
-                        </RecurrenceRowSelect>
-                        <RecurrenceRowInfo>
-                          <strong>
-                            {formatOccurrenceDate(occurrence.date, occurrence.starts_at)}
-                            {" - "}
-                            {occurrence.start_time || "--:--"} ate{" "}
-                            {occurrence.end_time || "--:--"}
-                          </strong>
-                          <span>
-                            {OCCURRENCE_STATUS_LABELS[occurrence.status] ||
-                              occurrence.status}
-                          </span>
-                          {Array.isArray(occurrence.matched_events) &&
-                            occurrence.matched_events.length > 0 && (
+	                        </RecurrenceRowSelect>
+	                        <RecurrenceRowInfo>
+	                          <RecurrenceOccurrenceHeader>
+		                            <div>
+		                              <strong>
+		                                {formatOccurrenceCompactLabel(occurrence)}
+		                              </strong>
+		                              <span>
+	                                {OCCURRENCE_STATUS_LABELS[occurrence.status] ||
+	                                  occurrence.status}
+		                                {occurrence.manually_edited ? " · Alterada" : ""}
+		                              </span>
+		                            </div>
+		                            {isSelected && selectedPosition && (
+		                              <RecurrenceSequenceBadge>
+		                                {selectedPosition}/{recurrenceSelectedOccurrences.length}
+		                              </RecurrenceSequenceBadge>
+		                            )}
+		                            {!isEditing && (
+		                              <RecurrenceInlineButton
+	                                type="button"
+	                                onClick={() => handleStartEditPreviewOccurrence(occurrence)}
+	                                disabled={recurrencePreview.is_submitting}
+	                              >
+	                                Editar
+	                              </RecurrenceInlineButton>
+	                            )}
+	                          </RecurrenceOccurrenceHeader>
+	                          {isEditing && (
+	                            <RecurrenceEditBox>
+	                              <label htmlFor={`recurrence-edit-date-${occurrence.index}`}>
+	                                <span>Data</span>
+	                                <input
+	                                  id={`recurrence-edit-date-${occurrence.index}`}
+	                                  type="date"
+	                                  value={recurrencePreview.edit_date || ""}
+	                                  onChange={(event) =>
+	                                    setRecurrencePreview((previous) =>
+	                                      previous
+	                                        ? {
+	                                          ...previous,
+	                                          edit_date: event.target.value,
+	                                          edit_error: "",
+	                                        }
+	                                        : previous)}
+	                                />
+	                              </label>
+	                              <label htmlFor={`recurrence-edit-time-${occurrence.index}`}>
+	                                <span>Horário</span>
+	                                <input
+	                                  id={`recurrence-edit-time-${occurrence.index}`}
+	                                  type="time"
+	                                  value={recurrencePreview.edit_time || ""}
+	                                  onChange={(event) =>
+	                                    setRecurrencePreview((previous) =>
+	                                      previous
+	                                        ? {
+	                                          ...previous,
+	                                          edit_time: event.target.value,
+	                                          edit_error: "",
+	                                        }
+	                                        : previous)}
+	                                />
+	                              </label>
+	                              <RecurrenceEditActions>
+	                                <SecondaryButton
+	                                  type="button"
+	                                  onClick={handleCancelEditPreviewOccurrence}
+	                                  disabled={recurrencePreview.is_editing_occurrence}
+	                                >
+	                                  Cancelar
+	                                </SecondaryButton>
+	                                <PrimaryButton
+	                                  type="button"
+	                                  onClick={() => handleSaveEditPreviewOccurrence(occurrence)}
+	                                  disabled={recurrencePreview.is_editing_occurrence}
+	                                >
+	                                  {recurrencePreview.is_editing_occurrence ? "Salvando..." : "Salvar"}
+	                                </PrimaryButton>
+	                              </RecurrenceEditActions>
+	                              {recurrencePreview.edit_error && (
+	                                <small>{recurrencePreview.edit_error}</small>
+	                              )}
+	                            </RecurrenceEditBox>
+	                          )}
+	                          {Array.isArray(occurrence.matched_events) &&
+	                            occurrence.matched_events.length > 0 && (
                               <RecurrenceEventList>
                                 {occurrence.matched_events.map((event, index) => (
                                   <li key={`${occurrence.index}-${event.id || index}`}>
@@ -6209,9 +6569,13 @@ export default function Agendamentos() {
                 </SecondaryButton>
                 <PrimaryButton
                   type="button"
-                  onClick={handleConfirmRecurrenceCreation}
-                  disabled={recurrencePreview.is_submitting}
-                >
+	                  onClick={handleConfirmRecurrenceCreation}
+	                  disabled={
+	                    recurrencePreview.is_submitting ||
+	                    recurrencePreview.is_editing_occurrence ||
+	                    !!recurrencePreview.editing_index
+	                  }
+	                >
                   {recurrencePreview.is_submitting ? "Salvando..." : "Confirmar"}
                 </PrimaryButton>
               </ModalActions>
@@ -6426,8 +6790,9 @@ export default function Agendamentos() {
 	                )}
 	              </ModalHeader>
 	              <DeleteFlowBody>
-	                {isPackageDeleteFlow ? (
-	                  <PackageRemoveSummary>
+		                {isPackageDeleteFlow ? (
+                      <>
+		                    <PackageRemoveSummary>
 	                    <PackageRemoveEyebrow>Paciente</PackageRemoveEyebrow>
 	                    <PackageRemovePatient>{getPatientDisplayName(deleteModal.session)}</PackageRemovePatient>
 	                    <PackageRemoveMain>
@@ -6442,15 +6807,63 @@ export default function Agendamentos() {
 	                      {formatDate(deleteModal.session?.starts_at) || "-"} às{" "}
 	                      {formatTime(deleteModal.session?.starts_at) || "-"}
 	                    </PackageRemoveDate>
-	                    <PackageRemoveMeta>
-	                      <span>Profissional: {deleteModal.session?.professional?.name || "Profissional"}</span>
-	                      <span>Status: {getSessionStatusLabel(deleteModal.session?.status)}</span>
-	                    </PackageRemoveMeta>
-	                    <PackageRemoveNote>
-	                      Se houver pagamento vinculado, a sessão ficará pendente para remarcar.
-	                    </PackageRemoveNote>
-	                  </PackageRemoveSummary>
-	                ) : (
+		                    <PackageRemoveMeta>
+		                      <span>Profissional: {deleteModal.session?.professional?.name || "Profissional"}</span>
+		                      <span>Status: {getSessionStatusLabel(deleteModal.session?.status)}</span>
+		                    </PackageRemoveMeta>
+		                  </PackageRemoveSummary>
+                      <PackageRemoveDecisionGroup>
+                        <PackageRemoveQuestion>O que deseja fazer?</PackageRemoveQuestion>
+                        <PackageRemoveRadioOption>
+                          <input
+                            type="radio"
+                            name="package-removal-intent"
+                            value="reschedule"
+                            checked={deleteModal.removalIntent !== "hard_delete"}
+                            disabled={isDeleting}
+                            onChange={handlePackageRemovalIntentChange}
+                          />
+                          <span>Remover da agenda para remarcar depois</span>
+                        </PackageRemoveRadioOption>
+                        <PackageRemoveRadioOption>
+                          <input
+                            type="radio"
+                            name="package-removal-intent"
+                            value="hard_delete"
+                            checked={deleteModal.removalIntent === "hard_delete"}
+                            disabled={isDeleting}
+                            onChange={handlePackageRemovalIntentChange}
+                          />
+                          <span>Excluir lançamento definitivamente</span>
+                        </PackageRemoveRadioOption>
+                      </PackageRemoveDecisionGroup>
+                      <PackageRemoveDecisionGroup>
+                        <PackageRemoveQuestion>Aplicar em quais sessões?</PackageRemoveQuestion>
+                        <PackageRemoveRadioOption>
+                          <input
+                            type="radio"
+                            name="package-removal-scope"
+                            value="single"
+                            checked={deleteModal.mode !== "series"}
+                            disabled={isDeleting}
+                            onChange={handlePackageRemovalScopeChange}
+                          />
+                          <span>Somente esta sessão</span>
+                        </PackageRemoveRadioOption>
+                        <PackageRemoveRadioOption>
+                          <input
+                            type="radio"
+                            name="package-removal-scope"
+                            value="series"
+                            checked={deleteModal.mode === "series"}
+                            disabled={isDeleting}
+                            onChange={handlePackageRemovalScopeChange}
+                          />
+                          <span>Esta sessão e todas seguintes</span>
+                        </PackageRemoveRadioOption>
+	                      </PackageRemoveDecisionGroup>
+                      </>
+		                ) : (
 	                  <>
 				                {deleteModal.step === "intent" && (
 		                  <>
@@ -6788,30 +7201,23 @@ export default function Agendamentos() {
 	                )}
 	              </DeleteFlowBody>
 				              <ModalActions>
-				                {isPackageDeleteFlow ? (
-				                  <>
-				                    <PackageRemoveSecondaryAction
-				                      type="button"
-				                      onClick={() => handleRemovePackageFromAgenda("single")}
-				                      disabled={isDeleting}
-				                    >
-				                      {isDeleting ? <ButtonSpinner aria-hidden="true" /> : "Remover somente esta sessão"}
-				                    </PackageRemoveSecondaryAction>
-				                    <PackageRemovePrimaryAction
-				                      type="button"
-				                      onClick={() => handleRemovePackageFromAgenda("series")}
-				                      disabled={isDeleting}
-				                    >
-				                      {isDeleting ? <ButtonSpinner aria-hidden="true" /> : "Remover esta e próximas"}
-				                    </PackageRemovePrimaryAction>
-				                    <SecondaryButton
-				                      type="button"
-				                      onClick={handleCloseDelete}
-				                      disabled={isDeleting}
-				                    >
-				                      Cancelar
-				                    </SecondaryButton>
-				                  </>
+					                {isPackageDeleteFlow ? (
+					                  <>
+					                    <SecondaryButton
+					                      type="button"
+					                      onClick={handleCloseDelete}
+					                      disabled={isDeleting}
+					                    >
+					                      Cancelar
+					                    </SecondaryButton>
+					                    <PackageRemovePrimaryAction
+					                      type="button"
+					                      onClick={handleRemovePackageFromAgenda}
+					                      disabled={isDeleting}
+					                    >
+					                      {isDeleting ? <ButtonSpinner aria-hidden="true" /> : "Confirmar"}
+					                    </PackageRemovePrimaryAction>
+					                  </>
 				                ) : (
 				                  <>
 				                {deleteModal.step === "intent" && (
@@ -9210,6 +9616,23 @@ const RecurrenceHint = styled.p`
   font-size: 0.88rem;
 `;
 
+const RecurrenceSectionDivider = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #42523a;
+  font-size: 0.82rem;
+  font-weight: 800;
+
+  &::before,
+  &::after {
+    content: "";
+    height: 1px;
+    flex: 1;
+    background: rgba(106, 121, 92, 0.2);
+  }
+`;
+
 const RecurrenceList = styled.div`
   display: flex;
   flex-direction: column;
@@ -9265,6 +9688,89 @@ const RecurrenceRowInfo = styled.div`
   small {
     color: #6a795c;
     font-size: 0.77rem;
+  }
+`;
+
+const RecurrenceOccurrenceHeader = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: flex-start;
+  gap: 10px;
+
+  > div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+  }
+`;
+
+const RecurrenceSequenceBadge = styled.span`
+  justify-self: end;
+  color: #42523a;
+  font-size: 0.84rem;
+  font-weight: 800;
+  white-space: nowrap;
+`;
+
+const RecurrenceInlineButton = styled.button`
+  border: 0;
+  background: transparent;
+  color: #556649;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 2px 0;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+`;
+
+const RecurrenceEditBox = styled.div`
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(110px, 0.8fr) auto;
+  gap: 8px;
+  align-items: end;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  border-radius: 10px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.72);
+
+  label {
+    display: grid;
+    gap: 3px;
+  }
+
+  input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid rgba(106, 121, 92, 0.22);
+    border-radius: 8px;
+    padding: 7px 8px;
+    color: #1b1b1b;
+    font-size: 0.86rem;
+  }
+
+  small {
+    grid-column: 1 / -1;
+    color: #b42318;
+    font-weight: 700;
+  }
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const RecurrenceEditActions = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  button {
+    min-height: 34px;
+    padding: 7px 10px;
   }
 `;
 
@@ -9459,36 +9965,45 @@ const PackageRemoveMeta = styled.div`
   }
 `;
 
-const PackageRemoveNote = styled.small`
-  margin-top: 10px;
-  color: #6a795c;
-  font-size: 0.78rem;
-  font-weight: 700;
-  line-height: 1.4;
+const PackageRemoveDecisionGroup = styled.fieldset`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
 `;
 
-const PackageRemoveSecondaryAction = styled.button`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 10px 18px;
-  border-radius: 10px;
-  border-color: rgba(106, 121, 92, 0.28);
-  border-style: solid;
-  border-width: 1px;
-  background: #fff;
-  color: #516046;
-  font-weight: 700;
+const PackageRemoveQuestion = styled.legend`
+  margin-bottom: 2px;
+  color: #1b1b1b;
+  font-size: 0.92rem;
+  font-weight: 900;
+`;
 
-  &:hover:not(:disabled) {
-    background: #f6f8f3;
-    border-color: rgba(106, 121, 92, 0.45);
+const PackageRemoveRadioOption = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  border-radius: 8px;
+  background: #fff;
+  color: #263021;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.35;
+
+  input {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    accent-color: #6a795c;
   }
 
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
+  span {
+    min-width: 0;
   }
 `;
 

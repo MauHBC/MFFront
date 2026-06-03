@@ -12,12 +12,14 @@ import { useIsLoggedIn } from "../../hooks/useIsLoggedIn";
 import history from "../../services/history";
 import productIdentity from "../../config/productIdentity";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
+import TenantLoading from "../../components/TenantLoading";
 
 export default function Login() {
   const dispatch = useDispatch();
   const isLoggedIn = useIsLoggedIn();
   const isLoading = useSelector((state) => state.auth.isLoading);
-  const { displayName, logoSrc } = usePublicClinicContext();
+  const { displayName, loaded, loading, logoSrc } = usePublicClinicContext();
+  const brandLoading = loading || !loaded;
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
 
@@ -51,9 +53,15 @@ export default function Login() {
     <Container style={{ marginTop: "180px" }}>
       <Loading isLoading={isLoading} />
 
-      {logoSrc && <img src={logoSrc} alt={displayName} style={{ maxHeight: "72px", objectFit: "contain" }} />}
-      <h1>{displayName}</h1>
-      <p>{productIdentity.subtitle}</p>
+      {brandLoading ? (
+        <TenantLoading compact />
+      ) : (
+        <>
+          {logoSrc && <img src={logoSrc} alt={displayName} style={{ maxHeight: "72px", objectFit: "contain" }} />}
+          <h1>{displayName}</h1>
+          <p>{productIdentity.subtitle}</p>
+        </>
+      )}
 
       <Form onSubmit={(e) => handleSubmit(e)}>
         <input

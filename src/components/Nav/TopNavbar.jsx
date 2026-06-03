@@ -8,12 +8,21 @@ import Sidebar from "./Sidebar";
 import Backdrop from "../Elements/Backdrop";
 import BurgerIcon from "../../assets/svg/BurgerIcon";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
+import TenantLoading from "../TenantLoading";
 
 export default function TopNavbar() {
   const [y, setY] = useState(window.scrollY);
   const [sidebarOpen, toggleSidebar] = useState(false);
-  const { displayName, logoSrc, publicClinic } = usePublicClinicContext();
+  const { displayName, loaded, loading, logoSrc, publicClinic } = usePublicClinicContext();
   const headerLogoSrc = publicClinic.logo_header_url || logoSrc;
+  const brandLoading = loading || !loaded;
+  let brandMark = <NeutralMark aria-hidden="true">SG</NeutralMark>;
+
+  if (brandLoading) {
+    brandMark = <TenantLoading compact />;
+  } else if (headerLogoSrc) {
+    brandMark = <LogoImg src={headerLogoSrc} alt={displayName} />;
+  }
 
   useEffect(() => {
     window.addEventListener("scroll", () => setY(window.scrollY));
@@ -32,17 +41,15 @@ export default function TopNavbar() {
       >
         <NavInner className="container flexSpaceCenter">
           <ScrollLink className="pointer flexNullCenter" to="home" smooth>
-            {headerLogoSrc ? (
-              <LogoImg src={headerLogoSrc} alt={displayName} />
-            ) : (
-              <NeutralMark aria-hidden="true">SG</NeutralMark>
+            {brandMark}
+            {!brandLoading && (
+              <h1
+                style={{ marginLeft: "15px", color: "var(--public-accent-color, #A2B190)" }}
+                className="font20 extraBold"
+              >
+                {displayName}
+              </h1>
             )}
-            <h1
-              style={{ marginLeft: "15px", color: "var(--public-accent-color, #A2B190)" }}
-              className="font20 extraBold"
-            >
-              {displayName}
-            </h1>
           </ScrollLink>
           <BurderWrapper
             className="pointer"

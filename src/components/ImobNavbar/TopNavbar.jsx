@@ -5,6 +5,7 @@ import { Link as RouterLink, useHistory } from "react-router-dom";
 // Components
 import Sidebar from "./Sidebar";
 import Backdrop from "../Elements/Backdrop";
+import TenantLoading from "../TenantLoading";
 
 import BurgerIcon from "../../assets/svg/BurgerIcon";
 
@@ -16,15 +17,68 @@ import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 export default function TopNavbar() {
   const { isLoggedIn, username } = useAuth();
-  const { displayName: clinicName, logoSrc: clinicLogoSrc } = useClinicContext();
-  const { displayName: publicName, logoSrc: publicLogoSrc } = usePublicClinicContext();
-  const displayName = isLoggedIn ? clinicName : publicName;
-  const logoSrc = isLoggedIn ? clinicLogoSrc : publicLogoSrc;
+  const {
+    displayName: clinicName,
+    loaded: clinicLoaded,
+    loading: clinicLoading,
+    logoSrc: clinicLogoSrc,
+  } = useClinicContext();
+  const {
+    displayName: publicName,
+    loaded: publicLoaded,
+    loading: publicLoading,
+    logoSrc: publicLogoSrc,
+  } = usePublicClinicContext();
+  let displayName = publicName;
+  let logoSrc = publicLogoSrc;
+  let brandLoading = publicLoading || !publicLoaded;
+
+  if (isLoggedIn) {
+    displayName = clinicName;
+    logoSrc = clinicLogoSrc;
+    brandLoading = clinicLoading || !clinicLoaded;
+  }
+
+  let brandMark = <NeutralMark aria-hidden="true" $publicMode={!isLoggedIn}>SG</NeutralMark>;
+
+  if (brandLoading) {
+    brandMark = <TenantLoading compact />;
+  } else if (logoSrc) {
+    brandMark = <img src={logoSrc} alt={`${displayName} Logo`} />;
+  }
+
   const handleLogout = useLogout();
   const [y, setY] = useState(window.scrollY);
   const [sidebarOpen, toggleSidebar] = useState(false);
 
   const history = useHistory();
+  let authenticatedLinks = null;
+
+  if (isLoggedIn) {
+    authenticatedLinks = (
+      <>
+        <NavItem>
+          <NavButton type="button" onClick={history.goBack}>
+            Voltar
+          </NavButton>
+        </NavItem>
+
+        <NavItem>
+          <RouterLink to="/menu">Menu</RouterLink>
+        </NavItem>
+
+        <NavItem>
+          <RouterLink onClick={(e) => handleLogout(e)}>
+            Sair
+          </RouterLink>
+        </NavItem>
+
+        <UserInfo>
+          <span>Bem-vindo, {username}</span>
+        </UserInfo>
+      </>
+    );
+  }
 
   useEffect(() => {
     const handleScroll = () => setY(window.scrollY);
@@ -42,12 +96,8 @@ export default function TopNavbar() {
       <Wrapper className="flexCenter animate">
         <NavInner className="container flexSpaceCenter">
           <LogoWrapper to="/" $publicMode={!isLoggedIn}>
-            {logoSrc ? (
-              <img src={logoSrc} alt={`${displayName} Logo`} />
-            ) : (
-              <NeutralMark aria-hidden="true" $publicMode={!isLoggedIn}>SG</NeutralMark>
-            )}
-            <h1 className="font20 extraBold">{displayName}</h1>
+            {brandMark}
+            {!brandLoading && <h1 className="font20 extraBold">{displayName}</h1>}
           </LogoWrapper>
 
           <BurderWrapper onClick={() => toggleSidebar(!sidebarOpen)}>
@@ -55,31 +105,7 @@ export default function TopNavbar() {
           </BurderWrapper>
 
           <NavLinks>
-            {isLoggedIn ? (
-              <>
-
-              <NavItem>
-                <NavButton type="button" onClick={history.goBack}>
-                  Voltar
-                </NavButton>
-              </NavItem>
-              
-              <NavItem>
-                <RouterLink to="/menu">Menu</RouterLink>
-              </NavItem>
-
-              <NavItem>
-                <RouterLink onClick={(e) => handleLogout(e)}>
-                  Sair
-                </RouterLink>
-              </NavItem>
-
-              <UserInfo>
-                <span>Bem-vindo, {username}</span>
-              </UserInfo>
-              </>
-            ) : ""}
-
+            {authenticatedLinks}
           </NavLinks>
         </NavInner>
       </Wrapper>
