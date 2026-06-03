@@ -45,7 +45,46 @@ export default function Services() {
   const services = publicProfile?.services || defaultServices.items;
   const aboutTitle = publicProfile?.about_title || defaultAbout.title;
   const aboutText = publicProfile?.about_text || defaultAbout.paragraphs;
+  const aboutImage = publicProfile?.about_image_url || null;
   const aboutImages = publicProfile?.about_image_urls || null;
+  let aboutVisual = (
+    <AddRightInner>
+      {defaultAbout.cards.map((card) => (
+        <InfoCard key={card}>{card}</InfoCard>
+      ))}
+    </AddRightInner>
+  );
+
+  if (aboutImages) {
+    aboutVisual = (
+      <AddRightInner>
+        <div className="flexNullCenter">
+          <AddImgWrapp1 className="flexCenter">
+            <img src={aboutImages[0]} alt={`${aboutTitle} 1`} />
+          </AddImgWrapp1>
+          <AddImgWrapp2>
+            <img src={aboutImages[1]} alt={`${aboutTitle} 2`} />
+          </AddImgWrapp2>
+        </div>
+        <div className="flexNullCenter">
+          <AddImgWrapp3>
+            <img src={aboutImages[2]} alt={`${aboutTitle} 3`} />
+          </AddImgWrapp3>
+          <AddImgWrapp4>
+            <img src={aboutImages[3]} alt={`${aboutTitle} 4`} />
+          </AddImgWrapp4>
+        </div>
+      </AddRightInner>
+    );
+  }
+
+  if (aboutImage) {
+    aboutVisual = (
+      <AboutImagePanel>
+        <img src={aboutImage} alt={aboutTitle} />
+      </AboutImagePanel>
+    );
+  }
 
   return (
     <Wrapper id="services">
@@ -81,34 +120,7 @@ export default function Services() {
                   </p>
                 ))}
               </AddLeft>
-              <AddRight>
-                {aboutImages ? (
-                  <AddRightInner>
-                    <div className="flexNullCenter">
-                      <AddImgWrapp1 className="flexCenter">
-                        <img src={aboutImages[0]} alt={`${aboutTitle} 1`} />
-                      </AddImgWrapp1>
-                      <AddImgWrapp2>
-                        <img src={aboutImages[1]} alt={`${aboutTitle} 2`} />
-                      </AddImgWrapp2>
-                    </div>
-                    <div className="flexNullCenter">
-                      <AddImgWrapp3>
-                        <img src={aboutImages[2]} alt={`${aboutTitle} 3`} />
-                      </AddImgWrapp3>
-                      <AddImgWrapp4>
-                        <img src={aboutImages[3]} alt={`${aboutTitle} 4`} />
-                      </AddImgWrapp4>
-                    </div>
-                  </AddRightInner>
-                ) : (
-                  <AddRightInner>
-                    {defaultAbout.cards.map((card) => (
-                      <InfoCard key={card}>{card}</InfoCard>
-                    ))}
-                  </AddRightInner>
-                )}
-              </AddRight>
+              <AddRight>{aboutVisual}</AddRight>
             </Advertising>
           </div>
         </div>
@@ -189,6 +201,31 @@ const AddRightInner = styled.div`
   width: 100%;
   display: grid;
   gap: 14px;
+`;
+const AboutImagePanel = styled.div`
+  width: min(520px, 100%);
+  min-height: 420px;
+  margin-left: auto;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(6, 67, 51, 0.12);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+
+  img {
+    width: 100%;
+    max-height: 360px;
+    object-fit: contain;
+  }
+
+  @media (max-width: 860px) {
+    min-height: 300px;
+    margin: 0 auto;
+    padding: 28px;
+  }
 `;
 const InfoCard = styled.div`
   min-height: 82px;

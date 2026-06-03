@@ -12,20 +12,19 @@ const cmtPublicProfile = {
   accent_color: "#00B967",
   hero_title: "Fisioterapia e Reabilitação",
   hero_subtitle:
-    "Cuidado especializado para recuperar movimento, aliviar dores e melhorar sua qualidade de vida.",
-  hero_quote: "Movimento, força e reabilitação com acompanhamento profissional.",
+    "Devolvemos sua qualidade de vida por meio do movimento.",
+  hero_quote:
+    "Equipe qualificada e com experiência para te levar aos seus objetivos.",
   hero_quote_author: "Centro de Movimento",
-  hero_image_url: publicAsset("/assets/clinics/cmt/hero.svg"),
-  about_title: "Sobre o Centro de Movimento",
+  hero_image_url: publicAsset("/assets/clinics/cmt/hero-photo.jpg"),
+  about_title: "Sobre nós",
   about_text: [
-    "O Centro de Movimento atua com fisioterapia e reabilitação, oferecendo atendimento individualizado para auxiliar na recuperação funcional, melhora da mobilidade, alívio de dores e retorno seguro às atividades do dia a dia.",
+    "Somos o Centro de Movimento, Treinamento e Reabilitação, e nossa missão é transformar vidas por meio do movimento.",
+    "Aqui, oferecemos o que há de mais atualizado na Fisioterapia, focando na reabilitação eficaz, na prevenção de lesões e no desempenho físico. Seja você atleta ou alguém em busca de qualidade de vida, nosso trabalho é totalmente individualizado para atender suas necessidades e potencializar seus resultados.",
+    "🦴 Cuidado, ciência e movimento: tudo em um só lugar.",
+    "Nos acompanhe e venha fazer parte dessa transformação!",
   ],
-  about_image_urls: [
-    publicAsset("/assets/clinics/cmt/atendimento-1.svg"),
-    publicAsset("/assets/clinics/cmt/atendimento-2.svg"),
-    publicAsset("/assets/clinics/cmt/atendimento-3.svg"),
-    publicAsset("/assets/clinics/cmt/atendimento-4.svg"),
-  ],
+  about_image_url: publicAsset("/assets/clinics/cmt/about-logo.png"),
   services: [
     {
       icon: "physio",
