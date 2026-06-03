@@ -19,6 +19,7 @@ import PatientsNew from "../pages/PatientsNew";
 import PatientsSearch from "../pages/PatientsSearch";
 import PatientDetails from "../pages/PatientDetails";
 import Agendamentos from "../pages/Agendamentos";
+import Painel from "../pages/Dashboard";
 import PatientEvaluationNew from "../pages/PatientEvaluationNew";
 import PatientEvaluationDetails from "../pages/PatientEvaluationDetails";
 import ImobNavbar from "../components/ImobNavbar/TopNavbar";
@@ -56,6 +57,8 @@ export default function Routes() {
         <MyRoute exact path="/pacientes/:id/avaliacoes/:evaluationId" component={PatientEvaluationDetails} isClosed />
         <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed />
         <MyRoute exact path="/agendamentos/eventos" component={SchedulingEvents} isClosed />
+        <MyRoute exact path="/painel" component={Painel} isClosed />
+        <MyRoute exact path="/dashboard" component={Painel} isClosed />
         <MyRoute exact path="/financeiro" component={Financeiro} isClosed />
         <MyRoute
           exact

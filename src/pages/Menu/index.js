@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { FaCalendarAlt, FaUserFriends, FaMoneyBillWave, FaClipboardList } from "react-icons/fa";
+import { FaCalendarAlt, FaUserFriends, FaMoneyBillWave, FaClipboardList, FaChartLine } from "react-icons/fa";
 // Icone para exames: FaFileMedical
 import styled from "styled-components";
 import { isPlansModuleEnabled } from "../../config/features";
@@ -21,12 +21,12 @@ export default function Menu() {
               <span>Agenda</span>
             </div>
           </StyledLink>
-          <StyledLink to="/pacientes">
-            <IconBadge $bg="#edf1f7" $color="#5a6e8a">
-              <FaUserFriends size={24} />
+          <StyledLink to="/painel">
+            <IconBadge $bg="#edf4f2" $color="#517268">
+              <FaChartLine size={24} />
             </IconBadge>
             <div>
-              <span>Pacientes</span>
+              <span>Painel</span>
             </div>
           </StyledLink>
           {/* <StyledLink to="/laudos">
@@ -43,6 +43,14 @@ export default function Menu() {
             </IconBadge>
             <div>
               <span>Financeiro</span>
+            </div>
+          </StyledLink>
+          <StyledLink to="/pacientes">
+            <IconBadge $bg="#edf1f7" $color="#5a6e8a">
+              <FaUserFriends size={24} />
+            </IconBadge>
+            <div>
+              <span>Pacientes</span>
             </div>
           </StyledLink>
           {isPlansModuleEnabled && (
@@ -93,7 +101,9 @@ const Title = styled.div`
 
 const Nav = styled.nav`
   display: flex;
-  justify-content: space-around;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 16px;
   padding: 20px 0;
 `;
 

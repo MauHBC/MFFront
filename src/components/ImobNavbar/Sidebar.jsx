@@ -7,6 +7,7 @@ import { useClinicContext } from "../../contexts/ClinicContext";
 import { useAuth } from "../../hooks/useAuth";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import TenantLoading from "../TenantLoading";
+import { isPlansModuleEnabled } from "../../config/features";
 
 
 export default function Sidebar({ sidebarOpen, toggleSidebar }) {
@@ -71,21 +72,29 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
       <UlStyle className="flexSpaceCenter">
         <li className="semiBold font15 pointer flexCenter">
           <Link
-            to="/menu"
-            style={{ padding: "10px 15px", textDecoration: "none" }}
-            
-          >
-            Menu
-          </Link>
-        </li>
-
-        <li className="semiBold font15 pointer flexCenter">
-          <Link
             to="/agendamentos"
             style={{ padding: "10px 15px", textDecoration: "none" }}
             
           >
             Agenda
+          </Link>
+        </li>
+
+        <li className="semiBold font15 pointer flexCenter">
+          <Link
+            to="/painel"
+            style={{ padding: "10px 15px", textDecoration: "none" }}
+          >
+            Painel
+          </Link>
+        </li>
+
+        <li className="semiBold font15 pointer flexCenter">
+          <Link
+            to="/financeiro"
+            style={{ padding: "10px 15px", textDecoration: "none" }}
+          >
+            Financeiro
           </Link>
         </li>
 
@@ -98,6 +107,17 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
             Pacientes
           </Link>
         </li>
+
+        {isPlansModuleEnabled && (
+          <li className="semiBold font15 pointer flexCenter">
+            <Link
+              to="/planos"
+              style={{ padding: "10px 15px", textDecoration: "none" }}
+            >
+              Planos
+            </Link>
+          </li>
+        )}
 
         {/* <li className="semiBold font15 pointer flexCenter">
           <Link
