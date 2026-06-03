@@ -56,7 +56,7 @@ export default function Services() {
           </HeaderInfo>
           <ServiceBoxRow className="flex">
             {services.map((service) => (
-              <ServiceBoxWrapper key={service.title}>
+              <ServiceBoxWrapper key={service.title} $count={services.length}>
                 <ServiceBox
                   icon={service.icon}
                   title={service.title}
@@ -121,13 +121,15 @@ const Wrapper = styled.section`
   width: 100%;
 `;
 const ServiceBoxRow = styled.div`
+  gap: 5%;
+  flex-wrap: wrap;
   @media (max-width: 860px) {
     flex-direction: column;
   }
 `;
 const ServiceBoxWrapper = styled.div`
-  width: 20%;
-  margin-right: 5%;
+  width: ${(props) => (props.$count === 1 ? "320px" : "20%")};
+  max-width: 100%;
   padding: 80px 0;
   @media (max-width: 860px) {
     width: 100%;

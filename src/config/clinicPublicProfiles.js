@@ -2,6 +2,46 @@ const publicAsset = (path) => `${process.env.PUBLIC_URL || ""}${path}`;
 
 // Solução ponte: conteúdo público estático por clinic_id.
 // Migrar futuramente para clinic_public_profiles no banco.
+const cmtPublicProfile = {
+  public_name: "Centro de Movimento",
+  logo_url: publicAsset("/assets/clinics/cmt/logo.png"),
+  logo_header_url: publicAsset("/assets/clinics/cmt/logo-header.png"),
+  favicon_url: publicAsset("/assets/clinics/cmt/favicon.ico"),
+  primary_color: "#064333",
+  secondary_color: "#008F55",
+  accent_color: "#00B967",
+  hero_title: "Fisioterapia e Reabilitação",
+  hero_subtitle:
+    "Cuidado especializado para recuperar movimento, aliviar dores e melhorar sua qualidade de vida.",
+  hero_quote: "Movimento, força e reabilitação com acompanhamento profissional.",
+  hero_quote_author: "Centro de Movimento",
+  hero_image_url: publicAsset("/assets/clinics/cmt/hero.svg"),
+  about_title: "Sobre o Centro de Movimento",
+  about_text: [
+    "O Centro de Movimento atua com fisioterapia e reabilitação, oferecendo atendimento individualizado para auxiliar na recuperação funcional, melhora da mobilidade, alívio de dores e retorno seguro às atividades do dia a dia.",
+  ],
+  about_image_urls: [
+    publicAsset("/assets/clinics/cmt/atendimento-1.svg"),
+    publicAsset("/assets/clinics/cmt/atendimento-2.svg"),
+    publicAsset("/assets/clinics/cmt/atendimento-3.svg"),
+    publicAsset("/assets/clinics/cmt/atendimento-4.svg"),
+  ],
+  services: [
+    {
+      icon: "physio",
+      title: "Fisioterapia",
+      subtitle: "Atendimento especializado",
+    },
+  ],
+  services_title: "Serviços",
+  contact_title: "Contatos",
+  contact_phone: "(27) 98847-2156",
+  contact_whatsapp: "27988472156",
+  contact_instagram: "https://www.instagram.com/cmtreabilitacao/",
+  contact_instagram_label: "Instagram",
+  contact_address: "Rua Abiail do Amaral Carneiro, 191, Enseada do Suá, sala 611",
+};
+
 const clinicPublicProfiles = {
   1: {
     public_name: "Espaço Cuidar",
@@ -55,60 +95,8 @@ const clinicPublicProfiles = {
     contact_address:
       "Rua Marquês de Monte Alegre - nº 5, Jardim da Penha, Vitória - ES.",
   },
-  11: {
-    public_name: "CMT Reabilitação",
-    logo_url: publicAsset("/assets/clinics/cmt/logo.svg"),
-    favicon_url: publicAsset("/assets/clinics/cmt/favicon.svg"),
-    primary_color: "#1F6F68",
-    secondary_color: "#174A45",
-    accent_color: "#86C7BE",
-    hero_title: "Reabilitação Especializada",
-    hero_subtitle:
-      "Atendimento personalizado para recuperação, movimento e qualidade de vida.",
-    hero_quote: "Cuidado individualizado para cada etapa da reabilitação.",
-    hero_quote_author: "CMT Reabilitação",
-    hero_image_url: publicAsset("/assets/clinics/cmt/hero.svg"),
-    about_title: "Sobre a CMT",
-    about_text: [
-      "Perfil provisório da CMT Reabilitação. Substituir este texto pela apresentação real da clínica antes do deploy público definitivo.",
-      "Esta estrutura já está preparada para receber fotos, serviços, contatos e textos reais sem duplicar o sistema e sem depender do domínio.",
-    ],
-    about_image_urls: [
-      publicAsset("/assets/clinics/cmt/atendimento-1.svg"),
-      publicAsset("/assets/clinics/cmt/atendimento-2.svg"),
-      publicAsset("/assets/clinics/cmt/atendimento-3.svg"),
-      publicAsset("/assets/clinics/cmt/atendimento-4.svg"),
-    ],
-    services: [
-      {
-        icon: "physio",
-        title: "Fisioterapia",
-        subtitle: "Atendimento especializado",
-      },
-      {
-        icon: "pilates",
-        title: "Pilates",
-        subtitle: "Movimento, força e postura",
-      },
-      {
-        icon: "functional",
-        title: "Funcional",
-        subtitle: "Treino orientado para a rotina",
-      },
-      {
-        icon: "physio",
-        title: "Reabilitação",
-        subtitle: "Recuperação funcional personalizada",
-      },
-    ],
-    services_title: "Serviços",
-    contact_title: "Contatos",
-    contact_phone: "Telefone a definir",
-    contact_whatsapp: null,
-    contact_instagram: null,
-    contact_instagram_label: "Instagram a definir",
-    contact_address: "Endereço a definir",
-  },
+  3: cmtPublicProfile,
+  11: cmtPublicProfile,
 };
 
 export function getClinicPublicProfile(clinicId) {

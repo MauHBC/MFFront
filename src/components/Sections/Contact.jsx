@@ -6,10 +6,22 @@ import { getClinicPublicProfile } from "../../config/clinicPublicProfiles";
 import productIdentity from "../../config/productIdentity";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
+function buildWhatsappHref(contactWhatsapp) {
+  if (!contactWhatsapp) return null;
+  if (/^https?:\/\//i.test(contactWhatsapp)) return contactWhatsapp;
+
+  const digits = contactWhatsapp.replace(/\D/g, "");
+  if (!digits) return null;
+
+  const normalized = digits.startsWith("55") ? digits : `55${digits}`;
+  return `https://wa.me/${normalized}`;
+}
+
 export default function Contact() {
   const { publicClinic } = usePublicClinicContext();
   const publicProfile = getClinicPublicProfile(publicClinic.clinic_id);
   const hasPublicContact = Boolean(publicProfile);
+  const whatsappHref = buildWhatsappHref(publicProfile?.contact_whatsapp);
 
   return (
     <Wrapper id="contact">
@@ -26,9 +38,9 @@ export default function Contact() {
                 <>
                   <ButtonRow>
                     <div style={{ textAlign: "center" }}>
-                      {publicProfile.contact_whatsapp ? (
+                      {whatsappHref ? (
                         <Button
-                          href={publicProfile.contact_whatsapp}
+                          href={whatsappHref}
                           target="_blank"
                           rel="noreferrer"
                           style={{ background: "transparent" }}

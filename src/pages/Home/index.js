@@ -1,4 +1,5 @@
 import React from "react";
+import styled from "styled-components";
 import TopNavbar from "../../components/Nav/TopNavbar";
 import Header from "../../components/Sections/Header";
 import Services from "../../components/Sections/Services";
@@ -7,8 +8,15 @@ import Services from "../../components/Sections/Services";
 // import Pricing from "../../components/Sections/Pricing";
 import Contact from "../../components/Sections/Contact";
 import Footer from "../../components/Sections/Footer";
+import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 export default function HomePage() {
+  const { loading } = usePublicClinicContext();
+
+  if (loading) {
+    return <PublicLandingLoading aria-label="Carregando identidade da clínica" />;
+  }
+
   return (
     <>
       <TopNavbar />
@@ -22,3 +30,9 @@ export default function HomePage() {
     </>
   );
 }
+
+const PublicLandingLoading = styled.div`
+  min-height: 100vh;
+  width: 100%;
+  background: #fff;
+`;

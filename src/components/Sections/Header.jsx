@@ -50,8 +50,11 @@ export default function Header() {
                 </em>
               </p>
               <p
-                className="font13 orangeColor textRight"
-                style={{ marginTop: "10px" }}
+                className="font13 textRight"
+                style={{
+                  color: "var(--public-accent-color, #A2B190)",
+                  marginTop: "10px",
+                }}
               >
                 {publicProfile?.hero_quote_author || "Plataforma multi-clínica"}
               </p>

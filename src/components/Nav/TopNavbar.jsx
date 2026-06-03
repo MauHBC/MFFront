@@ -12,7 +12,8 @@ import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 export default function TopNavbar() {
   const [y, setY] = useState(window.scrollY);
   const [sidebarOpen, toggleSidebar] = useState(false);
-  const { displayName, logoSrc } = usePublicClinicContext();
+  const { displayName, logoSrc, publicClinic } = usePublicClinicContext();
+  const headerLogoSrc = publicClinic.logo_header_url || logoSrc;
 
   useEffect(() => {
     window.addEventListener("scroll", () => setY(window.scrollY));
@@ -31,8 +32,8 @@ export default function TopNavbar() {
       >
         <NavInner className="container flexSpaceCenter">
           <ScrollLink className="pointer flexNullCenter" to="home" smooth>
-            {logoSrc ? (
-              <LogoImg src={logoSrc} alt={displayName} />
+            {headerLogoSrc ? (
+              <LogoImg src={headerLogoSrc} alt={displayName} />
             ) : (
               <NeutralMark aria-hidden="true">SG</NeutralMark>
             )}
@@ -132,11 +133,16 @@ const NeutralMark = styled.span`
   letter-spacing: 0;
 `;
 const LogoImg = styled.img`
-  width: 42px;
-  height: 42px;
+  width: auto;
+  height: 54px;
+  max-width: 150px;
   object-fit: contain;
   padding: 0;
   margin-right: 15px;
+  @media (max-width: 560px) {
+    height: 46px;
+    max-width: 120px;
+  }
 `;
 const BurderWrapper = styled.button`
   outline: none;

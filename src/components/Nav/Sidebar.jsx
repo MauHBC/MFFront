@@ -7,14 +7,15 @@ import CloseIcon from "../../assets/svg/CloseIcon";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 export default function Sidebar({ sidebarOpen, toggleSidebar }) {
-  const { displayName, logoSrc } = usePublicClinicContext();
+  const { displayName, logoSrc, publicClinic } = usePublicClinicContext();
+  const headerLogoSrc = publicClinic.logo_header_url || logoSrc;
 
   return (
     <Wrapper className="animate darkBg" sidebarOpen={sidebarOpen}>
       <SidebarHeader className="flexSpaceCenter">
         <div className="flexNullCenter">
-          {logoSrc ? (
-            <LogoImg src={logoSrc} alt={displayName} />
+          {headerLogoSrc ? (
+            <LogoImg src={headerLogoSrc} alt={displayName} />
           ) : (
             <NeutralMark aria-hidden="true">SG</NeutralMark>
           )}
@@ -147,8 +148,9 @@ const NeutralMark = styled.span`
 `;
 
 const LogoImg = styled.img`
-  width: 42px;
-  height: 42px;
+  width: auto;
+  height: 54px;
+  max-width: 150px;
   object-fit: contain;
   padding: 0;
   margin-right: 15px;

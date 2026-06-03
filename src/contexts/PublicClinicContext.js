@@ -15,6 +15,7 @@ const DEFAULT_PUBLIC_CONTEXT = {
   has_public_tenant: false,
   public_name: productIdentity.name,
   logo_url: null,
+  logo_header_url: null,
   favicon_url: null,
   primary_color: "#6a795c",
   secondary_color: "#3d5230",
@@ -41,22 +42,23 @@ function normalizeContext(data) {
     ...data,
     has_public_tenant: Boolean(data?.has_public_tenant),
     public_name:
-      data?.public_name ||
       profile?.public_name ||
+      data?.public_name ||
       DEFAULT_PUBLIC_CONTEXT.public_name,
-    logo_url: data?.logo_url || profile?.logo_url || null,
-    favicon_url: data?.favicon_url || profile?.favicon_url || null,
+    logo_url: profile?.logo_url || data?.logo_url || null,
+    logo_header_url: profile?.logo_header_url || data?.logo_header_url || null,
+    favicon_url: profile?.favicon_url || data?.favicon_url || null,
     primary_color:
-      data?.primary_color ||
       profile?.primary_color ||
+      data?.primary_color ||
       DEFAULT_PUBLIC_CONTEXT.primary_color,
     secondary_color:
-      data?.secondary_color ||
       profile?.secondary_color ||
+      data?.secondary_color ||
       DEFAULT_PUBLIC_CONTEXT.secondary_color,
     accent_color:
-      data?.accent_color ||
       profile?.accent_color ||
+      data?.accent_color ||
       DEFAULT_PUBLIC_CONTEXT.accent_color,
   };
 }
@@ -82,14 +84,17 @@ function applyPublicFavicon(faviconUrl) {
 export function PublicClinicProvider({ children }) {
   const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
   const [publicClinic, setPublicClinic] = useState(DEFAULT_PUBLIC_CONTEXT);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     let active = true;
 
     async function loadPublicClinicContext() {
-      if (isLoggedIn) return;
+      if (isLoggedIn) {
+        setLoading(false);
+        return;
+      }
 
       setLoading(true);
       setError(null);
