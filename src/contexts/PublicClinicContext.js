@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import PropTypes from "prop-types";
 import { useSelector } from "react-redux";
+import { useLocation } from "react-router-dom";
 import axios from "../services/axios";
 import { getClinicPublicProfile } from "../config/clinicPublicProfiles";
 import productIdentity from "../config/productIdentity";
@@ -89,6 +90,8 @@ function applyPublicFavicon(faviconUrl) {
 
 export function PublicClinicProvider({ children }) {
   const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
+  const location = useLocation();
+  const shouldLoadPublicContext = !isLoggedIn || location.pathname === "/";
   const [publicClinic, setPublicClinic] = useState(PENDING_PUBLIC_CONTEXT);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -98,7 +101,7 @@ export function PublicClinicProvider({ children }) {
     let active = true;
 
     async function loadPublicClinicContext() {
-      if (isLoggedIn) {
+      if (!shouldLoadPublicContext) {
         setLoading(false);
         setLoaded(true);
         return;
@@ -138,7 +141,7 @@ export function PublicClinicProvider({ children }) {
     return () => {
       active = false;
     };
-  }, [isLoggedIn]);
+  }, [shouldLoadPublicContext]);
 
   const value = useMemo(() => ({
     publicClinic,

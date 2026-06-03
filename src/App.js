@@ -14,7 +14,8 @@ import { PublicClinicProvider, usePublicClinicContext } from "./contexts/PublicC
 import productIdentity from "./config/productIdentity";
 import TenantLoading from "./components/TenantLoading";
 
-const AUTH_PUBLIC_PATHS = new Set(["/", "/login", "/login/"]);
+const PUBLIC_LANDING_PATH = "/";
+const AUTH_REDIRECT_PATHS = new Set(["/login", "/login/"]);
 
 function InitialRenderGate({ children }) {
   const location = useLocation();
@@ -27,16 +28,25 @@ function InitialRenderGate({ children }) {
     loading: publicLoading,
     loaded: publicLoaded,
   } = usePublicClinicContext();
-  const isAuthPublicPath = AUTH_PUBLIC_PATHS.has(location.pathname);
+  const isPublicLandingPath = location.pathname === PUBLIC_LANDING_PATH;
+  const shouldRedirectAuthenticatedPath = AUTH_REDIRECT_PATHS.has(location.pathname);
 
   useEffect(() => {
-    if (isLoggedIn && clinicLoaded && isAuthPublicPath) {
+    if (isLoggedIn && clinicLoaded && shouldRedirectAuthenticatedPath) {
       history.replace("/menu");
     }
-  }, [clinicLoaded, isAuthPublicPath, isLoggedIn]);
+  }, [clinicLoaded, isLoggedIn, shouldRedirectAuthenticatedPath]);
+
+  if (isPublicLandingPath) {
+    if (publicLoading || !publicLoaded) {
+      return <TenantLoading />;
+    }
+
+    return children;
+  }
 
   if (isLoggedIn) {
-    if (clinicLoading || !clinicLoaded || isAuthPublicPath) {
+    if (clinicLoading || !clinicLoaded || shouldRedirectAuthenticatedPath) {
       return <TenantLoading />;
     }
   }
@@ -53,6 +63,7 @@ InitialRenderGate.propTypes = {
 };
 
 function AppHelmet() {
+  const location = useLocation();
   const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
   const {
     displayName: clinicDisplayName,
@@ -62,8 +73,11 @@ function AppHelmet() {
     displayName: publicDisplayName,
     loaded: publicLoaded,
   } = usePublicClinicContext();
+  const isPublicLandingPath = location.pathname === PUBLIC_LANDING_PATH;
   let title = "Carregando...";
-  if (isLoggedIn && clinicLoaded && clinicDisplayName) {
+  if (isPublicLandingPath && publicLoaded && publicDisplayName) {
+    title = publicDisplayName;
+  } else if (isLoggedIn && clinicLoaded && clinicDisplayName) {
     title = clinicDisplayName;
   } else if (!isLoggedIn && publicLoaded && publicDisplayName) {
     title = publicDisplayName;
