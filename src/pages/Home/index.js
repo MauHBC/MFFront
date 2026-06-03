@@ -11,9 +11,9 @@ import Footer from "../../components/Sections/Footer";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 export default function HomePage() {
-  const { loading } = usePublicClinicContext();
+  const { loaded, loading } = usePublicClinicContext();
 
-  if (loading) {
+  if (loading || !loaded) {
     return <PublicLandingLoading aria-label="Carregando identidade da clínica" />;
   }
 

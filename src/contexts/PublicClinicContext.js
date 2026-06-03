@@ -24,11 +24,17 @@ const DEFAULT_PUBLIC_CONTEXT = {
   domain_type: null,
 };
 
+const PENDING_PUBLIC_CONTEXT = {
+  ...DEFAULT_PUBLIC_CONTEXT,
+  public_name: null,
+};
+
 const PublicClinicContext = createContext({
-  publicClinic: DEFAULT_PUBLIC_CONTEXT,
-  loading: false,
+  publicClinic: PENDING_PUBLIC_CONTEXT,
+  loading: true,
+  loaded: false,
   error: null,
-  displayName: DEFAULT_PUBLIC_CONTEXT.public_name,
+  displayName: null,
   logoSrc: null,
 });
 
@@ -83,8 +89,9 @@ function applyPublicFavicon(faviconUrl) {
 
 export function PublicClinicProvider({ children }) {
   const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
-  const [publicClinic, setPublicClinic] = useState(DEFAULT_PUBLIC_CONTEXT);
+  const [publicClinic, setPublicClinic] = useState(PENDING_PUBLIC_CONTEXT);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -93,10 +100,12 @@ export function PublicClinicProvider({ children }) {
     async function loadPublicClinicContext() {
       if (isLoggedIn) {
         setLoading(false);
+        setLoaded(true);
         return;
       }
 
       setLoading(true);
+      setLoaded(false);
       setError(null);
 
       try {
@@ -117,7 +126,10 @@ export function PublicClinicProvider({ children }) {
         document.title = DEFAULT_PUBLIC_CONTEXT.public_name;
         applyPublicFavicon(DEFAULT_PUBLIC_CONTEXT.favicon_url);
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          setLoaded(true);
+        }
       }
     }
 
@@ -131,10 +143,13 @@ export function PublicClinicProvider({ children }) {
   const value = useMemo(() => ({
     publicClinic,
     loading,
+    loaded,
     error,
-    displayName: publicClinic.public_name || DEFAULT_PUBLIC_CONTEXT.public_name,
+    displayName: loaded
+      ? publicClinic.public_name || DEFAULT_PUBLIC_CONTEXT.public_name
+      : null,
     logoSrc: publicClinic.logo_url || null,
-  }), [error, loading, publicClinic]);
+  }), [error, loaded, loading, publicClinic]);
 
   return (
     <PublicClinicContext.Provider value={value}>
