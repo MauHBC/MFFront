@@ -39,32 +39,65 @@ const PublicClinicContext = createContext({
   logoSrc: null,
 });
 
+function normalizePublicProfile(profile) {
+  if (!profile) return null;
+
+  const services = Array.isArray(profile.services)
+    ? profile.services
+    : profile.services_json;
+  const aboutImageUrls = Array.isArray(profile.about_image_urls)
+    ? profile.about_image_urls
+    : null;
+  const aboutText = Array.isArray(profile.about_text)
+    ? profile.about_text
+    : String(profile.about_text || "")
+      .split(/\r?\n/)
+      .map((paragraph) => paragraph.trim())
+      .filter(Boolean);
+
+  return {
+    ...profile,
+    services: Array.isArray(services) ? services : profile.services,
+    about_text: aboutText.length > 0 ? aboutText : profile.about_text,
+    about_image_urls: aboutImageUrls,
+    contact_instagram_label:
+      profile.contact_instagram_label || (profile.contact_instagram ? "Instagram" : null),
+  };
+}
+
 function normalizeContext(data) {
-  const profile = data?.has_public_tenant
+  const apiProfile = normalizePublicProfile(data?.public_profile);
+  const staticProfile = data?.has_public_tenant
     ? getClinicPublicProfile(data?.clinic_id)
     : null;
+  const profile = apiProfile
+    ? { ...(staticProfile || {}), ...apiProfile }
+    : staticProfile;
+  const brandingProfile = apiProfile ? null : staticProfile;
 
   return {
     ...DEFAULT_PUBLIC_CONTEXT,
     ...data,
+    ...(profile || {}),
+    public_profile: profile || null,
     has_public_tenant: Boolean(data?.has_public_tenant),
     public_name:
-      profile?.public_name ||
+      brandingProfile?.public_name ||
       data?.public_name ||
       DEFAULT_PUBLIC_CONTEXT.public_name,
-    logo_url: profile?.logo_url || data?.logo_url || null,
-    logo_header_url: profile?.logo_header_url || data?.logo_header_url || null,
-    favicon_url: profile?.favicon_url || data?.favicon_url || null,
+    logo_url: brandingProfile?.logo_url || data?.logo_url || null,
+    logo_header_url: brandingProfile?.logo_header_url || data?.logo_header_url || null,
+    favicon_url: brandingProfile?.favicon_url || data?.favicon_url || null,
     primary_color:
-      profile?.primary_color ||
+      brandingProfile?.primary_color ||
       data?.primary_color ||
       DEFAULT_PUBLIC_CONTEXT.primary_color,
     secondary_color:
-      profile?.secondary_color ||
+      brandingProfile?.secondary_color ||
       data?.secondary_color ||
       DEFAULT_PUBLIC_CONTEXT.secondary_color,
     accent_color:
-      profile?.accent_color ||
+      brandingProfile?.accent_color ||
       data?.accent_color ||
       DEFAULT_PUBLIC_CONTEXT.accent_color,
   };

@@ -1,7 +1,6 @@
 import React from "react";
 import styled from "styled-components";
 import ServiceBox from "../Elements/ServiceBox";
-import { getClinicPublicProfile } from "../../config/clinicPublicProfiles";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 const defaultServices = {
@@ -40,7 +39,7 @@ const defaultAbout = {
 
 export default function Services() {
   const { publicClinic } = usePublicClinicContext();
-  const publicProfile = getClinicPublicProfile(publicClinic.clinic_id);
+  const publicProfile = publicClinic.public_profile;
   const servicesTitle = publicProfile?.services_title || defaultServices.title;
   const services = publicProfile?.services || defaultServices.items;
   const aboutTitle = publicProfile?.about_title || defaultAbout.title;
@@ -55,7 +54,7 @@ export default function Services() {
     </AddRightInner>
   );
 
-  if (aboutImages) {
+  if (aboutImages && aboutImages.length >= 4) {
     aboutVisual = (
       <AddRightInner>
         <div className="flexNullCenter">

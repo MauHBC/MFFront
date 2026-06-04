@@ -2,13 +2,12 @@ import React from "react";
 import styled from "styled-components";
 import QuotesIcon from "../../assets/svg/Quotes";
 import Dots from "../../assets/svg/Dots";
-import { getClinicPublicProfile } from "../../config/clinicPublicProfiles";
 import productIdentity from "../../config/productIdentity";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
 export default function Header() {
   const { displayName, publicClinic } = usePublicClinicContext();
-  const publicProfile = getClinicPublicProfile(publicClinic.clinic_id);
+  const publicProfile = publicClinic.public_profile;
 
   return (
     <Wrapper id="home" className="container flexSpaceCenter">

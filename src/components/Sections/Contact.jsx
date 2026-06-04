@@ -2,7 +2,6 @@
 import React from "react";
 import styled from "styled-components";
 import { FaInstagram, FaLock, FaUserShield, FaWhatsapp } from "react-icons/fa";
-import { getClinicPublicProfile } from "../../config/clinicPublicProfiles";
 import productIdentity from "../../config/productIdentity";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
@@ -19,7 +18,7 @@ function buildWhatsappHref(contactWhatsapp) {
 
 export default function Contact() {
   const { publicClinic } = usePublicClinicContext();
-  const publicProfile = getClinicPublicProfile(publicClinic.clinic_id);
+  const publicProfile = publicClinic.public_profile;
   const hasPublicContact = Boolean(publicProfile);
   const whatsappHref = buildWhatsappHref(publicProfile?.contact_whatsapp);
 
