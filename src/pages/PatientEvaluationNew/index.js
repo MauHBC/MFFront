@@ -6,7 +6,7 @@ import { toast } from "react-toastify";
 import axios from "../../services/axios";
 import DataLoadingState from "../../components/DataLoadingState";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
-import { LinkGhostButton } from "../../components/AppButton";
+import { LinkGhostButton, PrimaryButton } from "../../components/AppButton";
 import {
   ModuleHeader,
   ModuleTitle,
@@ -592,13 +592,21 @@ export default function PatientEvaluationNew() {
 
         {selectedTemplate && definition && (
           <HeaderActions>
-            <LinkGhostButton to={`/pacientes/${patientId}`}>Cancelar</LinkGhostButton>
+            <CancelButton
+              to={`/pacientes/${patientId}`}
+              aria-disabled={isSaving}
+              onClick={(event) => {
+                if (isSaving) event.preventDefault();
+              }}
+            >
+              Cancelar
+            </CancelButton>
             <SubmitButton
               type="submit"
               form={evaluationFormId}
               disabled={isSaving}
             >
-              Salvar registro
+              {isSaving ? <ButtonSpinner /> : "Finalizar"}
             </SubmitButton>
           </HeaderActions>
         )}
@@ -628,10 +636,9 @@ export default function PatientEvaluationNew() {
                 key={template.id}
                 type="button"
                 onClick={() => setSelectedTemplate(template)}
-              >
-                <h3>{template.title}</h3>
-                <span>{template.code}</span>
-              </TemplateCard>
+	              >
+	                <h3>{template.title}</h3>
+	              </TemplateCard>
             ))}
           </TemplatesGrid>
         )}
@@ -1016,16 +1023,46 @@ const InfoBox = styled.div`
   color: #1b1b1b;
 `;
 
-const SubmitButton = styled.button`
-  display: inline-flex;
-  align-items: center;
+const CancelButton = styled(LinkGhostButton)`
+  min-height: 38px;
+  padding: 9px 16px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, opacity 0.15s;
+
+  &:hover {
+    background: rgba(106, 121, 92, 0.06);
+    color: #6a795c;
+    text-decoration: none;
+  }
+
+  &[aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+`;
+
+const SubmitButton = styled(PrimaryButton)`
+  min-width: 96px;
+  min-height: 38px;
   justify-content: center;
-  padding: 10px 18px;
-  border-radius: 10px;
-  border: none;
-  background: #6a795c;
-  color: #fff;
-  font-weight: 700;
+`;
+
+const ButtonSpinner = styled.span`
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
 `;
 
 const EmptyState = styled.div`

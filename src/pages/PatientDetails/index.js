@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import styled, { css } from "styled-components";
 import { toast } from "react-toastify";
-import { FaInfoCircle, FaListAlt, FaPhoneAlt, FaTimes, FaUserAlt } from "react-icons/fa";
+import { FaInfoCircle, FaListAlt, FaPhoneAlt, FaPlus, FaTimes, FaUserAlt } from "react-icons/fa";
 
 import DataLoadingState from "../../components/DataLoadingState";
 import axios from "../../services/axios";
@@ -11,6 +11,7 @@ import {
   ModuleHeader,
   ModuleTitle,
 } from "../../components/AppModuleShell";
+import { PrimaryButton as SharedPrimaryButton } from "../../components/AppButton";
 import {
   calculateAgeFromBirthDate,
   formatBirthDateForApi,
@@ -114,6 +115,13 @@ const DEFAULT_OPERATIONAL_POLICY = {
 
 function resolveAttentionLevelStyles(level) {
   return ATTENTION_LEVEL_STYLES[level] || ATTENTION_LEVEL_STYLES.default;
+}
+
+function getEvaluationTemplateTitle(evaluation) {
+  const formInstances = evaluation?.FormInstances || evaluation?.form_instances || [];
+  const firstInstance = Array.isArray(formInstances) ? formInstances[0] : null;
+  const template = firstInstance?.FormTemplate || firstInstance?.form_template;
+  return template?.title || null;
 }
 
 function buildAttentionOptionStyle(level) {
@@ -574,7 +582,9 @@ export default function PatientDetails() {
   const latestEval = evaluations[0] || null;
   const summaryText = latestEval?.summary_text || latestEval?.summaryText || "";
   const planText = latestEval?.plan_text || latestEval?.planText || "";
-  const lastNote = summaryText || planText || "Nenhum registro encontrado.";
+  const lastRecordName = latestEval
+    ? getEvaluationTemplateTitle(latestEval) || summaryText || planText || "Avaliação"
+    : "Nenhum registro encontrado.";
   const lastDate = latestEval
     ? formatDate(latestEval.created_at || latestEval.createdAt)
     : "--/--/----";
@@ -990,13 +1000,6 @@ export default function PatientDetails() {
               {getPatientDisplayName(patient)}
             </HeaderTitle>
           </div>
-          <HeaderActions>
-            {patient && (
-              <AddLink to={`/pacientes/${id}/avaliacoes/nova`}>
-                Novo registro
-              </AddLink>
-            )}
-          </HeaderActions>
         </Header>
 
         <Tabs>
@@ -1051,7 +1054,7 @@ export default function PatientDetails() {
                 <FaListAlt /> Ultimo registro
               </CardTitle>
               <CardText>
-                {lastDate} - {lastNote}
+                {lastDate} - {lastRecordName}
               </CardText>
             </InfoCard>
             <InfoCard>
@@ -1247,12 +1250,23 @@ export default function PatientDetails() {
 
         {!isLoading && activeTab === TABS.prontuario && (
           <Section>
+            {patient && (
+              <ProntuarioActions>
+                <AddLink to={`/pacientes/${id}/avaliacoes/nova`}>
+                  <FaPlus />
+                  Novo registro
+                </AddLink>
+              </ProntuarioActions>
+            )}
             {evaluations.length === 0 && (
               <EmptyState>Nenhuma avaliação encontrada.</EmptyState>
             )}
             {evaluations.map((evaluation) => {
               const title =
-                evaluation.summary_text || evaluation.summaryText || "Avaliação";
+                getEvaluationTemplateTitle(evaluation) ||
+                evaluation.summary_text ||
+                evaluation.summaryText ||
+                "Avaliação";
               const note =
                 evaluation.plan_text ||
                 evaluation.planText ||
@@ -2055,22 +2069,18 @@ const HeaderTitle = styled(ModuleTitle)`
   margin-bottom: 0;
 `;
 
-const HeaderActions = styled.div`
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+const AddLink = styled(SharedPrimaryButton).attrs({ as: Link })`
+  text-decoration: none;
+
+  &:hover {
+    color: #fff;
+    text-decoration: none;
+  }
 `;
 
-const AddLink = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 18px;
-  border-radius: 10px;
-  background: #6a795c;
-  color: #fff;
-  text-decoration: none;
-  font-weight: 700;
+const ProntuarioActions = styled.div`
+  display: flex;
+  justify-content: flex-start;
 `;
 
 const Tabs = styled.div`
