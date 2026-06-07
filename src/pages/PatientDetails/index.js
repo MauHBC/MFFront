@@ -7,7 +7,6 @@ import { FaInfoCircle, FaListAlt, FaPhoneAlt, FaTimes, FaUserAlt } from "react-i
 import DataLoadingState from "../../components/DataLoadingState";
 import axios from "../../services/axios";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
-import { LinkGhostButton } from "../../components/AppButton";
 import {
   ModuleHeader,
   ModuleTitle,
@@ -25,6 +24,7 @@ import { getPatientDisplayName } from "../../utils/patientSearch";
 
 const TABS = {
   resumo: "resumo",
+  prontuario: "prontuario",
   historico: "historico",
   dados: "dados",
 };
@@ -731,6 +731,7 @@ export default function PatientDetails() {
   const isConsentEditing = editingSection === EDIT_SECTIONS.consent;
 
   const showResumo = useCallback(() => setActiveTab(TABS.resumo), []);
+  const showProntuario = useCallback(() => setActiveTab(TABS.prontuario), []);
   const showHistorico = useCallback(() => setActiveTab(TABS.historico), []);
   const showDados = useCallback(() => setActiveTab(TABS.dados), []);
   const closePackageModal = useCallback(() => setSelectedPackage(null), []);
@@ -990,10 +991,11 @@ export default function PatientDetails() {
             </HeaderTitle>
           </div>
           <HeaderActions>
-            {/* <AddLink to={`/pacientes/${id}/avaliacoes/nova`}>
-              Adicionar registro
-            </AddLink> */}
-            <LinkGhostButton to="/pacientes/consultar">Voltar</LinkGhostButton>
+            {patient && (
+              <AddLink to={`/pacientes/${id}/avaliacoes/nova`}>
+                Novo registro
+              </AddLink>
+            )}
           </HeaderActions>
         </Header>
 
@@ -1004,6 +1006,13 @@ export default function PatientDetails() {
             $active={activeTab === TABS.resumo}
           >
             Resumo
+          </TabButton>
+          <TabButton
+            type="button"
+            onClick={showProntuario}
+            $active={activeTab === TABS.prontuario}
+          >
+            Prontuário
           </TabButton>
           <TabButton
             type="button"
@@ -1233,18 +1242,23 @@ export default function PatientDetails() {
                 </PackageTableWrap>
               )}
             </InfoCard>
+          </Section>
+        )}
+
+        {!isLoading && activeTab === TABS.prontuario && (
+          <Section>
             {evaluations.length === 0 && (
-              <EmptyState>Nenhuma avaliacao encontrada.</EmptyState>
+              <EmptyState>Nenhuma avaliação encontrada.</EmptyState>
             )}
             {evaluations.map((evaluation) => {
               const title =
-                evaluation.summary_text || evaluation.summaryText || "Avaliacao";
+                evaluation.summary_text || evaluation.summaryText || "Avaliação";
               const note =
                 evaluation.plan_text ||
                 evaluation.planText ||
                 evaluation.summary_text ||
                 evaluation.summaryText ||
-                "Sem observacoes.";
+                "Sem observações.";
               const createdAt = formatDate(
                 evaluation.created_at || evaluation.createdAt,
               );
@@ -2047,17 +2061,17 @@ const HeaderActions = styled.div`
   flex-wrap: wrap;
 `;
 
-// const AddLink = styled(Link)`
-//   display: inline-flex;
-//   align-items: center;
-//   justify-content: center;
-//   padding: 10px 18px;
-//   border-radius: 10px;
-//   background: #6a795c;
-//   color: #fff;
-//   text-decoration: none;
-//   font-weight: 700;
-// `;
+const AddLink = styled(Link)`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: #6a795c;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+`;
 
 const Tabs = styled.div`
   display: flex;

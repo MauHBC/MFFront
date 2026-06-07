@@ -149,7 +149,12 @@ const formatAnswer = (block, answers) => {
     }
     if (Array.isArray(first.value_json)) {
       return first.value_json
-        .map((value) => optionLabelByValue(block, value) || String(value))
+        .map(
+          (value) =>
+            optionLabelById(block, value) ||
+            optionLabelByValue(block, value) ||
+            String(value),
+        )
         .join(", ");
     }
     return "";
@@ -293,9 +298,9 @@ export default function PatientEvaluationDetails() {
       setTemplateTitle(template.title || "Avaliacao");
 
       let definition = null;
-      if (template.code) {
+      if (templateId) {
         const defResponse = await axios.get(
-          `/form-templates/${template.code}/definition`,
+          `/form-templates/${templateId}/definition`,
         );
         definition = defResponse.data || null;
       }

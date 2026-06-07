@@ -111,6 +111,35 @@ const needsSingleInputLabel = (blockType) =>
 
 const buildInputId = (block) => `field-${block.id}`;
 
+const isFullWidthBlock = (block) =>
+  ["matrix", "table", "info"].includes(block?.type);
+
+const hiddenHelpTexts = new Set([
+  "Frase curta integrando história + exame.",
+  "Objetivos e abordagem inicial.",
+]);
+
+const shouldShowHelpText = (helpText) =>
+  Boolean(helpText) && !hiddenHelpTexts.has(helpText);
+
+const evaluationFormId = "patient-evaluation-form";
+
+const buildFieldClassName = (block, { isConclusion = false } = {}) => {
+  const classes = [];
+
+  if (isFullWidthBlock(block)) {
+    classes.push("span-full");
+  } else if (block.type === "textarea" && !isConclusion) {
+    classes.push("span-full");
+  }
+
+  if (isConclusion) {
+    classes.push("conclusion-field");
+  }
+
+  return classes.join(" ");
+};
+
 export default function PatientEvaluationNew() {
   const { id: patientId } = useParams();
   const history = useHistory();
@@ -121,10 +150,12 @@ export default function PatientEvaluationNew() {
   const [definition, setDefinition] = useState(null);
   const [activeSectionId, setActiveSectionId] = useState(null);
   const [answers, setAnswers] = useState({});
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     async function loadTemplates() {
       setIsLoading(true);
+      setLoadError("");
       try {
         const response = await axios.get("/form-templates");
         const list = Array.isArray(response.data) ? response.data : [];
@@ -133,6 +164,7 @@ export default function PatientEvaluationNew() {
         const message =
           error?.response?.data?.error ||
           "Não foi possível carregar os formulários.";
+        setLoadError(message);
         toast.error(message);
       } finally {
         setIsLoading(false);
@@ -146,6 +178,7 @@ export default function PatientEvaluationNew() {
     async function loadDefinition() {
       if (!selectedTemplate?.code) return;
       setIsLoading(true);
+      setLoadError("");
       try {
         const response = await axios.get(
           `/form-templates/${selectedTemplate.code}/definition`,
@@ -157,6 +190,7 @@ export default function PatientEvaluationNew() {
         const message =
           error?.response?.data?.error ||
           "Não foi possível carregar o formulário.";
+        setLoadError(message);
         toast.error(message);
       } finally {
         setIsLoading(false);
@@ -182,15 +216,20 @@ export default function PatientEvaluationNew() {
     );
   }, [orderedSections]);
 
-  const sectionsForTiles = useMemo(() => {
-    if (!conclusionSection) return orderedSections;
-    return orderedSections.filter((section) => section.id !== conclusionSection.id);
-  }, [conclusionSection, orderedSections]);
-
   const activeSection = useMemo(() => {
-    if (!activeSectionId) return null;
-    return orderedSections.find((section) => section.id === activeSectionId) || null;
+    if (!orderedSections.length) return null;
+    if (!activeSectionId) return orderedSections[0];
+    return (
+      orderedSections.find((section) => section.id === activeSectionId) ||
+      orderedSections[0]
+    );
   }, [activeSectionId, orderedSections]);
+
+  const isActiveConclusionSection = Boolean(
+    activeSection &&
+      conclusionSection &&
+      activeSection.id === conclusionSection.id,
+  );
 
   const handleChange = useCallback((block, value) => {
     setAnswers((prev) => ({ ...prev, [block.id]: value }));
@@ -320,61 +359,63 @@ export default function PatientEvaluationNew() {
 
     if (block.type === "matrix") {
       return (
-        <MatrixTable>
-          <thead>
-            <tr>
-              <th scope="col">Item</th>
-              {block.config?.choices?.map((choice) => (
-                <th key={choice.value}>{choice.label}</th>
-              ))}
-              <th>{block.config?.boolLabel || "Dor"}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {block.config?.rows?.map((row) => {
-              const current = answers[block.id] || {};
-              const rowValue = current[row.id] || {};
-              return (
-                <tr key={row.id}>
-                  <td>{row.label}</td>
-                  {block.config?.choices?.map((choice) => (
-                    <td key={choice.value}>
+        <MatrixWrap>
+          <MatrixTable>
+            <thead>
+              <tr>
+                <th scope="col">Item</th>
+                {block.config?.choices?.map((choice) => (
+                  <th key={choice.value}>{choice.label}</th>
+                ))}
+                <th>{block.config?.boolLabel || "Dor"}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {block.config?.rows?.map((row) => {
+                const current = answers[block.id] || {};
+                const rowValue = current[row.id] || {};
+                return (
+                  <tr key={row.id}>
+                    <td>{row.label}</td>
+                    {block.config?.choices?.map((choice) => (
+                      <td key={choice.value}>
+                        <input
+                          type="radio"
+                          name={`${fieldId}-${row.id}`}
+                          aria-label={`${row.label} ${choice.label}`}
+                          checked={rowValue[block.config?.choiceKey] === choice.value}
+                          onChange={() =>
+                            handleMatrixChange(
+                              block,
+                              row.id,
+                              block.config?.choiceKey,
+                              choice.value,
+                            )
+                          }
+                        />
+                      </td>
+                    ))}
+                    <td>
                       <input
-                        type="radio"
-                        name={`${fieldId}-${row.id}`}
-                        aria-label={`${row.label} ${choice.label}`}
-                        checked={rowValue[block.config?.choiceKey] === choice.value}
-                        onChange={() =>
+                        type="checkbox"
+                        aria-label={`${row.label} ${block.config?.boolLabel || "Dor"}`}
+                        checked={Boolean(rowValue[block.config?.boolKey])}
+                        onChange={(event) =>
                           handleMatrixChange(
                             block,
                             row.id,
-                            block.config?.choiceKey,
-                            choice.value,
+                            block.config?.boolKey,
+                            event.target.checked,
                           )
                         }
                       />
                     </td>
-                  ))}
-                  <td>
-                    <input
-                      type="checkbox"
-                      aria-label={`${row.label} ${block.config?.boolLabel || "Dor"}`}
-                      checked={Boolean(rowValue[block.config?.boolKey])}
-                      onChange={(event) =>
-                        handleMatrixChange(
-                          block,
-                          row.id,
-                          block.config?.boolKey,
-                          event.target.checked,
-                        )
-                      }
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </MatrixTable>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </MatrixTable>
+        </MatrixWrap>
       );
     }
 
@@ -449,11 +490,9 @@ export default function PatientEvaluationNew() {
             });
             break;
           case "multi_select":
-            value.forEach((optionId) => {
-              payloads.push({
-                form_question_id: questionId,
-                option_id: optionId,
-              });
+            payloads.push({
+              form_question_id: questionId,
+              value_json: value,
             });
             break;
           case "matrix":
@@ -540,15 +579,29 @@ export default function PatientEvaluationNew() {
       >
         <Header>
           <div>
-            <HeaderTitle>Novo registro</HeaderTitle>
-            <HeaderSubtitle>
+            <HeaderTitle>
               {selectedTemplate
-                ? `Formulario: ${selectedTemplate.title}`
-                : "Selecione um formulario e preencha."}
-            </HeaderSubtitle>
+                ? `Novo registro - ${selectedTemplate.title}`
+                : "Novo registro"}
+            </HeaderTitle>
+            {!selectedTemplate && (
+              <HeaderSubtitle>Selecione um formulario e preencha.</HeaderSubtitle>
+            )}
           </div>
-          <LinkGhostButton to={`/pacientes/${patientId}`}>Voltar</LinkGhostButton>
         </Header>
+
+        {selectedTemplate && definition && (
+          <HeaderActions>
+            <LinkGhostButton to={`/pacientes/${patientId}`}>Cancelar</LinkGhostButton>
+            <SubmitButton
+              type="submit"
+              form={evaluationFormId}
+              disabled={isSaving}
+            >
+              Salvar registro
+            </SubmitButton>
+          </HeaderActions>
+        )}
 
         {isLoading && (
           <SectionCard>
@@ -556,7 +609,19 @@ export default function PatientEvaluationNew() {
           </SectionCard>
         )}
 
-        {!isLoading && !selectedTemplate && (
+        {!isLoading && loadError && (
+          <SectionCard>
+            <EmptyState>{loadError}</EmptyState>
+          </SectionCard>
+        )}
+
+        {!isLoading && !loadError && !selectedTemplate && templates.length === 0 && (
+          <SectionCard>
+            <EmptyState>Nenhum formulário ativo disponível para o seu usuário.</EmptyState>
+          </SectionCard>
+        )}
+
+        {!isLoading && !loadError && !selectedTemplate && templates.length > 0 && (
           <TemplatesGrid>
             {templates.map((template) => (
               <TemplateCard
@@ -572,38 +637,48 @@ export default function PatientEvaluationNew() {
         )}
 
         {!isLoading && selectedTemplate && definition && (
-          <Form onSubmit={handleSubmit}>
-            {!activeSection && (
-              <>
-                <SectionsGrid>
-                  {sectionsForTiles.map((section) => (
-                    <SectionTile
+          <Form id={evaluationFormId} onSubmit={handleSubmit}>
+            {orderedSections.length === 0 && (
+              <SectionCard>
+                <EmptyState>Este formulário não possui seções.</EmptyState>
+              </SectionCard>
+            )}
+
+            {orderedSections.length > 0 && activeSection && (
+              <EvaluationLayout>
+                <SectionSidebar aria-label="Seções do formulário">
+                  {orderedSections.map((section) => (
+                    <SectionMenuButton
                       key={section.id}
                       type="button"
+                      className={section.id === activeSection.id ? "active" : ""}
                       onClick={() => setActiveSectionId(section.id)}
                     >
-                      <h3>{section.title}</h3>
-                      <span>
-                        {section.blocks?.length || 0} campos
-                      </span>
-                    </SectionTile>
+                      <span>{section.title}</span>
+                      <small>{section.blocks?.length || 0} campos</small>
+                    </SectionMenuButton>
                   ))}
-                </SectionsGrid>
-                {orderedSections.length === 0 && (
-                  <EmptyState>Este formulário não possui seções.</EmptyState>
-                )}
-                {conclusionSection && (
+                </SectionSidebar>
+
+                <SectionPanel>
+                  <SectionNav>
+                    <SectionTitle>{activeSection.title}</SectionTitle>
+                  </SectionNav>
+
                   <SectionCard>
-                    <SectionTitle>{conclusionSection.title}</SectionTitle>
-                    <SectionGrid>
-                      {conclusionSection.blocks.map((block) => {
+                    <SectionGrid
+                      className={isActiveConclusionSection ? "conclusion-grid" : ""}
+                    >
+                      {activeSection.blocks.map((block) => {
                         const fieldId = buildInputId(block);
                         const labelId = `${fieldId}-label`;
                         const isSingleInput = needsSingleInputLabel(block.type);
                         return (
                           <Field
                             key={block.id}
-                            className={block.type === "textarea" ? "span-2" : ""}
+                            className={buildFieldClassName(block, {
+                              isConclusion: isActiveConclusionSection,
+                            })}
                           >
                             {isSingleInput ? (
                               <FieldLabel htmlFor={fieldId} id={labelId}>
@@ -616,65 +691,17 @@ export default function PatientEvaluationNew() {
                                 {block.required ? " *" : ""}
                               </FieldLabel>
                             )}
-                            {block.helpText && <small>{block.helpText}</small>}
+                            {shouldShowHelpText(block.helpText) && (
+                              <small>{block.helpText}</small>
+                            )}
                             {renderBlockInput(block, fieldId)}
                           </Field>
                         );
                       })}
                     </SectionGrid>
                   </SectionCard>
-                )}
-                <Actions>
-                  <LinkGhostButton to={`/pacientes/${patientId}`}>Cancelar</LinkGhostButton>
-                  <SubmitButton type="submit" disabled={isSaving}>
-                    Salvar registro
-                  </SubmitButton>
-                </Actions>
-              </>
-            )}
-
-            {activeSection && (
-              <>
-                <SectionNav>
-                  <SectionBack
-                    type="button"
-                    onClick={() => setActiveSectionId(null)}
-                  >
-                    Voltar as secoes
-                  </SectionBack>
-                  <SectionTitle>{activeSection.title}</SectionTitle>
-                </SectionNav>
-
-                <SectionCard>
-                  <SectionGrid>
-                    {activeSection.blocks.map((block) => {
-                      const fieldId = buildInputId(block);
-                      const labelId = `${fieldId}-label`;
-                      const isSingleInput = needsSingleInputLabel(block.type);
-                      return (
-                        <Field
-                          key={block.id}
-                          className={block.type === "textarea" ? "span-2" : ""}
-                        >
-                          {isSingleInput ? (
-                            <FieldLabel htmlFor={fieldId} id={labelId}>
-                              {block.label}
-                              {block.required ? " *" : ""}
-                            </FieldLabel>
-                          ) : (
-                            <FieldLabel as="div" id={labelId}>
-                              {block.label}
-                              {block.required ? " *" : ""}
-                            </FieldLabel>
-                          )}
-                          {block.helpText && <small>{block.helpText}</small>}
-                          {renderBlockInput(block, fieldId)}
-                        </Field>
-                      );
-                    })}
-                  </SectionGrid>
-                </SectionCard>
-              </>
+                </SectionPanel>
+              </EvaluationLayout>
             )}
 
           </Form>
@@ -689,7 +716,7 @@ const Header = styled(ModuleHeader)`
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 8px;
 
   @media (max-width: 720px) {
     flex-direction: column;
@@ -702,6 +729,18 @@ const HeaderTitle = styled(ModuleTitle)`
 
 const HeaderSubtitle = styled(ModuleSubtitle)`
   margin-top: 0;
+`;
+
+const HeaderActions = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+
+  @media (max-width: 720px) {
+    justify-content: flex-start;
+  }
 `;
 
 const TemplatesGrid = styled.div`
@@ -729,43 +768,86 @@ const TemplateCard = styled.button`
   }
 `;
 
-const SectionsGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 16px;
-`;
-
-const SectionTile = styled.button`
-  border: 1px solid rgba(106, 121, 92, 0.2);
-  border-radius: 16px;
-  padding: 18px;
-  background: #fff;
-  cursor: pointer;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.05);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 140px;
-  aspect-ratio: 1 / 1;
-
-  h3 {
-    margin: 0;
-    color: #1b1b1b;
-    text-align: center;
-  }
-
-  span {
-    color: #6a795c;
-    font-size: 0.85rem;
-  }
-`;
-
 const Form = styled.form`
   display: flex;
   flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+`;
+
+const EvaluationLayout = styled.div`
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  align-items: start;
   gap: 18px;
+  min-width: 0;
+
+  @media (max-width: 860px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+`;
+
+const SectionSidebar = styled.nav`
+  position: sticky;
+  top: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+
+  @media (max-width: 860px) {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-height: none;
+    padding-bottom: 4px;
+  }
+`;
+
+const SectionMenuButton = styled.button`
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  border-radius: 12px;
+  background: #fff;
+  color: #1b1b1b;
+  cursor: pointer;
+  padding: 12px 14px;
+  text-align: left;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+
+  span,
+  small {
+    display: block;
+  }
+
+  span {
+    font-weight: 800;
+  }
+
+  small {
+    margin-top: 4px;
+    color: #6a795c;
+    font-size: 0.78rem;
+  }
+
+  &.active {
+    border-color: rgba(106, 121, 92, 0.55);
+    background: #f7f9f4;
+    color: #3f4d37;
+  }
+
+  @media (max-width: 860px) {
+    flex: 0 0 160px;
+  }
+`;
+
+const SectionPanel = styled.div`
+  min-width: 0;
 `;
 
 const SectionCard = styled.div`
@@ -774,25 +856,20 @@ const SectionCard = styled.div`
   border: 1px solid rgba(106, 121, 92, 0.18);
   padding: 18px;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
+  min-width: 0;
 `;
 
 const SectionNav = styled.div`
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
   flex-wrap: wrap;
-`;
 
-const SectionBack = styled.button`
-  border: none;
-  background: #fff;
-  color: #6a795c;
-  border: 1px solid rgba(106, 121, 92, 0.3);
-  border-radius: 10px;
-  padding: 8px 14px;
-  font-weight: 600;
-  cursor: pointer;
+  h2 {
+    margin-bottom: 0;
+  }
 `;
 
 const SectionTitle = styled.h2`
@@ -802,34 +879,75 @@ const SectionTitle = styled.h2`
 
 const SectionGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+
+  &.conclusion-grid {
+    align-items: start;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (max-width: 780px) {
+    grid-template-columns: minmax(0, 1fr);
+
+    &.conclusion-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
 `;
 
 const Field = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   font-size: 0.9rem;
   color: #1b1b1b;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 
-  &.span-2 {
-    grid-column: span 2;
+  &.span-full {
+    grid-column: 1 / -1;
   }
 
   small {
     color: #6a795c;
+    line-height: 1.35;
   }
 
   input,
   select,
   textarea {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
     border-radius: 10px;
     border: 1px solid rgba(106, 121, 92, 0.2);
     padding: 10px 12px;
     font-size: 0.95rem;
     color: #1b1b1b;
     background: #fff;
+  }
+
+  textarea {
+    min-height: 72px;
+    resize: vertical;
+    line-height: 1.45;
+  }
+
+  input[type="radio"],
+  input[type="checkbox"] {
+    width: auto;
+    min-width: 0;
+    padding: 0;
+    accent-color: #6a795c;
+  }
+
+  &.conclusion-field textarea {
+    min-height: 76px;
   }
 `;
 
@@ -842,6 +960,7 @@ const MultiList = styled.div`
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 
   label {
     display: flex;
@@ -851,20 +970,42 @@ const MultiList = styled.div`
   }
 `;
 
+const MatrixWrap = styled.div`
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  border-radius: 12px;
+  background: #fcfdf8;
+`;
+
 const MatrixTable = styled.table`
   width: 100%;
+  min-width: 620px;
   border-collapse: collapse;
+  background: #fff;
 
   th,
   td {
     border: 1px solid rgba(106, 121, 92, 0.2);
-    padding: 6px;
+    padding: 10px;
     text-align: center;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  th {
+    background: #f7f9f4;
+    color: #55644c;
+    font-size: 0.78rem;
+    font-weight: 800;
   }
 
   th:first-child,
   td:first-child {
     text-align: left;
+    min-width: 170px;
+    white-space: normal;
   }
 `;
 
@@ -873,13 +1014,6 @@ const InfoBox = styled.div`
   border-radius: 10px;
   background: rgba(162, 177, 144, 0.2);
   color: #1b1b1b;
-`;
-
-const Actions = styled.div`
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
-  flex-wrap: wrap;
 `;
 
 const SubmitButton = styled.button`

@@ -1,10 +1,11 @@
 import React from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import CloseIcon from "../../assets/svg/CloseIcon";
 import { useClinicContext } from "../../contexts/ClinicContext";
 import { useAuth } from "../../hooks/useAuth";
+import { useLogout } from "../../hooks/useLogout";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import TenantLoading from "../TenantLoading";
 import { isPlansModuleEnabled } from "../../config/features";
@@ -12,11 +13,15 @@ import { isPlansModuleEnabled } from "../../config/features";
 
 export default function Sidebar({ sidebarOpen, toggleSidebar }) {
   const { isLoggedIn } = useAuth();
+  const location = useLocation();
+  const handleLogout = useLogout();
+  const isPlatformRoute = location.pathname.startsWith("/platform");
   const {
     displayName: clinicName,
     loaded: clinicLoaded,
     loading: clinicLoading,
     logoSrc: clinicLogoSrc,
+    brandInitials: clinicInitials,
   } = useClinicContext();
   const {
     displayName: publicName,
@@ -24,12 +29,21 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
     loading: publicLoading,
     logoSrc: publicLogoSrc,
   } = usePublicClinicContext();
-  const displayName = isLoggedIn ? clinicName : publicName;
-  const logoSrc = isLoggedIn ? clinicLogoSrc : publicLogoSrc;
-  const brandLoading = isLoggedIn
+  let displayName = isLoggedIn ? clinicName : publicName;
+  let logoSrc = isLoggedIn ? clinicLogoSrc : publicLogoSrc;
+  let brandInitials = isLoggedIn ? clinicInitials : "SG";
+  let brandLoading = isLoggedIn
     ? clinicLoading || !clinicLoaded
     : publicLoading || !publicLoaded;
-  let brandMark = <NeutralMark aria-hidden="true">SG</NeutralMark>;
+
+  if (isPlatformRoute) {
+    displayName = "Painel SaaS";
+    logoSrc = null;
+    brandInitials = "SaaS";
+    brandLoading = false;
+  }
+
+  let brandMark = <NeutralMark aria-hidden="true" $platformMode={isPlatformRoute}>{brandInitials}</NeutralMark>;
 
   if (brandLoading) {
     brandMark = <TenantLoading compact />;
@@ -42,9 +56,21 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
       />
     );
   }
+  let headerTitleColor = "var(--public-accent-color, #A2B190)";
+
+  if (isPlatformRoute) {
+    headerTitleColor = "#ffffff";
+  } else if (isLoggedIn) {
+    headerTitleColor = "var(--clinic-accent-color, #A2B190)";
+  }
 
   return (
-    <Wrapper className="animate" sidebarOpen={sidebarOpen} $publicMode={!isLoggedIn}>
+    <Wrapper
+      className="animate"
+      sidebarOpen={sidebarOpen}
+      $publicMode={!isLoggedIn}
+      $platformMode={isPlatformRoute}
+    >
       <SidebarHeader className="flexSpaceCenter">
         <div className="flexNullCenter">
           {brandMark}
@@ -53,12 +79,11 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
               className="whiteColor font20"
               style={{
                 marginLeft: "15px",
-                color: isLoggedIn
-                  ? "var(--clinic-accent-color, #A2B190)"
-                  : "var(--public-accent-color, #A2B190)",
+                color: headerTitleColor,
               }}
             >
               {displayName}
+              {isPlatformRoute && <HeaderSubline>Admin interno</HeaderSubline>}
             </h1>
           )}
         </div>
@@ -70,64 +95,85 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
         </CloseBtn>
       </SidebarHeader>
       <UlStyle className="flexSpaceCenter">
-        <li className="semiBold font15 pointer flexCenter">
-          <Link
-            to="/agendamentos"
-            style={{ padding: "10px 15px", textDecoration: "none" }}
-            
-          >
-            Agenda
-          </Link>
-        </li>
+        {isPlatformRoute ? (
+          <>
+            <li className="semiBold font15 pointer flexCenter">
+              <Link to="/menu" style={{ padding: "10px 15px", textDecoration: "none" }}>
+                Voltar ao sistema
+              </Link>
+            </li>
+            <li className="semiBold font15 pointer flexCenter">
+              <Link
+                to="/login"
+                onClick={(event) => handleLogout(event)}
+                style={{ padding: "10px 15px", textDecoration: "none" }}
+              >
+                Sair
+              </Link>
+            </li>
+          </>
+        ) : (
+          <>
+            <li className="semiBold font15 pointer flexCenter">
+              <Link
+                to="/agendamentos"
+                style={{ padding: "10px 15px", textDecoration: "none" }}
+                
+              >
+                Agenda
+              </Link>
+            </li>
 
-        <li className="semiBold font15 pointer flexCenter">
-          <Link
-            to="/painel"
-            style={{ padding: "10px 15px", textDecoration: "none" }}
-          >
-            Painel
-          </Link>
-        </li>
+            <li className="semiBold font15 pointer flexCenter">
+              <Link
+                to="/painel"
+                style={{ padding: "10px 15px", textDecoration: "none" }}
+              >
+                Painel
+              </Link>
+            </li>
 
-        <li className="semiBold font15 pointer flexCenter">
-          <Link
-            to="/financeiro"
-            style={{ padding: "10px 15px", textDecoration: "none" }}
-          >
-            Financeiro
-          </Link>
-        </li>
+            <li className="semiBold font15 pointer flexCenter">
+              <Link
+                to="/financeiro"
+                style={{ padding: "10px 15px", textDecoration: "none" }}
+              >
+                Financeiro
+              </Link>
+            </li>
 
-        <li className="semiBold font15 pointer flexCenter">
-          <Link
-            to="/pacientes"
-            style={{ padding: "10px 15px", textDecoration: "none" }}
-            
-          >
-            Pacientes
-          </Link>
-        </li>
+            <li className="semiBold font15 pointer flexCenter">
+              <Link
+                to="/pacientes"
+                style={{ padding: "10px 15px", textDecoration: "none" }}
+                
+              >
+                Pacientes
+              </Link>
+            </li>
 
-        {isPlansModuleEnabled && (
-          <li className="semiBold font15 pointer flexCenter">
-            <Link
-              to="/planos"
-              style={{ padding: "10px 15px", textDecoration: "none" }}
-            >
-              Planos
-            </Link>
-          </li>
+            {isPlansModuleEnabled && (
+              <li className="semiBold font15 pointer flexCenter">
+                <Link
+                  to="/planos"
+                  style={{ padding: "10px 15px", textDecoration: "none" }}
+                >
+                  Planos
+                </Link>
+              </li>
+            )}
+
+            {/* <li className="semiBold font15 pointer flexCenter">
+              <Link
+                to="/laudos"
+                style={{ padding: "10px 15px", textDecoration: "none" }}
+                
+              >
+                Exames
+              </Link>
+            </li> */}
+          </>
         )}
-
-        {/* <li className="semiBold font15 pointer flexCenter">
-          <Link
-            to="/laudos"
-            style={{ padding: "10px 15px", textDecoration: "none" }}
-            
-          >
-            Exames
-          </Link>
-        </li> */}
 
       </UlStyle>
     </Wrapper>
@@ -139,6 +185,12 @@ Sidebar.propTypes = {
   toggleSidebar: PropTypes.func.isRequired,
 };
 
+function getSidebarBackground(props) {
+  if (props.$platformMode) return "#344154";
+  if (props.$publicMode) return "var(--public-primary-color, #6a795c)";
+  return "var(--clinic-primary-color, #6a795c)";
+}
+
 const Wrapper = styled.nav`
   width: 360px;
   height: 100vh;
@@ -147,9 +199,7 @@ const Wrapper = styled.nav`
   padding: 0 24px;
   right: ${(props) => (props.sidebarOpen ? "0px" : "-360px")};
   z-index: 9999;
-  background: ${(props) => (props.$publicMode
-    ? "var(--public-primary-color, #6a795c)"
-    : "var(--clinic-primary-color, #6a795c)")};
+  background: ${getSidebarBackground};
   @media (max-width: 400px) {
     width: 100%;
     right: ${(props) => (props.sidebarOpen ? "0px" : "-100%")};
@@ -167,7 +217,7 @@ const CloseBtn = styled.button`
 `;
 
 const NeutralMark = styled.span`
-  width: 40px;
+  width: ${(props) => (props.$platformMode ? "48px" : "40px")};
   height: 40px;
   margin-right: 15px;
   border-radius: 8px;
@@ -178,7 +228,17 @@ const NeutralMark = styled.span`
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.35);
   font-weight: 800;
+  font-size: ${(props) => (props.$platformMode ? "0.78rem" : "1rem")};
   letter-spacing: 0;
+`;
+
+const HeaderSubline = styled.small`
+  display: block;
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
 `;
 
 const UlStyle = styled.ul`

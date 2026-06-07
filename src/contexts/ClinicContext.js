@@ -8,7 +8,6 @@ import React, {
 import PropTypes from "prop-types";
 import { useSelector } from "react-redux";
 import axios from "../services/axios";
-import Logo from "../assets/img/Logo.png";
 import productIdentity from "../config/productIdentity";
 
 const FALLBACK_CONTEXT = {
@@ -43,6 +42,7 @@ const ClinicContext = createContext({
   error: null,
   displayName: null,
   logoSrc: null,
+  brandInitials: "SG",
 });
 
 function applyBrandingVariables(clinic) {
@@ -62,6 +62,21 @@ function applyFavicon(faviconUrl) {
     document.head.appendChild(link);
   }
   link.href = faviconUrl;
+}
+
+function getInitials(value) {
+  const words = String(value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length === 0) return "SG";
+
+  return words
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
 }
 
 export function ClinicProvider({ children }) {
@@ -128,16 +143,21 @@ export function ClinicProvider({ children }) {
     };
   }, [isLoggedIn]);
 
-  const value = useMemo(() => ({
-    clinic,
-    loading,
-    loaded,
-    error,
-    displayName: loaded
+  const value = useMemo(() => {
+    const displayName = loaded
       ? clinic.public_name || clinic.operational_name || FALLBACK_CONTEXT.public_name
-      : null,
-    logoSrc: loaded && clinic.clinic_id ? clinic.logo_url || Logo : null,
-  }), [clinic, error, loaded, loading]);
+      : null;
+
+    return {
+      clinic,
+      loading,
+      loaded,
+      error,
+      displayName,
+      logoSrc: loaded && clinic.clinic_id ? clinic.logo_url || null : null,
+      brandInitials: getInitials(displayName),
+    };
+  }, [clinic, error, loaded, loading]);
 
   return (
     <ClinicContext.Provider value={value}>

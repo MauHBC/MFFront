@@ -26,6 +26,7 @@ import ImobNavbar from "../components/ImobNavbar/TopNavbar";
 import Financeiro from "../pages/Financeiro";
 import SchedulingEvents from "../pages/SchedulingEvents";
 import Planos from "../pages/Planos";
+import PlatformPaused from "../pages/PlatformPaused";
 import { isPlansModuleEnabled } from "../config/features";
 
 export default function Routes() {
@@ -60,6 +61,8 @@ export default function Routes() {
         <MyRoute exact path="/painel" component={Painel} isClosed />
         <MyRoute exact path="/dashboard" component={Painel} isClosed />
         <MyRoute exact path="/financeiro" component={Financeiro} isClosed />
+        <MyRoute exact path="/platform" component={PlatformPaused} isClosed />
+        <MyRoute exact path="/platform/clinics/:id" component={PlatformPaused} isClosed />
         <MyRoute
           exact
           path="/planos"
