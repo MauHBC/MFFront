@@ -5003,8 +5003,9 @@ export default function Agendamentos() {
 	                                  {activeCards.map((card) => {
 	                                  const { session } = card;
 	                                  const tone = statusStyle(session.status);
-	                                  const patientName = getSessionPatientName(session);
-	                                  const shortPatientName = getShortPatientName(patientName);
+                                  const patientName = getSessionPatientName(session);
+                                  const shortPatientName = getShortPatientName(patientName);
+                                  const patientId = getSessionPatientId(session);
                                   const attentionLevel = getSessionPatientAttentionLevel(session);
                                   const sessionMetaParts = getSessionCardMetaParts(session);
                                   const daySessionId = String(session.id);
@@ -5023,14 +5024,20 @@ export default function Agendamentos() {
                                       $status={tone}
                                     >
                                       <DayServiceBar $color={card.serviceColor} />
-                                      <DaySessionBody>
-	                                        <DaySessionTop>
-	                                          <DaySessionPatient>
-	                                            {renderPatientAttentionIndicator(attentionLevel)}
-	                                            <PatientInlineText>{shortPatientName}</PatientInlineText>
-	                                            <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
-	                                            <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
-	                                          </DaySessionPatient>
+	                                      <DaySessionBody>
+		                                        <DaySessionTop>
+		                                          <DaySessionPatient>
+		                                            {renderPatientAttentionIndicator(attentionLevel)}
+		                                            {patientId ? (
+		                                              <PatientProfileLink to={`/pacientes/${patientId}`} title={patientName}>
+		                                                <PatientInlineText>{shortPatientName}</PatientInlineText>
+		                                              </PatientProfileLink>
+		                                            ) : (
+		                                              <PatientInlineText>{shortPatientName}</PatientInlineText>
+		                                            )}
+		                                            <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
+		                                            <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
+		                                          </DaySessionPatient>
                                           <DaySessionActions>
                                             <DayDropdownWrapper>
                                               <DayStatusMenuButton
@@ -5145,8 +5152,9 @@ export default function Agendamentos() {
 	                                    .map((card) => {
 	                                      const { session } = card;
 	                                      const tone = statusStyle(session.status);
-	                                      const patientName = getSessionPatientName(session);
-	                                      const shortPatientName = getShortPatientName(patientName);
+		                                      const patientName = getSessionPatientName(session);
+		                                      const shortPatientName = getShortPatientName(patientName);
+		                                      const patientId = getSessionPatientId(session);
 	                                      const attentionLevel = getSessionPatientAttentionLevel(session);
 	                                      const sessionMetaParts = getSessionCardMetaParts(session);
 	                                      const daySessionId = String(session.id);
@@ -5164,14 +5172,20 @@ export default function Agendamentos() {
 	                                          $history
 	                                        >
 	                                          <DayServiceBar $color={card.serviceColor} $history />
-	                                          <DaySessionBody>
-		                                            <DaySessionTop>
-		                                              <DaySessionPatient>
-		                                                {renderPatientAttentionIndicator(attentionLevel)}
-		                                                <PatientInlineText>{shortPatientName}</PatientInlineText>
-		                                                <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
-		                                                <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
-		                                              </DaySessionPatient>
+		                                          <DaySessionBody>
+			                                            <DaySessionTop>
+			                                              <DaySessionPatient>
+			                                                {renderPatientAttentionIndicator(attentionLevel)}
+			                                                {patientId ? (
+			                                                  <PatientProfileLink to={`/pacientes/${patientId}`} title={patientName}>
+			                                                    <PatientInlineText>{shortPatientName}</PatientInlineText>
+			                                                  </PatientProfileLink>
+			                                                ) : (
+			                                                  <PatientInlineText>{shortPatientName}</PatientInlineText>
+			                                                )}
+			                                                <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
+			                                                <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
+			                                              </DaySessionPatient>
 	                                              <DaySessionActions>
 	                                                <DayDropdownWrapper>
 	                                                  <DayStatusMenuButton
@@ -5655,15 +5669,25 @@ export default function Agendamentos() {
 	                        const groupStatusMenuKey = `group-status-${groupSessionId}`;
 	                        const groupActionsMenuKey = `group-actions-${groupSessionId}`;
 	                        const isHistoricalGroupSession = isHistoricalSessionStatus(session.status);
-	                        const groupCurrentStatusLabel = isGroupSessionSaving
-	                          ? "Salvando..."
-	                          : getSessionStatusLabel(session.status);
-	                        return (
-	                          <GroupItem key={session.id} $history={isHistoricalGroupSession}>
-	                            <PatientInfo>
-	                              <PatientInfoName>
-	                                <PatientInlineText>{getSessionPatientName(session)}</PatientInlineText>
-	                                {renderPatientAttentionIndicator(getSessionPatientAttentionLevel(session))}
+		                        const groupCurrentStatusLabel = isGroupSessionSaving
+		                          ? "Salvando..."
+		                          : getSessionStatusLabel(session.status);
+		                        const groupPatientId = getSessionPatientId(session);
+		                        return (
+		                          <GroupItem key={session.id} $history={isHistoricalGroupSession}>
+		                            <PatientInfo>
+		                              <PatientInfoName>
+		                                {groupPatientId ? (
+		                                  <PatientProfileLink
+		                                    to={`/pacientes/${groupPatientId}`}
+		                                    title={getSessionPatientName(session)}
+		                                  >
+		                                    <PatientInlineText>{getSessionPatientName(session)}</PatientInlineText>
+		                                  </PatientProfileLink>
+		                                ) : (
+		                                  <PatientInlineText>{getSessionPatientName(session)}</PatientInlineText>
+		                                )}
+		                                {renderPatientAttentionIndicator(getSessionPatientAttentionLevel(session))}
 	                                {isHistoricalGroupSession && (
 	                                  <WeekHistoryStatusBadge $status={statusStyle(session.status)}>
 	                                    {getSessionStatusLabel(session.status)}
@@ -10189,6 +10213,22 @@ const PatientInlineText = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+`;
+
+const PatientProfileLink = styled(Link)`
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover {
+    color: #4f6b45;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
 `;
 
 const CompactSessionType = styled.span`
