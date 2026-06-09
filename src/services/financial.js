@@ -45,6 +45,42 @@ export const createFinancialEntry = (payload) =>
 export const updateFinancialEntry = (id, payload) =>
   api.put(`/financial-entries/${id}`, payload);
 
+export const listClinicExpenses = (params) =>
+  api.get('/clinic-expenses', { params });
+
+export const getClinicExpenseAlerts = () =>
+  api.get('/clinic-expenses/alerts');
+
+export const listClinicExpenseCategories = (params) =>
+  api.get('/clinic-expense-categories', { params });
+
+export const createClinicExpenseCategory = (payload) =>
+  api.post('/clinic-expense-categories', payload);
+
+export const updateClinicExpenseCategory = (id, payload) =>
+  api.put(`/clinic-expense-categories/${id}`, payload);
+
+export const activateClinicExpenseCategory = (id) =>
+  api.patch(`/clinic-expense-categories/${id}/activate`);
+
+export const deactivateClinicExpenseCategory = (id) =>
+  api.patch(`/clinic-expense-categories/${id}/deactivate`);
+
+export const createClinicExpense = (payload) =>
+  api.post('/clinic-expenses', payload);
+
+export const updateClinicExpense = (id, payload) =>
+  api.put(`/clinic-expenses/${id}`, payload);
+
+export const deleteClinicExpense = (id) =>
+  api.delete(`/clinic-expenses/${id}`);
+
+export const payClinicExpense = (id, payload) =>
+  api.patch(`/clinic-expenses/${id}/pay`, payload);
+
+export const unpayClinicExpense = (id) =>
+  api.patch(`/clinic-expenses/${id}/unpay`);
+
 export const listFinancialPayments = (params) =>
   api.get('/financial-payments', { params });
 
@@ -133,6 +169,18 @@ export default {
   listFinancialEntries,
   createFinancialEntry,
   updateFinancialEntry,
+  listClinicExpenses,
+  getClinicExpenseAlerts,
+  listClinicExpenseCategories,
+  createClinicExpenseCategory,
+  updateClinicExpenseCategory,
+  activateClinicExpenseCategory,
+  deactivateClinicExpenseCategory,
+  createClinicExpense,
+  updateClinicExpense,
+  deleteClinicExpense,
+  payClinicExpense,
+  unpayClinicExpense,
   listFinancialPayments,
   createFinancialPayment,
   applyCreditToFinancialEntry,

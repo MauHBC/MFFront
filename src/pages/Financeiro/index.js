@@ -1,3 +1,4 @@
+/* eslint-disable no-use-before-define */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import styled from "styled-components";
@@ -45,6 +46,18 @@ import {
   listFinancialCategories,
   listFinancialPayments,
   listPaymentMethods,
+  listClinicExpenses,
+  getClinicExpenseAlerts,
+  listClinicExpenseCategories,
+  createClinicExpense,
+  updateClinicExpense,
+  deleteClinicExpense,
+  payClinicExpense,
+  unpayClinicExpense,
+  createClinicExpenseCategory,
+  updateClinicExpenseCategory,
+  activateClinicExpenseCategory,
+  deactivateClinicExpenseCategory,
   createFinancialPayment,
   applyCreditToFinancialEntry,
   applyScopedFinancialCredit,
@@ -72,6 +85,22 @@ import {
   getPatientSearchText,
   normalizeSearchText,
 } from "../../utils/patientSearch";
+import ClinicExpenseModal from "./components/ClinicExpenseModal";
+import ClinicExpenseCategoryModal from "./components/ClinicExpenseCategoryModal";
+import ClinicExpenseCategoriesSection from "./components/ClinicExpenseCategoriesSection";
+import ClinicExpensesSection from "./components/ClinicExpensesSection";
+import ClinicExpensePaymentModal from "./components/ClinicExpensePaymentModal";
+import FinancialOverviewSection from "./components/FinancialOverviewSection";
+import {
+  emptyClinicExpenseSummary,
+  formatDateOnlyBR as formatExpenseDateOnlyBR,
+  getClinicExpenseObservation,
+  getClinicExpensePaidAmountCents,
+  normalizeClinicExpenseSummary,
+} from "./helpers/expenseFormatters";
+import { formatExpenseAlertCount } from "./helpers/expenseDueAlerts";
+import { formatClinicExpenseStatus, getClinicExpenseStatus } from "./helpers/expenseStatus";
+import { calculateFinancialOverview } from "./helpers/financialOverview";
 
 const emptyEntry = {
   type: "income",
@@ -267,7 +296,15 @@ const formatCurrencyInput = (value) => {
 
 const sanitizeCurrencyInput = (value) => {
   const source = String(value || "");
-  const onlyValidChars = source.replace(/[^\d,.-]/g, "").replace(/\./g, ",");
+  const validChars = source.replace(/[^\d,.-]/g, "");
+  const lastComma = validChars.lastIndexOf(",");
+  const lastDot = validChars.lastIndexOf(".");
+  const decimalSeparatorIndex = lastComma > lastDot ? lastComma : -1;
+  const onlyValidChars = decimalSeparatorIndex >= 0
+    ? `${validChars.slice(0, decimalSeparatorIndex).replace(/[.,]/g, "")},${validChars
+      .slice(decimalSeparatorIndex + 1)
+      .replace(/[.,]/g, "")}`
+    : validChars.replace(/[.,]/g, "");
   const hasNegative = onlyValidChars.startsWith("-");
   const unsigned = onlyValidChars.replace(/-/g, "");
   const [integerRaw = "", ...decimalParts] = unsigned.split(",");
@@ -444,6 +481,7 @@ const resolveInstallmentAgreement = (
   };
 };
 
+const SHOW_CLINIC_EXPENSES = true;
 const SHOW_FINANCIAL_MANAGEMENT = false;
 const SHOW_FINANCIAL_REPORTS = false;
 const SHOW_MANUAL_ENTRIES = false;
@@ -650,9 +688,31 @@ const getCurrentMonthRange = () => {
   };
 };
 
+const createEmptyClinicExpense = () => ({
+  description: "",
+  category: "",
+  category_id: "",
+  amount: "",
+  reference_month: toMonthInputValue(new Date()),
+  due_date: toDateInputValue(new Date()),
+  status: "open",
+  recurrence_type: "none",
+  paid_at: "",
+  paid_amount: "",
+  payment_notes: "",
+  notes: "",
+});
+
+const createEmptyClinicExpensePayment = () => ({
+  expense: null,
+  paid_at: toDateInputValue(new Date()),
+  paid_amount: "",
+  payment_notes: "",
+});
+
 export default function Financeiro() {
   const routeLocation = useLocation();
-  const [activeSection, setActiveSection] = useState("receitas");
+  const [activeSection, setActiveSection] = useState("overview");
   const [receitasView, setReceitasView] = useState("atendimentos");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -668,6 +728,12 @@ export default function Financeiro() {
   const [servicePrices, setServicePrices] = useState([]);
   const [payments, setPayments] = useState([]);
   const [patientCredits, setPatientCredits] = useState([]);
+  const [clinicExpensesData, setClinicExpensesData] = useState([]);
+  const [clinicExpenseCategories, setClinicExpenseCategories] = useState([]);
+  const [clinicExpensesSummary, setClinicExpensesSummary] = useState(emptyClinicExpenseSummary);
+  const [clinicExpenseAlertsCount, setClinicExpenseAlertsCount] = useState(0);
+  const [overviewBillingCycles, setOverviewBillingCycles] = useState([]);
+  const [isOverviewBillingCyclesLoading, setIsOverviewBillingCyclesLoading] = useState(false);
   const [attendanceSeries, setAttendanceSeries] = useState([]);
   const [recurringExpenses, setRecurringExpenses] = useState([]);
   const [attendanceSessions, setAttendanceSessions] = useState([]);
@@ -687,6 +753,17 @@ export default function Financeiro() {
       end: range.end,
       search: "",
     };
+  });
+
+  const [clinicExpensesMonth, setClinicExpensesMonth] = useState(() =>
+    toMonthInputValue(new Date()),
+  );
+  const [overviewPeriodMode, setOverviewPeriodMode] = useState("month");
+  const [clinicExpensesPeriodMode, setClinicExpensesPeriodMode] = useState("month");
+  const [clinicExpensesFilters, setClinicExpensesFilters] = useState({
+    status: "all",
+    category: "all",
+    search: "",
   });
 
   const [paymentFilters, setPaymentFilters] = useState(() => {
@@ -785,6 +862,22 @@ export default function Financeiro() {
 
   const [isEntryOpen, setIsEntryOpen] = useState(false);
   const [entryForm, setEntryForm] = useState(emptyEntry);
+  const [isClinicExpenseOpen, setIsClinicExpenseOpen] = useState(false);
+  const [clinicExpenseForm, setClinicExpenseForm] = useState(() => createEmptyClinicExpense());
+  const [editingClinicExpenseId, setEditingClinicExpenseId] = useState(null);
+  const [clinicExpenseDeleteTarget, setClinicExpenseDeleteTarget] = useState(null);
+  const [isClinicExpenseSaving, setIsClinicExpenseSaving] = useState(false);
+  const [clinicExpensePayingId, setClinicExpensePayingId] = useState(null);
+  const [isClinicExpensePaymentOpen, setIsClinicExpensePaymentOpen] = useState(false);
+  const [clinicExpensePaymentForm, setClinicExpensePaymentForm] = useState(() =>
+    createEmptyClinicExpensePayment());
+  const [isClinicExpenseDeleting, setIsClinicExpenseDeleting] = useState(false);
+  const [isClinicExpenseCategoryOpen, setIsClinicExpenseCategoryOpen] = useState(false);
+  const [clinicExpenseCategoryForm, setClinicExpenseCategoryForm] = useState({ name: "" });
+  const [editingClinicExpenseCategoryId, setEditingClinicExpenseCategoryId] = useState(null);
+  const [isClinicExpenseCategorySaving, setIsClinicExpenseCategorySaving] = useState(false);
+  const [clinicExpenseCategoryUpdatingId, setClinicExpenseCategoryUpdatingId] = useState(null);
+  const [clinicExpenseCategoryDeactivateTarget, setClinicExpenseCategoryDeactivateTarget] = useState(null);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isPaymentSaving, setIsPaymentSaving] = useState(false);
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
@@ -1153,6 +1246,98 @@ export default function Financeiro() {
     });
   }, [entries, filters, categoryMap, patientMap, entryFinancialMap]);
 
+  const clinicExpenses = useMemo(() => {
+    const periodMonth = parseMonthInputValue(clinicExpensesMonth);
+    const range = clinicExpensesPeriodMode === "year" && periodMonth
+      ? getYearRangeFromValue(String(periodMonth.year))
+      : getMonthRangeFromInputValue(clinicExpensesMonth);
+    if (!range) return [];
+    const search = normalizeSearchText(clinicExpensesFilters.search);
+
+    return clinicExpensesData
+      .filter((entry) => isDateOnlyWithinRange(entry.reference_month, range.start, range.end))
+      .filter((entry) => {
+        const status = getClinicExpenseStatus(entry);
+        if (clinicExpensesFilters.status !== "all" && status !== clinicExpensesFilters.status) {
+          return false;
+        }
+        if (clinicExpensesFilters.category !== "all") {
+          const selectedCategory = String(clinicExpensesFilters.category || "");
+          if (selectedCategory.startsWith("legacy:")) {
+            const legacyName = selectedCategory.replace("legacy:", "");
+            if ((entry.category_name || entry.category) !== legacyName) return false;
+          } else {
+            const configuredCategory = clinicExpenseCategories.find(
+              (category) => String(category.id) === selectedCategory,
+            );
+            const currentCategoryName = entry.category_name || entry.category;
+            if (
+              String(entry.category_id || "") !== selectedCategory
+              && (!configuredCategory || currentCategoryName !== configuredCategory.name)
+            ) {
+              return false;
+            }
+          }
+        }
+        if (!search) return true;
+
+        const haystack = normalizeSearchText([
+          entry.name,
+          entry.notes,
+          entry.payment_notes,
+          entry.category_name || entry.category,
+          formatClinicExpenseStatus(status),
+        ]
+          .filter(Boolean)
+          .join(" "));
+        return haystack.includes(search);
+      })
+      .sort((first, second) => {
+        const firstDue = String(first.due_date || first.reference_month || "");
+        const secondDue = String(second.due_date || second.reference_month || "");
+        if (firstDue !== secondDue) return firstDue.localeCompare(secondDue);
+        return String(first.name || "").localeCompare(String(second.name || ""));
+      });
+  }, [
+    clinicExpensesData,
+    clinicExpensesMonth,
+    clinicExpensesPeriodMode,
+    clinicExpensesFilters,
+    clinicExpenseCategories,
+  ]);
+
+  const overviewSummary = useMemo(() => calculateFinancialOverview({
+    month: clinicExpensesMonth,
+    periodMode: overviewPeriodMode,
+    entries,
+    entryFinancialMap,
+    entryMap,
+    billingCycles: overviewBillingCycles,
+    clinicExpensesSummary,
+  }), [
+    clinicExpensesMonth,
+    overviewPeriodMode,
+    clinicExpensesSummary,
+    entries,
+    entryFinancialMap,
+    entryMap,
+    overviewBillingCycles,
+  ]);
+
+  const overviewMonthLabel = useMemo(() => {
+    const parsed = parseMonthInputValue(clinicExpensesMonth);
+    if (!parsed) return "";
+    if (overviewPeriodMode === "year") return String(parsed.year);
+    return formatMonthYear(new Date(parsed.year, parsed.month - 1, 1));
+  }, [clinicExpensesMonth, overviewPeriodMode]);
+
+  const clinicExpensesPeriodLabel = useMemo(() => {
+    const parsed = parseMonthInputValue(clinicExpensesMonth);
+    if (!parsed) return "";
+    if (clinicExpensesPeriodMode === "year") return String(parsed.year);
+    return formatMonthYear(new Date(parsed.year, parsed.month - 1, 1));
+  }, [clinicExpensesMonth, clinicExpensesPeriodMode]);
+
   const summary = useMemo(() => {
     const data = {
       incomePaid: 0,
@@ -1254,6 +1439,9 @@ export default function Financeiro() {
         servicesResponse,
         servicePricesResponse,
         paymentsResponse,
+        clinicExpensesResponse,
+        clinicExpenseAlertsResponse,
+        clinicExpenseCategoriesResponse,
         recurringResponse,
         patientCreditsResponse,
         sessionSeriesResponse,
@@ -1265,6 +1453,11 @@ export default function Financeiro() {
         axios.get("/services"),
         listServicePrices(),
         listFinancialPayments(),
+        listClinicExpenses((activeSection === "overview" ? overviewPeriodMode : clinicExpensesPeriodMode) === "year"
+          ? { year: String(parseMonthInputValue(clinicExpensesMonth)?.year || new Date().getFullYear()) }
+          : { reference_month: clinicExpensesMonth }),
+        getClinicExpenseAlerts(),
+        listClinicExpenseCategories(),
         listFinancialRecurringExpenses(),
         listPatientCredits(),
         axios.get("/session-series"),
@@ -1277,6 +1470,17 @@ export default function Financeiro() {
       setServices(servicesResponse.data || []);
       setServicePrices(servicePricesResponse.data || []);
       setPayments(paymentsResponse.data || []);
+      const clinicExpensePayload = clinicExpensesResponse.data || {};
+      setClinicExpensesData(
+        Array.isArray(clinicExpensePayload)
+          ? clinicExpensePayload
+          : (clinicExpensePayload.items || []),
+      );
+      setClinicExpensesSummary(
+        normalizeClinicExpenseSummary(clinicExpensePayload.summary),
+      );
+      setClinicExpenseAlertsCount(Number(clinicExpenseAlertsResponse.data?.dueSoonCount || 0));
+      setClinicExpenseCategories(clinicExpenseCategoriesResponse.data || []);
       setRecurringExpenses(recurringResponse.data || []);
       setPatientCredits(patientCreditsResponse.data || []);
       setAttendanceSeries(sessionSeriesResponse.data || []);
@@ -1285,7 +1489,7 @@ export default function Financeiro() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeSection, clinicExpensesMonth, clinicExpensesPeriodMode, overviewPeriodMode]);
 
   useEffect(() => {
     loadData();
@@ -1306,6 +1510,31 @@ export default function Financeiro() {
       setIsBillingCyclesLoading(false);
     }
   }, [billingCyclesFilters.start, billingCyclesFilters.end]);
+
+  const loadOverviewBillingCycles = useCallback(async () => {
+    const parsed = parseMonthInputValue(clinicExpensesMonth);
+    const range = overviewPeriodMode === "year" && parsed
+      ? getYearRangeFromValue(String(parsed.year))
+      : getMonthRangeFromInputValue(clinicExpensesMonth);
+    if (!range) {
+      setOverviewBillingCycles([]);
+      return;
+    }
+
+    try {
+      setIsOverviewBillingCyclesLoading(true);
+      const response = await listBillingCycles({
+        from: range.start,
+        to: range.end,
+      });
+      setOverviewBillingCycles(response.data || []);
+    } catch (error) {
+      toast.error("Não foi possível carregar as mensalidades da visão geral.");
+      setOverviewBillingCycles([]);
+    } finally {
+      setIsOverviewBillingCyclesLoading(false);
+    }
+  }, [clinicExpensesMonth, overviewPeriodMode]);
 
   const loadAttendance = useCallback(async () => {
     try {
@@ -1362,6 +1591,12 @@ export default function Financeiro() {
       loadBillingCycles();
     }
   }, [activeSection, receitasView, loadBillingCycles]);
+
+  useEffect(() => {
+    if (activeSection === "overview") {
+      loadOverviewBillingCycles();
+    }
+  }, [activeSection, loadOverviewBillingCycles]);
 
   const openEntryModal = useCallback(() => {
     setEntryForm(emptyEntry);
@@ -1506,6 +1741,440 @@ export default function Financeiro() {
     const { name, value } = event.target;
     setEntryForm((prev) => ({ ...prev, [name]: value }));
   }, []);
+
+  const openClinicExpenseModal = useCallback((expense = null) => {
+    if (expense?.id) {
+      setClinicExpenseForm({
+        description: expense.name || "",
+        category: expense.category_name || expense.category || "",
+        category_id: expense.category_id ? String(expense.category_id) : "",
+        amount: formatCurrencyInput(Number(expense.amount_cents || 0) / 100),
+        reference_month: String(expense.reference_month || expense.due_date || "").slice(0, 7),
+        due_date: String(expense.due_date || "").slice(0, 10),
+        status: expense.paid_at ? "paid" : "open",
+        recurrence_type: expense.recurrence_type || "none",
+        paid_at: expense.paid_at ? String(expense.paid_at).slice(0, 10) : toDateInputValue(new Date()),
+        paid_amount: formatCurrencyInput(
+          Number((expense.paid_amount_cents || expense.amount_cents || 0)) / 100,
+        ),
+        payment_notes: expense.payment_notes || "",
+        notes: expense.notes || "",
+      });
+      setEditingClinicExpenseId(expense.id);
+    } else {
+      setClinicExpenseForm({
+        ...createEmptyClinicExpense(),
+        reference_month: clinicExpensesMonth || toMonthInputValue(new Date()),
+      });
+      setEditingClinicExpenseId(null);
+    }
+    setIsClinicExpenseOpen(true);
+  }, [clinicExpensesMonth]);
+
+  const closeClinicExpenseModal = useCallback(() => {
+    if (isClinicExpenseSaving) return;
+    setIsClinicExpenseOpen(false);
+    setEditingClinicExpenseId(null);
+  }, [isClinicExpenseSaving]);
+
+  const handleClinicExpenseChange = useCallback((event) => {
+    const { name, value } = event.target;
+    if (name === "amount") {
+      setClinicExpenseForm((prev) => ({
+        ...prev,
+        amount: sanitizePositiveCurrencyInput(value),
+        paid_amount: prev.status === "paid" && !prev.paid_amount
+          ? sanitizePositiveCurrencyInput(value)
+          : prev.paid_amount,
+      }));
+      return;
+    }
+    if (name === "paid_amount") {
+      setClinicExpenseForm((prev) => ({
+        ...prev,
+        paid_amount: sanitizePositiveCurrencyInput(value),
+      }));
+      return;
+    }
+    if (name === "status") {
+      setClinicExpenseForm((prev) => ({
+        ...prev,
+        status: value,
+        paid_at: value === "paid" && !prev.paid_at ? toDateInputValue(new Date()) : prev.paid_at,
+        paid_amount: value === "paid" && !prev.paid_amount ? formatCurrencyInput(prev.amount) : prev.paid_amount,
+        payment_notes: value === "paid" ? prev.payment_notes : "",
+      }));
+      return;
+    }
+    if (name === "category_id") {
+      const selectedCategory = clinicExpenseCategories.find(
+        (category) => String(category.id) === String(value),
+      );
+      setClinicExpenseForm((prev) => ({
+        ...prev,
+        category_id: value,
+        category: selectedCategory?.name || "",
+      }));
+      return;
+    }
+    setClinicExpenseForm((prev) => ({ ...prev, [name]: value }));
+  }, [clinicExpenseCategories]);
+
+  const handleClinicExpenseAmountBlur = useCallback(() => {
+    setClinicExpenseForm((prev) => ({
+      ...prev,
+      amount: formatCurrencyInput(prev.amount),
+      paid_amount: prev.paid_amount || formatCurrencyInput(prev.amount),
+    }));
+  }, []);
+
+  const handleClinicExpensePaidAmountBlur = useCallback(() => {
+    setClinicExpenseForm((prev) => ({
+      ...prev,
+      paid_amount: formatCurrencyInput(prev.paid_amount),
+    }));
+  }, []);
+
+  const handleClinicExpensesFilterChange = useCallback((event) => {
+    const { name, value } = event.target;
+    setClinicExpensesFilters((prev) => ({ ...prev, [name]: value }));
+  }, []);
+
+  const handleClinicExpenseMonthChange = useCallback((event) => {
+    const { value } = event.target;
+    if (!parseMonthInputValue(value)) return;
+    setClinicExpensesMonth(value);
+  }, []);
+
+  const handleClinicExpensesPeriodModeChange = useCallback((mode) => {
+    setClinicExpensesPeriodMode(mode === "year" ? "year" : "month");
+  }, []);
+
+  const handleOverviewPeriodModeChange = useCallback((mode) => {
+    setOverviewPeriodMode(mode === "year" ? "year" : "month");
+  }, []);
+
+  const shiftOverviewPeriod = useCallback((direction) => {
+    if (!Number.isFinite(direction) || direction === 0) return;
+    setClinicExpensesMonth((prev) => {
+      const parsed = parseMonthInputValue(prev);
+      const baseDate = parsed
+        ? new Date(parsed.year, parsed.month - 1, 1)
+        : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      const offset = overviewPeriodMode === "year" ? direction * 12 : direction;
+      const target = new Date(baseDate.getFullYear(), baseDate.getMonth() + offset, 1);
+      return toMonthInputValue(target);
+    });
+  }, [overviewPeriodMode]);
+
+  const handleOverviewPreviousMonth = useCallback(() => {
+    shiftOverviewPeriod(-1);
+  }, [shiftOverviewPeriod]);
+
+  const handleOverviewNextMonth = useCallback(() => {
+    shiftOverviewPeriod(1);
+  }, [shiftOverviewPeriod]);
+
+  const shiftClinicExpensesPeriod = useCallback((direction) => {
+    if (!Number.isFinite(direction) || direction === 0) return;
+    setClinicExpensesMonth((prev) => {
+      const parsed = parseMonthInputValue(prev);
+      const baseDate = parsed
+        ? new Date(parsed.year, parsed.month - 1, 1)
+        : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      const offset = clinicExpensesPeriodMode === "year" ? direction * 12 : direction;
+      const target = new Date(baseDate.getFullYear(), baseDate.getMonth() + offset, 1);
+      return toMonthInputValue(target);
+    });
+  }, [clinicExpensesPeriodMode]);
+
+  const handleClinicExpensesPreviousPeriod = useCallback(() => {
+    shiftClinicExpensesPeriod(-1);
+  }, [shiftClinicExpensesPeriod]);
+
+  const handleClinicExpensesNextPeriod = useCallback(() => {
+    shiftClinicExpensesPeriod(1);
+  }, [shiftClinicExpensesPeriod]);
+
+  const handleSaveClinicExpense = useCallback(async () => {
+    const amountValue = parseCurrencyInputToNumber(clinicExpenseForm.amount);
+    const paidAmountValue = parseCurrencyInputToNumber(clinicExpenseForm.paid_amount);
+    if (!clinicExpenseForm.description.trim()) {
+      toast.error("Informe a descrição da despesa.");
+      return;
+    }
+    if (!clinicExpenseForm.category_id && !clinicExpenseForm.category) {
+      toast.error("Informe a categoria.");
+      return;
+    }
+    if (Number.isNaN(amountValue) || amountValue <= 0) {
+      toast.error("Informe um valor válido.");
+      return;
+    }
+    if (!clinicExpenseForm.due_date) {
+      toast.error("Informe o vencimento.");
+      return;
+    }
+    if (clinicExpenseForm.status === "paid" && !clinicExpenseForm.paid_at) {
+      toast.error("Informe a data do pagamento.");
+      return;
+    }
+    if (
+      clinicExpenseForm.status === "paid"
+      && (Number.isNaN(paidAmountValue) || paidAmountValue <= 0)
+    ) {
+      toast.error("Informe o valor pago.");
+      return;
+    }
+
+    const payload = {
+      name: clinicExpenseForm.description.trim(),
+      amount_cents: Math.round(amountValue * 100),
+      due_date: clinicExpenseForm.due_date,
+      notes: clinicExpenseForm.notes.trim() || null,
+    };
+    if (clinicExpenseForm.status === "paid") {
+      payload.paid_at = clinicExpenseForm.paid_at;
+      payload.paid_amount_cents = Math.round(paidAmountValue * 100);
+      payload.payment_notes = clinicExpenseForm.payment_notes.trim() || null;
+    } else {
+      payload.paid_at = null;
+      payload.paid_amount_cents = null;
+      payload.payment_notes = null;
+    }
+    if (clinicExpenseForm.category_id) {
+      payload.category_id = Number(clinicExpenseForm.category_id);
+    } else {
+      payload.category = clinicExpenseForm.category;
+    }
+
+    if (!editingClinicExpenseId) {
+      payload.recurrence_type = clinicExpenseForm.recurrence_type || "none";
+    }
+
+    try {
+      setIsClinicExpenseSaving(true);
+      if (editingClinicExpenseId) {
+        await updateClinicExpense(editingClinicExpenseId, payload);
+        toast.success("Despesa atualizada com sucesso.");
+      } else {
+        await createClinicExpense(payload);
+        toast.success(
+          payload.recurrence_type === "monthly"
+            ? "Despesa recorrente cadastrada com sucesso."
+            : "Despesa cadastrada com sucesso.",
+        );
+      }
+      setClinicExpensesMonth(String(clinicExpenseForm.due_date).slice(0, 7));
+      closeClinicExpenseModal();
+      loadData();
+    } catch (error) {
+      toast.error(getUserFacingApiError(error, "Não foi possível salvar a despesa."));
+    } finally {
+      setIsClinicExpenseSaving(false);
+    }
+  }, [clinicExpenseForm, editingClinicExpenseId, closeClinicExpenseModal, loadData]);
+
+  const openClinicExpensePaymentModal = useCallback((entry) => {
+    if (!entry?.id) return;
+    setClinicExpensePaymentForm({
+      expense: entry,
+      paid_at: entry.paid_at ? String(entry.paid_at).slice(0, 10) : toDateInputValue(new Date()),
+      paid_amount: formatCurrencyInput(
+        Number((entry.paid_amount_cents || entry.amount_cents || 0)) / 100,
+      ),
+      payment_notes: entry.payment_notes || "",
+    });
+    setIsClinicExpensePaymentOpen(true);
+  }, []);
+
+  const closeClinicExpensePaymentModal = useCallback(() => {
+    if (clinicExpensePayingId) return;
+    setIsClinicExpensePaymentOpen(false);
+    setClinicExpensePaymentForm(createEmptyClinicExpensePayment());
+  }, [clinicExpensePayingId]);
+
+  const handleClinicExpensePaymentChange = useCallback((event) => {
+    const { name, value } = event.target;
+    if (name === "paid_amount") {
+      setClinicExpensePaymentForm((prev) => ({
+        ...prev,
+        paid_amount: sanitizePositiveCurrencyInput(value),
+      }));
+      return;
+    }
+    setClinicExpensePaymentForm((prev) => ({ ...prev, [name]: value }));
+  }, []);
+
+  const handleClinicExpensePaymentAmountBlur = useCallback(() => {
+    setClinicExpensePaymentForm((prev) => ({
+      ...prev,
+      paid_amount: formatCurrencyInput(prev.paid_amount),
+    }));
+  }, []);
+
+  const handleSaveClinicExpensePayment = useCallback(async () => {
+    const entry = clinicExpensePaymentForm.expense;
+    if (!entry?.id || clinicExpensePayingId) return;
+
+    const paidAmountValue = parseCurrencyInputToNumber(clinicExpensePaymentForm.paid_amount);
+    if (!clinicExpensePaymentForm.paid_at) {
+      toast.error("Informe a data do pagamento.");
+      return;
+    }
+    if (Number.isNaN(paidAmountValue) || paidAmountValue <= 0) {
+      toast.error("Informe o valor pago.");
+      return;
+    }
+
+    try {
+      setClinicExpensePayingId(entry.id);
+      await payClinicExpense(entry.id, {
+        paid_at: clinicExpensePaymentForm.paid_at,
+        paid_amount_cents: Math.round(paidAmountValue * 100),
+        payment_notes: clinicExpensePaymentForm.payment_notes.trim() || null,
+      });
+      toast.success(entry.paid_at ? "Pagamento atualizado com sucesso." : "Despesa marcada como paga.");
+      setIsClinicExpensePaymentOpen(false);
+      setClinicExpensePaymentForm(createEmptyClinicExpensePayment());
+      loadData();
+    } catch (error) {
+      toast.error(getUserFacingApiError(error, "Não foi possível salvar o pagamento."));
+    } finally {
+      setClinicExpensePayingId(null);
+    }
+  }, [clinicExpensePaymentForm, clinicExpensePayingId, loadData]);
+
+  const handleUnpayClinicExpense = useCallback(
+    async (entry) => {
+      if (!entry?.id || clinicExpensePayingId) return;
+      try {
+        setClinicExpensePayingId(entry.id);
+        await unpayClinicExpense(entry.id);
+        toast.success("Pagamento desfeito.");
+        loadData();
+      } catch (error) {
+        toast.error(getUserFacingApiError(error, "Não foi possível desfazer o pagamento."));
+      } finally {
+        setClinicExpensePayingId(null);
+      }
+    },
+    [clinicExpensePayingId, loadData],
+  );
+
+  const openClinicExpenseDeleteModal = useCallback((entry) => {
+    setClinicExpenseDeleteTarget(entry || null);
+  }, []);
+
+  const closeClinicExpenseDeleteModal = useCallback(() => {
+    if (isClinicExpenseDeleting) return;
+    setClinicExpenseDeleteTarget(null);
+  }, [isClinicExpenseDeleting]);
+
+  const handleDeleteClinicExpense = useCallback(async () => {
+    if (!clinicExpenseDeleteTarget?.id || isClinicExpenseDeleting) return;
+    try {
+      setIsClinicExpenseDeleting(true);
+      await deleteClinicExpense(clinicExpenseDeleteTarget.id);
+      toast.success("Despesa excluída com sucesso.");
+      setClinicExpenseDeleteTarget(null);
+      loadData();
+    } catch (error) {
+      toast.error(getUserFacingApiError(error, "Não foi possível excluir a despesa."));
+    } finally {
+      setIsClinicExpenseDeleting(false);
+    }
+  }, [clinicExpenseDeleteTarget, isClinicExpenseDeleting, loadData]);
+
+  const openClinicExpenseCategoryModal = useCallback((category = null) => {
+    if (category?.id) {
+      setClinicExpenseCategoryForm({ name: category.name || "" });
+      setEditingClinicExpenseCategoryId(category.id);
+    } else {
+      setClinicExpenseCategoryForm({ name: "" });
+      setEditingClinicExpenseCategoryId(null);
+    }
+    setIsClinicExpenseCategoryOpen(true);
+  }, []);
+
+  const closeClinicExpenseCategoryModal = useCallback(() => {
+    if (isClinicExpenseCategorySaving) return;
+    setIsClinicExpenseCategoryOpen(false);
+    setEditingClinicExpenseCategoryId(null);
+  }, [isClinicExpenseCategorySaving]);
+
+  const handleClinicExpenseCategoryChange = useCallback((event) => {
+    const { name, value } = event.target;
+    setClinicExpenseCategoryForm((prev) => ({ ...prev, [name]: value }));
+  }, []);
+
+  const handleSaveClinicExpenseCategory = useCallback(async () => {
+    const name = clinicExpenseCategoryForm.name.trim();
+    if (!name) {
+      toast.error("Informe o nome da categoria.");
+      return;
+    }
+
+    try {
+      setIsClinicExpenseCategorySaving(true);
+      if (editingClinicExpenseCategoryId) {
+        await updateClinicExpenseCategory(editingClinicExpenseCategoryId, { name });
+        toast.success("Categoria atualizada com sucesso.");
+      } else {
+        await createClinicExpenseCategory({ name });
+        toast.success("Categoria cadastrada com sucesso.");
+      }
+      closeClinicExpenseCategoryModal();
+      loadData();
+    } catch (error) {
+      toast.error(getUserFacingApiError(error, "Não foi possível salvar a categoria."));
+    } finally {
+      setIsClinicExpenseCategorySaving(false);
+    }
+  }, [
+    clinicExpenseCategoryForm,
+    closeClinicExpenseCategoryModal,
+    editingClinicExpenseCategoryId,
+    loadData,
+  ]);
+
+  const handleActivateClinicExpenseCategory = useCallback(async (category) => {
+    if (!category?.id || clinicExpenseCategoryUpdatingId) return;
+    try {
+      setClinicExpenseCategoryUpdatingId(category.id);
+      await activateClinicExpenseCategory(category.id);
+      toast.success("Categoria ativada com sucesso.");
+      loadData();
+    } catch (error) {
+      toast.error(getUserFacingApiError(error, "Não foi possível ativar a categoria."));
+    } finally {
+      setClinicExpenseCategoryUpdatingId(null);
+    }
+  }, [clinicExpenseCategoryUpdatingId, loadData]);
+
+  const openClinicExpenseCategoryDeactivateModal = useCallback((category) => {
+    setClinicExpenseCategoryDeactivateTarget(category || null);
+  }, []);
+
+  const closeClinicExpenseCategoryDeactivateModal = useCallback(() => {
+    if (clinicExpenseCategoryUpdatingId) return;
+    setClinicExpenseCategoryDeactivateTarget(null);
+  }, [clinicExpenseCategoryUpdatingId]);
+
+  const handleDeactivateClinicExpenseCategory = useCallback(async () => {
+    if (!clinicExpenseCategoryDeactivateTarget?.id || clinicExpenseCategoryUpdatingId) return;
+    try {
+      setClinicExpenseCategoryUpdatingId(clinicExpenseCategoryDeactivateTarget.id);
+      await deactivateClinicExpenseCategory(clinicExpenseCategoryDeactivateTarget.id);
+      toast.success("Categoria desativada com sucesso.");
+      setClinicExpenseCategoryDeactivateTarget(null);
+      loadData();
+    } catch (error) {
+      toast.error(getUserFacingApiError(error, "Não foi possível desativar a categoria."));
+    } finally {
+      setClinicExpenseCategoryUpdatingId(null);
+    }
+  }, [clinicExpenseCategoryDeactivateTarget, clinicExpenseCategoryUpdatingId, loadData]);
 
   const handlePaymentChange = useCallback((event) => {
     const { name, value, type, checked } = event.target;
@@ -4463,6 +5132,147 @@ export default function Financeiro() {
     URL.revokeObjectURL(url);
   }, [payments, entries, patientMap, paymentMethodMap]);
 
+  const renderOverview = () => (
+    <FinancialOverviewSection
+      ui={{
+        Spinner,
+        AttendanceSectionSurface,
+        AttendancePeriodBlock,
+        AttendancePeriodBlockLeft,
+        AttendancePeriodBlockLabel,
+        AttendancePeriodBlockValue,
+        AttendancePeriodBlockRight,
+        AttendanceTabGroup,
+        AttendanceTabButton,
+        AttendancePeriodControls,
+        AttendancePeriodButton,
+        AttendancePeriodChip,
+        AttendancePeriodMonthInput,
+        AttendanceCard,
+        AttendanceCardHeader,
+        AttendanceCardTitle,
+        OverviewSummaryGrid,
+        OverviewSummaryColumn,
+        OverviewSummaryHeader,
+        AttendanceMetricCard,
+        AttendanceMetricLabel,
+        AttendanceMetricValue,
+        AttendanceEmptyState,
+        BlockLoader,
+      }}
+      loading={loading || isOverviewBillingCyclesLoading}
+      overview={overviewSummary}
+      overviewMonth={clinicExpensesMonth}
+      overviewMonthLabel={overviewMonthLabel}
+      overviewPeriodMode={overviewPeriodMode}
+      formatCurrency={formatCurrency}
+      handleOverviewMonthChange={handleClinicExpenseMonthChange}
+      handleOverviewPeriodModeChange={handleOverviewPeriodModeChange}
+      handleOverviewPreviousMonth={handleOverviewPreviousMonth}
+      handleOverviewNextMonth={handleOverviewNextMonth}
+    />
+  );
+
+  const renderClinicExpenses = () => (
+    <ClinicExpensesSection
+      ui={{
+        Spinner,
+        AttendanceSectionSurface,
+        AttendancePeriodBlock,
+        AttendancePeriodBlockLeft,
+        AttendancePeriodBlockLabel,
+        AttendancePeriodBlockValue,
+        AttendancePeriodBlockRight,
+        AttendanceTabGroup,
+        AttendanceTabButton,
+        AttendancePeriodControls,
+        AttendancePeriodButton,
+        AttendancePeriodChip,
+        AttendancePeriodMonthInput,
+        AttendanceCard,
+        AttendanceCardHeader,
+        AttendanceCardTitle,
+        AttendanceMetricsGrid,
+        AttendanceMetricCard,
+        AttendanceMetricLabel,
+        AttendanceMetricValue,
+        AttendanceFilterGrid,
+        AttendanceFilterField,
+        AttendanceFilterLabel,
+        AttendanceFilterSelect,
+        AttendanceFilterInput,
+        AttendanceTableCard,
+        AttendanceDetailHeader,
+        AttendanceDetailTitle,
+        AttendanceTableScroll,
+        AttendanceOverviewTable,
+        AttendanceCellStack,
+        AttendancePrimaryText,
+        AttendanceStatusBadge,
+        AttendanceRowActions,
+        AttendanceEmptyState,
+        AttendancePrimaryAction,
+        BlockLoader,
+        ActionMenu,
+        ActionMenuTrigger,
+        ActionMenuList,
+        ActionMenuItem,
+        closeActionMenu,
+        handleActionMenuToggle,
+      }}
+      loading={loading}
+      clinicExpenses={clinicExpenses}
+      clinicExpensesSummary={clinicExpensesSummary}
+      clinicExpenseCategories={clinicExpenseCategories}
+      clinicExpensesMonth={clinicExpensesMonth}
+      clinicExpensesMonthLabel={clinicExpensesPeriodLabel}
+      clinicExpensesPeriodMode={clinicExpensesPeriodMode}
+      clinicExpensesFilters={clinicExpensesFilters}
+      clinicExpensePayingId={clinicExpensePayingId}
+      formatCurrency={formatCurrency}
+      formatDateOnlyBR={formatExpenseDateOnlyBR}
+      getClinicExpenseStatus={getClinicExpenseStatus}
+      handleClinicExpenseMonthChange={handleClinicExpenseMonthChange}
+      handleClinicExpensesPeriodModeChange={handleClinicExpensesPeriodModeChange}
+      handleClinicExpensesPreviousPeriod={handleClinicExpensesPreviousPeriod}
+      handleClinicExpensesNextPeriod={handleClinicExpensesNextPeriod}
+      handleClinicExpensesFilterChange={handleClinicExpensesFilterChange}
+      openClinicExpensePaymentModal={openClinicExpensePaymentModal}
+      handleUnpayClinicExpense={handleUnpayClinicExpense}
+      openClinicExpenseModal={openClinicExpenseModal}
+      openClinicExpenseDeleteModal={openClinicExpenseDeleteModal}
+      getClinicExpenseObservation={getClinicExpenseObservation}
+      getClinicExpensePaidAmountCents={getClinicExpensePaidAmountCents}
+    />
+  );
+
+  const renderClinicExpenseCategories = () => (
+    <ClinicExpenseCategoriesSection
+      ui={{
+        Section,
+        SectionHeader,
+        SectionTitle,
+        SectionSubtitle,
+        PrimaryButton,
+        SectionLoader,
+        Spinner,
+        EmptyState,
+        TableScroll,
+        EntriesTable,
+        FinancialStatusPill,
+        RowActions,
+        SmallButton,
+      }}
+      loading={loading}
+      categories={clinicExpenseCategories}
+      onNew={() => openClinicExpenseCategoryModal()}
+      onEdit={openClinicExpenseCategoryModal}
+      onActivate={handleActivateClinicExpenseCategory}
+      onDeactivate={openClinicExpenseCategoryDeactivateModal}
+      updatingId={clinicExpenseCategoryUpdatingId}
+    />
+  );
+
   const renderEntries = () => (
     <Section>
       <SectionHeader>
@@ -4686,7 +5496,7 @@ export default function Financeiro() {
   const renderAttendance = () => {
     const isAttendanceInitialLoading = isAttendanceLoading && !hasAttendanceLoaded;
     const isAttendanceRefreshing = isAttendanceLoading && hasAttendanceLoaded;
-    const periodSuffix = attendancePeriodLabel ? ` — ${attendancePeriodLabel}` : "";
+    const periodSuffix = attendancePeriodLabel ? ` - ${attendancePeriodLabel}` : "";
     const attendanceTitle = `Resumo por paciente${periodSuffix}`;
 
     let attendanceContent = (
@@ -4851,7 +5661,7 @@ export default function Financeiro() {
                 Registrar recebimento
               </AttendancePrimaryAction>
               <AttendanceGhostAction type="button" onClick={handleClosePatientSessions}>
-                ← Voltar
+                Voltar
               </AttendanceGhostAction>
             </AttendanceHeaderActions>
           </AttendancePatientDetailTopline>
@@ -4907,7 +5717,7 @@ export default function Financeiro() {
               {attendancePeriodLabel && (
                 <AttendancePeriodControls>
                   <AttendancePeriodButton type="button" onClick={handleAttendancePreviousMonth}>
-                    {attendancePeriodMode === "year" ? "← Ano anterior" : "← Anterior"}
+                    {attendancePeriodMode === "year" ? "< Ano anterior" : "< Anterior"}
                   </AttendancePeriodButton>
                   <AttendancePeriodChip
                     role="button"
@@ -4942,7 +5752,7 @@ export default function Financeiro() {
                     )}
                   </AttendancePeriodChip>
                   <AttendancePeriodButton type="button" onClick={handleAttendanceNextMonth}>
-                    {attendancePeriodMode === "year" ? "Próximo ano →" : "Próximo →"}
+                    {attendancePeriodMode === "year" ? "Proximo ano >" : "Proximo >"}
                   </AttendancePeriodButton>
                 </AttendancePeriodControls>
               )}
@@ -5280,7 +6090,7 @@ export default function Financeiro() {
   );
 
   const renderMensalidades = () => {
-    const billingCyclesTitle = `Mensalidades${billingCyclesPeriodLabel ? ` — ${billingCyclesPeriodLabel}` : ""}`;
+    const billingCyclesTitle = `Mensalidades${billingCyclesPeriodLabel ? ` - ${billingCyclesPeriodLabel}` : ""}`;
     let billingCyclesContent = null;
 
     if (billingCyclesDrilldownPatientId && selectedBillingCyclesPatientSummary) {
@@ -5301,7 +6111,7 @@ export default function Financeiro() {
                 Registrar recebimento
               </AttendancePrimaryAction>
               <AttendanceGhostAction type="button" onClick={handleCloseBillingCyclesPatient}>
-                ← Voltar
+                Voltar
               </AttendanceGhostAction>
             </AttendanceHeaderActions>
           </AttendancePatientDetailTopline>
@@ -5343,7 +6153,7 @@ export default function Financeiro() {
                         </td>
                         <td>
                           <AttendancePrimaryText>
-                            {periodStart}{cycle.cycle_end ? ` — ${periodEnd}` : ""}
+                            {periodStart}{cycle.cycle_end ? ` - ${periodEnd}` : ""}
                           </AttendancePrimaryText>
                         </td>
                         <td>
@@ -5484,7 +6294,7 @@ export default function Financeiro() {
             {billingCyclesPeriodLabel && (
               <AttendancePeriodControls>
                 <AttendancePeriodButton type="button" onClick={handleBillingCyclesPreviousMonth}>
-                  {billingCyclesPeriodMode === "year" ? "← Ano anterior" : "← Anterior"}
+                  {billingCyclesPeriodMode === "year" ? "< Ano anterior" : "< Anterior"}
                 </AttendancePeriodButton>
                 <AttendancePeriodChip
                   role="button"
@@ -5519,7 +6329,7 @@ export default function Financeiro() {
                   )}
                 </AttendancePeriodChip>
                 <AttendancePeriodButton type="button" onClick={handleBillingCyclesNextMonth}>
-                  {billingCyclesPeriodMode === "year" ? "Próximo ano →" : "Próximo →"}
+                  {billingCyclesPeriodMode === "year" ? "Proximo ano >" : "Proximo >"}
                 </AttendancePeriodButton>
               </AttendancePeriodControls>
             )}
@@ -5655,12 +6465,7 @@ export default function Financeiro() {
       receitasContent = renderMensalidades();
     }
 
-    return (
-      <>
-        {renderReceitasTabs()}
-        {receitasContent}
-      </>
-    );
+    return receitasContent;
   };
 
   const renderCategories = () => {
@@ -6100,9 +6905,22 @@ export default function Financeiro() {
   const previewPatientName = previewCycle?.Patient ? getPatientDisplayName(previewCycle.Patient) : "-";
   const previewPlanName = previewCycle?.ServicePlan?.name || "-";
   const previewPeriodLabel = previewCycle
-    ? `${formatDateOnlyBR(previewCycle.cycle_start)}${previewCycle.cycle_end ? ` — ${formatDateOnlyBR(previewCycle.cycle_end)}` : ""
+    ? `${formatDateOnlyBR(previewCycle.cycle_start)}${previewCycle.cycle_end ? ` - ${formatDateOnlyBR(previewCycle.cycle_end)}` : ""
     }`
     : "-";
+  const sectionTitleByKey = {
+    overview: "Visão geral",
+    receitas: "Receitas",
+    "clinic-expenses": "Despesas da clínica",
+    methods: "Formas de pagamento",
+    "clinic-expense-categories": "Categorias de despesas",
+    holidays: "Feriados",
+    recurring: "Despesas fixas",
+    reports: "Relatórios",
+    categories: "Categorias",
+  };
+  const currentSectionTitle = sectionTitleByKey[activeSection] || "Financeiro";
+  const clinicExpenseAlertsBadge = formatExpenseAlertCount(clinicExpenseAlertsCount);
 
   return (
     <SidebarShellWrapper $collapsed={isSidebarCollapsed}>
@@ -6120,7 +6938,19 @@ export default function Financeiro() {
           </AppSidebarHeader>
 
           <AppSidebarSection $collapsed={isSidebarCollapsed}>
-            <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Operacao</AppSidebarSectionTitle>
+            <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Operação</AppSidebarSectionTitle>
+            <AppSidebarButton
+              type="button"
+              $active={activeSection === "overview"}
+              $collapsed={isSidebarCollapsed}
+              onClick={() => handleSectionChange("overview")}
+              title="Visão geral"
+            >
+              <AppSidebarIcon $active={activeSection === "overview"}>
+                <FaChartLine />
+              </AppSidebarIcon>
+              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Visão geral</AppSidebarLabel>
+            </AppSidebarButton>
             <AppSidebarButton
               type="button"
               $active={activeSection === "receitas"}
@@ -6133,6 +6963,26 @@ export default function Financeiro() {
               </AppSidebarIcon>
               <AppSidebarLabel $collapsed={isSidebarCollapsed}>Receitas</AppSidebarLabel>
             </AppSidebarButton>
+            {SHOW_CLINIC_EXPENSES && (
+              <AppSidebarButton
+                type="button"
+                $active={activeSection === "clinic-expenses"}
+                $collapsed={isSidebarCollapsed}
+                onClick={() => handleSectionChange("clinic-expenses")}
+                title="Despesas da clínica"
+                style={{ position: "relative" }}
+              >
+                <AppSidebarIcon $active={activeSection === "clinic-expenses"}>
+                  <FaWallet />
+                </AppSidebarIcon>
+                <AppSidebarLabel $collapsed={isSidebarCollapsed}>Despesas da clínica</AppSidebarLabel>
+                {clinicExpenseAlertsBadge ? (
+                  <SidebarAlertBadge $collapsed={isSidebarCollapsed}>
+                    {clinicExpenseAlertsBadge}
+                  </SidebarAlertBadge>
+                ) : null}
+              </AppSidebarButton>
+            )}
           </AppSidebarSection>
 
           {SHOW_FINANCIAL_MANAGEMENT && (
@@ -6185,6 +7035,18 @@ export default function Financeiro() {
               </AppSidebarIcon>
               <AppSidebarLabel $collapsed={isSidebarCollapsed}>Formas de pagamento</AppSidebarLabel>
             </AppSidebarButton>
+            <AppSidebarButton
+              type="button"
+              $active={activeSection === "clinic-expense-categories"}
+              $collapsed={isSidebarCollapsed}
+              onClick={() => handleSectionChange("clinic-expense-categories")}
+              title="Categorias de despesas"
+            >
+              <AppSidebarIcon $active={activeSection === "clinic-expense-categories"}>
+                <FaTags />
+              </AppSidebarIcon>
+              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Categorias de despesas</AppSidebarLabel>
+            </AppSidebarButton>
             {SHOW_FINANCIAL_MANAGEMENT && (
               <AppSidebarButton
                 type="button"
@@ -6205,8 +7067,13 @@ export default function Financeiro() {
         <SidebarMainArea>
           <Header>
             <HeaderText>
-              <Title>Financeiro</Title>
+              <Title>{currentSectionTitle}</Title>
             </HeaderText>
+            {activeSection === "receitas" && (
+              <HeaderTabsSlot>
+                {renderReceitasTabs()}
+              </HeaderTabsSlot>
+            )}
             <MobileMenuButton type="button" onClick={openSidebar}>
               <FaBars />
               Menu
@@ -6214,7 +7081,10 @@ export default function Financeiro() {
           </Header>
 
           <>
+            {activeSection === "overview" && renderOverview()}
             {activeSection === "receitas" && renderReceitas()}
+            {SHOW_CLINIC_EXPENSES && activeSection === "clinic-expenses" && renderClinicExpenses()}
+            {activeSection === "clinic-expense-categories" && renderClinicExpenseCategories()}
             {SHOW_FINANCIAL_MANAGEMENT && activeSection === "recurring" && renderRecurring()}
             {SHOW_FINANCIAL_MANAGEMENT && activeSection === "categories" && renderCategories()}
             {activeSection === "methods" && renderMethods()}
@@ -6265,7 +7135,7 @@ export default function Financeiro() {
 			                    const usageSummary = item.usageSummary || {};
 			                    const totalSessions = item.totalSessions || 0;
 			                    const packageDateLabel = item.expiresAt ? formatDateOnlyBR(item.expiresAt) : "";
-			                    const packageTitle = `${packageDateLabel ? `${packageDateLabel} · ` : ""}${item.serviceName} — ${totalSessions} ${totalSessions === 1 ? "sessão" : "sessões"}`;
+			                    const packageTitle = `${packageDateLabel ? `${packageDateLabel} · ` : ""}${item.serviceName} - ${totalSessions} ${totalSessions === 1 ? "sessão" : "sessões"}`;
 			                    const statusItems = [
 			                      { label: "agendadas", value: usageSummary.scheduled || 0, show: (usageSummary.scheduled || 0) > 0 },
 			                      { label: "realizadas", value: usageSummary.done || 0, show: (usageSummary.done || 0) > 0 },
@@ -6616,6 +7486,188 @@ export default function Financeiro() {
             </ModalCard>
           </ModalOverlay>
           <Backdrop onClick={closeEntryModal} />
+        </>
+      )}
+
+      {isClinicExpenseOpen && (
+        <ClinicExpenseModal
+          ui={{
+            ModalOverlay,
+            ModalCard: CompactModalCard,
+            ModalHeader,
+            ModalTitle,
+            ModalSubtitle,
+            IconButton,
+            ModalBody,
+            Field,
+            Label,
+            Input,
+            Select,
+            FormGrid,
+            TextArea,
+            ModalActions,
+            SecondaryButton,
+            PrimaryButton,
+            Backdrop,
+            MutedText,
+          }}
+          clinicExpenseForm={clinicExpenseForm}
+          clinicExpenseCategories={clinicExpenseCategories}
+          editingClinicExpenseId={editingClinicExpenseId}
+          isClinicExpenseSaving={isClinicExpenseSaving}
+          closeClinicExpenseModal={closeClinicExpenseModal}
+          handleClinicExpenseChange={handleClinicExpenseChange}
+          handleClinicExpenseAmountBlur={handleClinicExpenseAmountBlur}
+          handleClinicExpensePaidAmountBlur={handleClinicExpensePaidAmountBlur}
+          handleSaveClinicExpense={handleSaveClinicExpense}
+        />
+      )}
+      {isClinicExpensePaymentOpen && (
+        <ClinicExpensePaymentModal
+          ui={{
+            ModalOverlay,
+            ModalCard,
+            ModalHeader,
+            ModalTitle,
+            ModalSubtitle,
+            IconButton,
+            ModalBody,
+            Field,
+            Label,
+            Input,
+            TextArea,
+            ModalActions,
+            SecondaryButton,
+            PrimaryButton,
+            Backdrop,
+          }}
+          form={clinicExpensePaymentForm}
+          isSaving={Boolean(clinicExpensePayingId)}
+          isEditing={Boolean(clinicExpensePaymentForm.expense?.paid_at)}
+          onChange={handleClinicExpensePaymentChange}
+          onAmountBlur={handleClinicExpensePaymentAmountBlur}
+          onClose={closeClinicExpensePaymentModal}
+          onSave={handleSaveClinicExpensePayment}
+        />
+      )}
+      {isClinicExpenseCategoryOpen && (
+        <ClinicExpenseCategoryModal
+          ui={{
+            ModalOverlay,
+            ModalCard,
+            ModalHeader,
+            ModalTitle,
+            ModalSubtitle,
+            IconButton,
+            ModalBody,
+            Field,
+            Label,
+            Input,
+            ModalActions,
+            SecondaryButton,
+            PrimaryButton,
+            Backdrop,
+          }}
+          form={clinicExpenseCategoryForm}
+          editingId={editingClinicExpenseCategoryId}
+          isSaving={isClinicExpenseCategorySaving}
+          onClose={closeClinicExpenseCategoryModal}
+          onChange={handleClinicExpenseCategoryChange}
+          onSave={handleSaveClinicExpenseCategory}
+        />
+      )}
+      {clinicExpenseCategoryDeactivateTarget && (
+        <>
+          <ModalOverlay>
+            <CompactModalCard>
+              <ModalHeader>
+                <div>
+                  <ModalTitle>Desativar categoria</ModalTitle>
+                  <ModalSubtitle>Ela não aparecerá em novas despesas.</ModalSubtitle>
+                </div>
+                <IconButton
+                  type="button"
+                  onClick={closeClinicExpenseCategoryDeactivateModal}
+                  disabled={Boolean(clinicExpenseCategoryUpdatingId)}
+                >
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                <EmptyState>
+                  Deseja desativar a categoria {clinicExpenseCategoryDeactivateTarget.name}?
+                  {Number(clinicExpenseCategoryDeactivateTarget.used_count || 0) > 0 ? (
+                    <MutedText>As despesas antigas continuarão com essa categoria.</MutedText>
+                  ) : null}
+                </EmptyState>
+              </ModalBody>
+              <ModalActions>
+                <SecondaryButton
+                  type="button"
+                  onClick={closeClinicExpenseCategoryDeactivateModal}
+                  disabled={Boolean(clinicExpenseCategoryUpdatingId)}
+                >
+                  Cancelar
+                </SecondaryButton>
+                <PrimaryButton
+                  type="button"
+                  onClick={handleDeactivateClinicExpenseCategory}
+                  disabled={Boolean(clinicExpenseCategoryUpdatingId)}
+                >
+                  {clinicExpenseCategoryUpdatingId ? "Salvando..." : "Desativar"}
+                </PrimaryButton>
+              </ModalActions>
+            </CompactModalCard>
+          </ModalOverlay>
+          <Backdrop onClick={closeClinicExpenseCategoryDeactivateModal} />
+        </>
+      )}
+      {clinicExpenseDeleteTarget && (
+        <>
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <div>
+                  <ModalTitle>Excluir despesa</ModalTitle>
+                  <ModalSubtitle>Essa ação removerá apenas esta despesa.</ModalSubtitle>
+                </div>
+                <IconButton
+                  type="button"
+                  onClick={closeClinicExpenseDeleteModal}
+                  disabled={isClinicExpenseDeleting}
+                >
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                <EmptyState>
+                  Tem certeza que deseja excluir esta despesa?
+                  {clinicExpenseDeleteTarget.recurrence_type === "monthly" ? (
+                    <MutedText>
+                      Essa despesa faz parte de uma recorrência mensal. Nesta versão, apenas este mês será removido.
+                    </MutedText>
+                  ) : null}
+                </EmptyState>
+              </ModalBody>
+              <ModalActions>
+                <SecondaryButton
+                  type="button"
+                  onClick={closeClinicExpenseDeleteModal}
+                  disabled={isClinicExpenseDeleting}
+                >
+                  Cancelar
+                </SecondaryButton>
+                <PrimaryButton
+                  type="button"
+                  onClick={handleDeleteClinicExpense}
+                  disabled={isClinicExpenseDeleting}
+                >
+                  {isClinicExpenseDeleting ? "Excluindo..." : "Excluir despesa"}
+                </PrimaryButton>
+              </ModalActions>
+            </ModalCard>
+          </ModalOverlay>
+          <Backdrop onClick={closeClinicExpenseDeleteModal} />
         </>
       )}
 
@@ -7476,12 +8528,14 @@ export default function Financeiro() {
 
 
 const Header = styled.div`
+  position: relative;
   margin-bottom: 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+  min-height: 52px;
 `;
 
 const HeaderText = styled.div`
@@ -7499,8 +8553,25 @@ const Title = styled.h1`
 
 const TabsWrapper = styled.div`
   display: flex;
-  justify-content: flex-start;
-  margin-bottom: 12px;
+  justify-content: center;
+`;
+
+const HeaderTabsSlot = styled.div`
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  justify-content: center;
+  max-width: calc(100% - 280px);
+
+  @media (max-width: 900px) {
+    position: static;
+    order: 3;
+    width: 100%;
+    max-width: none;
+    transform: none;
+  }
 `;
 
 const TabsRow = styled.div`
@@ -7611,7 +8682,7 @@ const FilterField = styled.div`
   gap: 6px;
 `;
 
-// Financeiro usa estilo visual próprio de tabela — override sobre SharedDataTable para manter pixel-perfect.
+// Financeiro usa estilo visual próprio de tabela - override sobre SharedDataTable para manter pixel-perfect.
 const tableOverrides = `
   th,
   td {
@@ -7779,7 +8850,7 @@ const MutedText = styled.span`
   color: #7a7a7a;
 `;
 
-// Botão de abertura da sidebar no mobile — específico do layout do Financeiro.
+// Botão de abertura da sidebar no mobile - específico do layout do Financeiro.
 const MobileMenuButton = styled.button`
   display: none;
   align-items: center;
@@ -7794,6 +8865,24 @@ const MobileMenuButton = styled.button`
   @media (max-width: 960px) {
     display: inline-flex;
   }
+`;
+
+const SidebarAlertBadge = styled.span`
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #c63b32;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.72rem;
+  flex-shrink: 0;
 `;
 
 const SmallButton = styled.button`
@@ -7818,7 +8907,7 @@ const SmallButton = styled.button`
   }
 `;
 
-// Financeiro usa visual próprio — overrides sobre o SharedPrimaryButton para manter pixel-perfect.
+// Financeiro usa visual próprio - overrides sobre o SharedPrimaryButton para manter pixel-perfect.
 const PrimaryButton = styled(SharedPrimaryButton)`
   gap: 8px;
   border-radius: 12px;
@@ -7836,7 +8925,7 @@ const PrimaryButton = styled(SharedPrimaryButton)`
   }
 `;
 
-// Financeiro usa visual próprio — overrides sobre o SharedGhostButton para manter pixel-perfect.
+// Financeiro usa visual próprio - overrides sobre o SharedGhostButton para manter pixel-perfect.
 const GhostButton = styled(SharedGhostButton)`
   gap: 8px;
   background: #f0f3ec;
@@ -8084,11 +9173,60 @@ const AttendanceMetricsGrid = styled.div`
   gap: ${ATTENDANCE_UI.spacing[2]};
 `;
 
+const OverviewSummaryGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: ${ATTENDANCE_UI.spacing[2]};
+
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const OverviewSummaryColumn = styled.div`
+  display: grid;
+  gap: ${ATTENDANCE_UI.spacing[2]};
+  align-content: start;
+  padding: ${ATTENDANCE_UI.spacing[2]};
+  border-radius: ${ATTENDANCE_UI.radius.lg};
+  border: 1px solid ${(props) => (
+    props.$variant === "current" ? ATTENDANCE_UI.colors.actionBorder : ATTENDANCE_UI.colors.borderStrong
+  )};
+  background: ${(props) => (
+    props.$variant === "current" ? ATTENDANCE_UI.colors.actionSoft : ATTENDANCE_UI.colors.infoSoft
+  )};
+`;
+
+const OverviewSummaryHeader = styled.div`
+  color: ${ATTENDANCE_UI.colors.textTertiary};
+  font-size: ${ATTENDANCE_UI.font.size.xs};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+`;
+
 const AttendanceMetricCard = styled.div`
+  position: relative;
   padding: ${ATTENDANCE_UI.spacing[2]};
   border-radius: ${ATTENDANCE_UI.radius.md};
   border: 1px solid ${ATTENDANCE_UI.colors.border};
   background: ${ATTENDANCE_UI.colors.surfaceMuted};
+
+  ${(props) => props.$summaryFinal && `
+    margin-top: ${ATTENDANCE_UI.spacing[3]};
+
+    &::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: -14px;
+      height: 2px;
+      border-radius: 999px;
+      background: ${ATTENDANCE_UI.colors.borderStrong};
+    }
+  `}
 `;
 
 const AttendanceMetricLabel = styled.span`
@@ -8132,6 +9270,23 @@ const AttendanceFilterLabel = styled.label`
 `;
 
 const AttendanceFilterSelect = styled.select`
+  height: 44px;
+  border-radius: ${ATTENDANCE_UI.radius.md};
+  border: 1px solid ${ATTENDANCE_UI.colors.borderStrong};
+  background: ${ATTENDANCE_UI.colors.surface};
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  padding: 0 14px;
+  font-size: ${ATTENDANCE_UI.font.size.md};
+  box-shadow: none;
+
+  &:focus {
+    outline: none;
+    border-color: ${ATTENDANCE_UI.colors.action};
+    box-shadow: 0 0 0 3px rgba(95, 121, 87, 0.12);
+  }
+`;
+
+const AttendanceFilterInput = styled.input`
   height: 44px;
   border-radius: ${ATTENDANCE_UI.radius.md};
   border: 1px solid ${ATTENDANCE_UI.colors.borderStrong};
@@ -8613,7 +9768,7 @@ const AttendanceStatusBadge = styled.span`
     if (props.$status === "credit") return ATTENDANCE_UI.colors.actionSoft;
     if (props.$status === "paid" || props.$status === "done") return ATTENDANCE_UI.colors.successSoft;
     if (props.$status === "partial") return ATTENDANCE_UI.colors.infoSoft;
-    if (props.$status === "overdue") return "rgba(190, 58, 58, 0.12)";
+    if (props.$status === "pending" || props.$status === "open" || props.$status === "overdue") return "rgba(190, 58, 58, 0.12)";
     if (props.$status === "covered_by_plan") return ATTENDANCE_UI.colors.neutralSoft;
     return ATTENDANCE_UI.colors.neutralSoft;
   }};
@@ -8621,7 +9776,7 @@ const AttendanceStatusBadge = styled.span`
     if (props.$status === "credit") return ATTENDANCE_UI.colors.action;
     if (props.$status === "paid" || props.$status === "done") return ATTENDANCE_UI.colors.successText;
     if (props.$status === "partial") return ATTENDANCE_UI.colors.infoText;
-    if (props.$status === "overdue") return "#9a2f2f";
+    if (props.$status === "pending" || props.$status === "open" || props.$status === "overdue") return "#9a2f2f";
     if (props.$status === "covered_by_plan") return ATTENDANCE_UI.colors.textSecondary;
     return ATTENDANCE_UI.colors.neutralText;
   }};
@@ -8922,6 +10077,36 @@ const ModalActions = styled.div`
   padding-top: 12px;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
   flex-shrink: 0;
+`;
+
+const CompactModalCard = styled(ModalCard)`
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px;
+
+  ${ModalHeader} {
+    margin-bottom: 12px;
+  }
+
+  ${ModalBody} {
+    gap: 10px;
+    min-height: 0;
+    padding-right: 0;
+    margin-right: 0;
+  }
+
+  ${EmptyState} {
+    padding: 12px;
+    min-height: 0;
+  }
+
+  ${ModalActions} {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  @media (max-width: 760px) {
+    padding: 14px;
+  }
 `;
 
 const IconButton = styled.button`

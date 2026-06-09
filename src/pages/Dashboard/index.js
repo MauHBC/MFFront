@@ -60,6 +60,14 @@ const isDateInRange = (value, from, to) => {
   return parsed >= from && parsed <= to;
 };
 
+const isDateOnlyInRange = (value, start, end) => {
+  const dateOnly = String(value || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return false;
+  if (start && dateOnly < start) return false;
+  if (end && dateOnly > end) return false;
+  return true;
+};
+
 const normalizeId = (value) => (value === undefined || value === null ? "" : String(value));
 
 const formatCurrency = (cents) =>
@@ -242,20 +250,20 @@ export default function Dashboard() {
   }, [operationalAlerts]);
 
   const financialSummary = useMemo(() => {
-    const paymentsInPeriod = financialPayments.filter((payment) =>
-      isDateInRange(payment?.paid_at, range.from, range.to),
-    );
-
-    const receivedCents = paymentsInPeriod.reduce(
-      (sum, payment) => sum + Number(payment?.amount_cents || 0),
-      0,
-    );
+    const periodStart = formatDateParam(range.from);
+    const periodEnd = formatDateParam(range.to);
 
     const eligibleEntries = financialEntries.filter((entry) => (
       entry?.type === "income"
       && entry?.status !== "canceled"
-      && isDateInRange(entry?.reference_date || entry?.due_date, range.from, range.to)
+      && isDateOnlyInRange(entry?.reference_date || entry?.due_date, periodStart, periodEnd)
     ));
+
+    const receivedCents = eligibleEntries.reduce((sum, entry) => {
+      const amount = Number(entry?.amount_cents || 0);
+      const allocated = getEntryAllocatedCents(entry?.id, financialPayments);
+      return sum + Math.min(amount, allocated);
+    }, 0);
 
     const receivableCents = eligibleEntries.reduce((sum, entry) => {
       const amount = Number(entry?.amount_cents || 0);
