@@ -6,6 +6,12 @@ import { FaInfoCircle, FaListAlt, FaPhoneAlt, FaPlus, FaTimes, FaUserAlt } from 
 
 import DataLoadingState from "../../components/DataLoadingState";
 import axios from "../../services/axios";
+import {
+  createPatientExternalProfessional,
+  inactivatePatientExternalProfessional,
+  listPatientExternalProfessionals,
+  updatePatientExternalProfessional,
+} from "../../services/patientExternalProfessionals";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import {
   ModuleHeader,
@@ -112,6 +118,41 @@ const DEFAULT_OPERATIONAL_POLICY = {
   monthly_reschedule_limit: 2,
   monthly_absence_limit: 2,
 };
+
+const EXTERNAL_PROFESSIONAL_TYPES = [
+  { value: "personal_trainer", label: "Personal trainer" },
+  { value: "physical_educator", label: "Educador físico" },
+  { value: "nutritionist", label: "Nutricionista" },
+  { value: "doctor", label: "Médico" },
+  { value: "pilates", label: "Pilates" },
+  { value: "other", label: "Outro" },
+];
+
+const EXTERNAL_PROFESSIONAL_TYPE_LABELS = EXTERNAL_PROFESSIONAL_TYPES.reduce(
+  (labels, option) => ({
+    ...labels,
+    [option.value]: option.label,
+  }),
+  {},
+);
+
+const buildExternalProfessionalForm = (professional = null) => ({
+  professional_type: professional?.professional_type || "personal_trainer",
+  professional_name: professional?.professional_name || "",
+  contact: professional?.contact || "",
+  instagram_url: professional?.instagram_url || "",
+  contact_authorized: professional?.contact_authorized === true,
+  notes: professional?.notes || "",
+  is_active: professional?.is_active !== false,
+});
+
+function normalizeExternalUrl(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  if (!normalized) return null;
+  if (/^https?:\/\//i.test(normalized)) return normalized;
+  return `https://${normalized}`;
+}
 
 function resolveAttentionLevelStyles(level) {
   return ATTENTION_LEVEL_STYLES[level] || ATTENTION_LEVEL_STYLES.default;
@@ -504,6 +545,12 @@ export default function PatientDetails() {
   const [perSessionSeries, setPerSessionSeries] = useState([]);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [replacementCredits, setReplacementCredits] = useState([]);
+  const [externalProfessionals, setExternalProfessionals] = useState([]);
+  const [externalProfessionalModal, setExternalProfessionalModal] = useState(null);
+  const [externalProfessionalForm, setExternalProfessionalForm] = useState(() =>
+    buildExternalProfessionalForm(),
+  );
+  const [isSavingExternalProfessional, setIsSavingExternalProfessional] = useState(false);
   const [operationalPolicy, setOperationalPolicy] = useState(DEFAULT_OPERATIONAL_POLICY);
   const [frequencyRangeMonths, setFrequencyRangeMonths] = useState(3);
   const [editingSection, setEditingSection] = useState(null);
@@ -524,6 +571,7 @@ export default function PatientDetails() {
           allSessionsResponse,
           sessionSeriesResponse,
           replacementCreditsResponse,
+          externalProfessionalsResponse,
           operationalPolicyResponse,
         ] = await Promise.all([
           axios.get(`/patients/${id}`),
@@ -538,6 +586,7 @@ export default function PatientDetails() {
           axios.get("/sessions", { params: { patient_id: id } }),
           axios.get("/session-series", { params: { patient_id: id } }),
           axios.get("/session-replacement-credits", { params: { patient_id: id } }),
+          listPatientExternalProfessionals({ patient_id: id }),
           axios.get("/unit-scheduling-policy"),
         ]);
         setPatient(patientResponse.data);
@@ -553,6 +602,11 @@ export default function PatientDetails() {
         );
         setReplacementCredits(
           Array.isArray(replacementCreditsResponse.data) ? replacementCreditsResponse.data : [],
+        );
+        setExternalProfessionals(
+          Array.isArray(externalProfessionalsResponse.data)
+            ? externalProfessionalsResponse.data
+            : [],
         );
         setOperationalPolicy({
           ...DEFAULT_OPERATIONAL_POLICY,
@@ -766,6 +820,100 @@ export default function PatientDetails() {
       toast.error(error?.response?.data?.error || "Não foi possível cancelar a reposição.");
     }
   }, [reloadReplacementCredits]);
+
+  const reloadExternalProfessionals = useCallback(async () => {
+    if (!id) return;
+    const response = await listPatientExternalProfessionals({ patient_id: id });
+    setExternalProfessionals(Array.isArray(response.data) ? response.data : []);
+  }, [id]);
+
+  const openExternalProfessionalCreateModal = useCallback(() => {
+    setExternalProfessionalForm(buildExternalProfessionalForm());
+    setExternalProfessionalModal({ mode: "create", item: null });
+  }, []);
+
+  const openExternalProfessionalEditModal = useCallback((professional) => {
+    setExternalProfessionalForm(buildExternalProfessionalForm(professional));
+    setExternalProfessionalModal({ mode: "edit", item: professional });
+  }, []);
+
+  const closeExternalProfessionalModal = useCallback(() => {
+    if (isSavingExternalProfessional) return;
+    setExternalProfessionalModal(null);
+    setExternalProfessionalForm(buildExternalProfessionalForm());
+  }, [isSavingExternalProfessional]);
+
+  const handleExternalProfessionalFieldChange = useCallback((event) => {
+    const { name, value, type, checked } = event.target;
+    setExternalProfessionalForm((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value,
+    }));
+  }, []);
+
+  const handleSaveExternalProfessional = useCallback(async () => {
+    const professionalName = cleanText(externalProfessionalForm.professional_name);
+    if (!professionalName || professionalName.length < 2) {
+      toast.error("Informe o nome do profissional.");
+      return;
+    }
+
+    const payload = {
+      patient_id: id,
+      professional_type: externalProfessionalForm.professional_type,
+      professional_name: professionalName,
+      contact: cleanText(externalProfessionalForm.contact),
+      instagram_url: normalizeExternalUrl(externalProfessionalForm.instagram_url),
+      contact_authorized: externalProfessionalForm.contact_authorized,
+      notes: cleanText(externalProfessionalForm.notes),
+      is_active: externalProfessionalForm.is_active,
+    };
+
+    setIsSavingExternalProfessional(true);
+    try {
+      if (externalProfessionalModal?.mode === "edit" && externalProfessionalModal?.item?.id) {
+        await updatePatientExternalProfessional(externalProfessionalModal.item.id, payload);
+        toast.success("Profissional atualizado.");
+      } else {
+        await createPatientExternalProfessional(payload);
+        toast.success("Profissional adicionado.");
+      }
+      setExternalProfessionalModal(null);
+      setExternalProfessionalForm(buildExternalProfessionalForm());
+      await reloadExternalProfessionals();
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.error ||
+          "Não foi possível salvar o profissional externo.",
+      );
+    } finally {
+      setIsSavingExternalProfessional(false);
+    }
+  }, [
+    externalProfessionalForm,
+    externalProfessionalModal,
+    id,
+    reloadExternalProfessionals,
+  ]);
+
+  const handleInactivateExternalProfessional = useCallback(async (professional) => {
+    // eslint-disable-next-line no-alert
+    const confirmed = window.confirm(
+      `Inativar ${professional.professional_name}?`,
+    );
+    if (!confirmed) return;
+
+    try {
+      await inactivatePatientExternalProfessional(professional.id);
+      toast.success("Profissional inativado.");
+      await reloadExternalProfessionals();
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.error ||
+          "Não foi possível inativar o profissional externo.",
+      );
+    }
+  }, [reloadExternalProfessionals]);
 
   const startEditingSection = useCallback(
     (section) => {
@@ -1056,6 +1204,92 @@ export default function PatientDetails() {
               <CardText>
                 {lastDate} - {lastRecordName}
               </CardText>
+            </InfoCard>
+            <InfoCard>
+              <CardHeader>
+                <CardHeaderInfo>
+                  <CardTitle>
+                    <FaUserAlt /> Acompanhamento externo do tratamento
+                  </CardTitle>
+                </CardHeaderInfo>
+                <CardActions>
+                  <CardButton
+                    type="button"
+                    $primary
+                    onClick={openExternalProfessionalCreateModal}
+                  >
+                    <FaPlus /> Adicionar profissional
+                  </CardButton>
+                </CardActions>
+              </CardHeader>
+              {externalProfessionals.length === 0 && (
+                <EmptyState>Nenhum acompanhamento externo registrado.</EmptyState>
+              )}
+              {externalProfessionals.length > 0 && (
+                <ExternalProfessionalList>
+                  {externalProfessionals.map((professional) => (
+                    <ExternalProfessionalItem
+                      key={professional.id}
+                      $inactive={professional.is_active === false}
+                    >
+                      <ExternalProfessionalMain>
+                        <ExternalProfessionalHeader>
+                          <strong>{professional.professional_name}</strong>
+                          <StatusPill>
+                            {EXTERNAL_PROFESSIONAL_TYPE_LABELS[professional.professional_type] ||
+                              "Outro"}
+                          </StatusPill>
+                          {professional.is_active === false && (
+                            <StatusPill>Inativo</StatusPill>
+                          )}
+                        </ExternalProfessionalHeader>
+                        <ExternalProfessionalMeta>
+                          <span>Contato: {valueOrDash(professional.contact)}</span>
+                          <span>
+                            Instagram:{" "}
+                            {professional.instagram_url ? (
+                              <ExternalProfessionalLink
+                                href={normalizeExternalUrl(professional.instagram_url)}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Abrir perfil
+                              </ExternalProfessionalLink>
+                            ) : (
+                              "-"
+                            )}
+                          </span>
+                          <span>
+                            Autorização para contato:{" "}
+                            <strong>{formatBoolean(professional.contact_authorized)}</strong>
+                          </span>
+                        </ExternalProfessionalMeta>
+                        {professional.notes && (
+                          <ExternalProfessionalNotes>
+                            {professional.notes}
+                          </ExternalProfessionalNotes>
+                        )}
+                      </ExternalProfessionalMain>
+                      <CardActions>
+                        <CardButton
+                          type="button"
+                          onClick={() => openExternalProfessionalEditModal(professional)}
+                        >
+                          Editar
+                        </CardButton>
+                        {professional.is_active !== false && (
+                          <CardButton
+                            type="button"
+                            onClick={() => handleInactivateExternalProfessional(professional)}
+                          >
+                            Inativar
+                          </CardButton>
+                        )}
+                      </CardActions>
+                    </ExternalProfessionalItem>
+                  ))}
+                </ExternalProfessionalList>
+              )}
             </InfoCard>
             <InfoCard>
               <FrequencyHeader>
@@ -2004,6 +2238,141 @@ export default function PatientDetails() {
             </InfoCard>
           </Section>
         )}
+        {externalProfessionalModal && (
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <div>
+                  <ModalTitle>
+                    {externalProfessionalModal.mode === "edit"
+                      ? "Editar profissional externo"
+                      : "Adicionar profissional externo"}
+                  </ModalTitle>
+                  <ModalSubtitle>
+                    <span>Informação de apoio para alinhamento do tratamento.</span>
+                  </ModalSubtitle>
+                </div>
+                <IconButton
+                  type="button"
+                  onClick={closeExternalProfessionalModal}
+                  aria-label="Fechar"
+                  disabled={isSavingExternalProfessional}
+                >
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Tipo de profissional</DataLabel>
+                    <DataValue>
+                      <InlineSelect
+                        name="professional_type"
+                        value={externalProfessionalForm.professional_type}
+                        onChange={handleExternalProfessionalFieldChange}
+                      >
+                        {EXTERNAL_PROFESSIONAL_TYPES.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </InlineSelect>
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Nome do profissional</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="professional_name"
+                        value={externalProfessionalForm.professional_name}
+                        onChange={handleExternalProfessionalFieldChange}
+                        placeholder="Nome completo"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Contato</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="contact"
+                        value={externalProfessionalForm.contact}
+                        onChange={handleExternalProfessionalFieldChange}
+                        placeholder="Telefone, WhatsApp ou e-mail"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Instagram</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="instagram_url"
+                        value={externalProfessionalForm.instagram_url}
+                        onChange={handleExternalProfessionalFieldChange}
+                        placeholder="https://instagram.com/profissional"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Autorização de contato</DataLabel>
+                    <DataValue>
+                      <CheckboxOption>
+                        <input
+                          type="checkbox"
+                          name="contact_authorized"
+                          checked={externalProfessionalForm.contact_authorized}
+                          onChange={handleExternalProfessionalFieldChange}
+                        />
+                        <span>Paciente autorizou contato com esse profissional</span>
+                      </CheckboxOption>
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Status</DataLabel>
+                    <DataValue>
+                      <CheckboxOption>
+                        <input
+                          type="checkbox"
+                          name="is_active"
+                          checked={externalProfessionalForm.is_active}
+                          onChange={handleExternalProfessionalFieldChange}
+                        />
+                        <span>Ativo</span>
+                      </CheckboxOption>
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Observações</DataLabel>
+                    <DataValue>
+                      <InlineTextarea
+                        name="notes"
+                        value={externalProfessionalForm.notes}
+                        onChange={handleExternalProfessionalFieldChange}
+                        placeholder="Restrições, carga, frequência de treino, cuidados combinados..."
+                      />
+                    </DataValue>
+                  </DataRow>
+                </DataList>
+              </ModalBody>
+              <ModalFooter>
+                <CardButton
+                  type="button"
+                  onClick={closeExternalProfessionalModal}
+                  disabled={isSavingExternalProfessional}
+                >
+                  Cancelar
+                </CardButton>
+                <CardButton
+                  type="button"
+                  $primary
+                  onClick={handleSaveExternalProfessional}
+                  disabled={isSavingExternalProfessional}
+                >
+                  {isSavingExternalProfessional ? "Salvando..." : "Salvar"}
+                </CardButton>
+              </ModalFooter>
+            </ModalCard>
+          </ModalOverlay>
+        )}
         {selectedPackage && (
           <ModalOverlay>
             <ModalCard>
@@ -2401,6 +2770,74 @@ const ReplacementCreditItem = styled.div`
   }
 `;
 
+const ExternalProfessionalList = styled.div`
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+`;
+
+const ExternalProfessionalItem = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  background: ${(props) => (props.$inactive ? "#f6f6f3" : "#fcfdf8")};
+  padding: 12px;
+  opacity: ${(props) => (props.$inactive ? 0.74 : 1)};
+
+  @media (max-width: 720px) {
+    flex-direction: column;
+  }
+`;
+
+const ExternalProfessionalMain = styled.div`
+  min-width: 0;
+`;
+
+const ExternalProfessionalHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  strong {
+    color: #1b1b1b;
+  }
+`;
+
+const ExternalProfessionalMeta = styled.div`
+  display: flex;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  color: #6a795c;
+  font-size: 0.9rem;
+
+  strong {
+    color: #2d3629;
+  }
+`;
+
+const ExternalProfessionalNotes = styled.p`
+  margin: 8px 0 0;
+  color: #2d3629;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+`;
+
+const ExternalProfessionalLink = styled.a`
+  color: #55644c;
+  font-weight: 800;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+`;
+
 const CardActions = styled.div`
   display: flex;
   gap: 8px;
@@ -2408,6 +2845,10 @@ const CardActions = styled.div`
 `;
 
 const CardButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   padding: 8px 14px;
   border-radius: 10px;
   border: 1px solid rgba(106, 121, 92, 0.28);
@@ -2623,6 +3064,20 @@ const ModalHeader = styled.div`
   gap: 16px;
   padding: 18px 18px 12px;
   border-bottom: 1px solid rgba(106, 121, 92, 0.12);
+`;
+
+const ModalBody = styled.div`
+  padding: 16px 18px;
+  max-height: min(560px, calc(100vh - 190px));
+  overflow: auto;
+`;
+
+const ModalFooter = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 18px 18px;
+  border-top: 1px solid rgba(106, 121, 92, 0.12);
 `;
 
 const ModalTitle = styled.h2`

@@ -717,7 +717,12 @@ export default function Financeiro() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loadingOverview, setLoadingOverview] = useState(true);
+  const [loadingRevenues, setLoadingRevenues] = useState(false);
+  const [loadingExpenses, setLoadingExpenses] = useState(false);
+  const [loadingExpenseCategories, setLoadingExpenseCategories] = useState(false);
+  const [loadingPaymentMethods, setLoadingPaymentMethods] = useState(false);
+  const [loadingManagement, setLoadingManagement] = useState(false);
   const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
   const [hasAttendanceLoaded, setHasAttendanceLoaded] = useState(false);
   const [entries, setEntries] = useState([]);
@@ -1428,9 +1433,52 @@ export default function Financeiro() {
     [holidays],
   );
 
-  const loadData = useCallback(async () => {
+  const getClinicExpensesPeriodParams = useCallback((periodMode = clinicExpensesPeriodMode) => (
+    periodMode === "year"
+      ? { year: String(parseMonthInputValue(clinicExpensesMonth)?.year || new Date().getFullYear()) }
+      : { reference_month: clinicExpensesMonth }
+  ), [clinicExpensesMonth, clinicExpensesPeriodMode]);
+
+  const applyClinicExpensesPayload = useCallback((payload = {}) => {
+    setClinicExpensesData(
+      Array.isArray(payload)
+        ? payload
+        : (payload.items || []),
+    );
+    setClinicExpensesSummary(
+      normalizeClinicExpenseSummary(payload.summary),
+    );
+  }, []);
+
+  const loadOverviewData = useCallback(async () => {
     try {
-      setLoading(true);
+      setLoadingOverview(true);
+      const [
+        entriesResponse,
+        paymentsResponse,
+        clinicExpensesResponse,
+        clinicExpenseAlertsResponse,
+      ] = await Promise.all([
+        listFinancialEntries(),
+        listFinancialPayments(),
+        listClinicExpenses(getClinicExpensesPeriodParams(overviewPeriodMode)),
+        getClinicExpenseAlerts(),
+      ]);
+
+      setEntries(entriesResponse.data || []);
+      setPayments(paymentsResponse.data || []);
+      applyClinicExpensesPayload(clinicExpensesResponse.data || {});
+      setClinicExpenseAlertsCount(Number(clinicExpenseAlertsResponse.data?.dueSoonCount || 0));
+    } catch (error) {
+      toast.error("Nao foi possivel carregar a visao geral.");
+    } finally {
+      setLoadingOverview(false);
+    }
+  }, [applyClinicExpensesPayload, getClinicExpensesPeriodParams, overviewPeriodMode]);
+
+  const loadRevenuesData = useCallback(async () => {
+    try {
+      setLoadingRevenues(true);
       const [
         entriesResponse,
         categoriesResponse,
@@ -1439,10 +1487,6 @@ export default function Financeiro() {
         servicesResponse,
         servicePricesResponse,
         paymentsResponse,
-        clinicExpensesResponse,
-        clinicExpenseAlertsResponse,
-        clinicExpenseCategoriesResponse,
-        recurringResponse,
         patientCreditsResponse,
         sessionSeriesResponse,
       ] = await Promise.all([
@@ -1453,12 +1497,6 @@ export default function Financeiro() {
         axios.get("/services"),
         listServicePrices(),
         listFinancialPayments(),
-        listClinicExpenses((activeSection === "overview" ? overviewPeriodMode : clinicExpensesPeriodMode) === "year"
-          ? { year: String(parseMonthInputValue(clinicExpensesMonth)?.year || new Date().getFullYear()) }
-          : { reference_month: clinicExpensesMonth }),
-        getClinicExpenseAlerts(),
-        listClinicExpenseCategories(),
-        listFinancialRecurringExpenses(),
         listPatientCredits(),
         axios.get("/session-series"),
       ]);
@@ -1470,30 +1508,128 @@ export default function Financeiro() {
       setServices(servicesResponse.data || []);
       setServicePrices(servicePricesResponse.data || []);
       setPayments(paymentsResponse.data || []);
-      const clinicExpensePayload = clinicExpensesResponse.data || {};
-      setClinicExpensesData(
-        Array.isArray(clinicExpensePayload)
-          ? clinicExpensePayload
-          : (clinicExpensePayload.items || []),
-      );
-      setClinicExpensesSummary(
-        normalizeClinicExpenseSummary(clinicExpensePayload.summary),
-      );
-      setClinicExpenseAlertsCount(Number(clinicExpenseAlertsResponse.data?.dueSoonCount || 0));
-      setClinicExpenseCategories(clinicExpenseCategoriesResponse.data || []);
-      setRecurringExpenses(recurringResponse.data || []);
       setPatientCredits(patientCreditsResponse.data || []);
       setAttendanceSeries(sessionSeriesResponse.data || []);
     } catch (error) {
-      toast.error("Não foi possível carregar o financeiro.");
+      toast.error("Nao foi possivel carregar as receitas.");
     } finally {
-      setLoading(false);
+      setLoadingRevenues(false);
     }
-  }, [activeSection, clinicExpensesMonth, clinicExpensesPeriodMode, overviewPeriodMode]);
+  }, []);
+
+  const loadClinicExpensesData = useCallback(async () => {
+    try {
+      setLoadingExpenses(true);
+      const [
+        clinicExpensesResponse,
+        clinicExpenseAlertsResponse,
+        clinicExpenseCategoriesResponse,
+      ] = await Promise.all([
+        listClinicExpenses(getClinicExpensesPeriodParams()),
+        getClinicExpenseAlerts(),
+        listClinicExpenseCategories(),
+      ]);
+
+      applyClinicExpensesPayload(clinicExpensesResponse.data || {});
+      setClinicExpenseAlertsCount(Number(clinicExpenseAlertsResponse.data?.dueSoonCount || 0));
+      setClinicExpenseCategories(clinicExpenseCategoriesResponse.data || []);
+    } catch (error) {
+      toast.error("Nao foi possivel carregar as despesas da clinica.");
+    } finally {
+      setLoadingExpenses(false);
+    }
+  }, [applyClinicExpensesPayload, getClinicExpensesPeriodParams]);
+
+  const loadClinicExpenseCategoriesData = useCallback(async () => {
+    try {
+      setLoadingExpenseCategories(true);
+      const response = await listClinicExpenseCategories();
+      setClinicExpenseCategories(response.data || []);
+    } catch (error) {
+      toast.error("Nao foi possivel carregar as categorias de despesas.");
+    } finally {
+      setLoadingExpenseCategories(false);
+    }
+  }, []);
+
+  const loadPaymentMethodsData = useCallback(async () => {
+    try {
+      setLoadingPaymentMethods(true);
+      const response = await listPaymentMethods();
+      setPaymentMethods(response.data || []);
+    } catch (error) {
+      toast.error("Nao foi possivel carregar as formas de pagamento.");
+    } finally {
+      setLoadingPaymentMethods(false);
+    }
+  }, []);
+
+  const loadManagementData = useCallback(async () => {
+    try {
+      setLoadingManagement(true);
+      const [
+        entriesResponse,
+        categoriesResponse,
+        paymentMethodsResponse,
+        patientsResponse,
+        servicesResponse,
+        servicePricesResponse,
+        paymentsResponse,
+        recurringResponse,
+        patientCreditsResponse,
+      ] = await Promise.all([
+        listFinancialEntries(),
+        listFinancialCategories(),
+        listPaymentMethods(),
+        axios.get("/patients"),
+        axios.get("/services"),
+        listServicePrices(),
+        listFinancialPayments(),
+        listFinancialRecurringExpenses(),
+        listPatientCredits(),
+      ]);
+
+      setEntries(entriesResponse.data || []);
+      setCategories(categoriesResponse.data || []);
+      setPaymentMethods(paymentMethodsResponse.data || []);
+      setPatients(patientsResponse.data || []);
+      setServices(servicesResponse.data || []);
+      setServicePrices(servicePricesResponse.data || []);
+      setPayments(paymentsResponse.data || []);
+      setRecurringExpenses(recurringResponse.data || []);
+      setPatientCredits(patientCreditsResponse.data || []);
+    } catch (error) {
+      toast.error("Nao foi possivel carregar o financeiro.");
+    } finally {
+      setLoadingManagement(false);
+    }
+  }, []);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (activeSection === "overview") loadOverviewData();
+  }, [activeSection, loadOverviewData]);
+
+  useEffect(() => {
+    if (activeSection === "receitas") loadRevenuesData();
+  }, [activeSection, loadRevenuesData]);
+
+  useEffect(() => {
+    if (activeSection === "clinic-expenses") loadClinicExpensesData();
+  }, [activeSection, loadClinicExpensesData]);
+
+  useEffect(() => {
+    if (activeSection === "clinic-expense-categories") loadClinicExpenseCategoriesData();
+  }, [activeSection, loadClinicExpenseCategoriesData]);
+
+  useEffect(() => {
+    if (activeSection === "methods") loadPaymentMethodsData();
+  }, [activeSection, loadPaymentMethodsData]);
+
+  useEffect(() => {
+    if (["categories", "prices", "recurring", "reports"].includes(activeSection)) {
+      loadManagementData();
+    }
+  }, [activeSection, loadManagementData]);
 
   const loadBillingCycles = useCallback(async () => {
     try {
@@ -1967,13 +2103,13 @@ export default function Financeiro() {
       }
       setClinicExpensesMonth(String(clinicExpenseForm.due_date).slice(0, 7));
       closeClinicExpenseModal();
-      loadData();
+      loadClinicExpensesData();
     } catch (error) {
       toast.error(getUserFacingApiError(error, "Não foi possível salvar a despesa."));
     } finally {
       setIsClinicExpenseSaving(false);
     }
-  }, [clinicExpenseForm, editingClinicExpenseId, closeClinicExpenseModal, loadData]);
+  }, [clinicExpenseForm, editingClinicExpenseId, closeClinicExpenseModal, loadClinicExpensesData]);
 
   const openClinicExpensePaymentModal = useCallback((entry) => {
     if (!entry?.id) return;
@@ -2037,13 +2173,13 @@ export default function Financeiro() {
       toast.success(entry.paid_at ? "Pagamento atualizado com sucesso." : "Despesa marcada como paga.");
       setIsClinicExpensePaymentOpen(false);
       setClinicExpensePaymentForm(createEmptyClinicExpensePayment());
-      loadData();
+      loadClinicExpensesData();
     } catch (error) {
       toast.error(getUserFacingApiError(error, "Não foi possível salvar o pagamento."));
     } finally {
       setClinicExpensePayingId(null);
     }
-  }, [clinicExpensePaymentForm, clinicExpensePayingId, loadData]);
+  }, [clinicExpensePaymentForm, clinicExpensePayingId, loadClinicExpensesData]);
 
   const handleUnpayClinicExpense = useCallback(
     async (entry) => {
@@ -2052,14 +2188,14 @@ export default function Financeiro() {
         setClinicExpensePayingId(entry.id);
         await unpayClinicExpense(entry.id);
         toast.success("Pagamento desfeito.");
-        loadData();
+        loadClinicExpensesData();
       } catch (error) {
         toast.error(getUserFacingApiError(error, "Não foi possível desfazer o pagamento."));
       } finally {
         setClinicExpensePayingId(null);
       }
     },
-    [clinicExpensePayingId, loadData],
+    [clinicExpensePayingId, loadClinicExpensesData],
   );
 
   const openClinicExpenseDeleteModal = useCallback((entry) => {
@@ -2078,13 +2214,13 @@ export default function Financeiro() {
       await deleteClinicExpense(clinicExpenseDeleteTarget.id);
       toast.success("Despesa excluída com sucesso.");
       setClinicExpenseDeleteTarget(null);
-      loadData();
+      loadClinicExpensesData();
     } catch (error) {
       toast.error(getUserFacingApiError(error, "Não foi possível excluir a despesa."));
     } finally {
       setIsClinicExpenseDeleting(false);
     }
-  }, [clinicExpenseDeleteTarget, isClinicExpenseDeleting, loadData]);
+  }, [clinicExpenseDeleteTarget, isClinicExpenseDeleting, loadClinicExpensesData]);
 
   const openClinicExpenseCategoryModal = useCallback((category = null) => {
     if (category?.id) {
@@ -2125,7 +2261,7 @@ export default function Financeiro() {
         toast.success("Categoria cadastrada com sucesso.");
       }
       closeClinicExpenseCategoryModal();
-      loadData();
+      loadClinicExpenseCategoriesData();
     } catch (error) {
       toast.error(getUserFacingApiError(error, "Não foi possível salvar a categoria."));
     } finally {
@@ -2135,7 +2271,7 @@ export default function Financeiro() {
     clinicExpenseCategoryForm,
     closeClinicExpenseCategoryModal,
     editingClinicExpenseCategoryId,
-    loadData,
+    loadClinicExpenseCategoriesData,
   ]);
 
   const handleActivateClinicExpenseCategory = useCallback(async (category) => {
@@ -2144,13 +2280,13 @@ export default function Financeiro() {
       setClinicExpenseCategoryUpdatingId(category.id);
       await activateClinicExpenseCategory(category.id);
       toast.success("Categoria ativada com sucesso.");
-      loadData();
+      loadClinicExpenseCategoriesData();
     } catch (error) {
       toast.error(getUserFacingApiError(error, "Não foi possível ativar a categoria."));
     } finally {
       setClinicExpenseCategoryUpdatingId(null);
     }
-  }, [clinicExpenseCategoryUpdatingId, loadData]);
+  }, [clinicExpenseCategoryUpdatingId, loadClinicExpenseCategoriesData]);
 
   const openClinicExpenseCategoryDeactivateModal = useCallback((category) => {
     setClinicExpenseCategoryDeactivateTarget(category || null);
@@ -2168,13 +2304,13 @@ export default function Financeiro() {
       await deactivateClinicExpenseCategory(clinicExpenseCategoryDeactivateTarget.id);
       toast.success("Categoria desativada com sucesso.");
       setClinicExpenseCategoryDeactivateTarget(null);
-      loadData();
+      loadClinicExpenseCategoriesData();
     } catch (error) {
       toast.error(getUserFacingApiError(error, "Não foi possível desativar a categoria."));
     } finally {
       setClinicExpenseCategoryUpdatingId(null);
     }
-  }, [clinicExpenseCategoryDeactivateTarget, clinicExpenseCategoryUpdatingId, loadData]);
+  }, [clinicExpenseCategoryDeactivateTarget, clinicExpenseCategoryUpdatingId, loadClinicExpenseCategoriesData]);
 
   const handlePaymentChange = useCallback((event) => {
     const { name, value, type, checked } = event.target;
@@ -2878,11 +3014,11 @@ export default function Financeiro() {
       await createFinancialEntry(payload);
       toast.success("Lancamento criado.");
       closeEntryModal();
-      loadData();
+      loadRevenuesData();
     } catch (error) {
       toast.error("Não foi possível salvar o lançamento.");
     }
-  }, [entryForm, closeEntryModal, loadData]);
+  }, [entryForm, closeEntryModal, loadRevenuesData]);
 
   const createStandalonePaymentAnchor = useCallback(
     async ({ patientId, referenceDate }) => {
@@ -3141,7 +3277,7 @@ export default function Financeiro() {
         toast.success("Recebimento em lote registrado.");
         closePaymentModal();
         setPaymentAllocations({});
-        loadData();
+        loadRevenuesData();
         if (hasBillingCyclesLoaded) loadBillingCycles();
         return;
       }
@@ -3190,7 +3326,7 @@ export default function Financeiro() {
       toast.success("Recebimento registrado.");
       closePaymentModal();
       setPaymentAllocations({});
-      loadData();
+      loadRevenuesData();
       if (hasBillingCyclesLoaded) loadBillingCycles();
     } catch (error) {
       toast.error(
@@ -3212,7 +3348,7 @@ export default function Financeiro() {
     paymentModalContext,
     createStandalonePaymentAnchor,
     closePaymentModal,
-    loadData,
+    loadRevenuesData,
     loadBillingCycles,
     hasBillingCyclesLoaded,
   ]);
@@ -3222,13 +3358,13 @@ export default function Financeiro() {
       try {
         await applyCreditToFinancialEntry(entryId);
         toast.success("Crédito aplicado na cobrança.");
-        loadData();
+        loadRevenuesData();
         loadAttendance();
       } catch (error) {
         toast.error("Não foi possível usar o crédito.");
       }
     },
-    [loadAttendance, loadData],
+    [loadAttendance, loadRevenuesData],
   );
 
   const attendanceRows = useMemo(() => {
@@ -4379,7 +4515,7 @@ export default function Financeiro() {
       });
       toast.success("Crédito aplicado nas cobranças pendentes.");
       setCreditUseModalContext(null);
-      await loadData();
+      await loadRevenuesData();
       await loadAttendance();
     } catch (error) {
       toast.error(getUserFacingApiError(error, "Não foi possível usar o crédito."));
@@ -4391,7 +4527,7 @@ export default function Financeiro() {
     creditUsePreview,
     isCreditUseSaving,
     loadAttendance,
-    loadData,
+    loadRevenuesData,
   ]);
 
   const openBillingCyclesScopedPaymentModal = useCallback(() => {
@@ -4825,11 +4961,11 @@ export default function Financeiro() {
         toast.success("Categoria criada.");
       }
       closeCategoryModal();
-      loadData();
+      loadManagementData();
     } catch (error) {
       toast.error("Não foi possível salvar a categoria.");
     }
-  }, [categoryForm, closeCategoryModal, loadData, editingCategoryId]);
+  }, [categoryForm, closeCategoryModal, loadManagementData, editingCategoryId]);
 
   const handleSaveMethod = useCallback(async () => {
     if (!methodForm.name.trim()) {
@@ -4846,11 +4982,11 @@ export default function Financeiro() {
         toast.success("Forma de pagamento criada.");
       }
       closeMethodModal();
-      loadData();
+      loadPaymentMethodsData();
     } catch (error) {
       toast.error("Não foi possível salvar a forma de pagamento.");
     }
-  }, [methodForm, closeMethodModal, loadData, editingMethodId]);
+  }, [methodForm, closeMethodModal, loadPaymentMethodsData, editingMethodId]);
 
   const handleSaveService = useCallback(async () => {
     if (!serviceForm.name.trim()) {
@@ -4910,7 +5046,7 @@ export default function Financeiro() {
       }
 
       closeServiceModal();
-      loadData();
+      loadManagementData();
     } catch (error) {
       toast.error("Não foi possível salvar o serviço.");
     } finally {
@@ -4919,7 +5055,7 @@ export default function Financeiro() {
   }, [
     serviceForm,
     closeServiceModal,
-    loadData,
+    loadManagementData,
     editingServiceId,
     services,
     servicePriceMap,
@@ -4929,36 +5065,36 @@ export default function Financeiro() {
     async (category) => {
       try {
         await updateFinancialCategory(category.id, { is_active: !category.is_active });
-        loadData();
+        loadManagementData();
       } catch (error) {
         toast.error("Não foi possível atualizar a categoria.");
       }
     },
-    [loadData],
+    [loadManagementData],
   );
 
   const handleToggleMethod = useCallback(
     async (method) => {
       try {
         await updatePaymentMethod(method.id, { is_active: !method.is_active });
-        loadData();
+        loadPaymentMethodsData();
       } catch (error) {
         toast.error("Não foi possível atualizar a forma de pagamento.");
       }
     },
-    [loadData],
+    [loadPaymentMethodsData],
   );
 
   const handleToggleService = useCallback(
     async (service) => {
       try {
         await axios.put(`/services/${service.id}`, { is_active: !service.is_active });
-        loadData();
+        loadManagementData();
       } catch (error) {
         toast.error("Não foi possível atualizar o serviço.");
       }
     },
-    [loadData],
+    [loadManagementData],
   );
 
   const handleDeleteService = useCallback(
@@ -4966,12 +5102,12 @@ export default function Financeiro() {
       try {
         await axios.delete(`/services/${service.id}`);
         toast.success("Servico excluido.");
-        loadData();
+        loadManagementData();
       } catch (error) {
         toast.error("Não foi possível excluir o serviço.");
       }
     },
-    [loadData],
+    [loadManagementData],
   );
 
   const openRecurringModal = useCallback((item = null) => {
@@ -5042,22 +5178,22 @@ export default function Financeiro() {
         toast.success("Despesa fixa criada.");
       }
       closeRecurringModal();
-      loadData();
+      loadManagementData();
     } catch (error) {
       toast.error("Não foi possível salvar a despesa fixa.");
     }
-  }, [recurringForm, editingRecurringId, closeRecurringModal, loadData]);
+  }, [recurringForm, editingRecurringId, closeRecurringModal, loadManagementData]);
 
   const handleToggleRecurring = useCallback(
     async (item) => {
       try {
         await updateFinancialRecurringExpense(item.id, { is_active: !item.is_active });
-        loadData();
+        loadManagementData();
       } catch (error) {
         toast.error("Não foi possível atualizar a despesa fixa.");
       }
     },
-    [loadData],
+    [loadManagementData],
   );
 
   const handleExportCsv = useCallback(() => {
@@ -5160,7 +5296,7 @@ export default function Financeiro() {
         AttendanceEmptyState,
         BlockLoader,
       }}
-      loading={loading || isOverviewBillingCyclesLoading}
+      loading={loadingOverview || isOverviewBillingCyclesLoading}
       overview={overviewSummary}
       overviewMonth={clinicExpensesMonth}
       overviewMonthLabel={overviewMonthLabel}
@@ -5220,7 +5356,7 @@ export default function Financeiro() {
         closeActionMenu,
         handleActionMenuToggle,
       }}
-      loading={loading}
+      loading={loadingExpenses}
       clinicExpenses={clinicExpenses}
       clinicExpensesSummary={clinicExpensesSummary}
       clinicExpenseCategories={clinicExpenseCategories}
@@ -5263,7 +5399,7 @@ export default function Financeiro() {
         RowActions,
         SmallButton,
       }}
-      loading={loading}
+      loading={loadingExpenseCategories}
       categories={clinicExpenseCategories}
       onNew={() => openClinicExpenseCategoryModal()}
       onEdit={openClinicExpenseCategoryModal}
@@ -5291,7 +5427,7 @@ export default function Financeiro() {
         </HeaderActions>
       </SectionHeader>
 
-      {loading ? (
+      {loadingRevenues ? (
         <SectionLoader>
           <Spinner />
           Carregando lançamentos...
@@ -5898,7 +6034,7 @@ export default function Financeiro() {
         </HeaderActions>
       </SectionHeader>
 
-      {loading ? (
+      {loadingRevenues ? (
         <SectionLoader>
           <Spinner />
           Carregando recebimentos...
@@ -6510,7 +6646,7 @@ export default function Financeiro() {
       </SimpleTable>
     );
 
-    if (loading) {
+    if (loadingManagement) {
       content = (
         <SectionLoader>
           <Spinner />
@@ -6569,7 +6705,7 @@ export default function Financeiro() {
       </SimpleTable>
     );
 
-    if (loading) {
+    if (loadingPaymentMethods) {
       content = (
         <SectionLoader>
           <Spinner />
@@ -6741,7 +6877,7 @@ export default function Financeiro() {
       </SimpleTable>
     );
 
-    if (loading) {
+    if (loadingManagement) {
       content = (
         <SectionLoader>
           <Spinner />
@@ -6809,7 +6945,7 @@ export default function Financeiro() {
       </SimpleTable>
     );
 
-    if (loading) {
+    if (loadingManagement) {
       content = (
         <SectionLoader>
           <Spinner />
@@ -6845,7 +6981,7 @@ export default function Financeiro() {
           <SectionSubtitle>Exporte dados para analise.</SectionSubtitle>
         </div>
       </SectionHeader>
-      {loading ? (
+      {loadingManagement ? (
         <SectionLoader>
           <Spinner />
           Carregando relatorios...
