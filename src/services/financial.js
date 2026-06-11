@@ -39,6 +39,17 @@ export const updatePatientServiceAgreement = (id, payload) =>
 export const listFinancialEntries = (params) =>
   api.get('/financial-entries', { params });
 
+export const getFinancialOverview = (month) =>
+  api.get('/financial-overview', { params: { month } });
+
+export const getFinancialRevenuesSummary = (month) =>
+  api.get('/financial-revenues-summary', { params: { month } });
+
+export const getFinancialRevenuePatientDetail = (patientId, month) =>
+  api.get('/financial-revenues/patient-detail', {
+    params: { patient_id: patientId, month },
+  });
+
 export const createFinancialEntry = (payload) =>
   api.post('/financial-entries', payload);
 
@@ -167,6 +178,9 @@ export default {
   createPatientServiceAgreement,
   updatePatientServiceAgreement,
   listFinancialEntries,
+  getFinancialOverview,
+  getFinancialRevenuesSummary,
+  getFinancialRevenuePatientDetail,
   createFinancialEntry,
   updateFinancialEntry,
   listClinicExpenses,

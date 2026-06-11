@@ -1,0 +1,248 @@
+import "@testing-library/jest-dom";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+
+import Financeiro from "./index";
+import axios from "../../services/axios";
+import {
+  getClinicExpenseAlerts,
+  getFinancialOverview,
+  getFinancialRevenuePatientDetail,
+  getFinancialRevenuesSummary,
+  listFinancialEntries,
+  listFinancialPayments,
+  listPatientCredits,
+} from "../../services/financial";
+
+jest.mock("react-toastify", () => ({
+  toast: {
+    error: jest.fn(),
+    success: jest.fn(),
+  },
+}));
+
+jest.mock("../../services/axios", () => ({
+  __esModule: true,
+  default: {
+    get: jest.fn(),
+  },
+  getUserFacingApiError: jest.fn((error, fallback) => fallback),
+}));
+
+jest.mock("../../services/scheduling", () => ({
+  createSpecialSchedulingEvent: jest.fn(),
+  inactivateSpecialSchedulingEvent: jest.fn(),
+  listSpecialSchedulingEvents: jest.fn(),
+  updateSpecialSchedulingEvent: jest.fn(),
+}));
+
+jest.mock("../../services/financial", () => ({
+  listFinancialCategories: jest.fn(),
+  getFinancialOverview: jest.fn(),
+  getFinancialRevenuesSummary: jest.fn(),
+  getFinancialRevenuePatientDetail: jest.fn(),
+  createFinancialEntry: jest.fn(),
+  listFinancialEntries: jest.fn(),
+  listFinancialPayments: jest.fn(),
+  listPaymentMethods: jest.fn(),
+  listClinicExpenses: jest.fn(),
+  getClinicExpenseAlerts: jest.fn(),
+  listClinicExpenseCategories: jest.fn(),
+  createClinicExpense: jest.fn(),
+  updateClinicExpense: jest.fn(),
+  deleteClinicExpense: jest.fn(),
+  payClinicExpense: jest.fn(),
+  unpayClinicExpense: jest.fn(),
+  createClinicExpenseCategory: jest.fn(),
+  updateClinicExpenseCategory: jest.fn(),
+  activateClinicExpenseCategory: jest.fn(),
+  deactivateClinicExpenseCategory: jest.fn(),
+  createFinancialPayment: jest.fn(),
+  applyCreditToFinancialEntry: jest.fn(),
+  applyScopedFinancialCredit: jest.fn(),
+  createFinancialCategory: jest.fn(),
+  createPaymentMethod: jest.fn(),
+  listServicePrices: jest.fn(),
+  createServicePrice: jest.fn(),
+  updateFinancialCategory: jest.fn(),
+  updatePaymentMethod: jest.fn(),
+  updateServicePrice: jest.fn(),
+  listFinancialRecurringExpenses: jest.fn(),
+  createFinancialRecurringExpense: jest.fn(),
+  updateFinancialRecurringExpense: jest.fn(),
+  listBillingCycles: jest.fn(),
+  listPatientCredits: jest.fn(),
+}));
+
+const renderFinanceiro = () => render(
+  <MemoryRouter>
+    <Financeiro />
+  </MemoryRouter>,
+);
+
+describe("Financeiro - detalhe de receitas por paciente", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: jest.fn().mockImplementation((query) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: jest.fn(),
+        removeEventListener: jest.fn(),
+        addListener: jest.fn(),
+        removeListener: jest.fn(),
+        dispatchEvent: jest.fn(),
+      })),
+    });
+    axios.get.mockResolvedValue({ data: [] });
+    getClinicExpenseAlerts.mockResolvedValue({ data: { dueSoonCount: 0 } });
+    getFinancialOverview.mockResolvedValue({
+      data: {
+        received: 0,
+        receivable: 0,
+        paidExpenses: 0,
+        pendingExpenses: 0,
+        currentResult: 0,
+        pendingBalance: 0,
+      },
+    });
+    getFinancialRevenuesSummary.mockResolvedValue({
+      data: {
+        month: "2026-06",
+        summary: {
+          total: 100000,
+          received: 40000,
+          pending: 60000,
+        },
+        patients: [
+          {
+            patient_id: 30,
+            patient_name: "Maria Silva",
+            total: 100000,
+            received: 40000,
+            pending: 60000,
+            entries_count: 1,
+          },
+        ],
+      },
+    });
+    getFinancialRevenuePatientDetail.mockResolvedValue({
+      data: {
+        patient: { id: 30, name: "Maria Silva" },
+        month: "2026-06",
+        summary: {
+          total: 100000,
+          received: 40000,
+          pending: 60000,
+          creditAvailable: 15000,
+        },
+        entries: [
+          {
+            id: 501,
+            clinic_id: 1,
+            patient_id: 30,
+            session_id: 701,
+            service_id: 10,
+            type: "income",
+            description: "Sessao de fisioterapia",
+            amount_cents: 100000,
+            reference_date: "2026-06-10",
+            status: "partial",
+          },
+        ],
+        sessions: [
+          {
+            id: 701,
+            clinic_id: 1,
+            patient_id: 30,
+            service_id: 10,
+            series_id: 901,
+            starts_at: "2026-06-10T09:00:00.000Z",
+            status: "done",
+            billing_mode: "per_session",
+            Patient: { id: 30, full_name: "Maria Silva" },
+            Service: { id: 10, name: "Fisioterapia" },
+          },
+        ],
+        payments: [
+          {
+            id: 801,
+            clinic_id: 1,
+            patient_id: 30,
+            amount_cents: 40000,
+            paid_at: "2026-06-11T09:00:00.000Z",
+            note: "Pagamento parcial",
+            FinancialPaymentAllocations: [
+              {
+                id: 1,
+                entry_id: 501,
+                payment_id: 801,
+                amount_cents: 40000,
+              },
+            ],
+          },
+        ],
+        credits: [],
+        series: [
+          {
+            id: 901,
+            clinic_id: 1,
+            patient_id: 30,
+            service_id: 10,
+            starts_at: "2026-06-10T09:00:00.000Z",
+            occurrence_count: 1,
+            Service: { id: 10, name: "Fisioterapia" },
+          },
+        ],
+      },
+    });
+  });
+
+  it("usa patient-detail ao clicar em Detalhes sem carregar listas pesadas", async () => {
+    renderFinanceiro();
+
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    await waitFor(() => {
+      expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(1);
+    });
+
+    const [patientId, month] = getFinancialRevenuePatientDetail.mock.calls[0];
+    expect(patientId).toBe("30");
+    expect(month).toMatch(/^\d{4}-\d{2}$/);
+    expect(listFinancialEntries).not.toHaveBeenCalled();
+    expect(listFinancialPayments).not.toHaveBeenCalled();
+    expect(listPatientCredits).not.toHaveBeenCalled();
+    expect(axios.get).not.toHaveBeenCalledWith("/sessions", expect.anything());
+
+    expect(await screen.findByText("Fisioterapia")).toBeInTheDocument();
+    expect(screen.getAllByText("R$ 600,00").length).toBeGreaterThan(0);
+
+    await userEvent.click(screen.getByRole("button", { name: "Recebimentos" }));
+
+    expect(screen.getByText("Pagamento parcial")).toBeInTheDocument();
+    expect(within(screen.getByText("Pagamento parcial").closest("tr")).getByText("R$ 400,00"))
+      .toBeInTheDocument();
+  });
+
+  it("mostra erro amigavel quando patient-detail falha", async () => {
+    getFinancialRevenuePatientDetail.mockRejectedValue(new Error("erro"));
+
+    renderFinanceiro();
+
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    await waitFor(() => {
+      expect(getFinancialRevenuePatientDetail).toHaveBeenCalled();
+    });
+    expect(await screen.findByText(/detalhes deste paciente/i)).toBeInTheDocument();
+  });
+});

@@ -42,6 +42,9 @@ import PatientSearchField from "../../components/PatientSearchField";
 import axios, { getUserFacingApiError } from "../../services/axios";
 import {
   listFinancialEntries,
+  getFinancialOverview,
+  getFinancialRevenuesSummary,
+  getFinancialRevenuePatientDetail,
   createFinancialEntry,
   listFinancialCategories,
   listFinancialPayments,
@@ -92,6 +95,12 @@ import ClinicExpensesSection from "./components/ClinicExpensesSection";
 import ClinicExpensePaymentModal from "./components/ClinicExpensePaymentModal";
 import FinancialOverviewSection from "./components/FinancialOverviewSection";
 import {
+  emptyFinancialRevenuesSummary,
+  mapRevenuesSummaryPatientsToAttendanceRows,
+  mapRevenuesSummaryToAttendanceSummary,
+  normalizeFinancialRevenuesSummary,
+} from "./helpers/financialRevenuesSummary";
+import {
   emptyClinicExpenseSummary,
   formatDateOnlyBR as formatExpenseDateOnlyBR,
   getClinicExpenseObservation,
@@ -100,7 +109,6 @@ import {
 } from "./helpers/expenseFormatters";
 import { formatExpenseAlertCount } from "./helpers/expenseDueAlerts";
 import { formatClinicExpenseStatus, getClinicExpenseStatus } from "./helpers/expenseStatus";
-import { calculateFinancialOverview } from "./helpers/financialOverview";
 
 const emptyEntry = {
   type: "income",
@@ -710,6 +718,76 @@ const createEmptyClinicExpensePayment = () => ({
   payment_notes: "",
 });
 
+const emptyFinancialOverview = (month = "") => ({
+  month,
+  revenues: {
+    expected: 0,
+    received: 0,
+    pending: 0,
+  },
+  expenses: {
+    total: 0,
+    paid: 0,
+    open: 0,
+    overdue: 0,
+  },
+  result: {
+    expected: 0,
+    realized: 0,
+  },
+  summary: {
+    received: 0,
+    receivable: 0,
+    paidExpenses: 0,
+    pendingExpenses: 0,
+    currentBalance: 0,
+    forecastBalance: 0,
+  },
+  hasMovement: false,
+});
+
+const normalizeFinancialOverview = (payload = {}, fallbackMonth = "") => {
+  const received = Number(payload.received || 0);
+  const receivable = Number(payload.receivable || 0);
+  const paidExpenses = Number(payload.paidExpenses || 0);
+  const pendingExpenses = Number(payload.pendingExpenses || 0);
+  const currentBalance = Number(payload.currentResult || 0);
+  const forecastBalance = Number(payload.pendingBalance || 0);
+
+  return {
+    month: payload.month || fallbackMonth,
+    revenues: {
+      expected: received + receivable,
+      received,
+      pending: receivable,
+    },
+    expenses: {
+      total: paidExpenses + pendingExpenses,
+      paid: paidExpenses,
+      open: pendingExpenses,
+      overdue: 0,
+    },
+    result: {
+      expected: received + receivable - (paidExpenses + pendingExpenses),
+      realized: currentBalance,
+    },
+    summary: {
+      received,
+      receivable,
+      paidExpenses,
+      pendingExpenses,
+      currentBalance,
+      forecastBalance,
+    },
+    hasMovement: [
+      received,
+      receivable,
+      paidExpenses,
+      pendingExpenses,
+    ].some((value) => Number(value || 0) !== 0),
+  };
+};
+
 export default function Financeiro() {
   const routeLocation = useLocation();
   const [activeSection, setActiveSection] = useState("overview");
@@ -719,6 +797,8 @@ export default function Financeiro() {
   const [isMobile, setIsMobile] = useState(false);
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [loadingRevenues, setLoadingRevenues] = useState(false);
+  const [loadingRevenuesSummary, setLoadingRevenuesSummary] = useState(false);
+  const [revenuesSummaryError, setRevenuesSummaryError] = useState("");
   const [loadingExpenses, setLoadingExpenses] = useState(false);
   const [loadingExpenseCategories, setLoadingExpenseCategories] = useState(false);
   const [loadingPaymentMethods, setLoadingPaymentMethods] = useState(false);
@@ -737,8 +817,12 @@ export default function Financeiro() {
   const [clinicExpenseCategories, setClinicExpenseCategories] = useState([]);
   const [clinicExpensesSummary, setClinicExpensesSummary] = useState(emptyClinicExpenseSummary);
   const [clinicExpenseAlertsCount, setClinicExpenseAlertsCount] = useState(0);
-  const [overviewBillingCycles, setOverviewBillingCycles] = useState([]);
-  const [isOverviewBillingCyclesLoading, setIsOverviewBillingCyclesLoading] = useState(false);
+  const [overviewSummary, setOverviewSummary] = useState(() =>
+    emptyFinancialOverview(toMonthInputValue(new Date())),
+  );
+  const [revenuesSummary, setRevenuesSummary] = useState(() =>
+    emptyFinancialRevenuesSummary(toMonthInputValue(new Date())),
+  );
   const [attendanceSeries, setAttendanceSeries] = useState([]);
   const [recurringExpenses, setRecurringExpenses] = useState([]);
   const [attendanceSessions, setAttendanceSessions] = useState([]);
@@ -1312,24 +1396,6 @@ export default function Financeiro() {
     clinicExpenseCategories,
   ]);
 
-  const overviewSummary = useMemo(() => calculateFinancialOverview({
-    month: clinicExpensesMonth,
-    periodMode: overviewPeriodMode,
-    entries,
-    entryFinancialMap,
-    entryMap,
-    billingCycles: overviewBillingCycles,
-    clinicExpensesSummary,
-  }), [
-    clinicExpensesMonth,
-    overviewPeriodMode,
-    clinicExpensesSummary,
-    entries,
-    entryFinancialMap,
-    entryMap,
-    overviewBillingCycles,
-  ]);
-
   const overviewMonthLabel = useMemo(() => {
     const parsed = parseMonthInputValue(clinicExpensesMonth);
     if (!parsed) return "";
@@ -1451,31 +1517,64 @@ export default function Financeiro() {
     );
   }, []);
 
+  const canUseAggregatedRevenuesSummary = useMemo(() => (
+    receitasView === "atendimentos"
+    && attendancePeriodMode === "month"
+    && attendanceFilters.financial === "all"
+    && !attendanceFilters.patient_id
+    && !attendanceFilters.professional_id
+    && !String(attendanceFilters.search || "").trim()
+    && !attendanceDrilldownPatientId
+  ), [
+    attendanceDrilldownPatientId,
+    attendanceFilters.financial,
+    attendanceFilters.patient_id,
+    attendanceFilters.professional_id,
+    attendanceFilters.search,
+    attendancePeriodMode,
+    receitasView,
+  ]);
+
   const loadOverviewData = useCallback(async () => {
     try {
       setLoadingOverview(true);
       const [
-        entriesResponse,
-        paymentsResponse,
-        clinicExpensesResponse,
+        overviewResponse,
         clinicExpenseAlertsResponse,
       ] = await Promise.all([
-        listFinancialEntries(),
-        listFinancialPayments(),
-        listClinicExpenses(getClinicExpensesPeriodParams(overviewPeriodMode)),
+        getFinancialOverview(clinicExpensesMonth),
         getClinicExpenseAlerts(),
       ]);
 
-      setEntries(entriesResponse.data || []);
-      setPayments(paymentsResponse.data || []);
-      applyClinicExpensesPayload(clinicExpensesResponse.data || {});
+      setOverviewSummary(normalizeFinancialOverview(overviewResponse.data || {}, clinicExpensesMonth));
       setClinicExpenseAlertsCount(Number(clinicExpenseAlertsResponse.data?.dueSoonCount || 0));
     } catch (error) {
-      toast.error("Nao foi possivel carregar a visao geral.");
+      toast.error("Não foi possível carregar a visão geral financeira.");
+      setOverviewSummary(emptyFinancialOverview(clinicExpensesMonth));
     } finally {
       setLoadingOverview(false);
     }
-  }, [applyClinicExpensesPayload, getClinicExpensesPeriodParams, overviewPeriodMode]);
+  }, [clinicExpensesMonth]);
+
+  const loadRevenuesSummary = useCallback(async () => {
+    if (attendancePeriodMode !== "month" || !attendancePeriodMonth) return;
+
+    try {
+      setLoadingRevenuesSummary(true);
+      setRevenuesSummaryError("");
+      const response = await getFinancialRevenuesSummary(attendancePeriodMonth);
+      setRevenuesSummary(normalizeFinancialRevenuesSummary(
+        response.data || {},
+        attendancePeriodMonth,
+      ));
+    } catch (error) {
+      setRevenuesSummaryError("Não foi possível carregar o resumo de receitas.");
+      setRevenuesSummary(emptyFinancialRevenuesSummary(attendancePeriodMonth));
+      toast.error("Não foi possível carregar o resumo de receitas.");
+    } finally {
+      setLoadingRevenuesSummary(false);
+    }
+  }, [attendancePeriodMode, attendancePeriodMonth]);
 
   const loadRevenuesData = useCallback(async () => {
     try {
@@ -1611,8 +1710,21 @@ export default function Financeiro() {
   }, [activeSection, loadOverviewData]);
 
   useEffect(() => {
-    if (activeSection === "receitas") loadRevenuesData();
-  }, [activeSection, loadRevenuesData]);
+    if (activeSection !== "receitas") return;
+    if (receitasView === "atendimentos" && attendanceDrilldownPatientId) return;
+    if (canUseAggregatedRevenuesSummary) {
+      loadRevenuesSummary();
+      return;
+    }
+    loadRevenuesData();
+  }, [
+    activeSection,
+    attendanceDrilldownPatientId,
+    canUseAggregatedRevenuesSummary,
+    loadRevenuesData,
+    loadRevenuesSummary,
+    receitasView,
+  ]);
 
   useEffect(() => {
     if (activeSection === "clinic-expenses") loadClinicExpensesData();
@@ -1647,31 +1759,6 @@ export default function Financeiro() {
       setIsBillingCyclesLoading(false);
     }
   }, [billingCyclesFilters.start, billingCyclesFilters.end]);
-
-  const loadOverviewBillingCycles = useCallback(async () => {
-    const parsed = parseMonthInputValue(clinicExpensesMonth);
-    const range = overviewPeriodMode === "year" && parsed
-      ? getYearRangeFromValue(String(parsed.year))
-      : getMonthRangeFromInputValue(clinicExpensesMonth);
-    if (!range) {
-      setOverviewBillingCycles([]);
-      return;
-    }
-
-    try {
-      setIsOverviewBillingCyclesLoading(true);
-      const response = await listBillingCycles({
-        from: range.start,
-        to: range.end,
-      });
-      setOverviewBillingCycles(response.data || []);
-    } catch (error) {
-      toast.error("Não foi possível carregar as mensalidades da visão geral.");
-      setOverviewBillingCycles([]);
-    } finally {
-      setIsOverviewBillingCyclesLoading(false);
-    }
-  }, [clinicExpensesMonth, overviewPeriodMode]);
 
   const loadAttendance = useCallback(async () => {
     try {
@@ -1711,11 +1798,29 @@ export default function Financeiro() {
     }
   }, []);
 
+  const ensureRevenueOperationalData = useCallback(async () => {
+    await Promise.all([
+      loadRevenuesData(),
+      loadAttendance(),
+    ]);
+  }, [loadAttendance, loadRevenuesData]);
+
   useEffect(() => {
-    if (activeSection === "receitas") {
+    if (
+      activeSection === "receitas"
+      && receitasView === "atendimentos"
+      && !attendanceDrilldownPatientId
+      && !canUseAggregatedRevenuesSummary
+    ) {
       loadAttendance();
     }
-  }, [activeSection, loadAttendance]);
+  }, [
+    activeSection,
+    attendanceDrilldownPatientId,
+    canUseAggregatedRevenuesSummary,
+    loadAttendance,
+    receitasView,
+  ]);
 
   useEffect(() => {
     if (activeSection === "holidays") {
@@ -1728,12 +1833,6 @@ export default function Financeiro() {
       loadBillingCycles();
     }
   }, [activeSection, receitasView, loadBillingCycles]);
-
-  useEffect(() => {
-    if (activeSection === "overview") {
-      loadOverviewBillingCycles();
-    }
-  }, [activeSection, loadOverviewBillingCycles]);
 
   const openEntryModal = useCallback(() => {
     setEntryForm(emptyEntry);
@@ -2649,6 +2748,22 @@ export default function Financeiro() {
     const normalizedPatientId = String(patientId);
     setAttendanceDrilldownPatientId(normalizedPatientId);
     setAttendanceDetailTab("charges");
+    setSelectedAttendancePackageId(null);
+    const summaryPatient = (revenuesSummary.patients || []).find(
+      (item) => String(item.patient_id || "") === normalizedPatientId,
+    );
+    if (summaryPatient) {
+      setPatients((prev) => {
+        const map = new Map(prev.map((item) => [Number(item.id), item]));
+        const patientIdNumber = Number(summaryPatient.patient_id);
+        map.set(patientIdNumber, {
+          ...(map.get(patientIdNumber) || {}),
+          id: patientIdNumber,
+          full_name: summaryPatient.patient_name || "Paciente",
+        });
+        return Array.from(map.values());
+      });
+    }
     setAttendanceDetailSessions({
       patientId: normalizedPatientId,
       sessions: [],
@@ -2657,12 +2772,38 @@ export default function Financeiro() {
     });
 
     try {
-      const response = await axios.get("/sessions", {
-        params: { patient_id: normalizedPatientId },
-      });
+      const response = await getFinancialRevenuePatientDetail(
+        normalizedPatientId,
+        attendancePeriodMonth,
+      );
+      const detail = response.data || {};
+      const detailPatient = detail.patient?.id
+        ? {
+          id: Number(detail.patient.id),
+          full_name: detail.patient.name || "Paciente",
+        }
+        : null;
+
+      if (detailPatient) {
+        setPatients((prev) => {
+          const map = new Map(prev.map((item) => [Number(item.id), item]));
+          map.set(Number(detailPatient.id), {
+            ...(map.get(Number(detailPatient.id)) || {}),
+            ...detailPatient,
+          });
+          return Array.from(map.values());
+        });
+      }
+
+      setEntries(Array.isArray(detail.entries) ? detail.entries : []);
+      setPayments(Array.isArray(detail.payments) ? detail.payments : []);
+      setPatientCredits(Array.isArray(detail.credits) ? detail.credits : []);
+      setAttendanceSeries(Array.isArray(detail.series) ? detail.series : []);
+      setAttendanceSessions(Array.isArray(detail.sessions) ? detail.sessions : []);
+      setHasAttendanceLoaded(true);
       setAttendanceDetailSessions({
         patientId: normalizedPatientId,
-        sessions: Array.isArray(response.data) ? response.data : [],
+        sessions: Array.isArray(detail.sessions) ? detail.sessions : [],
         isLoading: false,
         error: "",
       });
@@ -2671,10 +2812,13 @@ export default function Financeiro() {
         patientId: normalizedPatientId,
         sessions: [],
         isLoading: false,
-        error: getUserFacingApiError(error, "Não foi possível carregar as sessões do paciente."),
+        error: getUserFacingApiError(
+          error,
+          "Não foi possível carregar os detalhes deste paciente.",
+        ) || "Não foi possível carregar os detalhes deste paciente.",
       });
     }
-  }, []);
+  }, [attendancePeriodMonth, revenuesSummary.patients]);
 
   const handleClosePatientSessions = useCallback(() => {
     setAttendanceDrilldownPatientId(null);
@@ -3018,10 +3162,11 @@ export default function Financeiro() {
       toast.success("Lancamento criado.");
       closeEntryModal();
       loadRevenuesData();
+      loadRevenuesSummary();
     } catch (error) {
       toast.error("Não foi possível salvar o lançamento.");
     }
-  }, [entryForm, closeEntryModal, loadRevenuesData]);
+  }, [entryForm, closeEntryModal, loadRevenuesData, loadRevenuesSummary]);
 
   const createStandalonePaymentAnchor = useCallback(
     async ({ patientId, referenceDate }) => {
@@ -3281,6 +3426,7 @@ export default function Financeiro() {
         closePaymentModal();
         setPaymentAllocations({});
         loadRevenuesData();
+        loadRevenuesSummary();
         if (hasBillingCyclesLoaded) loadBillingCycles();
         return;
       }
@@ -3330,6 +3476,7 @@ export default function Financeiro() {
       closePaymentModal();
       setPaymentAllocations({});
       loadRevenuesData();
+      loadRevenuesSummary();
       if (hasBillingCyclesLoaded) loadBillingCycles();
     } catch (error) {
       toast.error(
@@ -3352,6 +3499,7 @@ export default function Financeiro() {
     createStandalonePaymentAnchor,
     closePaymentModal,
     loadRevenuesData,
+    loadRevenuesSummary,
     loadBillingCycles,
     hasBillingCyclesLoaded,
   ]);
@@ -3362,12 +3510,13 @@ export default function Financeiro() {
         await applyCreditToFinancialEntry(entryId);
         toast.success("Crédito aplicado na cobrança.");
         loadRevenuesData();
+        loadRevenuesSummary();
         loadAttendance();
       } catch (error) {
         toast.error("Não foi possível usar o crédito.");
       }
     },
-    [loadAttendance, loadRevenuesData],
+    [loadAttendance, loadRevenuesData, loadRevenuesSummary],
   );
 
   const attendanceRows = useMemo(() => {
@@ -4280,6 +4429,16 @@ export default function Financeiro() {
     return data;
   }, [attendanceByPatient, creditBalanceByPatient]);
 
+  const aggregatedAttendanceByPatient = useMemo(
+    () => mapRevenuesSummaryPatientsToAttendanceRows(revenuesSummary),
+    [revenuesSummary],
+  );
+
+  const aggregatedAttendanceSummary = useMemo(
+    () => mapRevenuesSummaryToAttendanceSummary(revenuesSummary),
+    [revenuesSummary],
+  );
+
   const resolveBillingCycleFinancial = useCallback((cycle) => {
     const entry = cycle?.FinancialEntry || (cycle?.financial_entry_id
       ? entryMap.get(cycle.financial_entry_id)
@@ -4432,8 +4591,9 @@ export default function Financeiro() {
     setIsPaymentOpen(true);
   }, []);
 
-  const openAttendanceScopedPaymentModal = useCallback(() => {
+  const openAttendanceScopedPaymentModal = useCallback(async () => {
     if (!attendanceSelectedPatientSummary) return;
+    await ensureRevenueOperationalData();
 
     const entryMapById = new Map();
     const sourcePackages = attendanceSelectedPatientPackages.length > 0
@@ -4488,6 +4648,7 @@ export default function Financeiro() {
     attendanceSelectedPatientPackages,
     attendanceSelectedPatientRows,
     attendanceSelectedPatientSummary,
+    ensureRevenueOperationalData,
     openScopedPatientPaymentModal,
 	    selectedAttendancePatient,
 	  ]);
@@ -4560,6 +4721,7 @@ export default function Financeiro() {
       toast.success("Crédito aplicado nas cobranças pendentes.");
       setCreditUseModalContext(null);
       await loadRevenuesData();
+      await loadRevenuesSummary();
       await loadAttendance();
     } catch (error) {
       toast.error(getUserFacingApiError(error, "Não foi possível usar o crédito."));
@@ -4572,6 +4734,7 @@ export default function Financeiro() {
     isCreditUseSaving,
     loadAttendance,
     loadRevenuesData,
+    loadRevenuesSummary,
   ]);
 
   const openBillingCyclesScopedPaymentModal = useCallback(() => {
@@ -5340,7 +5503,7 @@ export default function Financeiro() {
         AttendanceEmptyState,
         BlockLoader,
       }}
-      loading={loadingOverview || isOverviewBillingCyclesLoading}
+      loading={loadingOverview}
       overview={overviewSummary}
       overviewMonth={clinicExpensesMonth}
       overviewMonthLabel={overviewMonthLabel}
@@ -5674,7 +5837,16 @@ export default function Financeiro() {
   );
 
   const renderAttendance = () => {
-    const isAttendanceInitialLoading = isAttendanceLoading && !hasAttendanceLoaded;
+    const useAggregatedRevenues = canUseAggregatedRevenuesSummary;
+    const displayAttendanceRows = useAggregatedRevenues
+      ? aggregatedAttendanceByPatient
+      : attendanceByPatient;
+    const displayAttendanceSummary = useAggregatedRevenues
+      ? aggregatedAttendanceSummary
+      : attendanceSummary;
+    const isAttendanceInitialLoading = useAggregatedRevenues
+      ? loadingRevenuesSummary
+      : isAttendanceLoading && !hasAttendanceLoaded;
     const isAttendanceRefreshing = isAttendanceLoading && hasAttendanceLoaded;
     const periodSuffix = attendancePeriodLabel ? ` - ${attendancePeriodLabel}` : "";
     const attendanceTitle = `Resumo por paciente${periodSuffix}`;
@@ -5683,7 +5855,11 @@ export default function Financeiro() {
       <AttendanceEmptyState>Sem atendimentos no periodo.</AttendanceEmptyState>
     );
 
-    if (attendanceByPatient.length > 0) {
+    if (revenuesSummaryError && useAggregatedRevenues) {
+      attendanceContent = (
+        <AttendanceEmptyState>{revenuesSummaryError}</AttendanceEmptyState>
+      );
+    } else if (displayAttendanceRows.length > 0) {
       attendanceContent = (
         <AttendanceTableCard>
           <AttendanceTableScroll>
@@ -5699,7 +5875,7 @@ export default function Financeiro() {
                 </tr>
               </thead>
               <tbody>
-                {attendanceByPatient.map((row) => (
+                {displayAttendanceRows.map((row) => (
                   <PatientSummaryRow key={row.patientId} $hasOpen={row.openCents > 0}>
                     <td>
                       <AttendanceCellStack>
@@ -5741,7 +5917,24 @@ export default function Financeiro() {
       );
     }
 
-    if (attendanceDrilldownPatientId && attendanceSelectedPatientSummary) {
+    const attendanceDetailPatientSummary = attendanceSelectedPatientSummary || (
+      attendanceDrilldownPatientId
+        ? (() => {
+          const summaryPatient = (revenuesSummary.patients || []).find(
+            (item) => String(item.patient_id || "") === String(attendanceDrilldownPatientId),
+          );
+          return {
+            patientId: Number(attendanceDrilldownPatientId),
+            patientName: summaryPatient?.patient_name || "Paciente",
+            sessions: Number(summaryPatient?.entries_count || 0),
+            openCents: Number(summaryPatient?.pending || 0),
+            creditsAvailable: 0,
+          };
+        })()
+        : null
+    );
+
+    if (attendanceDrilldownPatientId && attendanceDetailPatientSummary) {
       let packageContent = <AttendanceEmptyState>Nenhum pacote de sessões encontrado para este paciente.</AttendanceEmptyState>;
 
       if (attendanceDetailSessions.isLoading) {
@@ -5868,7 +6061,7 @@ export default function Financeiro() {
           <AttendancePatientDetailTopline>
             <div>
               <AttendanceHeadingTitle>
-                {attendanceSelectedPatientSummary.patientName}
+                {attendanceDetailPatientSummary.patientName}
               </AttendanceHeadingTitle>
             </div>
             <AttendanceHeaderActions>
@@ -5887,14 +6080,14 @@ export default function Financeiro() {
           <AttendancePatientStats>
             <AttendancePatientStat>
               <span>A receber</span>
-              <strong>{formatCurrency(attendanceSelectedPatientSummary.openCents)}</strong>
+              <strong>{formatCurrency(attendanceDetailPatientSummary.openCents)}</strong>
             </AttendancePatientStat>
             <AttendancePatientStat>
               <span>Créditos</span>
-              <strong>{formatCurrency(attendanceSelectedPatientSummary.creditsAvailable)}</strong>
+              <strong>{formatCurrency(attendanceDetailPatientSummary.creditsAvailable)}</strong>
             </AttendancePatientStat>
-            {attendanceSelectedPatientSummary.creditsAvailable > 0
-              && attendanceSelectedPatientSummary.openCents > 0 && (
+            {attendanceDetailPatientSummary.creditsAvailable > 0
+              && attendanceDetailPatientSummary.openCents > 0 && (
                 <AttendanceCreditUseAction
                   type="button"
                   onClick={openAttendanceCreditUseModal}
@@ -5921,6 +6114,40 @@ export default function Financeiro() {
           </PatientDetailTabsRow>
           {attendanceDetailTab === "payments" ? receiptsContent : packageContent}
         </AttendancePatientDetailBlock>
+      );
+    }
+
+    let attendanceSummaryContent = (
+      <AttendanceMetricsGrid>
+        <AttendanceMetricCard>
+          <AttendanceMetricLabel>Sessões contratadas</AttendanceMetricLabel>
+          <AttendanceMetricValue>{displayAttendanceSummary.total}</AttendanceMetricValue>
+        </AttendanceMetricCard>
+        <AttendanceMetricCard>
+          <AttendanceMetricLabel>Valor</AttendanceMetricLabel>
+          <AttendanceMetricValue>{formatCurrency(displayAttendanceSummary.expectedAmount)}</AttendanceMetricValue>
+        </AttendanceMetricCard>
+        <AttendanceMetricCard>
+          <AttendanceMetricLabel>Recebido</AttendanceMetricLabel>
+          <AttendanceMetricValue>{formatCurrency(displayAttendanceSummary.paidAmount)}</AttendanceMetricValue>
+        </AttendanceMetricCard>
+        <AttendanceMetricCard>
+          <AttendanceMetricLabel>Pendente</AttendanceMetricLabel>
+          <AttendanceMetricValue>{formatCurrency(displayAttendanceSummary.pendingAmount)}</AttendanceMetricValue>
+        </AttendanceMetricCard>
+      </AttendanceMetricsGrid>
+    );
+
+    if (isAttendanceInitialLoading) {
+      attendanceSummaryContent = (
+        <BlockLoader>
+          <Spinner />
+          Carregando resumo de cobrança...
+        </BlockLoader>
+      );
+    } else if (revenuesSummaryError && useAggregatedRevenues) {
+      attendanceSummaryContent = (
+        <AttendanceEmptyState>{revenuesSummaryError}</AttendanceEmptyState>
       );
     }
 
@@ -5998,31 +6225,7 @@ export default function Financeiro() {
             <AttendanceCardHeader>
               <AttendanceCardTitle>Resumo de cobrança</AttendanceCardTitle>
             </AttendanceCardHeader>
-            {isAttendanceInitialLoading ? (
-              <BlockLoader>
-                <Spinner />
-                Carregando resumo de cobrança...
-              </BlockLoader>
-            ) : (
-              <AttendanceMetricsGrid>
-                <AttendanceMetricCard>
-                  <AttendanceMetricLabel>Sessões contratadas</AttendanceMetricLabel>
-                  <AttendanceMetricValue>{attendanceSummary.total}</AttendanceMetricValue>
-                </AttendanceMetricCard>
-                <AttendanceMetricCard>
-                  <AttendanceMetricLabel>Valor</AttendanceMetricLabel>
-                  <AttendanceMetricValue>{formatCurrency(attendanceSummary.expectedAmount)}</AttendanceMetricValue>
-                </AttendanceMetricCard>
-                <AttendanceMetricCard>
-                  <AttendanceMetricLabel>Recebido</AttendanceMetricLabel>
-                  <AttendanceMetricValue>{formatCurrency(attendanceSummary.paidAmount)}</AttendanceMetricValue>
-                </AttendanceMetricCard>
-                <AttendanceMetricCard>
-                  <AttendanceMetricLabel>Pendente</AttendanceMetricLabel>
-                  <AttendanceMetricValue>{formatCurrency(attendanceSummary.pendingAmount)}</AttendanceMetricValue>
-                </AttendanceMetricCard>
-              </AttendanceMetricsGrid>
-            )}
+            {attendanceSummaryContent}
           </AttendanceCard>
 
           <AttendanceCard>
