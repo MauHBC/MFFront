@@ -801,6 +801,7 @@ export default function Financeiro() {
     isLoading: false,
     error: "",
   });
+  const [attendanceDetailTab, setAttendanceDetailTab] = useState("charges");
   const [selectedAttendancePackageId, setSelectedAttendancePackageId] = useState(null);
   const [attendancePeriodMode, setAttendancePeriodMode] = useState("month");
   const [attendancePeriodMonth, setAttendancePeriodMonth] = useState(() =>
@@ -2647,6 +2648,7 @@ export default function Financeiro() {
     if (!patientId) return;
     const normalizedPatientId = String(patientId);
     setAttendanceDrilldownPatientId(normalizedPatientId);
+    setAttendanceDetailTab("charges");
     setAttendanceDetailSessions({
       patientId: normalizedPatientId,
       sessions: [],
@@ -2676,6 +2678,7 @@ export default function Financeiro() {
 
   const handleClosePatientSessions = useCallback(() => {
     setAttendanceDrilldownPatientId(null);
+    setAttendanceDetailTab("charges");
     setSelectedAttendancePackageId(null);
     setAttendanceDetailSessions({
       patientId: null,
@@ -4208,6 +4211,47 @@ export default function Financeiro() {
     selectedAttendancePatientId,
     attendanceSelectedPatientPackages,
     attendanceSelectedPatientRows,
+  ]);
+
+  const attendanceSelectedPatientReceipts = useMemo(() => {
+    if (!selectedAttendancePatientId) return [];
+
+    return payments
+      .map((payment) => {
+        const allocations =
+          payment?.FinancialPaymentAllocations ||
+          payment?.financial_payment_allocations ||
+          [];
+        const paymentPatientId = Number(payment?.patient_id || 0);
+        const isDirectPatientPayment = paymentPatientId === selectedAttendancePatientId;
+        const patientAllocations = allocations.filter((allocation) => {
+          const entry =
+            allocation.FinancialEntry ||
+            allocation.financial_entry ||
+            entryMap.get(allocation.entry_id);
+          return Number(entry?.patient_id || 0) === selectedAttendancePatientId;
+        });
+
+        if (!isDirectPatientPayment && patientAllocations.length === 0) return null;
+
+        const amountCents = Number(payment.amount_cents || 0);
+        const paymentMethod = payment.payment_method_id
+          ? paymentMethodMap.get(payment.payment_method_id)
+          : null;
+
+        return {
+          payment,
+          amountCents,
+          paymentMethodName: paymentMethod?.name || "-",
+        };
+      })
+      .filter(Boolean)
+      .sort((first, second) => new Date(second.payment?.paid_at || 0) - new Date(first.payment?.paid_at || 0));
+  }, [
+    entryMap,
+    paymentMethodMap,
+    payments,
+    selectedAttendancePatientId,
   ]);
 
   const attendanceSummary = useMemo(() => {
@@ -5780,6 +5824,45 @@ export default function Financeiro() {
         );
       }
 
+      const receiptsContent = attendanceSelectedPatientReceipts.length === 0 ? (
+        <AttendanceEmptyState>Nenhum recebimento registrado para este paciente.</AttendanceEmptyState>
+      ) : (
+        <BillingCyclesInnerTableCard>
+          <AttendanceTableScroll>
+            <BillingCyclesTable $detail>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Valor recebido</th>
+                  <th>Forma</th>
+                  <th>Observações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attendanceSelectedPatientReceipts.map((item) => (
+                  <PatientSummaryRow key={item.payment.id}>
+                    <td>
+                      <AttendancePrimaryText>
+                        {formatDateOnlyBR(item.payment.paid_at)}
+                      </AttendancePrimaryText>
+                    </td>
+                    <td>
+                      <AttendanceMoneyText>{formatCurrency(item.amountCents)}</AttendanceMoneyText>
+                    </td>
+                    <td>
+                      <AttendancePrimaryText>{item.paymentMethodName}</AttendancePrimaryText>
+                    </td>
+                    <td>
+                      <AttendanceSecondaryText>{item.payment.note || "-"}</AttendanceSecondaryText>
+                    </td>
+                  </PatientSummaryRow>
+                ))}
+              </tbody>
+            </BillingCyclesTable>
+          </AttendanceTableScroll>
+        </BillingCyclesInnerTableCard>
+      );
+
       attendanceContent = (
         <AttendancePatientDetailBlock>
           <AttendancePatientDetailTopline>
@@ -5820,7 +5903,23 @@ export default function Financeiro() {
                 </AttendanceCreditUseAction>
               )}
           </AttendancePatientStats>
-          {packageContent}
+          <PatientDetailTabsRow>
+            <PatientDetailTabButton
+              type="button"
+              $active={attendanceDetailTab === "charges"}
+              onClick={() => setAttendanceDetailTab("charges")}
+            >
+              Cobranças
+            </PatientDetailTabButton>
+            <PatientDetailTabButton
+              type="button"
+              $active={attendanceDetailTab === "payments"}
+              onClick={() => setAttendanceDetailTab("payments")}
+            >
+              Recebimentos
+            </PatientDetailTabButton>
+          </PatientDetailTabsRow>
+          {attendanceDetailTab === "payments" ? receiptsContent : packageContent}
         </AttendancePatientDetailBlock>
       );
     }
@@ -8731,6 +8830,12 @@ const TabButton = styled.button`
   font-size: 14px;
 `;
 
+const PatientDetailTabsRow = styled(TabsRow)`
+  justify-self: start;
+`;
+
+const PatientDetailTabButton = styled(TabButton)``;
+
 
 
 
@@ -9838,6 +9943,12 @@ const AttendancePrimaryText = styled.span`
   font-size: ${ATTENDANCE_UI.font.size.md};
   line-height: ${ATTENDANCE_UI.font.lineHeight.md};
   font-weight: ${ATTENDANCE_UI.font.weight.medium};
+`;
+
+const AttendanceSecondaryText = styled.span`
+  color: ${ATTENDANCE_UI.colors.textSecondary};
+  font-size: ${ATTENDANCE_UI.font.size.sm};
+  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
 `;
 
 const AttendancePatientSummaryName = styled(AttendancePrimaryText)`
