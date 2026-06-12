@@ -4189,18 +4189,6 @@ export default function Financeiro() {
     const sessionRows = attendanceSessionRows.filter(
       (row) => Number(row.patientId || 0) === selectedAttendancePatientId,
     );
-    const nonSessionEntries = entries.filter((entry) => {
-      if (!entry || entry.type !== "income") return false;
-      if (String(entry.status || "").toLowerCase() === "canceled") return false;
-      if (entry.session_id) return false;
-      return Number(entry.patient_id || 0) === selectedAttendancePatientId;
-    });
-    const nonSessionOpenCents = nonSessionEntries.reduce((sum, entry) => {
-      const financial = entryFinancialMap.get(Number(entry.id || 0)) || {};
-      const amountCents = Number(financial.amount ?? entry.amount_cents ?? 0);
-      const paidCents = Math.min(amountCents, Number(financial.paid || 0));
-      return sum + Math.max(0, Number(financial.open ?? amountCents - paidCents));
-    }, 0);
 
     const patientName = selectedAttendancePatient
       ? getPatientDisplayName(selectedAttendancePatient)
@@ -4209,11 +4197,11 @@ export default function Financeiro() {
     return {
       patientId: selectedAttendancePatientId,
       patientName,
-      sessions: patientSummary?.sessions || sessionRows.length + nonSessionEntries.length,
+      sessions: patientSummary?.sessions || sessionRows.length,
       openCents: sessionRows.reduce(
         (sum, row) => sum + (row.isManualReceiptRow ? 0 : Math.max(0, Number(row.openCents || 0))),
         0,
-      ) + nonSessionOpenCents,
+      ),
       creditsAvailable:
         creditBalanceByPatient.get(selectedAttendancePatientId) || patientSummary?.creditsAvailable || 0,
     };
@@ -4221,8 +4209,6 @@ export default function Financeiro() {
     attendanceByPatient,
     attendanceSessionRows,
     creditBalanceByPatient,
-    entries,
-    entryFinancialMap,
     selectedAttendancePatient,
     selectedAttendancePatientId,
   ]);
@@ -4329,47 +4315,6 @@ export default function Financeiro() {
       })
       .sort((first, second) => String(first.serviceName || "").localeCompare(String(second.serviceName || "")));
 
-    const entryPackages = entries
-      .filter((entry) => {
-        if (!entry || entry.type !== "income") return false;
-        if (String(entry.status || "").toLowerCase() === "canceled") return false;
-        if (entry.session_id) return false;
-        if (Number(entry.patient_id || 0) !== selectedAttendancePatientId) return false;
-        return true;
-      })
-      .map((entry) => {
-        const service =
-          entry?.Service ||
-          (entry.service_id ? serviceMap.get(entry.service_id) : null) ||
-          null;
-        const financial = entryFinancialMap.get(Number(entry.id || 0)) || {};
-        const amountCents = Number(financial.amount ?? entry.amount_cents ?? 0);
-        const paidCents = Math.min(amountCents, Number(financial.paid || 0));
-        const openCents = Math.max(0, Number(financial.open ?? amountCents - paidCents));
-        const financialStatus = financial.status || entry.status || "pending";
-
-        return {
-          id: `entry-${entry.id}`,
-          sourceId: entry.id,
-          kind: "entry",
-          serviceName: service?.name || entry.description || "Cobrança",
-          referenceDate: entry.reference_date || entry.due_date || null,
-          totalSessions: 0,
-          usedSessions: 0,
-          displaySessionsLabel: "-",
-          balance: 0,
-          expiresAt: null,
-          contractedAmountCents: amountCents,
-          amountCents,
-          paidCents,
-          openCents,
-          financialStatus,
-          usageSummary: {},
-          entries: openCents > 0 ? [{ entryId: Number(entry.id), openCents }] : [],
-          sessions: [],
-        };
-      });
-
     const standalonePackages = attendanceSelectedPatientRows
       .filter((row) => {
         if (row.seriesId || row.patientCreditId) return false;
@@ -4431,7 +4376,7 @@ export default function Financeiro() {
       );
     };
 
-    return [...seriesPackages, ...entryPackages, ...standalonePackages].filter(matchesSelectedPeriod).sort((first, second) => {
+    return [...seriesPackages, ...standalonePackages].filter(matchesSelectedPeriod).sort((first, second) => {
       const firstDate = new Date(first.referenceDate || 0).getTime();
       const secondDate = new Date(second.referenceDate || 0).getTime();
       const safeFirstDate = Number.isNaN(firstDate) ? 0 : firstDate;
@@ -4448,8 +4393,6 @@ export default function Financeiro() {
     attendanceFilters.end,
     attendanceFilters.start,
     selectedAttendancePatientId,
-    entries,
-    entryFinancialMap,
     serviceMap,
     sessionById,
   ]);

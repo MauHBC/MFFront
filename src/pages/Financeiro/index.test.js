@@ -243,15 +243,15 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(listFinancialEntries).not.toHaveBeenCalled();
   });
 
-  it("mostra mensalidade sem sessao no detalhe do paciente", async () => {
+  it("nao mostra mensalidade sem sessao no detalhe por sessao", async () => {
     getFinancialRevenuePatientDetail.mockResolvedValueOnce({
       data: {
         patient: { id: 30, name: "Maria Silva" },
         month: "2026-06",
         summary: {
-          total: 70000,
+          total: 0,
           received: 0,
-          pending: 70000,
+          pending: 0,
           creditAvailable: 0,
         },
         entries: [
@@ -283,13 +283,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
         payments: [],
         credits: [],
         series: [],
-        billingCycles: [
-          {
-            id: 23,
-            financial_entry_id: 985,
-            amount_cents: 70000,
-          },
-        ],
       },
     });
 
@@ -299,9 +292,11 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
-    expect(await screen.findByText("Mensalidade - Recovery")).toBeInTheDocument();
-    expect(screen.getAllByText("R$ 700,00").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Sem cobrança gerada")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(getFinancialRevenuePatientDetail).toHaveBeenCalled();
+    });
+    expect(screen.queryByText("Mensalidade - Recovery")).not.toBeInTheDocument();
+    expect(screen.queryByText("R$ 700,00")).not.toBeInTheDocument();
   });
 
   it("busca sessoes da serie ao abrir Sessoes do pacote", async () => {
