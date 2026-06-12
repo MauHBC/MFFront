@@ -895,6 +895,7 @@ export default function Financeiro() {
     String(new Date().getFullYear()),
   );
   const attendanceMonthPickerRef = useRef(null);
+  const attendanceDetailRequestRef = useRef(0);
 
   const [billingCycles, setBillingCycles] = useState([]);
   const [isBillingCyclesLoading, setIsBillingCyclesLoading] = useState(false);
@@ -1519,7 +1520,6 @@ export default function Financeiro() {
 
   const canUseAggregatedRevenuesSummary = useMemo(() => (
     receitasView === "atendimentos"
-    && attendancePeriodMode === "month"
     && attendanceFilters.financial === "all"
     && !attendanceFilters.patient_id
     && !attendanceFilters.professional_id
@@ -1531,7 +1531,6 @@ export default function Financeiro() {
     attendanceFilters.patient_id,
     attendanceFilters.professional_id,
     attendanceFilters.search,
-    attendancePeriodMode,
     receitasView,
   ]);
 
@@ -1557,24 +1556,27 @@ export default function Financeiro() {
   }, [clinicExpensesMonth]);
 
   const loadRevenuesSummary = useCallback(async () => {
-    if (attendancePeriodMode !== "month" || !attendancePeriodMonth) return;
+    const summaryPeriod = attendancePeriodMode === "year"
+      ? attendancePeriodYear
+      : attendancePeriodMonth;
+    if (!summaryPeriod) return;
 
     try {
       setLoadingRevenuesSummary(true);
       setRevenuesSummaryError("");
-      const response = await getFinancialRevenuesSummary(attendancePeriodMonth);
+      const response = await getFinancialRevenuesSummary(summaryPeriod, attendancePeriodMode);
       setRevenuesSummary(normalizeFinancialRevenuesSummary(
         response.data || {},
-        attendancePeriodMonth,
+        summaryPeriod,
       ));
     } catch (error) {
       setRevenuesSummaryError("Não foi possível carregar o resumo de receitas.");
-      setRevenuesSummary(emptyFinancialRevenuesSummary(attendancePeriodMonth));
+      setRevenuesSummary(emptyFinancialRevenuesSummary(summaryPeriod));
       toast.error("Não foi possível carregar o resumo de receitas.");
     } finally {
       setLoadingRevenuesSummary(false);
     }
-  }, [attendancePeriodMode, attendancePeriodMonth]);
+  }, [attendancePeriodMode, attendancePeriodMonth, attendancePeriodYear]);
 
   const loadRevenuesData = useCallback(async () => {
     try {
@@ -2746,6 +2748,11 @@ export default function Financeiro() {
   const handleViewPatientSessions = useCallback(async (patientId) => {
     if (!patientId) return;
     const normalizedPatientId = String(patientId);
+    const requestId = attendanceDetailRequestRef.current + 1;
+    attendanceDetailRequestRef.current = requestId;
+    const detailPeriodMode = attendancePeriodMode === "year" ? "year" : "month";
+    const detailPeriod = detailPeriodMode === "year" ? attendancePeriodYear : attendancePeriodMonth;
+
     setAttendanceDrilldownPatientId(normalizedPatientId);
     setAttendanceDetailTab("charges");
     setSelectedAttendancePackageId(null);
@@ -2770,12 +2777,19 @@ export default function Financeiro() {
       isLoading: true,
       error: "",
     });
+    setEntries([]);
+    setPayments([]);
+    setPatientCredits([]);
+    setAttendanceSeries([]);
+    setAttendanceSessions([]);
 
     try {
       const response = await getFinancialRevenuePatientDetail(
         normalizedPatientId,
-        attendancePeriodMonth,
+        detailPeriod,
+        detailPeriodMode,
       );
+      if (attendanceDetailRequestRef.current !== requestId) return;
       const detail = response.data || {};
       const detailPatient = detail.patient?.id
         ? {
@@ -2808,6 +2822,7 @@ export default function Financeiro() {
         error: "",
       });
     } catch (error) {
+      if (attendanceDetailRequestRef.current !== requestId) return;
       setAttendanceDetailSessions({
         patientId: normalizedPatientId,
         sessions: [],
@@ -2818,9 +2833,10 @@ export default function Financeiro() {
         ) || "Não foi possível carregar os detalhes deste paciente.",
       });
     }
-  }, [attendancePeriodMonth, revenuesSummary.patients]);
+  }, [attendancePeriodMode, attendancePeriodMonth, attendancePeriodYear, revenuesSummary.patients]);
 
   const handleClosePatientSessions = useCallback(() => {
+    attendanceDetailRequestRef.current += 1;
     setAttendanceDrilldownPatientId(null);
     setAttendanceDetailTab("charges");
     setSelectedAttendancePackageId(null);
@@ -2841,9 +2857,57 @@ export default function Financeiro() {
     setBillingCyclesDrilldownPatientId(null);
   }, []);
 
-  const handleOpenPackageSessions = useCallback((packageId) => {
-    setSelectedAttendancePackageId(packageId ? String(packageId) : null);
-  }, []);
+  const handleOpenPackageSessions = useCallback(async (item) => {
+    if (!item?.id) return;
+    setSelectedAttendancePackageId(String(item.id));
+
+    if (item.kind !== "series" || !item.sourceId || !selectedAttendancePatientId) return;
+
+    setAttendanceDetailSessions((prev) => ({
+      ...prev,
+      patientId: String(selectedAttendancePatientId),
+      isLoading: true,
+      error: "",
+    }));
+
+    try {
+      const response = await axios.get("/sessions", {
+        params: {
+          patient_id: selectedAttendancePatientId,
+          series_id: item.sourceId,
+        },
+      });
+      const seriesSessions = Array.isArray(response.data) ? response.data : [];
+      const mergeSessions = (current) => {
+        const map = new Map();
+        current.forEach((session) => {
+          if (session?.id) map.set(Number(session.id), session);
+        });
+        seriesSessions.forEach((session) => {
+          if (session?.id) map.set(Number(session.id), session);
+        });
+        return Array.from(map.values()).sort(
+          (first, second) => new Date(first.starts_at || 0) - new Date(second.starts_at || 0),
+        );
+      };
+
+      setAttendanceSessions((prev) => mergeSessions(prev));
+      setAttendanceDetailSessions((prev) => ({
+        ...prev,
+        patientId: String(selectedAttendancePatientId),
+        sessions: mergeSessions(prev.sessions || []),
+        isLoading: false,
+        error: "",
+      }));
+    } catch (error) {
+      setAttendanceDetailSessions((prev) => ({
+        ...prev,
+        patientId: String(selectedAttendancePatientId),
+        isLoading: false,
+        error: getUserFacingApiError(error, "Não foi possível carregar as sessões deste pacote."),
+      }));
+    }
+  }, [selectedAttendancePatientId]);
 
   const handleClosePackageSessions = useCallback(() => {
     setSelectedAttendancePackageId(null);
@@ -4125,6 +4189,18 @@ export default function Financeiro() {
     const sessionRows = attendanceSessionRows.filter(
       (row) => Number(row.patientId || 0) === selectedAttendancePatientId,
     );
+    const nonSessionEntries = entries.filter((entry) => {
+      if (!entry || entry.type !== "income") return false;
+      if (String(entry.status || "").toLowerCase() === "canceled") return false;
+      if (entry.session_id) return false;
+      return Number(entry.patient_id || 0) === selectedAttendancePatientId;
+    });
+    const nonSessionOpenCents = nonSessionEntries.reduce((sum, entry) => {
+      const financial = entryFinancialMap.get(Number(entry.id || 0)) || {};
+      const amountCents = Number(financial.amount ?? entry.amount_cents ?? 0);
+      const paidCents = Math.min(amountCents, Number(financial.paid || 0));
+      return sum + Math.max(0, Number(financial.open ?? amountCents - paidCents));
+    }, 0);
 
     const patientName = selectedAttendancePatient
       ? getPatientDisplayName(selectedAttendancePatient)
@@ -4133,11 +4209,11 @@ export default function Financeiro() {
     return {
       patientId: selectedAttendancePatientId,
       patientName,
-      sessions: patientSummary?.sessions || 0,
+      sessions: patientSummary?.sessions || sessionRows.length + nonSessionEntries.length,
       openCents: sessionRows.reduce(
         (sum, row) => sum + (row.isManualReceiptRow ? 0 : Math.max(0, Number(row.openCents || 0))),
         0,
-      ),
+      ) + nonSessionOpenCents,
       creditsAvailable:
         creditBalanceByPatient.get(selectedAttendancePatientId) || patientSummary?.creditsAvailable || 0,
     };
@@ -4145,6 +4221,8 @@ export default function Financeiro() {
     attendanceByPatient,
     attendanceSessionRows,
     creditBalanceByPatient,
+    entries,
+    entryFinancialMap,
     selectedAttendancePatient,
     selectedAttendancePatientId,
   ]);
@@ -4251,6 +4329,47 @@ export default function Financeiro() {
       })
       .sort((first, second) => String(first.serviceName || "").localeCompare(String(second.serviceName || "")));
 
+    const entryPackages = entries
+      .filter((entry) => {
+        if (!entry || entry.type !== "income") return false;
+        if (String(entry.status || "").toLowerCase() === "canceled") return false;
+        if (entry.session_id) return false;
+        if (Number(entry.patient_id || 0) !== selectedAttendancePatientId) return false;
+        return true;
+      })
+      .map((entry) => {
+        const service =
+          entry?.Service ||
+          (entry.service_id ? serviceMap.get(entry.service_id) : null) ||
+          null;
+        const financial = entryFinancialMap.get(Number(entry.id || 0)) || {};
+        const amountCents = Number(financial.amount ?? entry.amount_cents ?? 0);
+        const paidCents = Math.min(amountCents, Number(financial.paid || 0));
+        const openCents = Math.max(0, Number(financial.open ?? amountCents - paidCents));
+        const financialStatus = financial.status || entry.status || "pending";
+
+        return {
+          id: `entry-${entry.id}`,
+          sourceId: entry.id,
+          kind: "entry",
+          serviceName: service?.name || entry.description || "Cobrança",
+          referenceDate: entry.reference_date || entry.due_date || null,
+          totalSessions: 0,
+          usedSessions: 0,
+          displaySessionsLabel: "-",
+          balance: 0,
+          expiresAt: null,
+          contractedAmountCents: amountCents,
+          amountCents,
+          paidCents,
+          openCents,
+          financialStatus,
+          usageSummary: {},
+          entries: openCents > 0 ? [{ entryId: Number(entry.id), openCents }] : [],
+          sessions: [],
+        };
+      });
+
     const standalonePackages = attendanceSelectedPatientRows
       .filter((row) => {
         if (row.seriesId || row.patientCreditId) return false;
@@ -4312,7 +4431,7 @@ export default function Financeiro() {
       );
     };
 
-    return [...seriesPackages, ...standalonePackages].filter(matchesSelectedPeriod).sort((first, second) => {
+    return [...seriesPackages, ...entryPackages, ...standalonePackages].filter(matchesSelectedPeriod).sort((first, second) => {
       const firstDate = new Date(first.referenceDate || 0).getTime();
       const secondDate = new Date(second.referenceDate || 0).getTime();
       const safeFirstDate = Number.isNaN(firstDate) ? 0 : firstDate;
@@ -4329,6 +4448,8 @@ export default function Financeiro() {
     attendanceFilters.end,
     attendanceFilters.start,
     selectedAttendancePatientId,
+    entries,
+    entryFinancialMap,
     serviceMap,
     sessionById,
   ]);
@@ -5971,7 +6092,7 @@ export default function Financeiro() {
                       </td>
                       <td>
                         <AttendancePrimaryText>
-                          {item.usedSessions}/{item.totalSessions}
+                          {item.displaySessionsLabel || `${item.usedSessions}/${item.totalSessions}`}
                         </AttendancePrimaryText>
                       </td>
                       <td>
@@ -5993,14 +6114,18 @@ export default function Financeiro() {
                         </AttendanceStatusBadge>
                       </td>
                       <td>
-                        <AttendanceRowActions>
-                          <AttendanceSmallAction
-                            type="button"
-                            onClick={() => handleOpenPackageSessions(item.id)}
-                          >
-	                            Sessões
-                          </AttendanceSmallAction>
-                        </AttendanceRowActions>
+                        {item.kind === "entry" ? (
+                          <AttendancePrimaryText>-</AttendancePrimaryText>
+                        ) : (
+                          <AttendanceRowActions>
+                            <AttendanceSmallAction
+                              type="button"
+                              onClick={() => handleOpenPackageSessions(item)}
+                            >
+	                              Sessões
+                            </AttendanceSmallAction>
+                          </AttendanceRowActions>
+                        )}
                       </td>
                     </PatientSummaryRow>
                   ))}

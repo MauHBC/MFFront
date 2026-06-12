@@ -231,6 +231,131 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       .toBeInTheDocument();
   });
 
+  it("usa resumo agregado no modo anual", async () => {
+    renderFinanceiro();
+
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+
+    await waitFor(() => {
+      expect(getFinancialRevenuesSummary).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}$/), "year");
+    });
+    expect(listFinancialEntries).not.toHaveBeenCalled();
+  });
+
+  it("mostra mensalidade sem sessao no detalhe do paciente", async () => {
+    getFinancialRevenuePatientDetail.mockResolvedValueOnce({
+      data: {
+        patient: { id: 30, name: "Maria Silva" },
+        month: "2026-06",
+        summary: {
+          total: 70000,
+          received: 0,
+          pending: 70000,
+          creditAvailable: 0,
+        },
+        entries: [
+          {
+            id: 985,
+            clinic_id: 1,
+            patient_id: 30,
+            session_id: null,
+            service_id: 10,
+            type: "income",
+            description: "Mensalidade - Recovery",
+            amount_cents: 70000,
+            reference_date: "2026-06-03",
+            status: "pending",
+          },
+        ],
+        sessions: [
+          {
+            id: 1116,
+            clinic_id: 1,
+            patient_id: 30,
+            service_id: 10,
+            starts_at: "2026-06-03T18:00:00.000Z",
+            status: "done",
+            billing_mode: "covered_by_plan",
+            Service: { id: 10, name: "Recovery" },
+          },
+        ],
+        payments: [],
+        credits: [],
+        series: [],
+        billingCycles: [
+          {
+            id: 23,
+            financial_entry_id: 985,
+            amount_cents: 70000,
+          },
+        ],
+      },
+    });
+
+    renderFinanceiro();
+
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    expect(await screen.findByText("Mensalidade - Recovery")).toBeInTheDocument();
+    expect(screen.getAllByText("R$ 700,00").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Sem cobrança gerada")).not.toBeInTheDocument();
+  });
+
+  it("busca sessoes da serie ao abrir Sessoes do pacote", async () => {
+    axios.get.mockResolvedValueOnce({
+      data: [
+        {
+          id: 701,
+          clinic_id: 1,
+          patient_id: 30,
+          service_id: 10,
+          series_id: 901,
+          starts_at: "2026-06-10T09:00:00.000Z",
+          status: "done",
+          billing_mode: "per_session",
+          Service: { id: 10, name: "Fisioterapia" },
+        },
+        {
+          id: 702,
+          clinic_id: 1,
+          patient_id: 30,
+          service_id: 10,
+          series_id: 901,
+          starts_at: "2026-07-10T09:00:00.000Z",
+          status: "scheduled",
+          billing_mode: "per_session",
+          Service: { id: 10, name: "Fisioterapia" },
+        },
+      ],
+    });
+
+    renderFinanceiro();
+
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await screen.findByText("Fisioterapia");
+
+    await userEvent.click(screen.getByRole("button", { name: "Sessões" }));
+
+    await waitFor(() => {
+      expect(axios.get).toHaveBeenCalledWith("/sessions", {
+        params: {
+          patient_id: 30,
+          series_id: 901,
+        },
+      });
+    });
+    expect(await screen.findByText("Sessões do pacote")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByText(/Agendada/i).length).toBeGreaterThan(0);
+    });
+    expect(screen.getByText(/Realizada/i)).toBeInTheDocument();
+  });
+
   it("mostra erro amigavel quando patient-detail falha", async () => {
     getFinancialRevenuePatientDetail.mockRejectedValue(new Error("erro"));
 

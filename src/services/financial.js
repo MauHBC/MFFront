@@ -42,12 +42,17 @@ export const listFinancialEntries = (params) =>
 export const getFinancialOverview = (month) =>
   api.get('/financial-overview', { params: { month } });
 
-export const getFinancialRevenuesSummary = (month) =>
-  api.get('/financial-revenues-summary', { params: { month } });
+export const getFinancialRevenuesSummary = (period, periodMode = 'month') =>
+  api.get('/financial-revenues-summary', {
+    params: periodMode === 'year' ? { year: period } : { month: period },
+  });
 
-export const getFinancialRevenuePatientDetail = (patientId, month) =>
+export const getFinancialRevenuePatientDetail = (patientId, period, periodMode = 'month') =>
   api.get('/financial-revenues/patient-detail', {
-    params: { patient_id: patientId, month },
+    params: {
+      patient_id: patientId,
+      ...(periodMode === 'year' ? { year: period } : { month: period }),
+    },
   });
 
 export const createFinancialEntry = (payload) =>
