@@ -231,6 +231,87 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       .toBeInTheDocument();
   });
 
+  it("usa financeiro agregado do pacote retornado pelo patient-detail", async () => {
+    getFinancialRevenuePatientDetail.mockResolvedValueOnce({
+      data: {
+        patient: { id: 30, name: "Maria Silva" },
+        month: "2026-06",
+        summary: {
+          total: 0,
+          received: 0,
+          pending: 0,
+          creditAvailable: 0,
+        },
+        entries: [],
+        sessions: [],
+        payments: [],
+        credits: [],
+        series: [
+          {
+            id: 901,
+            clinic_id: 1,
+            patient_id: 30,
+            service_id: 10,
+            starts_at: "2026-06-10T09:00:00.000Z",
+            occurrence_count: 9,
+            Service: { id: 10, name: "Fisioterapia" },
+          },
+        ],
+        packages: [
+          {
+            id: "series-901",
+            sourceId: 901,
+            kind: "series",
+            series_id: 901,
+            service_id: 10,
+            service_name: "Fisioterapia",
+            reference_date: "2026-06-10T09:00:00.000Z",
+            total_sessions: 9,
+            used_sessions: 5,
+            contracted_amount_cents: 105000,
+            amount_cents: 105000,
+            paid_cents: 15000,
+            open_cents: 90000,
+            financial_status: "partial",
+            entries: [{ entryId: 744, openCents: 90000 }],
+            usage_summary: {
+              scheduled: 3,
+              done: 5,
+              noShow: 0,
+              canceledWithoutCharge: 1,
+            },
+            sessions: [
+              {
+                id: 701,
+                clinic_id: 1,
+                patient_id: 30,
+                service_id: 10,
+                series_id: 901,
+                starts_at: "2026-06-10T09:00:00.000Z",
+                status: "done",
+                billing_mode: "per_session",
+                Service: { id: 10, name: "Fisioterapia" },
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    renderFinanceiro();
+
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    expect(await screen.findByText("Fisioterapia")).toBeInTheDocument();
+    expect(screen.getByText("5/9")).toBeInTheDocument();
+    expect(screen.getByText("R$ 1.050,00")).toBeInTheDocument();
+    expect(screen.getByText("R$ 150,00")).toBeInTheDocument();
+    expect(screen.getByText("R$ 900,00")).toBeInTheDocument();
+    expect(screen.queryByText("Sem cobrança gerada")).not.toBeInTheDocument();
+  });
+
   it("usa resumo agregado no modo anual", async () => {
     renderFinanceiro();
 

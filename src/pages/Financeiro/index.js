@@ -885,6 +885,7 @@ export default function Financeiro() {
     isLoading: false,
     error: "",
   });
+  const [attendanceDetailPackages, setAttendanceDetailPackages] = useState([]);
   const [attendanceDetailTab, setAttendanceDetailTab] = useState("charges");
   const [selectedAttendancePackageId, setSelectedAttendancePackageId] = useState(null);
   const [attendancePeriodMode, setAttendancePeriodMode] = useState("month");
@@ -2782,6 +2783,7 @@ export default function Financeiro() {
     setPatientCredits([]);
     setAttendanceSeries([]);
     setAttendanceSessions([]);
+    setAttendanceDetailPackages([]);
 
     try {
       const response = await getFinancialRevenuePatientDetail(
@@ -2814,6 +2816,7 @@ export default function Financeiro() {
       setPatientCredits(Array.isArray(detail.credits) ? detail.credits : []);
       setAttendanceSeries(Array.isArray(detail.series) ? detail.series : []);
       setAttendanceSessions(Array.isArray(detail.sessions) ? detail.sessions : []);
+      setAttendanceDetailPackages(Array.isArray(detail.packages) ? detail.packages : []);
       setHasAttendanceLoaded(true);
       setAttendanceDetailSessions({
         patientId: normalizedPatientId,
@@ -2846,6 +2849,7 @@ export default function Financeiro() {
       isLoading: false,
       error: "",
     });
+    setAttendanceDetailPackages([]);
   }, []);
 
   const handleViewBillingCyclesPatient = useCallback((patientId) => {
@@ -4234,6 +4238,49 @@ export default function Financeiro() {
       sessionsBySeriesId.set(seriesId, list);
     });
 
+    const detailPackagesBySeriesId = new Map();
+    attendanceDetailPackages.forEach((item) => {
+      const seriesId = Number(item?.series_id || item?.sourceId || item?.source_id || 0);
+      if (!seriesId) return;
+      detailPackagesBySeriesId.set(seriesId, item);
+    });
+
+    const readPackageNumber = (item, keys, fallback = 0) => {
+      if (!item) return fallback;
+      const key = keys.find((candidate) =>
+        Object.prototype.hasOwnProperty.call(item, candidate));
+      if (!key) return fallback;
+      const value = Number(item[key] || 0);
+      return Number.isFinite(value) ? value : fallback;
+    };
+
+    const normalizePackageEntries = (backendPackage, fallbackEntries) => {
+      if (!Array.isArray(backendPackage?.entries)) return fallbackEntries;
+      return backendPackage.entries
+        .map((entry) => ({
+          entryId: Number(entry?.entryId || entry?.entry_id || entry?.id || 0),
+          openCents: Number(entry?.openCents ?? entry?.open_cents ?? entry?.open ?? 0),
+        }))
+        .filter((entry) => entry.entryId > 0 && entry.openCents > 0);
+    };
+
+    const mergeUsageSummary = (localUsage, backendPackage) => {
+      const backendUsage = backendPackage?.usage_summary || backendPackage?.usageSummary || null;
+      if (!backendUsage) return localUsage;
+      return {
+        ...localUsage,
+        scheduled: Number(backendUsage.scheduled ?? localUsage.scheduled ?? 0),
+        done: Number(backendUsage.done ?? localUsage.done ?? 0),
+        noShow: Number(backendUsage.noShow ?? backendUsage.no_show ?? localUsage.noShow ?? 0),
+        canceledWithoutCharge: Number(
+          backendUsage.canceledWithoutCharge
+            ?? backendUsage.canceled_without_charge
+            ?? localUsage.canceledWithoutCharge
+            ?? 0,
+        ),
+      };
+    };
+
     const seriesPackages = attendanceSeries
       .filter((series) => {
         if (Number(series.patient_id || 0) !== selectedAttendancePatientId) return false;
@@ -4241,27 +4288,73 @@ export default function Financeiro() {
         return true;
       })
       .map((series) => {
+        const seriesId = Number(series.id || 0);
+        const backendPackage = detailPackagesBySeriesId.get(seriesId) || null;
+        const backendServiceName = backendPackage?.service_name || backendPackage?.serviceName || null;
         const service =
+          backendPackage?.Service ||
+          backendPackage?.service ||
+          (backendServiceName ? { name: backendServiceName } : null) ||
           series?.Service ||
           (series.service_id ? serviceMap.get(series.service_id) : null) ||
           null;
-        const packageSessions = (sessionsBySeriesId.get(Number(series.id || 0)) || [])
+        const backendPackageSessions = Array.isArray(backendPackage?.sessions)
+          ? backendPackage.sessions
+          : [];
+        const packageSessions = (backendPackageSessions.length
+          ? backendPackageSessions
+          : (sessionsBySeriesId.get(seriesId) || []))
           .sort((first, second) => new Date(first.starts_at || 0) - new Date(second.starts_at || 0));
         const seriesRows = attendanceSelectedPatientRows.filter(
-          (row) => Number(row.seriesId || 0) === Number(series.id || 0),
+          (row) => Number(row.seriesId || 0) === seriesId,
         );
-        const totalSessions = Number(series.occurrence_count || 0) || packageSessions.length;
-        const usedSessions = packageSessions.filter(
+        const localTotalSessions = Number(series.occurrence_count || 0) || packageSessions.length;
+        const totalSessions = readPackageNumber(
+          backendPackage,
+          ["total_sessions", "totalSessions"],
+          localTotalSessions,
+        );
+        const localUsedSessions = packageSessions.filter(
           (session) => String(session.status || "").toLowerCase() === "done",
         ).length;
-        const referenceDate = packageSessions[0]?.starts_at || series.starts_at || null;
-        const contractedAmountCents = seriesRows.reduce(
+        const usedSessions = readPackageNumber(
+          backendPackage,
+          ["used_sessions", "usedSessions"],
+          localUsedSessions,
+        );
+        const referenceDate =
+          backendPackage?.reference_date ||
+          backendPackage?.referenceDate ||
+          packageSessions[0]?.starts_at ||
+          series.starts_at ||
+          null;
+        const localContractedAmountCents = seriesRows.reduce(
           (sum, row) => sum + Number(row.originalAmountCents || row.amountCents || 0),
           0,
         );
-        const amountCents = seriesRows.reduce((sum, row) => sum + Number(row.amountCents || 0), 0);
-        const paidCents = seriesRows.reduce((sum, row) => sum + Number(row.paidCents || 0), 0);
-        const openCents = seriesRows.reduce((sum, row) => sum + Number(row.openCents || 0), 0);
+        const localAmountCents = seriesRows.reduce((sum, row) => sum + Number(row.amountCents || 0), 0);
+        const localPaidCents = seriesRows.reduce((sum, row) => sum + Number(row.paidCents || 0), 0);
+        const localOpenCents = seriesRows.reduce((sum, row) => sum + Number(row.openCents || 0), 0);
+        const contractedAmountCents = readPackageNumber(
+          backendPackage,
+          ["contracted_amount_cents", "contractedAmountCents"],
+          localContractedAmountCents,
+        );
+        const amountCents = readPackageNumber(
+          backendPackage,
+          ["amount_cents", "amountCents"],
+          localAmountCents,
+        );
+        const paidCents = readPackageNumber(
+          backendPackage,
+          ["paid_cents", "paidCents"],
+          localPaidCents,
+        );
+        const openCents = readPackageNumber(
+          backendPackage,
+          ["open_cents", "openCents"],
+          localOpenCents,
+        );
         const financialStatus = resolveGroupedFinancialStatus(amountCents, paidCents, openCents);
         const usageSummary = seriesRows.reduce(
           (usageAcc, row) => {
@@ -4289,27 +4382,31 @@ export default function Financeiro() {
           if (!entryId || rowOpenCents <= 0) return;
           entriesById.set(entryId, (entriesById.get(entryId) || 0) + rowOpenCents);
         });
+        const fallbackEntries = Array.from(entriesById.entries()).map(([entryId, entryOpenCents]) => ({
+          entryId,
+          openCents: entryOpenCents,
+        }));
 
         return {
-          id: `series-${series.id}`,
-          sourceId: series.id,
+          id: `series-${seriesId}`,
+          sourceId: seriesId,
           kind: "series",
           serviceName: service?.name || "Pacote de sessões",
           referenceDate,
           totalSessions,
           usedSessions,
           balance: Math.max(0, totalSessions - usedSessions),
-          expiresAt: series.until_date || null,
+          expiresAt: backendPackage?.expires_at || backendPackage?.expiresAt || series.until_date || null,
           contractedAmountCents,
           amountCents,
           paidCents,
           openCents,
-          financialStatus,
-          usageSummary,
-          entries: Array.from(entriesById.entries()).map(([entryId, entryOpenCents]) => ({
-            entryId,
-            openCents: entryOpenCents,
-          })),
+          financialStatus:
+            backendPackage?.financial_status ||
+            backendPackage?.financialStatus ||
+            financialStatus,
+          usageSummary: mergeUsageSummary(usageSummary, backendPackage),
+          entries: normalizePackageEntries(backendPackage, fallbackEntries),
           sessions: packageSessions,
         };
       })
@@ -4387,6 +4484,7 @@ export default function Financeiro() {
       return safeFirstDate - safeSecondDate;
     });
   }, [
+    attendanceDetailPackages,
     attendanceDetailSessions.sessions,
     attendanceSelectedPatientRows,
     attendanceSeries,
