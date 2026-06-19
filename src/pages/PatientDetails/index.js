@@ -7,6 +7,12 @@ import { FaInfoCircle, FaListAlt, FaPhoneAlt, FaPlus, FaTimes, FaUserAlt } from 
 import DataLoadingState from "../../components/DataLoadingState";
 import axios from "../../services/axios";
 import {
+  createPatientClinicalReference,
+  listPatientClinicalReferences,
+  removePatientClinicalReference,
+  updatePatientClinicalReference,
+} from "../../services/patientClinicalReferences";
+import {
   createPatientExternalProfessional,
   inactivatePatientExternalProfessional,
   listPatientExternalProfessionals,
@@ -119,6 +125,35 @@ const DEFAULT_OPERATIONAL_POLICY = {
   monthly_absence_limit: 2,
 };
 
+const CLINICAL_REFERENCE_TYPES = [
+  { value: "scientific_article", label: "Artigo científico" },
+  { value: "protocol", label: "Protocolo" },
+  { value: "video", label: "Vídeo" },
+  { value: "guideline", label: "Guideline" },
+  { value: "other", label: "Outro" },
+];
+
+const CLINICAL_REFERENCE_TYPE_LABELS = CLINICAL_REFERENCE_TYPES.reduce(
+  (labels, option) => ({
+    ...labels,
+    [option.value]: option.label,
+  }),
+  {},
+);
+
+const PRONTUARIO_SECTIONS = {
+  records: "records",
+  references: "references",
+};
+
+const buildClinicalReferenceForm = (reference = null) => ({
+  title: reference?.title || "",
+  reference_text: reference?.reference_text || "",
+  reference_type: reference?.reference_type || "scientific_article",
+  clinical_question: reference?.clinical_question || "",
+  notes: reference?.notes || "",
+});
+
 const EXTERNAL_PROFESSIONAL_TYPES = [
   { value: "personal_trainer", label: "Personal trainer" },
   { value: "physical_educator", label: "Educador físico" },
@@ -152,6 +187,15 @@ function normalizeExternalUrl(value) {
   if (!normalized) return null;
   if (/^https?:\/\//i.test(normalized)) return normalized;
   return `https://${normalized}`;
+}
+
+function isHttpUrl(value) {
+  try {
+    const parsed = new URL(String(value || "").trim());
+    return ["http:", "https:"].includes(parsed.protocol);
+  } catch (error) {
+    return false;
+  }
 }
 
 function resolveAttentionLevelStyles(level) {
@@ -537,9 +581,22 @@ function buildPatientForm(patient) {
 export default function PatientDetails() {
   const { id } = useParams();
   const [activeTab, setActiveTab] = useState(TABS.resumo);
+  const [activeProntuarioSection, setActiveProntuarioSection] = useState(
+    PRONTUARIO_SECTIONS.records,
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [patient, setPatient] = useState(null);
   const [evaluations, setEvaluations] = useState([]);
+  const [clinicalReferences, setClinicalReferences] = useState([]);
+  const [selectedClinicalReference, setSelectedClinicalReference] = useState(null);
+  const [clinicalReferenceDeleteTarget, setClinicalReferenceDeleteTarget] = useState(null);
+  const [clinicalReferenceEditReturn, setClinicalReferenceEditReturn] = useState(null);
+  const [clinicalReferenceModal, setClinicalReferenceModal] = useState(null);
+  const [clinicalReferenceForm, setClinicalReferenceForm] = useState(() =>
+    buildClinicalReferenceForm(),
+  );
+  const [isSavingClinicalReference, setIsSavingClinicalReference] = useState(false);
+  const [isDeletingClinicalReference, setIsDeletingClinicalReference] = useState(false);
   const [frequencySessions, setFrequencySessions] = useState([]);
   const [perSessionSessions, setPerSessionSessions] = useState([]);
   const [perSessionSeries, setPerSessionSeries] = useState([]);
@@ -567,6 +624,7 @@ export default function PatientDetails() {
         const [
           patientResponse,
           evalResponse,
+          clinicalReferencesResponse,
           sessionsResponse,
           allSessionsResponse,
           sessionSeriesResponse,
@@ -576,6 +634,7 @@ export default function PatientDetails() {
         ] = await Promise.all([
           axios.get(`/patients/${id}`),
           axios.get(`/evaluations?patient_id=${id}`),
+          listPatientClinicalReferences({ patient_id: id }),
           axios.get("/sessions", {
             params: {
               patient_id: id,
@@ -591,6 +650,11 @@ export default function PatientDetails() {
         ]);
         setPatient(patientResponse.data);
         setEvaluations(Array.isArray(evalResponse.data) ? evalResponse.data : []);
+        setClinicalReferences(
+          Array.isArray(clinicalReferencesResponse.data)
+            ? clinicalReferencesResponse.data
+            : [],
+        );
         setFrequencySessions(
           Array.isArray(sessionsResponse.data) ? sessionsResponse.data : [],
         );
@@ -642,7 +706,6 @@ export default function PatientDetails() {
   const lastDate = latestEval
     ? formatDate(latestEval.created_at || latestEval.createdAt)
     : "--/--/----";
-
   const age = useMemo(
     () =>
       patient
@@ -795,10 +858,150 @@ export default function PatientDetails() {
   const isConsentEditing = editingSection === EDIT_SECTIONS.consent;
 
   const showResumo = useCallback(() => setActiveTab(TABS.resumo), []);
-  const showProntuario = useCallback(() => setActiveTab(TABS.prontuario), []);
+  const showProntuario = useCallback(() => {
+    setActiveTab(TABS.prontuario);
+    setActiveProntuarioSection(PRONTUARIO_SECTIONS.records);
+  }, []);
   const showHistorico = useCallback(() => setActiveTab(TABS.historico), []);
   const showDados = useCallback(() => setActiveTab(TABS.dados), []);
   const closePackageModal = useCallback(() => setSelectedPackage(null), []);
+
+  const reloadClinicalReferences = useCallback(async () => {
+    if (!id) return;
+    const response = await listPatientClinicalReferences({ patient_id: id });
+    setClinicalReferences(Array.isArray(response.data) ? response.data : []);
+  }, [id]);
+
+  const openClinicalReferenceCreateModal = useCallback(() => {
+    setClinicalReferenceForm(buildClinicalReferenceForm());
+    setClinicalReferenceModal({ mode: "create", item: null });
+  }, []);
+
+  const openClinicalReferenceEditModal = useCallback((reference) => {
+    setClinicalReferenceForm(buildClinicalReferenceForm(reference));
+    setClinicalReferenceModal({ mode: "edit", item: reference });
+  }, []);
+
+  const openClinicalReferenceDetailModal = useCallback((reference) => {
+    setSelectedClinicalReference(reference);
+  }, []);
+
+  const closeClinicalReferenceDetailModal = useCallback(() => {
+    setSelectedClinicalReference(null);
+  }, []);
+
+  const closeClinicalReferenceModal = useCallback(() => {
+    if (isSavingClinicalReference) return;
+    setClinicalReferenceModal(null);
+    setClinicalReferenceForm(buildClinicalReferenceForm());
+    if (clinicalReferenceModal?.mode === "edit" && clinicalReferenceEditReturn) {
+      setSelectedClinicalReference(clinicalReferenceEditReturn);
+      setClinicalReferenceEditReturn(null);
+    }
+  }, [clinicalReferenceEditReturn, clinicalReferenceModal, isSavingClinicalReference]);
+
+  const handleClinicalReferenceFieldChange = useCallback((event) => {
+    const { name, value } = event.target;
+    setClinicalReferenceForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  }, []);
+
+  const handleSaveClinicalReference = useCallback(async () => {
+    const title = cleanText(clinicalReferenceForm.title);
+    const referenceText = cleanText(clinicalReferenceForm.reference_text);
+
+    if (!title || title.length < 2) {
+      toast.error("Informe o título da referência.");
+      return;
+    }
+    if (!referenceText || referenceText.length < 2) {
+      toast.error("Informe o link ou referência.");
+      return;
+    }
+
+    const payload = {
+      patient_id: id,
+      title,
+      reference_text: referenceText,
+      reference_type: clinicalReferenceForm.reference_type,
+      clinical_question: cleanText(clinicalReferenceForm.clinical_question),
+      notes: cleanText(clinicalReferenceForm.notes),
+    };
+
+    setIsSavingClinicalReference(true);
+    try {
+      if (clinicalReferenceModal?.mode === "edit" && clinicalReferenceModal?.item?.id) {
+        await updatePatientClinicalReference(clinicalReferenceModal.item.id, payload);
+        toast.success("Referência atualizada.");
+      } else {
+        await createPatientClinicalReference(payload);
+        toast.success("Referência adicionada.");
+      }
+      setClinicalReferenceModal(null);
+      setClinicalReferenceForm(buildClinicalReferenceForm());
+      setClinicalReferenceEditReturn(null);
+      await reloadClinicalReferences();
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.error ||
+          "Não foi possível salvar a referência clínica.",
+      );
+    } finally {
+      setIsSavingClinicalReference(false);
+    }
+  }, [
+    clinicalReferenceForm,
+    clinicalReferenceModal,
+    id,
+    reloadClinicalReferences,
+  ]);
+
+  const handleRemoveClinicalReference = useCallback(async (reference) => {
+    if (!reference?.id) return false;
+    setIsDeletingClinicalReference(true);
+    try {
+      await removePatientClinicalReference(reference.id);
+      toast.success("Referência excluída.");
+      await reloadClinicalReferences();
+      return true;
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.error ||
+          "Não foi possível excluir a referência clínica.",
+      );
+      return false;
+    } finally {
+      setIsDeletingClinicalReference(false);
+    }
+  }, [reloadClinicalReferences]);
+
+  const handleEditSelectedClinicalReference = useCallback(() => {
+    if (!selectedClinicalReference) return;
+    setClinicalReferenceEditReturn(selectedClinicalReference);
+    openClinicalReferenceEditModal(selectedClinicalReference);
+    setSelectedClinicalReference(null);
+  }, [openClinicalReferenceEditModal, selectedClinicalReference]);
+
+  const handleOpenDeleteClinicalReference = useCallback(() => {
+    if (!selectedClinicalReference) return;
+    setClinicalReferenceDeleteTarget(selectedClinicalReference);
+  }, [selectedClinicalReference]);
+
+  const handleCancelDeleteClinicalReference = useCallback(() => {
+    if (isDeletingClinicalReference) return;
+    setClinicalReferenceDeleteTarget(null);
+  }, [isDeletingClinicalReference]);
+
+  const handleConfirmDeleteClinicalReference = useCallback(async () => {
+    if (!clinicalReferenceDeleteTarget) return;
+    const removed = await handleRemoveClinicalReference(clinicalReferenceDeleteTarget);
+    if (removed) {
+      setClinicalReferenceDeleteTarget(null);
+      setSelectedClinicalReference(null);
+    }
+  }, [clinicalReferenceDeleteTarget, handleRemoveClinicalReference]);
 
   const reloadReplacementCredits = useCallback(async () => {
     if (!id) return;
@@ -1484,46 +1687,123 @@ export default function PatientDetails() {
 
         {!isLoading && activeTab === TABS.prontuario && (
           <Section>
-            {patient && (
-              <ProntuarioActions>
-                <AddLink to={`/pacientes/${id}/avaliacoes/nova`}>
-                  <FaPlus />
-                  Novo registro
-                </AddLink>
-              </ProntuarioActions>
-            )}
-            {evaluations.length === 0 && (
-              <EmptyState>Nenhuma avaliação encontrada.</EmptyState>
-            )}
-            {evaluations.map((evaluation) => {
-              const title =
-                getEvaluationTemplateTitle(evaluation) ||
-                evaluation.summary_text ||
-                evaluation.summaryText ||
-                "Avaliação";
-              const note =
-                evaluation.plan_text ||
-                evaluation.planText ||
-                evaluation.summary_text ||
-                evaluation.summaryText ||
-                "Sem observações.";
-              const createdAt = formatDate(
-                evaluation.created_at || evaluation.createdAt,
-              );
+            <ProntuarioSubTabs role="tablist" aria-label="Seções do prontuário">
+              <ProntuarioSubTabButton
+                type="button"
+                role="tab"
+                $active={activeProntuarioSection === PRONTUARIO_SECTIONS.records}
+                aria-selected={activeProntuarioSection === PRONTUARIO_SECTIONS.records}
+                onClick={() => setActiveProntuarioSection(PRONTUARIO_SECTIONS.records)}
+              >
+                Registros clínicos
+              </ProntuarioSubTabButton>
+              <ProntuarioSubTabButton
+                type="button"
+                role="tab"
+                $active={activeProntuarioSection === PRONTUARIO_SECTIONS.references}
+                aria-selected={activeProntuarioSection === PRONTUARIO_SECTIONS.references}
+                onClick={() => setActiveProntuarioSection(PRONTUARIO_SECTIONS.references)}
+              >
+                Referências
+              </ProntuarioSubTabButton>
+            </ProntuarioSubTabs>
 
-              return (
-                <HistoryCardLink
-                  key={evaluation.id || `${createdAt}-${title}`}
-                  to={`/pacientes/${id}/avaliacoes/${evaluation.id}`}
-                >
-                  <HistoryHeader>
-                    <span>{createdAt}</span>
-                    <h3>{title}</h3>
-                  </HistoryHeader>
-                  <p>{note}</p>
-                </HistoryCardLink>
-              );
-            })}
+            {activeProntuarioSection === PRONTUARIO_SECTIONS.records && (
+              <>
+                <ProntuarioSectionHeader>
+                  <div>
+                    <ProntuarioSectionTitle>Registros clínicos</ProntuarioSectionTitle>
+                    <ProntuarioSectionDescription>
+                      Evoluções e avaliações do paciente.
+                    </ProntuarioSectionDescription>
+                  </div>
+                  {patient && (
+                    <AddLink to={`/pacientes/${id}/avaliacoes/nova`}>
+                      <FaPlus />
+                      Novo registro
+                    </AddLink>
+                  )}
+                </ProntuarioSectionHeader>
+                {evaluations.length === 0 && (
+                  <EmptyState>Nenhuma avaliação encontrada.</EmptyState>
+                )}
+                {evaluations.map((evaluation) => {
+                  const title =
+                    getEvaluationTemplateTitle(evaluation) ||
+                    evaluation.summary_text ||
+                    evaluation.summaryText ||
+                    "Avaliação";
+                  const note =
+                    evaluation.plan_text ||
+                    evaluation.planText ||
+                    evaluation.summary_text ||
+                    evaluation.summaryText ||
+                    "Sem observações.";
+                  const createdAt = formatDate(
+                    evaluation.created_at || evaluation.createdAt,
+                  );
+
+                  return (
+                    <HistoryCardLink
+                      key={evaluation.id || `${createdAt}-${title}`}
+                      to={`/pacientes/${id}/avaliacoes/${evaluation.id}`}
+                    >
+                      <HistoryHeader>
+                        <span>{createdAt}</span>
+                        <h3>{title}</h3>
+                      </HistoryHeader>
+                      <p>{note}</p>
+                    </HistoryCardLink>
+                  );
+                })}
+              </>
+            )}
+
+            {activeProntuarioSection === PRONTUARIO_SECTIONS.references && (
+              <>
+                <ProntuarioSectionHeader>
+                  <div>
+                    <ProntuarioSectionTitle>Referências</ProntuarioSectionTitle>
+                    <ProntuarioSectionDescription>
+                      Materiais de apoio ao raciocínio clínico do caso.
+                    </ProntuarioSectionDescription>
+                  </div>
+                  <ProntuarioActionButton
+                    type="button"
+                    onClick={openClinicalReferenceCreateModal}
+                  >
+                    <FaPlus /> Adicionar referência
+                  </ProntuarioActionButton>
+                </ProntuarioSectionHeader>
+                {clinicalReferences.length === 0 && (
+                  <EmptyState>Nenhuma referência clínica cadastrada para este caso.</EmptyState>
+                )}
+                {clinicalReferences.length > 0 && (
+                  <ClinicalReferenceList>
+                    {clinicalReferences.map((reference) => (
+                      <ClinicalReferenceItem
+                        key={reference.id}
+                        type="button"
+                        onClick={() => openClinicalReferenceDetailModal(reference)}
+                      >
+                        <ClinicalReferenceMain>
+                          <ClinicalReferenceHeader>
+                            <span>{formatDate(reference.created_at)}</span>
+                            <StatusPill>
+                              {CLINICAL_REFERENCE_TYPE_LABELS[reference.reference_type] || "Outro"}
+                            </StatusPill>
+                          </ClinicalReferenceHeader>
+                          <ClinicalReferenceTitle>{reference.title}</ClinicalReferenceTitle>
+                          <ClinicalReferenceMeta>
+                            {isHttpUrl(reference.reference_text) ? "Link" : "Referência textual"}
+                          </ClinicalReferenceMeta>
+                        </ClinicalReferenceMain>
+                      </ClinicalReferenceItem>
+                    ))}
+                  </ClinicalReferenceList>
+                )}
+              </>
+            )}
           </Section>
         )}
 
@@ -2238,6 +2518,231 @@ export default function PatientDetails() {
             </InfoCard>
           </Section>
         )}
+	        {selectedClinicalReference && (
+	          <ModalOverlay>
+	            <ModalCard>
+              <ModalHeader>
+                <div>
+	                  <ModalTitle>{selectedClinicalReference.title}</ModalTitle>
+	                  <ModalSubtitle>
+	                    <span>
+	                      Criada em {formatDate(selectedClinicalReference.created_at)}
+	                    </span>
+                  </ModalSubtitle>
+                </div>
+                <IconButton
+                  type="button"
+                  onClick={closeClinicalReferenceDetailModal}
+                  aria-label="Fechar"
+                >
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+		              <ModalBody>
+		                <DataList>
+		                  <DataRow>
+		                    <DataLabel>Tipo</DataLabel>
+		                    <DataValue>
+		                      {CLINICAL_REFERENCE_TYPE_LABELS[selectedClinicalReference.reference_type] ||
+		                        "Outro"}
+		                    </DataValue>
+		                  </DataRow>
+		                  <DataRow>
+		                    <DataLabel>Link ou referência</DataLabel>
+		                    <DataValue>
+                      {isHttpUrl(selectedClinicalReference.reference_text) ? (
+                        <ClinicalReferenceLink
+                          href={selectedClinicalReference.reference_text}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {selectedClinicalReference.reference_text}
+                        </ClinicalReferenceLink>
+                      ) : (
+                        valueOrDash(selectedClinicalReference.reference_text)
+                      )}
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Pergunta clínica</DataLabel>
+                    <DataValue>
+                      {valueOrDash(selectedClinicalReference.clinical_question)}
+                    </DataValue>
+                  </DataRow>
+	                  <DataRow>
+	                    <DataLabel>Observações</DataLabel>
+	                    <DataValue>{valueOrDash(selectedClinicalReference.notes)}</DataValue>
+	                  </DataRow>
+	                </DataList>
+	              </ModalBody>
+	              <ModalFooter>
+	                <CardButton
+	                  type="button"
+	                  onClick={handleEditSelectedClinicalReference}
+                >
+                  Editar
+                </CardButton>
+	                <ReferenceDeleteButton
+	                  type="button"
+	                  onClick={handleOpenDeleteClinicalReference}
+	                >
+	                  Excluir
+	                </ReferenceDeleteButton>
+	              </ModalFooter>
+	            </ModalCard>
+	          </ModalOverlay>
+	        )}
+	        {clinicalReferenceDeleteTarget && (
+	          <ModalOverlay>
+	            <ModalCard>
+	              <ModalHeader>
+	                <div>
+	                  <ModalTitle>Excluir referência</ModalTitle>
+	                  <ModalSubtitle>
+	                    <span>Esta ação remove a referência clínica deste caso.</span>
+	                  </ModalSubtitle>
+	                </div>
+	                <IconButton
+	                  type="button"
+	                  onClick={handleCancelDeleteClinicalReference}
+	                  aria-label="Fechar"
+	                  disabled={isDeletingClinicalReference}
+	                >
+	                  <FaTimes />
+	                </IconButton>
+	              </ModalHeader>
+	              <ModalBody>
+	                <ConfirmText>
+	                  Deseja excluir a referência{" "}
+	                  <strong>{clinicalReferenceDeleteTarget.title}</strong>?
+	                </ConfirmText>
+	              </ModalBody>
+	              <ModalFooter>
+	                <CardButton
+	                  type="button"
+	                  onClick={handleCancelDeleteClinicalReference}
+	                  disabled={isDeletingClinicalReference}
+	                >
+	                  Cancelar
+	                </CardButton>
+	                <ReferenceConfirmDeleteButton
+	                  type="button"
+	                  onClick={handleConfirmDeleteClinicalReference}
+	                  disabled={isDeletingClinicalReference}
+	                >
+	                  {isDeletingClinicalReference ? "Excluindo..." : "Excluir"}
+	                </ReferenceConfirmDeleteButton>
+	              </ModalFooter>
+	            </ModalCard>
+	          </ModalOverlay>
+	        )}
+	        {clinicalReferenceModal && (
+	          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <div>
+                  <ModalTitle>
+                    {clinicalReferenceModal.mode === "edit"
+                      ? "Editar referência clínica"
+                      : "Adicionar referência clínica"}
+                  </ModalTitle>
+                  <ModalSubtitle>
+                    <span>Material de apoio ao raciocínio clínico do caso.</span>
+                  </ModalSubtitle>
+                </div>
+                <IconButton
+                  type="button"
+                  onClick={closeClinicalReferenceModal}
+                  aria-label="Fechar"
+                  disabled={isSavingClinicalReference}
+                >
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                <DataList>
+                  <DataRow>
+                    <DataLabel>Título</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="title"
+                        value={clinicalReferenceForm.title}
+                        onChange={handleClinicalReferenceFieldChange}
+                        placeholder="Ex.: Guideline de dor lombar"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Link ou referência</DataLabel>
+                    <DataValue>
+                      <InlineInput
+                        name="reference_text"
+                        value={clinicalReferenceForm.reference_text}
+                        onChange={handleClinicalReferenceFieldChange}
+                        placeholder="https://... ou referência textual"
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Tipo</DataLabel>
+                    <DataValue>
+                      <InlineSelect
+                        name="reference_type"
+                        value={clinicalReferenceForm.reference_type}
+                        onChange={handleClinicalReferenceFieldChange}
+                      >
+                        {CLINICAL_REFERENCE_TYPES.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </InlineSelect>
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Pergunta clínica</DataLabel>
+                    <DataValue>
+                      <InlineTextarea
+                        name="clinical_question"
+                        value={clinicalReferenceForm.clinical_question}
+                        onChange={handleClinicalReferenceFieldChange}
+                        rows={3}
+                      />
+                    </DataValue>
+                  </DataRow>
+                  <DataRow>
+                    <DataLabel>Observações</DataLabel>
+                    <DataValue>
+                      <InlineTextarea
+                        name="notes"
+                        value={clinicalReferenceForm.notes}
+                        onChange={handleClinicalReferenceFieldChange}
+                        rows={4}
+                      />
+                    </DataValue>
+                  </DataRow>
+                </DataList>
+              </ModalBody>
+              <ModalFooter>
+                <CardButton
+                  type="button"
+                  onClick={closeClinicalReferenceModal}
+                  disabled={isSavingClinicalReference}
+                >
+                  Cancelar
+                </CardButton>
+                <CardButton
+                  type="button"
+                  $primary
+                  onClick={handleSaveClinicalReference}
+                  disabled={isSavingClinicalReference}
+                >
+                  {isSavingClinicalReference ? "Salvando..." : "Salvar"}
+                </CardButton>
+              </ModalFooter>
+            </ModalCard>
+          </ModalOverlay>
+        )}
         {externalProfessionalModal && (
           <ModalOverlay>
             <ModalCard>
@@ -2438,7 +2943,23 @@ const HeaderTitle = styled(ModuleTitle)`
   margin-bottom: 0;
 `;
 
+const prontuarioActionButtonStyles = css`
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  line-height: 1.2;
+
+  svg {
+    display: block;
+    flex-shrink: 0;
+    width: 0.95em;
+    height: 0.95em;
+  }
+`;
+
 const AddLink = styled(SharedPrimaryButton).attrs({ as: Link })`
+  ${prontuarioActionButtonStyles}
   text-decoration: none;
 
   &:hover {
@@ -2447,9 +2968,73 @@ const AddLink = styled(SharedPrimaryButton).attrs({ as: Link })`
   }
 `;
 
-const ProntuarioActions = styled.div`
+const ProntuarioActionButton = styled(SharedPrimaryButton)`
+  ${prontuarioActionButtonStyles}
+`;
+
+const ProntuarioSubTabs = styled.div`
   display: flex;
-  justify-content: flex-start;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: center;
+  border-bottom: 1px solid rgba(106, 121, 92, 0.16);
+  margin-bottom: 2px;
+`;
+
+const ProntuarioSubTabButton = styled.button`
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-bottom: 3px solid
+    ${(props) => (props.$active ? "#6a795c" : "transparent")};
+  background: transparent;
+  color: ${(props) => (props.$active ? "#2d3629" : "#6a795c")};
+  padding: 0 0 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+
+  &:hover {
+    color: #2d3629;
+  }
+
+  &:focus {
+    outline: none;
+  }
+
+  &:focus-visible {
+    border-radius: 6px;
+    box-shadow: 0 0 0 3px rgba(106, 121, 92, 0.14);
+  }
+`;
+
+const ProntuarioSectionHeader = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 2px;
+
+  @media (max-width: 720px) {
+    flex-direction: column;
+  }
+`;
+
+const ProntuarioSectionTitle = styled.h2`
+  margin: 0;
+  color: #1b1b1b;
+  font-size: 1.25rem;
+  line-height: 1.25;
+`;
+
+const ProntuarioSectionDescription = styled.p`
+  margin: 4px 0 0;
+  color: #6a795c;
+  font-size: 0.92rem;
+  line-height: 1.4;
 `;
 
 const Tabs = styled.div`
@@ -2838,6 +3423,85 @@ const ExternalProfessionalLink = styled.a`
   }
 `;
 
+const ClinicalReferenceList = styled.div`
+  display: grid;
+  gap: 10px;
+`;
+
+const ClinicalReferenceItem = styled.button`
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  background: #fff;
+  padding: 16px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    border-color: rgba(106, 121, 92, 0.28);
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.08);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: rgba(106, 121, 92, 0.5);
+    box-shadow: 0 0 0 3px rgba(106, 121, 92, 0.12);
+  }
+
+  @media (max-width: 720px) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+`;
+
+const ClinicalReferenceMain = styled.div`
+  min-width: 0;
+  flex: 1;
+`;
+
+const ClinicalReferenceHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  span {
+    font-size: 0.85rem;
+    color: #6a795c;
+  }
+`;
+
+const ClinicalReferenceTitle = styled.h3`
+  margin: 6px 0 0;
+  color: #1b1b1b;
+  font-size: 1.05rem;
+  line-height: 1.25;
+`;
+
+const ClinicalReferenceMeta = styled.div`
+  margin-top: 7px;
+  color: #6a795c;
+  font-size: 0.88rem;
+  font-weight: 700;
+`;
+
+const ClinicalReferenceLink = styled.a`
+  color: #55644c;
+  font-weight: 800;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+`;
+
 const CardActions = styled.div`
   display: flex;
   gap: 8px;
@@ -2865,6 +3529,51 @@ const CardButton = styled.button`
   &:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+  }
+`;
+
+const ReferenceDeleteButton = styled(CardButton)`
+  border-color: rgba(168, 63, 63, 0.28);
+  color: #a83f3f;
+
+  &:hover:not(:disabled) {
+    background: rgba(168, 63, 63, 0.06);
+    filter: none;
+  }
+`;
+
+const ReferenceConfirmDeleteButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 120px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: none;
+  background: #a83f3f;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.2s ease, opacity 0.2s ease;
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.95);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+`;
+
+const ConfirmText = styled.p`
+  margin: 0;
+  color: #2d3629;
+  line-height: 1.5;
+
+  strong {
+    color: #1b1b1b;
   }
 `;
 

@@ -936,6 +936,11 @@ export default function Financeiro() {
       setBillingCyclesPeriodYear(String(parsedMonth.year));
     }
 
+    const patientId = normalizeId(params.get("patient_id"));
+    if (patientId) {
+      setBillingCyclesDrilldownPatientId(String(patientId));
+    }
+
     const patientName = String(params.get("patient_name") || "").trim();
     if (patientName) {
       setBillingCyclesFilters((prev) => (

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import styled, { keyframes } from "styled-components";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
   FaBell,
@@ -1283,6 +1283,7 @@ const getVisibleDateRange = (view, baseDate) => {
 
 
 export default function Agendamentos() {
+  const routeLocation = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const savingSessionIdsRef = useRef(new Set());
@@ -1362,6 +1363,29 @@ export default function Agendamentos() {
   const visibleRange = useMemo(() => getVisibleDateRange(view, selectedDate), [selectedDate, view]);
   const selectedMonthKey = useMemo(() => toMonthInputValue(selectedDate), [selectedDate]);
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(routeLocation.search || "");
+    const patientId = String(params.get("patient_id") || "").trim();
+    const patientName = String(params.get("patient_name") || "").trim();
+
+    if (!patientId && !patientName) return;
+
+    if (patientId) {
+      const patient = patients.find((item) => String(item.id) === patientId);
+      const resolvedName = patient ? getPatientDisplayName(patient) : patientName;
+      if (resolvedName) {
+        setFilterPatientQuery((current) => (
+          current === resolvedName ? current : resolvedName
+        ));
+      }
+      return;
+    }
+
+    setFilterPatientQuery((current) => (
+      current === patientName ? current : patientName
+    ));
+  }, [patients, routeLocation.search]);
 
   const loadBaseData = useCallback(async () => {
     setIsBaseDataLoading(true);
@@ -4786,11 +4810,11 @@ export default function Agendamentos() {
                       ) || WEEK_PERIODS[WEEK_PERIODS.length - 1];
                     const isPeriodExpanded = expandedPeriods[currentPeriod.key] !== false;
                     const isHourExpanded = expandedHours.has(hour);
-		                    const rowHasMore = weekDays.some((day) => {
-		                      const groups = getSlotGroups(day, hour);
-		                      const totalActive = groups.reduce((sum, group) => sum + group.count, 0);
-		                      return totalActive > MAX_WEEK_SLOT_VISIBLE;
-	                    });
+                    const rowHasMore = weekDays.some((day) => {
+                      const groups = getSlotGroups(day, hour);
+                      const totalSessions = groups.reduce((sum, group) => sum + group.total, 0);
+                      return totalSessions > MAX_WEEK_SLOT_VISIBLE;
+                    });
                     return (
                       <React.Fragment key={hour}>
                         {startingPeriod && (
@@ -4854,24 +4878,18 @@ export default function Agendamentos() {
                               const slotDate = new Date(day);
                               slotDate.setHours(hour, 0, 0, 0);
                               const groups = getSlotGroups(day, hour);
-		                              const allActive = groups.flatMap((group) => {
-		                                const color =
-		                                  group.service?.color || serviceColor(group.service_type);
-		                                return group.activeSessions
-		                                  .map((session) => ({ session, group, color }));
-		                              });
-		                              const historicalItems = groups.flatMap((group) => {
-		                                const color =
-		                                  group.service?.color || serviceColor(group.service_type);
-		                                return group.historicalSessions
-		                                  .map((session) => ({ session, group, color }));
-		                              });
-	                              const visibleItems = isHourExpanded
-	                                ? allActive
-	                                : allActive.slice(0, MAX_WEEK_SLOT_VISIBLE);
+                              const allItems = groups.flatMap((group) => {
+                                const color =
+                                  group.service?.color || serviceColor(group.service_type);
+                                return group.sessions
+                                  .map((session) => ({ session, group, color }));
+                              });
+                              const visibleItems = isHourExpanded
+                                ? allItems
+                                : allItems.slice(0, MAX_WEEK_SLOT_VISIBLE);
                               const hiddenItems = isHourExpanded
                                 ? []
-                                : allActive.slice(MAX_WEEK_SLOT_VISIBLE);
+                                : allItems.slice(MAX_WEEK_SLOT_VISIBLE);
                               return (
                                 <SlotCell
                                   key={`${day.toISOString()}-${hour}`}
@@ -4888,22 +4906,8 @@ export default function Agendamentos() {
                                       color={color}
                                       statusTone={statusStyle(session.status)}
                                       patientName={getSessionPatientName(session)}
+                                      isHistory={isHistoricalSessionStatus(session.status)}
                                       attentionLevel={getSessionPatientAttentionLevel(session)}
-                                      onOpen={(event) => {
-                                        event.stopPropagation();
-                                        handleOpenGroup(slotDate);
-                                      }}
-                                    />
-                                  ))}
-                                  {historicalItems.map(({ session, group, color }) => (
-                                    <WeekSlotSessionPill
-                                      key={`history-${session.id}-${day.toISOString()}-${hour}`}
-                                      session={session}
-                                      group={group}
-                                      color={color}
-                                      statusTone={statusStyle(session.status)}
-                                      patientName={getSessionPatientName(session)}
-                                      isHistory
                                       onOpen={(event) => {
                                         event.stopPropagation();
                                         handleOpenGroup(slotDate);
