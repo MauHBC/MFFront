@@ -482,6 +482,29 @@ const getShortPatientName = (name) => {
   return `${parts[0]} ${parts[1]}`;
 };
 
+const getCompactWeekPatientName = (name) => {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length <= 1) return parts[0] || "Paciente";
+  if (parts.length === 2) return parts.join(" ");
+
+  const connectors = new Set(["de", "da", "do", "das", "dos", "e"]);
+  const firstName = parts[0];
+  const lastUsefulName = [...parts].reverse().find(
+    (part) => !connectors.has(part.toLocaleLowerCase("pt-BR")),
+  );
+  if (lastUsefulName && lastUsefulName !== firstName) {
+    return `${firstName} ${lastUsefulName}`;
+  }
+
+  const secondUsefulName = parts.slice(1).find(
+    (part) => !connectors.has(part.toLocaleLowerCase("pt-BR")),
+  );
+  return secondUsefulName ? `${firstName} ${secondUsefulName}` : firstName;
+};
+
 const getMonthlyCardSummary = (session) => {
   const servicePlan = session?.BillingCycle?.ServicePlan || session?.ServicePlan || null;
   const weeklyCount = Number(servicePlan?.sessions_per_week);
@@ -512,6 +535,19 @@ const getSessionCardMetaParts = (session) => {
     type: "Sessão",
     counter: position && total ? `${position}/${total}` : "",
   };
+};
+
+const getWeekSessionMetaLabel = (session) => {
+  if (session?.billing_mode === "covered_by_plan") {
+    return getMonthlyCardSummary(session);
+  }
+
+  const position = Number(session?.recurring_position);
+  const total = Number(session?.recurring_total);
+  if (Number.isInteger(position) && position > 0 && Number.isInteger(total) && total > 0) {
+    return `${position}/${total}`;
+  }
+  return "1/1";
 };
 
 const SESSION_STATUS_CONFIG = {
@@ -556,6 +592,8 @@ const isSessionStatusActive = (currentStatus, targetStatus) =>
 
 const isHistoricalSessionStatus = (status) =>
   status === "canceled" || status === "no_show" || status === "suspended";
+
+const WEEK_HIDDEN_HISTORY_STATUSES = new Set(["canceled", "no_show", "suspended"]);
 
 const SESSION_STATUS_OPTIONS = [
   { value: "scheduled", label: getSessionStatusLabel("scheduled") },
@@ -1015,23 +1053,6 @@ const parseDateInputValue = (value) => {
   return date;
 };
 
-const parseMonthInputValue = (value) => {
-  if (!/^\d{4}-\d{2}$/.test(String(value || ""))) return null;
-  const [yearString, monthString] = String(value).split("-");
-  const year = Number(yearString);
-  const monthIndex = Number(monthString) - 1;
-  const date = new Date(year, monthIndex, 1);
-  if (
-    Number.isNaN(date.getTime())
-    || date.getFullYear() !== year
-    || date.getMonth() !== monthIndex
-  ) {
-    return null;
-  }
-  date.setHours(0, 0, 0, 0);
-  return date;
-};
-
 const buildMonthlyValidityRange = (value) => {
   const startDate = parseDateInputValue(toDateInputValue(value));
   if (!startDate) {
@@ -1105,29 +1126,47 @@ const formatPendingDayLabel = (value) => {
 const formatWeekRange = (start, end) => {
   if (!start || !end) return "";
   const sameMonth = start.getMonth() === end.getMonth();
-  if (sameMonth) {
+  const sameYear = start.getFullYear() === end.getFullYear();
+  if (sameMonth && sameYear) {
     const monthName = start.toLocaleDateString("pt-BR", { month: "long" });
-    return `Semana ${String(start.getDate()).padStart(2, "0")} a ${String(
-      end.getDate(),
-    ).padStart(2, "0")} de ${monthName}`;
+    return `${start.getDate()} a ${end.getDate()} de ${monthName} de ${start.getFullYear()}`;
   }
-  const startLabel = start.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "short",
-  });
+  const startLabel = start.toLocaleDateString("pt-BR", { day: "numeric", month: "long" });
   const endLabel = end.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "short",
+    day: "numeric",
+    month: "long",
   });
-  return `Semana ${startLabel} a ${endLabel}`;
+  if (!sameYear) {
+    const startWithYear = start.toLocaleDateString("pt-BR", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+    const endWithYear = end.toLocaleDateString("pt-BR", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+    return `${startWithYear} a ${endWithYear}`;
+  }
+  return `${startLabel} a ${endLabel} de ${end.getFullYear()}`;
 };
 
-const formatWeekYearLabel = (start, end) => {
-  if (!start || !end) return "";
-  const startYear = start.getFullYear();
-  const endYear = end.getFullYear();
-  if (startYear === endYear) return String(startYear);
-  return `${startYear} / ${endYear}`;
+const formatDayPeriodLabel = (date) => {
+  if (!date) return "";
+  return date.toLocaleDateString("pt-BR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+};
+
+const formatMonthPeriodLabel = (date) => {
+  if (!date) return "";
+  return date.toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
 };
 
 const toInputValue = (value) => {
@@ -1952,6 +1991,24 @@ export default function Agendamentos() {
     return map;
   }, [filteredSessions]);
 
+  const weekFilteredSessions = useMemo(() => {
+    return filteredSessions.filter(
+      (session) => !WEEK_HIDDEN_HISTORY_STATUSES.has(String(session.status || "")),
+    );
+  }, [filteredSessions]);
+
+  const weekSessionsByDay = useMemo(() => {
+    const map = new Map();
+    weekFilteredSessions.forEach((session) => {
+      const date = session.starts_at ? new Date(session.starts_at) : null;
+      if (!date || Number.isNaN(date.getTime())) return;
+      const key = startOfDay(date).toISOString();
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(session);
+    });
+    return map;
+  }, [weekFilteredSessions]);
+
   const specialEventsByDay = useMemo(() => {
     const map = new Map();
     specialEvents.forEach((event) => {
@@ -2341,22 +2398,22 @@ export default function Agendamentos() {
     const map = new Map();
     weekDays.forEach((day) => {
       const dayKey = startOfDay(day).toISOString();
-      const dayList = sessionsByDay.get(dayKey) || [];
+      const dayList = weekSessionsByDay.get(dayKey) || [];
       for (let hour = START_HOUR; hour <= END_HOUR; hour += 1) {
         map.set(`${dayKey}-${hour}`, buildSlotGroupsForDayHour(dayList, hour));
       }
     });
     return map;
-  }, [buildSlotGroupsForDayHour, sessionsByDay, weekDays]);
+  }, [buildSlotGroupsForDayHour, weekDays, weekSessionsByDay]);
 
   const getSlotGroups = useCallback(
     (day, hour) => {
       const key = startOfDay(day).toISOString();
       const precomputed = weekSlotGroupsByKey.get(`${key}-${hour}`);
       if (precomputed) return precomputed;
-      return buildSlotGroupsForDayHour(sessionsByDay.get(key) || [], hour);
+      return buildSlotGroupsForDayHour(weekSessionsByDay.get(key) || [], hour);
     },
-    [buildSlotGroupsForDayHour, sessionsByDay, weekSlotGroupsByKey],
+    [buildSlotGroupsForDayHour, weekSessionsByDay, weekSlotGroupsByKey],
   );
 
   const groupSessions = useMemo(() => {
@@ -2648,6 +2705,13 @@ export default function Agendamentos() {
   const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
     setFilters((prev) => ({ ...prev, [name]: value }));
+  }, []);
+
+  const handleServiceFilterChange = useCallback((serviceType) => {
+    setFilters((prev) => ({
+      ...prev,
+      service_type: prev.service_type === serviceType ? "" : serviceType,
+    }));
   }, []);
 
   const handleToggleWeekday = useCallback((value) => {
@@ -4241,18 +4305,6 @@ export default function Agendamentos() {
     setSelectedDate(new Date());
   }, []);
 
-  const handleDayPickerChange = useCallback((event) => {
-    const nextDate = parseDateInputValue(event.target.value);
-    if (!nextDate) return;
-    setSelectedDate(nextDate);
-  }, []);
-
-  const handleMonthPickerChange = useCallback((event) => {
-    const nextDate = parseMonthInputValue(event.target.value);
-    if (!nextDate) return;
-    setSelectedDate(nextDate);
-  }, []);
-
   const formAvailabilityEvents = useMemo(
     () =>
       Array.isArray(formAvailability?.matched_events)
@@ -4562,6 +4614,13 @@ export default function Agendamentos() {
 	    notesFieldLabel = "Motivo da alteração";
   }
 
+  let temporalPeriodLabel = formatDayPeriodLabel(selectedDate);
+  if (view === "week") {
+    temporalPeriodLabel = formatWeekRange(weekDays[0], weekDays[weekDays.length - 1]);
+  } else if (view === "month") {
+    temporalPeriodLabel = formatMonthPeriodLabel(selectedDate);
+  }
+
   return (
     <PageWrapper $paddingTop="90px" $paddingBottom="60px">
       <PageContent $maxWidth="1280px" $paddingX="30px" $paddingTop="0" $paddingBottom="0" $mobileBreakpoint="859px" $mobilePaddingX="15px" $mobilePaddingTop="0" $mobilePaddingBottom="0">
@@ -4572,6 +4631,36 @@ export default function Agendamentos() {
               {/* Visualize por semana, dia ou mes e edite com painel lateral. */}
             </p>
           </div>
+          <ToolbarActions>
+            <NotificationButton
+              type="button"
+              onClick={togglePendingDrawer}
+              $active={isDrawerOpen && drawerMode === "pending"}
+              aria-label={`Abrir central de pendencias. ${pendingCenterTotal} pendencias.`}
+            >
+              <FaBell />
+              <NotificationBadge $hasPending={pendingCenterTotal > 0}>
+                {pendingCenterTotal > 99 ? "99+" : pendingCenterTotal}
+              </NotificationBadge>
+            </NotificationButton>
+            <ToolbarLink
+              to="/agendamentos/eventos"
+              aria-label="Configurações da agenda"
+              title="Configurações da agenda"
+            >
+              <FaCog aria-hidden="true" />
+            </ToolbarLink>
+            <PrimaryButton
+              type="button"
+              $topAction
+              onClick={() => {
+                resetForm();
+                openDrawer();
+              }}
+            >
+              <FaPlus /> Novo agendamento
+            </PrimaryButton>
+          </ToolbarActions>
         </Header>
 
         <Toolbar>
@@ -4595,50 +4684,29 @@ export default function Agendamentos() {
               $active={view === "month"}
               onClick={() => setView("month")}
             >
-              Mes
+              Mês
             </ToggleButton>
           </ViewSwitch>
           <DateNav>
             <NavButton type="button" onClick={handlePrev}>
               <FaChevronLeft />
             </NavButton>
-            {view === "week" && (
-              <DateContext>
-                <DateYearLabel>{formatWeekYearLabel(weekDays[0], weekDays[weekDays.length - 1])}</DateYearLabel>
-                <DateLabel>
-                  {formatWeekRange(weekDays[0], weekDays[weekDays.length - 1])}
-                </DateLabel>
-              </DateContext>
-            )}
-            {view === "day" && (
-              <DatePickerInput
-                type="date"
-                value={toDateInputValue(selectedDate)}
-                onChange={handleDayPickerChange}
-                aria-label="Selecionar dia da agenda"
-                $prominent
-              />
-            )}
-            {view === "month" && (
-              <DatePickerInput
-                type="month"
-                value={toMonthInputValue(selectedDate)}
-                onChange={handleMonthPickerChange}
-                aria-label="Selecionar mes e ano da agenda"
-                $prominent
-              />
-            )}
+            <DateContext>
+              <DateLabel>{temporalPeriodLabel}</DateLabel>
+            </DateContext>
             <NavButton type="button" onClick={handleNext}>
               <FaChevronRight />
             </NavButton>
+          </DateNav>
+          <TemporalActions>
             {view === "day" && (
-              <SecondaryButton type="button" onClick={handleToday}>
+              <SecondaryButton type="button" $navAction onClick={handleToday}>
                 Hoje
               </SecondaryButton>
             )}
             {view === "week" && (
-              <SecondaryButton type="button" onClick={handleToday}>
-                Semana atual
+              <SecondaryButton type="button" $navAction onClick={handleToday}>
+                Hoje
               </SecondaryButton>
             )}
             {view === "month" && (
@@ -4658,104 +4726,67 @@ export default function Agendamentos() {
               <ButtonSpinner aria-hidden="true" />
               <span>Atualizando</span>
             </AgendaRefreshStatus>
-          </DateNav>
-          <ToolbarActions>
-            <NotificationButton
-              type="button"
-              onClick={togglePendingDrawer}
-              $active={isDrawerOpen && drawerMode === "pending"}
-              aria-label={`Abrir central de pendencias. ${pendingCenterTotal} pendencias.`}
-            >
-              <FaBell />
-              <NotificationBadge $hasPending={pendingCenterTotal > 0}>
-                {pendingCenterTotal}
-              </NotificationBadge>
-            </NotificationButton>
-            <PrimaryButton
-              type="button"
-              onClick={() => {
-                resetForm();
-                openDrawer();
-              }}
-            >
-              <FaPlus /> Novo agendamento
-            </PrimaryButton>
-            <ToolbarLink
-              to="/agendamentos/eventos"
-              aria-label="Configurações da agenda"
-              title="Configurações da agenda"
-            >
-              <FaCog aria-hidden="true" />
-            </ToolbarLink>
-          </ToolbarActions>
+          </TemporalActions>
         </Toolbar>
 
-        <FiltersRow>
-          <FilterField>
-            Status
-            <select name="status" value={filters.status} onChange={handleFilterChange}>
-              <option value="">Todos</option>
-              {statusOptions.length === 0 && (
-                SESSION_STATUS_OPTIONS.map((status) => (
-                  <option key={status.value} value={status.value}>
-                    {status.label}
+        <AgendaControls>
+          <FiltersRow>
+            <FilterField>
+              <span>Status</span>
+              <select name="status" value={filters.status} onChange={handleFilterChange}>
+                <option value="">Todos</option>
+                {statusOptions.length === 0 && (
+                  SESSION_STATUS_OPTIONS.map((status) => (
+                    <option key={status.value} value={status.value}>
+                      {status.label}
+                    </option>
+                  ))
+                )}
+                {statusOptions.map((status) => (
+                  <option key={status.code} value={status.code}>
+                    {status.label || status.code}
                   </option>
-                ))
-              )}
-              {statusOptions.map((status) => (
-                <option key={status.code} value={status.code}>
-                  {status.label || status.code}
-                </option>
-              ))}
-            </select>
-          </FilterField>
-          <FilterField>
-            Tipo
-            <select
-              name="service_type"
-              value={filters.service_type}
-              onChange={handleFilterChange}
-            >
-              <option value="">Todos</option>
-              {isBaseDataLoading && (
-                <option value="" disabled>
-                  Carregando serviços...
-                </option>
-              )}
-              {allServiceOptions.map((service) => (
-                <option
-                  key={service.id ? `id-${service.id}` : `code-${service.code}`}
-                  value={service.code}
-                >
-                  {service.name}
-                </option>
-              ))}
-            </select>
-          </FilterField>
-          <FilterField>
-            <PatientSearchField
-              mode="filter"
-              value={filterPatientQuery}
-              onChange={setFilterPatientQuery}
-            />
-          </FilterField>
-        </FiltersRow>
-        {isBaseDataLoading && (
-          <LegendLoading>Carregando serviços...</LegendLoading>
-        )}
-        {!isBaseDataLoading && allServiceOptions.length > 0 && (
-          <Legend>
-            {allServiceOptions.map((service) => (
-              <LegendItem
-                key={service.id ? `id-${service.id}` : `code-${service.code}`}
-              >
-                <TypePill $type={service.code} $color={service.color}>
-                  {service.name}
-                </TypePill>
-              </LegendItem>
-            ))}
-          </Legend>
-        )}
+                ))}
+              </select>
+            </FilterField>
+            <SearchFilterField>
+              <CompactPatientSearchField
+                mode="filter"
+                value={filterPatientQuery}
+                onChange={setFilterPatientQuery}
+              />
+            </SearchFilterField>
+          </FiltersRow>
+          <ServicesControl>
+            <ServicesLabel>Serviços</ServicesLabel>
+            {isBaseDataLoading && (
+              <LegendLoading>Carregando serviços...</LegendLoading>
+            )}
+            {!isBaseDataLoading && allServiceOptions.length > 0 && (
+              <Legend aria-label="Filtrar agenda por serviço">
+                {allServiceOptions.map((service) => (
+                  <LegendItem
+                    key={service.id ? `id-${service.id}` : `code-${service.code}`}
+                    type="button"
+                    $active={filters.service_type === service.code}
+                    $muted={!!filters.service_type && filters.service_type !== service.code}
+                    aria-pressed={filters.service_type === service.code}
+                    onClick={() => handleServiceFilterChange(service.code)}
+                  >
+                    <TypePill
+                      $type={service.code}
+                      $color={service.color}
+                      $active={filters.service_type === service.code}
+                      $muted={!!filters.service_type && filters.service_type !== service.code}
+                    >
+                      {service.name}
+                    </TypePill>
+                  </LegendItem>
+                ))}
+              </Legend>
+            )}
+          </ServicesControl>
+        </AgendaControls>
 
         <AgendaContentArea>
           <AgendaRefreshLine $visible={isLoading} aria-hidden="true" />
@@ -4887,11 +4918,9 @@ export default function Agendamentos() {
                               const visibleItems = isHourExpanded
                                 ? allItems
                                 : allItems.slice(0, MAX_WEEK_SLOT_VISIBLE);
-                              const hiddenItems = isHourExpanded
-                                ? []
-                                : allItems.slice(MAX_WEEK_SLOT_VISIBLE);
-                              return (
-                                <SlotCell
+	                              const hiddenCount = allItems.length - MAX_WEEK_SLOT_VISIBLE;
+	                              return (
+	                                <SlotCell
                                   key={`${day.toISOString()}-${hour}`}
                                   $striped={hour % 2 === 0}
                                   onClick={() => handleCreateAt(slotDate)}
@@ -4914,15 +4943,31 @@ export default function Agendamentos() {
                                       }}
                                     />
                                   ))}
-                                  {hiddenItems.length > 0 && (
-                                    <OverflowIndicatorBadge
-                                      aria-hidden="true"
-                                      title={`${hiddenItems.length} paciente(s) a mais neste horario`}
-                                    >
-                                      <span>{hiddenItems.length}</span>
-                                      <WeekOverflowArrow aria-hidden="true">▼</WeekOverflowArrow>
-                                    </OverflowIndicatorBadge>
-                                  )}
+	                                  {hiddenCount > 0 && (
+	                                    <OverflowIndicatorBadge
+	                                      type="button"
+	                                      $expanded={isHourExpanded}
+	                                      title={
+	                                        isHourExpanded
+	                                          ? "Ver menos agendamentos neste horário"
+	                                          : `${hiddenCount} paciente(s) a mais neste horário`
+	                                      }
+	                                      aria-label={
+	                                        isHourExpanded
+	                                          ? "Ver menos agendamentos neste horário"
+	                                          : `Ver mais ${hiddenCount} agendamento(s) neste horário`
+	                                      }
+	                                      onClick={(event) => {
+	                                        event.stopPropagation();
+	                                        toggleExpandedHour(hour);
+	                                      }}
+	                                    >
+	                                      <span>{isHourExpanded ? "Ver menos" : `+${hiddenCount} mais`}</span>
+	                                      <WeekOverflowArrow aria-hidden="true">
+	                                        {isHourExpanded ? "▲" : "▼"}
+	                                      </WeekOverflowArrow>
+	                                    </OverflowIndicatorBadge>
+	                                  )}
                                 </SlotCell>
                               );
                             })}
@@ -7345,7 +7390,7 @@ const WeekSlotSessionPill = React.memo(
     isHistory = false,
     onOpen,
   }) {
-    const shortPatientName = getShortPatientName(patientName);
+    const shortPatientName = getCompactWeekPatientName(patientName);
     const sessionSummary = getSessionCardSummary(session);
 
     if (isHistory) {
@@ -7371,9 +7416,9 @@ const WeekSlotSessionPill = React.memo(
       );
     }
 
-    const sessionMetaParts = getSessionCardMetaParts(session);
+	    const weekMetaLabel = getWeekSessionMetaLabel(session);
 
-    return (
+	    return (
       <GroupPill
         $type={group.service_type}
         $color={color}
@@ -7382,14 +7427,15 @@ const WeekSlotSessionPill = React.memo(
         title={`${patientName} - ${sessionSummary}`}
         onClick={onOpen}
       >
-        <GroupPillContent>
-          <GroupPillPatient>
-            <PatientInlineText>{shortPatientName}</PatientInlineText>
-            <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
-            <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
-            {renderPatientAttentionIndicator(attentionLevel)}
-          </GroupPillPatient>
-        </GroupPillContent>
+	        <GroupPillContent>
+	          <GroupPillPatient>
+	            <WeekPillPatientName>{shortPatientName}</WeekPillPatientName>
+	            <WeekPillMeta>
+	              <WeekPillMetaText>{weekMetaLabel}</WeekPillMetaText>
+	            </WeekPillMeta>
+	            {renderPatientAttentionIndicator(attentionLevel)}
+	          </GroupPillPatient>
+	        </GroupPillContent>
       </GroupPill>
     );
   },
@@ -7524,12 +7570,13 @@ MonthAgendaCell.defaultProps = {
 const Header = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: 16px;
+  margin-bottom: 14px;
 
   h1 {
     color: #1b1b1b;
-    margin-bottom: 6px;
+    margin-bottom: 0;
+    line-height: 1.05;
   }
 
   p {
@@ -7545,36 +7592,54 @@ const Header = styled.div`
 
 const Toolbar = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 16px;
+  grid-template-columns: minmax(210px, 1fr) minmax(320px, auto) minmax(170px, 1fr);
   align-items: center;
-  margin-bottom: 18px;
+  gap: 18px;
+  margin-bottom: 12px;
+
+  @media (max-width: 860px) {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
 `;
 
 const ViewSwitch = styled.div`
   display: inline-flex;
   background: #fff;
   border: 1px solid rgba(106, 121, 92, 0.2);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
   width: fit-content;
+
+  @media (max-width: 520px) {
+    width: 100%;
+  }
 `;
 
 const ToggleButton = styled.button`
-  padding: 10px 16px;
+  min-height: 38px;
+  padding: 0 16px;
   border: none;
   background: ${(props) => (props.$active ? "#6a795c" : "transparent")};
   color: ${(props) => (props.$active ? "#fff" : "#6a795c")};
   font-weight: 700;
   cursor: pointer;
+
+  @media (max-width: 520px) {
+    flex: 1;
+  }
 `;
 
 const DateNav = styled.div`
   display: flex;
   align-items: center;
-  gap: 10px;
   justify-content: center;
-  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+
+  @media (max-width: 860px) {
+    justify-content: center;
+  }
 `;
 
 const AgendaRefreshStatus = styled.div`
@@ -7612,31 +7677,37 @@ const AgendaRefreshStatus = styled.div`
 `;
 
 const DateContext = styled.div`
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  min-width: 180px;
-`;
+  justify-content: center;
+  min-height: 38px;
+  min-width: 260px;
+  max-width: 360px;
+  padding: 0 14px;
 
-const DateYearLabel = styled.span`
-  font-size: 0.76rem;
-  font-weight: 800;
-  color: #6a795c;
-  letter-spacing: 0.06em;
+  @media (max-width: 520px) {
+    width: auto;
+    min-width: 0;
+    padding: 0 8px;
+  }
 `;
 
 const ToolbarActions = styled.div`
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
+
+  @media (max-width: 520px) {
+    width: 100%;
+    justify-content: flex-start;
+  }
 `;
 
 const NavButton = styled.button`
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border-radius: 10px;
   border: 1px solid rgba(106, 121, 92, 0.2);
   background: #fff;
@@ -7647,42 +7718,51 @@ const NavButton = styled.button`
 `;
 
 const DateLabel = styled.span`
-  font-weight: 700;
+  font-weight: 800;
   color: #1b1b1b;
-  min-width: 120px;
+  min-width: 0;
   text-align: center;
-  text-transform: capitalize;
+  line-height: 1.2;
 `;
 
-const DatePickerInput = styled.input`
-  height: ${(props) => (props.$prominent ? "38px" : "34px")};
-  min-width: ${(props) => (props.$prominent ? "190px" : "150px")};
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(106, 121, 92, 0.22);
-  background: #fff;
-  color: #516046;
-  font-size: ${(props) => (props.$prominent ? "1rem" : "0.84rem")};
-  font-weight: ${(props) => (props.$prominent ? "700" : "600")};
+const TemporalActions = styled.div`
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
 
-  &::-webkit-calendar-picker-indicator {
-    cursor: pointer;
-    opacity: 0.78;
+  @media (max-width: 860px) {
+    justify-content: center;
   }
+`;
+
+const AgendaControls = styled.div`
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 12px 12px;
+  border: 1px solid rgba(106, 121, 92, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.62);
 `;
 
 const FiltersRow = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
+  grid-template-columns: minmax(132px, 180px) minmax(260px, 1fr);
+  gap: 10px;
+  align-items: end;
+
+  @media (max-width: 700px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 const NotificationButton = styled.button`
   position: relative;
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
   border: 1px solid
     ${(props) =>
     props.$active ? "rgba(185, 120, 35, 0.35)" : "rgba(106, 121, 92, 0.2)"};
@@ -7703,11 +7783,12 @@ const NotificationButton = styled.button`
 
 const NotificationBadge = styled.span`
   position: absolute;
-  top: -7px;
-  right: -7px;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
+  top: -6px;
+  right: -6px;
+  min-width: 20px;
+  max-width: 32px;
+  height: 20px;
+  padding: 0 5px;
   border-radius: 999px;
   background: ${(props) => (props.$hasPending ? "#c63b32" : "#dfe6d8")};
   color: #fff;
@@ -7715,7 +7796,9 @@ const NotificationBadge = styled.span`
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
+  line-height: 1;
+  white-space: nowrap;
 `;
 
 const OperationalAlertSeverity = styled.span`
@@ -8181,18 +8264,36 @@ const PendingAlertRow = styled.div`
 const Legend = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 18px;
+  gap: 8px;
+  min-width: 0;
 `;
 
-const LegendItem = styled.div`
+const LegendItem = styled.button`
   display: inline-flex;
   align-items: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  opacity: ${(props) => (props.$muted ? 0.42 : 1)};
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+
+  &:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba(106, 121, 92, 0.38);
+    outline-offset: 3px;
+    border-radius: 999px;
+  }
 `;
 
 const LegendLoading = styled.div`
-  min-height: 32px;
-  margin-bottom: 14px;
+  min-height: 28px;
   display: flex;
   align-items: center;
   color: #687263;
@@ -8203,17 +8304,55 @@ const LegendLoading = styled.div`
 const FilterField = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 0.9rem;
-  color: #1b1b1b;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: #516046;
+  font-weight: 800;
 
   select {
-    height: 40px;
-    border-radius: 10px;
+    height: 36px;
+    border-radius: 9px;
     border: 1px solid rgba(106, 121, 92, 0.2);
-    padding: 0 10px;
+    padding: 0 9px;
     background: #fff;
+    color: #1b1b1b;
+    font-size: 0.88rem;
+    font-weight: 600;
   }
+`;
+
+const SearchFilterField = styled.div`
+  min-width: 0;
+`;
+
+const CompactPatientSearchField = styled(PatientSearchField)`
+  min-width: 0;
+  gap: 4px;
+  font-size: 0.78rem;
+
+  label {
+    color: #516046;
+    font-weight: 800;
+  }
+
+  input {
+    min-height: 36px;
+    border-radius: 9px;
+    padding: 7px 10px;
+    font-size: 0.88rem;
+  }
+`;
+
+const ServicesControl = styled.div`
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+`;
+
+const ServicesLabel = styled.span`
+  color: #516046;
+  font-size: 0.78rem;
+  font-weight: 900;
 `;
 
 const WeekGrid = styled.div`
@@ -8438,7 +8577,7 @@ const SlotCell = styled.div`
 `;
 
 const GroupPill = styled.div`
-  padding: 6px 8px;
+  padding: 5px 8px;
   border-radius: 10px;
   background: ${(props) => {
     if (props.$history) return "#f2f3f0";
@@ -8484,9 +8623,41 @@ const GroupPillContent = styled.span`
 const GroupPillPatient = styled.span`
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   width: 100%;
+`;
+
+const WeekPillPatientName = styled.span`
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #25301f !important;
+  font-size: 0.82rem !important;
+  font-weight: 900 !important;
+  line-height: 1.15 !important;
+`;
+
+const WeekPillMeta = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  min-width: max-content;
+  color: #53624a !important;
+  white-space: nowrap;
+`;
+
+const WeekPillMetaText = styled.span`
+  flex: 0 0 auto;
+  white-space: nowrap;
+  text-align: right;
+  color: inherit !important;
+  font-size: 0.82rem !important;
+  font-weight: 700 !important;
+  line-height: 1.15 !important;
 `;
 
 const WeekHistoryStatusBadge = styled.span`
@@ -8503,26 +8674,43 @@ const WeekHistoryStatusBadge = styled.span`
   letter-spacing: 0.02em;
 `;
 
-const OverflowIndicatorBadge = styled.div`
+const OverflowIndicatorBadge = styled.button`
   align-self: flex-end;
-  min-width: 26px;
-  height: 18px;
-  padding: 0 6px;
+  min-width: 58px;
+  height: 20px;
+  padding: 0 7px;
   border-radius: 999px;
-  border: 1px solid rgba(106, 121, 92, 0.14);
-  background: rgba(245, 247, 241, 0.72);
-  color: #6a795c;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  background: ${(props) => (props.$expanded ? "rgba(106, 121, 92, 0.12)" : "rgba(245, 247, 241, 0.82)")};
+  color: #516046;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
   flex-shrink: 0;
-  pointer-events: none;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    transform 120ms ease;
 
   span {
-    font-size: 0.64rem;
-    font-weight: 700;
+    font-size: 0.68rem;
+    font-weight: 800;
     color: inherit;
+  }
+
+  &:hover {
+    background: rgba(106, 121, 92, 0.12);
+    border-color: rgba(106, 121, 92, 0.3);
+    color: #42523a;
+    transform: translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba(106, 121, 92, 0.24);
+    outline-offset: 2px;
   }
 `;
 
@@ -10840,6 +11028,8 @@ const PrimaryButton = styled.button`
   background: #6a795c;
   color: #fff;
   font-weight: 700;
+  min-height: ${(props) => (props.$topAction ? "42px" : "auto")};
+  white-space: ${(props) => (props.$topAction ? "nowrap" : "normal")};
   box-shadow: 0 10px 22px rgba(73, 90, 63, 0.16);
   transition:
     transform 120ms ease,
@@ -10888,7 +11078,8 @@ const SecondaryButton = styled.button`
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 10px 18px;
+  min-height: ${(props) => (props.$navAction ? "38px" : "auto")};
+  padding: ${(props) => (props.$navAction ? "0 16px" : "10px 18px")};
   border-radius: 10px;
   background: #fff;
   color: #6a795c;
@@ -10933,12 +11124,17 @@ const ToolbarLink = styled(Link)`
   height: 42px;
   padding: 0;
   border-radius: 10px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.68);
   color: #6a795c;
-  border: 1px solid rgba(106, 121, 92, 0.3);
+  border: 1px solid rgba(106, 121, 92, 0.18);
   font-size: 1rem;
   font-weight: 600;
   text-decoration: none;
+
+  &:hover {
+    background: #fff;
+    border-color: rgba(106, 121, 92, 0.3);
+  }
 `;
 
 const IconButton = styled.button`
@@ -10998,17 +11194,32 @@ const AgendaRefreshLine = styled.div`
 `;
 
 const TypePill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 6px 10px;
   border-radius: 999px;
+  border: 1px solid ${(props) => {
+    if (props.$active && props.$color) return props.$color;
+    if (props.$active) return "rgba(106, 121, 92, 0.55)";
+    if (props.$color) return `${props.$color}55`;
+    return "rgba(106, 121, 92, 0.18)";
+  }};
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: ${(props) => (props.$active ? 900 : 700)};
   color: #42523a;
   background: ${(props) => {
-    if (props.$color) return `${props.$color}33`;
+    if (props.$color) return props.$active ? `${props.$color}4d` : `${props.$color}33`;
+    if (props.$active) return "rgba(106, 121, 92, 0.14)";
     if (props.$type === "pilates") return "rgba(116, 141, 189, 0.25)";
     if (props.$type === "funcional") return "rgba(120, 145, 176, 0.25)";
     if (props.$type === "fisioterapia") return "rgba(162, 177, 144, 0.35)";
     if (props.$type === "outro") return "rgba(201, 188, 152, 0.35)";
     return "rgba(162, 177, 144, 0.2)";
   }};
+  box-shadow: ${(props) => (props.$active ? "0 5px 12px rgba(42, 52, 35, 0.12)" : "none")};
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 `;
