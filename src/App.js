@@ -13,6 +13,7 @@ import { ClinicProvider, useClinicContext } from "./contexts/ClinicContext";
 import { PublicClinicProvider, usePublicClinicContext } from "./contexts/PublicClinicContext";
 import productIdentity from "./config/productIdentity";
 import TenantLoading from "./components/TenantLoading";
+import useAppVersionUpdate from "./hooks/useAppVersionUpdate";
 
 const PUBLIC_LANDING_PATH = "/";
 const AUTH_REDIRECT_PATHS = new Set(["/login", "/login/"]);
@@ -97,6 +98,11 @@ function AppHelmet() {
   );
 }
 
+function AppVersionReloader() {
+  useAppVersionUpdate();
+  return null;
+}
+
 function App() {
   return (
     <Provider store={store}>
@@ -108,6 +114,7 @@ function App() {
               <InitialRenderGate>
                 <Routes />
               </InitialRenderGate>
+              <AppVersionReloader />
               <ToastContainer autoClose={2000} className="toats-container" />
             </ClinicProvider>
           </PublicClinicProvider>

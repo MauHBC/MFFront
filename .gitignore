@@ -10,6 +10,7 @@
 
 # production
 /build
+/public/app-version.json
 
 # misc
 .DS_Store
