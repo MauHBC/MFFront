@@ -3127,10 +3127,11 @@ export default function Planos() {
               <input
                 name="starts_at"
                 type="date"
+                min="1900-01-01"
                 value={ppForm.starts_at}
                 onChange={handlePpChange}
               />
-              <FieldHint>Use a data em que o plano começa para o paciente.</FieldHint>
+              <FieldHint>Use a data em que o plano começa para o paciente. Datas retroativas são permitidas.</FieldHint>
               {ppCyclePreview && (
                 <FieldHint>Ciclo inicial previsto: {ppCyclePreview}.</FieldHint>
               )}
