@@ -6,6 +6,8 @@ import {
   FaBars,
   FaChartLine,
   FaChevronLeft,
+  FaEye,
+  FaEyeSlash,
   FaMoneyBillWave,
   FaRegCreditCard,
   FaTags,
@@ -271,10 +273,12 @@ const emptyHolidayForm = {
   scheduling_mode: "block",
 };
 
-const formatCurrency = (cents) => {
+const formatCurrencyValue = (cents) => {
   const value = Number(cents || 0) / 100;
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 };
+
+const MASKED_CURRENCY = "R$ ••••";
 
 const formatDate = (value) => {
   if (!value) return "-";
@@ -794,7 +798,12 @@ export default function Financeiro() {
   const [receitasView, setReceitasView] = useState("atendimentos");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [financialValuesVisible, setFinancialValuesVisible] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const formatCurrency = useCallback(
+    (cents) => (financialValuesVisible ? formatCurrencyValue(cents) : MASKED_CURRENCY),
+    [financialValuesVisible],
+  );
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [loadingRevenues, setLoadingRevenues] = useState(false);
   const [loadingRevenuesSummary, setLoadingRevenuesSummary] = useState(false);
@@ -7683,10 +7692,20 @@ export default function Financeiro() {
                 {renderReceitasTabs()}
               </HeaderTabsSlot>
             )}
-            <MobileMenuButton type="button" onClick={openSidebar}>
-              <FaBars />
-              Menu
-            </MobileMenuButton>
+            <HeaderRightActions>
+              <PrivacyToggle
+                type="button"
+                onClick={() => setFinancialValuesVisible((visible) => !visible)}
+                aria-label={financialValuesVisible ? "Ocultar valores financeiros" : "Mostrar valores financeiros"}
+                title={financialValuesVisible ? "Ocultar valores" : "Mostrar valores"}
+              >
+                {financialValuesVisible ? <FaEyeSlash /> : <FaEye />}
+              </PrivacyToggle>
+              <MobileMenuButton type="button" onClick={openSidebar}>
+                <FaBars />
+                Menu
+              </MobileMenuButton>
+            </HeaderRightActions>
           </Header>
 
           <>
@@ -9151,6 +9170,37 @@ const HeaderText = styled.div`
   display: flex;
   flex-direction: column;
   gap: 4px;
+`;
+
+const HeaderRightActions = styled.div`
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
+`;
+
+const PrivacyToggle = styled.button`
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(95, 121, 87, 0.18);
+  background: #fff;
+  color: #5f7957;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.05);
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+
+  &:hover,
+  &:focus-visible {
+    background: #f3f7ef;
+    border-color: rgba(95, 121, 87, 0.36);
+    color: #34422f;
+    outline: none;
+  }
 `;
 
 const Title = styled.h1`

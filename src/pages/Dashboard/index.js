@@ -3,6 +3,8 @@ import PropTypes from "prop-types";
 import styled from "styled-components";
 import {
   FaCalendarAlt,
+  FaEye,
+  FaEyeSlash,
   FaExclamationTriangle,
   FaRegCalendarCheck,
   FaUserPlus,
@@ -76,6 +78,9 @@ const formatCurrency = (cents) =>
     currency: "BRL",
   }).format(Number(cents || 0) / 100);
 
+const MASKED_CURRENCY = "R$ ••••";
+const MASKED_VALUE = "•••";
+
 const getProfessionalName = (session, professionalsById) => {
   const professionalId = normalizeId(session?.professional_user_id);
   if (professionalId && professionalsById.has(professionalId)) return professionalsById.get(professionalId).name;
@@ -126,6 +131,7 @@ export default function Dashboard() {
   const [operationalAlerts, setOperationalAlerts] = useState([]);
   const [financialEntries, setFinancialEntries] = useState([]);
   const [financialPayments, setFinancialPayments] = useState([]);
+  const [dashboardValuesVisible, setDashboardValuesVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -311,7 +317,17 @@ export default function Dashboard() {
     <Page>
       <Header>
         <div>
-          <Title>Painel</Title>
+          <HeaderTitleRow>
+            <Title>Painel</Title>
+            <PrivacyToggle
+              type="button"
+              onClick={() => setDashboardValuesVisible((visible) => !visible)}
+              aria-label={dashboardValuesVisible ? "Ocultar dados do painel" : "Mostrar dados do painel"}
+              title={dashboardValuesVisible ? "Ocultar dados" : "Mostrar dados"}
+            >
+              {dashboardValuesVisible ? <FaEyeSlash /> : <FaEye />}
+            </PrivacyToggle>
+          </HeaderTitleRow>
         </div>
 
         <FilterBar aria-label="Filtros do Painel">
@@ -360,10 +376,30 @@ export default function Dashboard() {
       {!loading && !error && (
         <>
           <MetricGrid>
-            <MetricCard tone="blue" icon={<FaCalendarAlt />} label="Atendimentos hoje" value={todayActiveSessions.length} />
-            <MetricCard tone="green" icon={<FaRegCalendarCheck />} label="Atendimentos no mês" value={activeSessions.length} />
-            <MetricCard tone="teal" icon={<FaUserPlus />} label="Pacientes cadastrados" value={patients.length} />
-            <MetricCard tone="amber" icon={<FaExclamationTriangle />} label="Pendências abertas" value={totalPending} />
+            <MetricCard
+              tone="blue"
+              icon={<FaCalendarAlt />}
+              label="Atendimentos hoje"
+              value={dashboardValuesVisible ? todayActiveSessions.length : MASKED_VALUE}
+            />
+            <MetricCard
+              tone="green"
+              icon={<FaRegCalendarCheck />}
+              label="Atendimentos no mês"
+              value={dashboardValuesVisible ? activeSessions.length : MASKED_VALUE}
+            />
+            <MetricCard
+              tone="teal"
+              icon={<FaUserPlus />}
+              label="Pacientes cadastrados"
+              value={dashboardValuesVisible ? patients.length : MASKED_VALUE}
+            />
+            <MetricCard
+              tone="amber"
+              icon={<FaExclamationTriangle />}
+              label="Pendências abertas"
+              value={dashboardValuesVisible ? totalPending : MASKED_VALUE}
+            />
           </MetricGrid>
 
           <TwoColumn>
@@ -372,19 +408,19 @@ export default function Dashboard() {
               <MiniGrid>
                 <MiniStat $tone="blue">
                   <span>Agendadas</span>
-                  <strong>{scheduledCount}</strong>
+                  <strong>{dashboardValuesVisible ? scheduledCount : MASKED_VALUE}</strong>
                 </MiniStat>
                 <MiniStat $tone="green">
                   <span>Realizadas</span>
-                  <strong>{doneCount}</strong>
+                  <strong>{dashboardValuesVisible ? doneCount : MASKED_VALUE}</strong>
                 </MiniStat>
                 <MiniStat $tone="amber">
                   <span>Faltas</span>
-                  <strong>{noShowCount}</strong>
+                  <strong>{dashboardValuesVisible ? noShowCount : MASKED_VALUE}</strong>
                 </MiniStat>
                 <MiniStat $tone="red">
                   <span>Cancelamentos</span>
-                  <strong>{canceledCount}</strong>
+                  <strong>{dashboardValuesVisible ? canceledCount : MASKED_VALUE}</strong>
                 </MiniStat>
               </MiniGrid>
             </Section>
@@ -394,11 +430,11 @@ export default function Dashboard() {
               <FinancialGrid>
                 <FinancialCard>
                   <span>Recebido no mês</span>
-                  <strong>{formatCurrency(financialSummary.receivedCents)}</strong>
+                  <strong>{dashboardValuesVisible ? formatCurrency(financialSummary.receivedCents) : MASKED_CURRENCY}</strong>
                 </FinancialCard>
                 <FinancialCard>
                   <span>A receber no mês</span>
-                  <strong>{formatCurrency(financialSummary.receivableCents)}</strong>
+                  <strong>{dashboardValuesVisible ? formatCurrency(financialSummary.receivableCents) : MASKED_CURRENCY}</strong>
                 </FinancialCard>
               </FinancialGrid>
             </Section>
@@ -408,24 +444,24 @@ export default function Dashboard() {
             <Section>
               <SectionTitleRow>
                 <SectionTitle>Pendências</SectionTitle>
-                <PendingTotal>{totalPending}</PendingTotal>
+                <PendingTotal>{dashboardValuesVisible ? totalPending : MASKED_VALUE}</PendingTotal>
               </SectionTitleRow>
               <PendingList>
                 <PendingItem>
                   <span>Atendimentos a finalizar</span>
-                  <strong>{filteredPendingSessions.length}</strong>
+                  <strong>{dashboardValuesVisible ? filteredPendingSessions.length : MASKED_VALUE}</strong>
                 </PendingItem>
                 <PendingItem>
                   <span>Reposições pendentes</span>
-                  <strong>{alertCounts.replacement_credit}</strong>
+                  <strong>{dashboardValuesVisible ? alertCounts.replacement_credit : MASKED_VALUE}</strong>
                 </PendingItem>
                 <PendingItem>
                   <span>Planos vencendo/vencidos</span>
-                  <strong>{alertCounts.patient_plan_expiring + alertCounts.patient_plan_overdue}</strong>
+                  <strong>{dashboardValuesVisible ? alertCounts.patient_plan_expiring + alertCounts.patient_plan_overdue : MASKED_VALUE}</strong>
                 </PendingItem>
                 <PendingItem>
                   <span>Alertas operacionais</span>
-                  <strong>{alertCounts.highOrMedium}</strong>
+                  <strong>{dashboardValuesVisible ? alertCounts.highOrMedium : MASKED_VALUE}</strong>
                 </PendingItem>
               </PendingList>
             </Section>
@@ -450,9 +486,9 @@ export default function Dashboard() {
                   {professionalRows.map((row) => (
                     <tr key={row.key}>
                       <td>{row.name}</td>
-                      <td>{row.scheduled}</td>
-                      <td>{row.done}</td>
-                      <td>{row.scheduled + row.done}</td>
+                      <td>{dashboardValuesVisible ? row.scheduled : MASKED_VALUE}</td>
+                      <td>{dashboardValuesVisible ? row.done : MASKED_VALUE}</td>
+                      <td>{dashboardValuesVisible ? row.scheduled + row.done : MASKED_VALUE}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -483,7 +519,7 @@ MetricCard.propTypes = {
   icon: PropTypes.node.isRequired,
   label: PropTypes.string.isRequired,
   tone: PropTypes.string.isRequired,
-  value: PropTypes.number.isRequired,
+  value: PropTypes.node.isRequired,
 };
 
 const Page = styled.main`
@@ -516,6 +552,17 @@ const Title = styled.h1`
   letter-spacing: 0;
   color: #142017;
   font-weight: 800;
+`;
+
+const HeaderTitleRow = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  ${Title} {
+    margin-bottom: 0;
+  }
 `;
 
 const FilterBar = styled.div`
@@ -641,6 +688,28 @@ const PendingTotal = styled.span`
   color: #b87918;
   font-weight: 850;
   font-size: 16px;
+`;
+
+const PrivacyToggle = styled.button`
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid rgba(37, 51, 44, 0.1);
+  background: #f8faf8;
+  color: #5d6f63;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+
+  &:hover,
+  &:focus-visible {
+    background: #eef5ef;
+    border-color: rgba(95, 121, 87, 0.35);
+    color: #314036;
+    outline: none;
+  }
 `;
 
 const MetricGrid = styled.div`

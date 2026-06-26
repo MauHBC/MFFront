@@ -81,6 +81,10 @@ const renderFinanceiro = () => render(
   </MemoryRouter>,
 );
 
+const revealFinancialValues = async () => {
+  await userEvent.click(screen.getByRole("button", { name: "Mostrar valores financeiros" }));
+};
+
 describe("Financeiro - detalhe de receitas por paciente", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -204,6 +208,8 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
   it("usa patient-detail ao clicar em Detalhes sem carregar listas pesadas", async () => {
     renderFinanceiro();
 
+    expect(screen.getByRole("button", { name: "Mostrar valores financeiros" })).toBeInTheDocument();
+    await revealFinancialValues();
     await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
 
     await screen.findByText("Maria Silva");
@@ -300,6 +306,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
 
     renderFinanceiro();
 
+    await revealFinancialValues();
     await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
