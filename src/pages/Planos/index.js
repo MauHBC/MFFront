@@ -64,6 +64,7 @@ import {
   createPatientPlan,
   updatePatientPlan,
   pausePatientPlan,
+  updatePatientPlanPause,
   previewResumePatientPlan,
   resumePatientPlan,
   cancelPatientPlan,
@@ -628,7 +629,7 @@ const comparePatientPlans = (left, right) => {
 };
 
 const isPlanCancellationProgrammed = (pp) => (
-  pp?.status === "canceled"
+  pp?.status !== "canceled"
   && !!pp?.cancellation_effective_on
   && String(pp.cancellation_effective_on).slice(0, 10) > todayDateOnly()
 );
@@ -636,7 +637,7 @@ const isPlanCancellationProgrammed = (pp) => (
 const getPatientPlanStatusInfo = (pp) => {
   if (isPlanCancellationProgrammed(pp)) {
     return {
-      label: `Ativo até ${formatDateBR(pp.cancellation_effective_on)}`,
+      label: `Cancelamento programado · ativo até ${formatDateBR(pp.cancellation_effective_on)}`,
       tone: "active",
     };
   }
@@ -708,9 +709,14 @@ const buildPpEditFormFromPlan = (pp) => ({
   time: getHourTimeValue(getPrimaryPlanSeries(pp)?.starts_at) || "08:00",
 });
 
+const getPatientPlanActivePause = (pp) => {
+  const pauses = Array.isArray(pp?.pauses) ? pp.pauses : [];
+  return pauses.find((pause) => pause.status === "active") || null;
+};
+
 const getPatientPlanPauseInfo = (pp) => {
   const pauses = Array.isArray(pp?.pauses) ? pp.pauses : [];
-  const current = pauses.find((pause) => pause.status === "active")
+  const current = getPatientPlanActivePause(pp)
     || pauses.find((pause) => pause.status === "scheduled");
   if (!current) return null;
 
@@ -749,6 +755,12 @@ const makeEmptyPauseForm = () => ({
   ends_on: "",
   is_indefinite: true,
   reason: "",
+});
+
+const buildPauseEditFormFromPause = (pause) => ({
+  ends_on: pause?.ends_on ? String(pause.ends_on).slice(0, 10) : "",
+  is_indefinite: Boolean(pause?.is_indefinite || !pause?.ends_on),
+  reason: pause?.reason || "",
 });
 
 const makeEmptyResumeForm = () => ({
@@ -818,6 +830,8 @@ export default function Planos() {
   const [ppForm, setPpForm] = useState(makeEmptyPpForm);
   const [ppPausePlan, setPpPausePlan] = useState(null);
   const [ppPauseForm, setPpPauseForm] = useState(makeEmptyPauseForm);
+  const [ppPauseEditPlan, setPpPauseEditPlan] = useState(null);
+  const [ppPauseEditForm, setPpPauseEditForm] = useState(() => buildPauseEditFormFromPause(null));
   const [ppResumePlan, setPpResumePlan] = useState(null);
   const [ppResumeForm, setPpResumeForm] = useState(makeEmptyResumeForm);
   const [ppResumePreview, setPpResumePreview] = useState(null);
@@ -1525,17 +1539,92 @@ export default function Planos() {
 
 	  const handlePpPause = useCallback(
 	    (pp) => {
-	      if (isSaving || ppPausePlan || ppResumePlan || ppCancelPlan) return;
+	      if (isSaving || ppPausePlan || ppPauseEditPlan || ppResumePlan || ppCancelPlan) return;
 	      setPpPauseForm(makeEmptyPauseForm());
 	      setPpPausePlan(pp);
 	    },
-	    [isSaving, ppPausePlan, ppResumePlan, ppCancelPlan],
+	    [isSaving, ppPausePlan, ppPauseEditPlan, ppResumePlan, ppCancelPlan],
 	  );
 
 	  const closePpPauseModal = useCallback(() => {
 	    setPpPausePlan(null);
 	    setPpPauseForm(makeEmptyPauseForm());
 	  }, []);
+
+  const handlePpPauseEdit = useCallback(
+    (pp) => {
+      if (isSaving || ppPausePlan || ppPauseEditPlan || ppResumePlan || ppCancelPlan) return;
+      const pause = getPatientPlanActivePause(pp);
+      if (!pause) {
+        toast.error("Nenhuma pausa ativa encontrada para este plano.");
+        return;
+      }
+      setPpPauseEditForm(buildPauseEditFormFromPause(pause));
+      setPpPauseEditPlan(pp);
+    },
+    [isSaving, ppPausePlan, ppPauseEditPlan, ppResumePlan, ppCancelPlan],
+  );
+
+  const closePpPauseEditModal = useCallback(() => {
+    setPpPauseEditPlan(null);
+    setPpPauseEditForm(buildPauseEditFormFromPause(null));
+  }, []);
+
+  const handlePpPauseEditConfirm = useCallback(
+    async () => {
+      if (!ppPauseEditPlan || isSaving) return;
+      const activePause = getPatientPlanActivePause(ppPauseEditPlan);
+      if (!activePause) {
+        toast.error("Nenhuma pausa ativa encontrada para este plano.");
+        return;
+      }
+      if (!ppPauseEditForm.is_indefinite) {
+        if (!isValidDateOnly(ppPauseEditForm.ends_on)) {
+          toast.error("Informe uma data fim valida ou marque tempo indeterminado.");
+          return;
+        }
+        const startsOn = activePause.starts_on ? String(activePause.starts_on).slice(0, 10) : "";
+        if (startsOn && ppPauseEditForm.ends_on < startsOn) {
+          toast.error("A data fim nao pode ser anterior ao inicio da pausa.");
+          return;
+        }
+      }
+      setIsSaving(true);
+      try {
+        await updatePatientPlanPause(ppPauseEditPlan.id, {
+          ends_on: ppPauseEditForm.is_indefinite ? null : ppPauseEditForm.ends_on,
+          is_indefinite: ppPauseEditForm.is_indefinite,
+          reason: ppPauseEditForm.reason.trim() || null,
+        });
+        toast.success("Pausa atualizada.");
+        closePpPauseEditModal();
+        await loadPatientPlans();
+        if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
+      } catch (err) {
+        toast.error(err?.response?.data?.error || "Erro ao editar pausa.");
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [
+      closePpPauseEditModal,
+      isSaving,
+      loadPatientPlanDetail,
+      loadPatientPlans,
+      patientPlanId,
+      ppPauseEditForm,
+      ppPauseEditPlan,
+    ],
+  );
+
+  const handlePpPauseEditResume = useCallback(() => {
+    if (!ppPauseEditPlan || isSaving) return;
+    const plan = ppPauseEditPlan;
+    closePpPauseEditModal();
+    setPpResumeForm(makeEmptyResumeForm());
+    setPpResumePreview(null);
+    setPpResumePlan(plan);
+  }, [closePpPauseEditModal, isSaving, ppPauseEditPlan]);
 
   const handlePpPauseConfirm = useCallback(
 	    async () => {
@@ -1574,16 +1663,6 @@ export default function Planos() {
     },
 	    [closePpPauseModal, isSaving, loadPatientPlans, patientPlanId, ppPauseForm, ppPausePlan, loadPatientPlanDetail],
 	  );
-
-  const handlePpResume = useCallback(
-    (pp) => {
-      if (isSaving || ppPausePlan || ppResumePlan || ppCancelPlan) return;
-      setPpResumeForm(makeEmptyResumeForm());
-      setPpResumePreview(null);
-      setPpResumePlan(pp);
-    },
-    [isSaving, ppPausePlan, ppResumePlan, ppCancelPlan],
-  );
 
   const closePpResumeModal = useCallback(() => {
     setPpResumePlan(null);
@@ -1655,13 +1734,13 @@ export default function Planos() {
 
 
   const handlePpCancel = useCallback((pp) => {
-    if (isSaving || ppPausePlan || ppResumePlan || ppCancelPlan) return;
+    if (isSaving || ppPausePlan || ppPauseEditPlan || ppResumePlan || ppCancelPlan) return;
     setPpCancelPlan(pp);
     setPpCancelForm({
       ...EMPTY_CANCEL,
       effectiveDate: todayDateOnly(),
     });
-  }, [isSaving, ppPausePlan, ppResumePlan, ppCancelPlan]);
+  }, [isSaving, ppPausePlan, ppPauseEditPlan, ppResumePlan, ppCancelPlan]);
 
   const closePpCancelModal = useCallback(() => {
     setPpCancelPlan(null);
@@ -2013,6 +2092,8 @@ export default function Planos() {
   if (ppEditingId) ppSubmitLabel = "Salvar";
   if (isSaving) ppSubmitLabel = "Salvando...";
   const ppPauseSummary = ppPausePlan ? getPatientPlanSummary(ppPausePlan) : null;
+  const ppPauseEditSummary = ppPauseEditPlan ? getPatientPlanSummary(ppPauseEditPlan) : null;
+  const ppPauseEditActivePause = ppPauseEditPlan ? getPatientPlanActivePause(ppPauseEditPlan) : null;
   const ppResumeSummary = ppResumePlan ? getPatientPlanSummary(ppResumePlan) : null;
   const ppResumeOkSessions = Array.isArray(ppResumePreview?.resumable_sessions)
     ? ppResumePreview.resumable_sessions
@@ -2117,7 +2198,9 @@ export default function Planos() {
   const ppDetailEditingFrequency = ppDetailEditingPlan?.sessions_per_week
     ? `${ppDetailEditingPlan.sessions_per_week}x/sem`
     : ppDetailEditingPlan?.frequency_label || ppDetailSummary?.frequency || "-";
-  const isPpStatusActionBusy = Boolean(isSaving || ppPausePlan || ppResumePlan || ppCancelPlan);
+  const isPpStatusActionBusy = Boolean(
+    isSaving || ppPausePlan || ppPauseEditPlan || ppResumePlan || ppCancelPlan,
+  );
   const isPpDetailDataLoading = ppDetailLoading && !ppDetailPlan;
   let ppDetailEditActions = null;
   if (!isPpDetailDataLoading && ppDetailEditing) {
@@ -2661,14 +2744,92 @@ export default function Planos() {
 	                />
 	              </Field>
 	            </PauseFormGrid>
-	            <PromptActions>
+	            <PausePlanActions>
               <GhostButton type="button" onClick={closePpPauseModal} disabled={isSaving}>
                 Voltar
               </GhostButton>
               <PrimaryButton type="button" onClick={handlePpPauseConfirm} disabled={isSaving}>
                 {isSaving ? "Pausando..." : "Confirmar pausa"}
               </PrimaryButton>
-            </PromptActions>
+            </PausePlanActions>
+          </PromptCard>
+        </PromptOverlay>
+      )}
+
+      {ppPauseEditPlan && (
+        <PromptOverlay>
+          <PromptCard>
+            <PromptTitle>Gerenciar pausa</PromptTitle>
+            {ppPauseEditSummary && (
+              <PauseModalSummary>
+                <strong>
+                  {[ppPauseEditSummary.patientName, ppPauseEditSummary.planName]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </strong>
+              </PauseModalSummary>
+            )}
+            <PauseFormGrid>
+              {ppPauseEditActivePause && (
+                <PauseStartInfo>
+                  <span>Inicio da pausa</span>
+                  <strong>Pausa ativa desde {formatDateBR(ppPauseEditActivePause.starts_on)}</strong>
+                </PauseStartInfo>
+              )}
+              <Field>
+                <span>Fim da pausa</span>
+                <input
+                  id="pause-edit-ends-on"
+                  type="date"
+                  value={ppPauseEditForm.ends_on}
+                  onChange={(event) =>
+                    setPpPauseEditForm((prev) => ({ ...prev, ends_on: event.target.value }))
+                  }
+                  disabled={isSaving || ppPauseEditForm.is_indefinite}
+                />
+              </Field>
+              <PauseCheckboxLabel>
+                <input
+                  type="checkbox"
+                  checked={ppPauseEditForm.is_indefinite}
+                  onChange={(event) =>
+                    setPpPauseEditForm((prev) => ({
+                      ...prev,
+                      is_indefinite: event.target.checked,
+                      ends_on: event.target.checked ? "" : prev.ends_on,
+                    }))
+                  }
+                  disabled={isSaving}
+                />
+                Tempo indeterminado
+              </PauseCheckboxLabel>
+              <Field>
+                <span>Motivo/observacao</span>
+                <textarea
+                  id="pause-edit-reason"
+                  value={ppPauseEditForm.reason}
+                  onChange={(event) =>
+                    setPpPauseEditForm((prev) => ({ ...prev, reason: event.target.value }))
+                  }
+                  disabled={isSaving}
+                  rows={3}
+                  placeholder="Informe o motivo da pausa"
+                />
+              </Field>
+            </PauseFormGrid>
+            <PauseManageActions>
+              <PrimaryButton type="button" onClick={handlePpPauseEditResume} disabled={isSaving}>
+                Retomar plano
+              </PrimaryButton>
+              <PauseManageRightActions>
+                <GhostButton type="button" onClick={closePpPauseEditModal} disabled={isSaving}>
+                  Voltar
+                </GhostButton>
+                <PrimaryButton type="button" onClick={handlePpPauseEditConfirm} disabled={isSaving}>
+                  {isSaving ? "Salvando..." : "Salvar"}
+                </PrimaryButton>
+              </PauseManageRightActions>
+            </PauseManageActions>
           </PromptCard>
         </PromptOverlay>
       )}
@@ -2752,7 +2913,7 @@ export default function Planos() {
 	                </ResumePreviewSection>
 	              )}
 	            </ResumePreviewPanel>
-            <PromptActions>
+            <ResumePlanActions>
               <GhostButton type="button" onClick={closePpResumeModal} disabled={isSaving}>
                 Voltar
               </GhostButton>
@@ -2761,9 +2922,9 @@ export default function Planos() {
 	                onClick={handlePpResumeConfirm}
 	                disabled={isSaving || ppResumePreviewLoading}
 	              >
-                {isSaving ? "Retomando..." : "Confirmar retomada"}
+                {isSaving ? "Retomando..." : "Confirmar"}
               </PrimaryButton>
-            </PromptActions>
+            </ResumePlanActions>
           </PromptCard>
         </PromptOverlay>
       )}
@@ -3442,10 +3603,10 @@ export default function Planos() {
                             {!ppDetailEditing && ppDetailPlan?.status === "paused" && (
                               <GhostButton
                                 type="button"
-                                onClick={() => handlePpResume(ppDetailPlan)}
+                                onClick={() => handlePpPauseEdit(ppDetailPlan)}
                                 disabled={ppDetailEditing || isPpStatusActionBusy}
                               >
-                                Retomar plano
+                                Gerenciar pausa
                               </GhostButton>
                             )}
                             {!ppDetailEditing && ppDetailPlan && ppDetailPlan.status !== "canceled" && (
@@ -3461,7 +3622,9 @@ export default function Planos() {
                         </AgendaBlockHeader>
                         {ppDetailPlanDataContent}
                         {ppDetailPauseInfo && (
-                          <PlanDetailPauseNote>{ppDetailPauseInfo}</PlanDetailPauseNote>
+                          <PlanDetailPauseNote>
+                            <span>{ppDetailPauseInfo}</span>
+                          </PlanDetailPauseNote>
                         )}
                       </PlanDetailTitleGroup>
                     </PlanDetailHero>
@@ -4341,9 +4504,13 @@ const PlanDetailField = styled.input`
 `;
 
 const PlanDetailPauseNote = styled.div`
+  align-items: center;
   color: #7a5a18;
+  display: flex;
+  flex-wrap: wrap;
   font-size: 0.88rem;
   font-weight: 700;
+  gap: 8px;
 `;
 
 const PlanDetailsActions = styled.div`
@@ -4542,6 +4709,48 @@ const InlineAlert = styled.div`
   line-height: 1.45;
 `;
 
+const PauseModalSummary = styled.div`
+  color: #2f3d2a;
+  display: grid;
+  gap: 3px;
+  margin: 0 0 14px;
+
+  strong {
+    font-size: 0.98rem;
+    font-weight: 850;
+  }
+
+  span {
+    color: #4f5f46;
+    font-size: 0.9rem;
+    font-weight: 650;
+  }
+
+  small {
+    color: #7a5a18;
+    font-size: 0.86rem;
+    font-weight: 750;
+    line-height: 1.35;
+  }
+`;
+
+const PauseStartInfo = styled.div`
+  display: grid;
+  gap: 4px;
+
+  span {
+    color: #516046;
+    font-size: 0.86rem;
+    font-weight: 750;
+  }
+
+  strong {
+    color: #7a5a18;
+    font-size: 0.9rem;
+    font-weight: 750;
+  }
+`;
+
 const FutureRemovalCountLine = styled.div`
   align-items: baseline;
   color: #354a2c;
@@ -4734,4 +4943,34 @@ const PromptActions = styled.div`
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+`;
+
+const PausePlanActions = styled(PromptActions)`
+  justify-content: flex-end;
+`;
+
+const ResumePlanActions = styled(PromptActions)`
+  justify-content: flex-end;
+`;
+
+const PauseManageActions = styled(PromptActions)`
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+
+  @media (max-width: 560px) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+`;
+
+const PauseManageRightActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+
+  @media (max-width: 560px) {
+    justify-content: flex-start;
+  }
 `;

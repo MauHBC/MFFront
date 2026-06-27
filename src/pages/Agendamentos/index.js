@@ -105,6 +105,8 @@ const reuseInFlightAgendaRequest = (key, requestFactory) => {
 const PENDING_CENTER_CATEGORY_LABELS = {
   patient_plan_overdue: "Planos vencidos",
   patient_plan_expiring: "Planos vencendo",
+  patient_plan_pause_overdue: "Pausas vencidas",
+  patient_plan_pause_expiring: "Pausas terminando",
   standalone_session_credit_expiring: "Pacote de sessões acabando",
   replacement_credit: "Reposições pendentes",
   patient_birthday: "Aniversários",
@@ -129,12 +131,14 @@ const PENDING_CENTER_MAIN_SECTIONS = [
     items: [
       { key: "attendance-to-finalize", kind: "attendance", label: "Atendimentos pendentes" },
       { key: "patient_plan_overdue", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.patient_plan_overdue },
+      { key: "patient_plan_pause_overdue", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.patient_plan_pause_overdue },
     ],
   },
   {
     key: "attention",
     items: [
       { key: "patient_plan_expiring", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.patient_plan_expiring },
+      { key: "patient_plan_pause_expiring", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.patient_plan_pause_expiring },
       { key: "standalone_session_credit_expiring", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.standalone_session_credit_expiring },
       { key: "replacement_credit", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.replacement_credit },
     ],
@@ -151,6 +155,8 @@ const getOperationalAlertCategory = (alert) => {
   const type = String(alert?.type || "");
   if (type === "patient_plan_overdue") return "patient_plan_overdue";
   if (type === "patient_plan_expiring") return "patient_plan_expiring";
+  if (type === "patient_plan_pause_overdue") return "patient_plan_pause_overdue";
+  if (type === "patient_plan_pause_expiring") return "patient_plan_pause_expiring";
   if (type.startsWith("standalone_session_credit")) return "standalone_session_credit_expiring";
   if (type.startsWith("replacement_credit")) return "replacement_credit";
   if (type.startsWith("patient_birthday")) return "patient_birthday";
@@ -159,6 +165,7 @@ const getOperationalAlertCategory = (alert) => {
 
 const getOperationalAlertSection = (category) => {
   if (category === "patient_plan_overdue") return "urgent";
+  if (category === "patient_plan_pause_overdue") return "urgent";
   if (category === "patient_birthday") return "reminders";
   return "attention";
 };
@@ -254,6 +261,13 @@ const groupPlanAlertsByPatient = (alerts = []) => {
 const countPlanAlertItems = (alerts = []) =>
   groupPlanAlertsByPatient(alerts).reduce((total, patientGroup) => total + patientGroup.plans.length, 0);
 
+const isPlanOperationalAlert = (key) => [
+  "patient_plan_expiring",
+  "patient_plan_overdue",
+  "patient_plan_pause_expiring",
+  "patient_plan_pause_overdue",
+].includes(key);
+
 const getBirthdayAlertDaysUntil = (alert) => {
   const daysUntil = Number(alert?.details?.days_until);
   return Number.isFinite(daysUntil) ? daysUntil : null;
@@ -348,9 +362,16 @@ const getPlanAlertLink = (alert) => {
 
 const getPlanAlertDueText = (alert) => {
   if (!alert?.due_date) return alert?.status || "";
-  return alert?.type === "patient_plan_overdue"
-    ? `Vencido desde ${formatDateOnlyLabel(alert.due_date) || alert.due_date}`
-    : `Vence em ${alert.due_date}`;
+  if (alert?.type === "patient_plan_overdue") {
+    return `Vencido desde ${formatDateOnlyLabel(alert.due_date) || alert.due_date}`;
+  }
+  if (alert?.type === "patient_plan_pause_overdue") {
+    return `Fim previsto vencido desde ${formatDateOnlyLabel(alert.due_date) || alert.due_date}`;
+  }
+  if (alert?.type === "patient_plan_pause_expiring") {
+    return `Pausa termina em ${formatDateOnlyLabel(alert.due_date) || alert.due_date}`;
+  }
+  return `Vence em ${alert.due_date}`;
 };
 
 const normalizeAttentionLevel = (value) => String(value || "").trim().toLowerCase();
@@ -2280,7 +2301,7 @@ export default function Agendamentos() {
       if (key === "standalone_session_credit_expiring") {
         return countStandaloneCreditItems(alerts);
       }
-      if (key === "patient_plan_expiring" || key === "patient_plan_overdue") {
+      if (isPlanOperationalAlert(key)) {
         return countPlanAlertItems(alerts);
       }
       if (key === "patient_birthday") {
@@ -5479,8 +5500,7 @@ export default function Agendamentos() {
                         </PendingGroupDetails>
                       )}
                     {pendingCenterSelectedItem.count > 0 &&
-                      (pendingCenterSelectedItem.key === "patient_plan_expiring" ||
-                        pendingCenterSelectedItem.key === "patient_plan_overdue") && (
+                      isPlanOperationalAlert(pendingCenterSelectedItem.key) && (
                         <PendingGroupDetails>
                           {groupPlanAlertsByPatient(pendingCenterSelectedItem.alerts).map((item) => (
                             <PendingPatientCard key={item.key}>
@@ -5500,7 +5520,7 @@ export default function Agendamentos() {
                                       <span>
                                         {alert.details?.plan_name || alert.status?.split(" - ")?.[0] || "Plano"}
                                       </span>
-                                      <PendingPlanDueText $overdue={alert.type === "patient_plan_overdue"}>
+                                      <PendingPlanDueText $overdue={alert.type === "patient_plan_overdue" || alert.type === "patient_plan_pause_overdue"}>
                                         {getPlanAlertDueText(alert)}
                                       </PendingPlanDueText>
                                     </div>
@@ -5578,8 +5598,7 @@ export default function Agendamentos() {
                     {pendingCenterSelectedItem.kind === "operational-alert" &&
                       pendingCenterSelectedItem.count > 0 &&
                       pendingCenterSelectedItem.key !== "standalone_session_credit_expiring" &&
-                      pendingCenterSelectedItem.key !== "patient_plan_expiring" &&
-                      pendingCenterSelectedItem.key !== "patient_plan_overdue" &&
+                      !isPlanOperationalAlert(pendingCenterSelectedItem.key) &&
                       pendingCenterSelectedItem.key !== "patient_birthday" &&
                       pendingCenterSelectedItem.key !== "replacement_credit" && (
                         <PendingGroupDetails>

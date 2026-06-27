@@ -154,6 +154,9 @@ export const updatePatientPlan = (id, payload) =>
 export const pausePatientPlan = (id, payload = {}) =>
   api.post(`/patient-plans/${id}/pause`, payload);
 
+export const updatePatientPlanPause = (id, payload = {}) =>
+  api.put(`/patient-plans/${id}/pause`, payload);
+
 export const previewResumePatientPlan = (id, payload = {}) =>
   api.post(`/patient-plans/${id}/resume-preview`, payload);
 
@@ -218,6 +221,7 @@ export default {
   createPatientPlan,
   updatePatientPlan,
   pausePatientPlan,
+  updatePatientPlanPause,
   previewResumePatientPlan,
   resumePatientPlan,
   cancelPatientPlan,

@@ -7539,6 +7539,7 @@ export default function Financeiro() {
   };
   const currentSectionTitle = sectionTitleByKey[activeSection] || "Financeiro";
   const clinicExpenseAlertsBadge = formatExpenseAlertCount(clinicExpenseAlertsCount);
+  const showFinancialPrivacyToggle = ["overview", "receitas", "clinic-expenses"].includes(activeSection);
 
   return (
     <SidebarShellWrapper $collapsed={isSidebarCollapsed}>
@@ -7685,27 +7686,29 @@ export default function Financeiro() {
         <SidebarMainArea>
           <Header>
             <HeaderText>
-              <Title>{currentSectionTitle}</Title>
+              <HeaderTitleRow>
+                <Title>{currentSectionTitle}</Title>
+                {showFinancialPrivacyToggle && (
+                  <PrivacyToggle
+                    type="button"
+                    onClick={() => setFinancialValuesVisible((visible) => !visible)}
+                    aria-label={financialValuesVisible ? "Ocultar valores financeiros" : "Mostrar valores financeiros"}
+                    title={financialValuesVisible ? "Ocultar valores" : "Mostrar valores"}
+                  >
+                    {financialValuesVisible ? <FaEyeSlash /> : <FaEye />}
+                  </PrivacyToggle>
+                )}
+              </HeaderTitleRow>
             </HeaderText>
             {activeSection === "receitas" && (
               <HeaderTabsSlot>
                 {renderReceitasTabs()}
               </HeaderTabsSlot>
             )}
-            <HeaderRightActions>
-              <PrivacyToggle
-                type="button"
-                onClick={() => setFinancialValuesVisible((visible) => !visible)}
-                aria-label={financialValuesVisible ? "Ocultar valores financeiros" : "Mostrar valores financeiros"}
-                title={financialValuesVisible ? "Ocultar valores" : "Mostrar valores"}
-              >
-                {financialValuesVisible ? <FaEyeSlash /> : <FaEye />}
-              </PrivacyToggle>
-              <MobileMenuButton type="button" onClick={openSidebar}>
-                <FaBars />
-                Menu
-              </MobileMenuButton>
-            </HeaderRightActions>
+            <MobileMenuButton type="button" onClick={openSidebar}>
+              <FaBars />
+              Menu
+            </MobileMenuButton>
           </Header>
 
           <>
@@ -9172,33 +9175,31 @@ const HeaderText = styled.div`
   gap: 4px;
 `;
 
-const HeaderRightActions = styled.div`
+const HeaderTitleRow = styled.div`
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-left: auto;
+  gap: 12px;
+  flex-wrap: wrap;
 `;
 
 const PrivacyToggle = styled.button`
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
-  border: 1px solid rgba(95, 121, 87, 0.18);
-  background: #fff;
-  color: #5f7957;
+  border: 1px solid rgba(37, 51, 44, 0.1);
+  background: #f8faf8;
+  color: #5d6f63;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.05);
   transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 
   &:hover,
   &:focus-visible {
-    background: #f3f7ef;
-    border-color: rgba(95, 121, 87, 0.36);
-    color: #34422f;
+    background: #eef5ef;
+    border-color: rgba(95, 121, 87, 0.35);
+    color: #314036;
     outline: none;
   }
 `;
