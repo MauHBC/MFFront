@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 import { useHistory, useLocation, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -249,6 +249,38 @@ const subtractOneDayDateOnly = (value) => {
   const date = new Date(`${value}T12:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() - 1);
   return date.toISOString().slice(0, 10);
+};
+
+const addOneDayDateOnly = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+  const date = new Date(`${value}T12:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+};
+
+const getNextCycleWindow = (plan, referenceDate) => {
+  const start = String(plan?.starts_at || "").slice(0, 10);
+  if (!isValidDateOnly(start)) return null;
+  const currentDate = new Date();
+  const fallbackReferenceDate = [
+    currentDate.getFullYear(),
+    String(currentDate.getMonth() + 1).padStart(2, "0"),
+    String(currentDate.getDate()).padStart(2, "0"),
+  ].join("-");
+  const effectiveReferenceDate = isValidDateOnly(referenceDate) ? referenceDate : fallbackReferenceDate;
+  let currentStart = start;
+  let nextStart = addOneMonthDateOnly(currentStart);
+  while (nextStart && nextStart <= effectiveReferenceDate) {
+    currentStart = nextStart;
+    nextStart = addOneMonthDateOnly(currentStart);
+  }
+  const currentEnd = subtractOneDayDateOnly(addOneMonthDateOnly(currentStart));
+  const nextCycleStart = addOneDayDateOnly(currentEnd);
+  return {
+    currentCycleStart: currentStart,
+    currentCycleEnd: currentEnd,
+    nextCycleStart,
+  };
 };
 
 const todayDateOnly = () => {
@@ -562,6 +594,19 @@ const buildDateTimeWithHour = (dateValue, timeValue) => {
   return `${date}T${hour}:00:00`;
 };
 
+const getScheduleTimeForWeekday = (form, weekday) =>
+  form?.times_by_weekday?.[String(weekday)] || form?.times_by_weekday?.[weekday] || form?.time || "08:00";
+
+const getSchedDayTimeEntries = (form) =>
+  normalizeWeekdays(form?.weekdays).map((weekday) => ({
+    weekday,
+    shortLabel: WEEKDAY_OPTIONS.find((item) => item.value === weekday)?.label || String(weekday),
+    fullLabel: WEEKDAY_FULL_LABELS[weekday] || String(weekday),
+    time: getScheduleTimeForWeekday(form, weekday),
+  }));
+
+const formatHourLabel = (time) => `${String(time || "").slice(0, 2).padStart(2, "0")}h`;
+
 const getPatientPlanAgendaInfo = (pp, professionals = []) => {
   const activeSeries = getLatestPlanSeries(pp);
   const seriesSessions = activeSeries ? getSeriesSessions(activeSeries) : [];
@@ -683,7 +728,6 @@ const EMPTY_PP = {
   service_plan_id: "",
   anchor_day: "",
   starts_at: "",
-  ends_at: "",
   notes: "",
   professional_user_id: "",
   weekdays: [],
@@ -701,13 +745,37 @@ const buildPpEditFormFromPlan = (pp) => ({
   service_plan_id: String(pp?.service_plan_id || ""),
   anchor_day: String(pp?.anchor_day || ""),
   starts_at: pp?.starts_at ? String(pp.starts_at).slice(0, 10) : "",
-  ends_at: pp?.ends_at ? String(pp.ends_at).slice(0, 10) : "",
   notes: pp?.notes || "",
   professional_user_id: String(getPrimaryPlanSeries(pp)?.professional_user_id || ""),
   weekdays: normalizeWeekdays(getPrimaryPlanSeries(pp)?.weekdays),
   included_cycle_weeks: getPlanIncludedCycleWeeks(pp),
   time: getHourTimeValue(getPrimaryPlanSeries(pp)?.starts_at) || "08:00",
 });
+
+const getPatientPlanServicePlanId = (pp) => {
+  const candidates = [
+    pp?.service_plan_id,
+    pp?.ServicePlan?.id,
+    pp?.servicePlan?.id,
+  ];
+  const found = candidates.find((value) => Number.isFinite(Number(value)) && Number(value) > 0);
+  return found ? String(found) : "";
+};
+
+const buildPlanChangeOptions = (plans, patientPlan) => {
+  const currentServicePlanId = getPatientPlanServicePlanId(patientPlan);
+  return [...(plans || [])]
+    .filter((plan) => String(plan?.id) !== currentServicePlanId)
+    .sort((left, right) => {
+      const currentServiceId = Number(patientPlan?.ServicePlan?.service_id || 0);
+      const leftSameService = currentServiceId && Number(left.service_id) === currentServiceId;
+      const rightSameService = currentServiceId && Number(right.service_id) === currentServiceId;
+      if (leftSameService !== rightSameService) return leftSameService ? -1 : 1;
+      return String(left?.name || "").localeCompare(String(right?.name || ""), "pt-BR", {
+        sensitivity: "base",
+      });
+    });
+};
 
 const getPatientPlanActivePause = (pp) => {
   const pauses = Array.isArray(pp?.pauses) ? pp.pauses : [];
@@ -737,12 +805,21 @@ const EMPTY_SCHED = {
   professional_user_id: "",
   date: "",
   time: "08:00",
+  times_by_weekday: {},
   weekdays: [],
   included_cycle_weeks: [],
   duration_minutes: 60,
   occurrence_count: "",
   until_date: "",
   use_count: true,
+};
+
+const EMPTY_PLAN_CHANGE = {
+  service_plan_id: "",
+  professional_user_id: "",
+  weekdays: [],
+  time: "08:00",
+  times_by_weekday: {},
 };
 
 const EMPTY_CANCEL = {
@@ -849,11 +926,16 @@ export default function Planos() {
   const [futureRemovalLoading, setFutureRemovalLoading] = useState(false);
   const [futureRemovalConfirming, setFutureRemovalConfirming] = useState(false);
   const [futureRemovalIncludeToday, setFutureRemovalIncludeToday] = useState(false);
+  const [planChangeOpen, setPlanChangeOpen] = useState(false);
+  const [planChangeForm, setPlanChangeForm] = useState(EMPTY_PLAN_CHANGE);
+  const [planChangeConfirmOpen, setPlanChangeConfirmOpen] = useState(false);
+  const planChangeSubmittingRef = useRef(false);
 
   // Schedule sessions drawer (open from PatientPlan row)
   const [schedDrawerOpen, setSchedDrawerOpen] = useState(false);
   const [schedPlan, setSchedPlan] = useState(null); // the PatientPlan being scheduled
   const [schedForm, setSchedForm] = useState(EMPTY_SCHED);
+  const [schedConfirmOpen, setSchedConfirmOpen] = useState(false);
 
   // Post-creation prompt: ask user to schedule after vincular
   const [schedPrompt, setSchedPrompt] = useState(null); // PatientPlan object
@@ -1096,15 +1178,15 @@ export default function Planos() {
   const isSchedFormComplete = useMemo(() => {
     const hasProfessional = !!schedForm.professional_user_id;
     const hasRequiredDate = !!schedForm.date && !isWeekendDateOnly(schedForm.date);
-    const hasRequiredTime = !!schedForm.time;
     const hasRequiredWeekdays = schedWeekdayLimit
       ? schedForm.weekdays.length === schedWeekdayLimit
       : schedForm.weekdays.length > 0;
+    const hasRequiredTimes = getSchedDayTimeEntries(schedForm).every((entry) => !!entry.time);
     const hasRequiredCycleWeeks = getSelectedCycleWeeks(schedForm.included_cycle_weeks).length > 0;
     return hasProfessional
       && hasRequiredDate
-      && hasRequiredTime
       && hasRequiredWeekdays
+      && hasRequiredTimes
       && hasRequiredCycleWeeks;
   }, [schedForm, schedWeekdayLimit]);
 
@@ -1388,30 +1470,22 @@ export default function Planos() {
 
   const savePpDetailEditing = useCallback(async () => {
     if (!ppDetailPlan?.id) return;
-    if (!ppDetailEditForm.service_plan_id) {
-      toast.error("Selecione o plano comercial.");
-      return;
-    }
     const anchor = Number(ppDetailEditForm.anchor_day);
     if (!ppDetailEditForm.anchor_day || Number.isNaN(anchor) || anchor < 1 || anchor > 31) {
       toast.error("Dia de vencimento deve ser entre 1 e 31.");
       return;
     }
-    if (!ppDetailEditForm.starts_at) {
+    const canEditStartsAt = ppDetailPlan?.edit_permissions?.can_edit_starts_at !== false;
+    if (canEditStartsAt && !ppDetailEditForm.starts_at) {
       toast.error("Informe a data de início do plano.");
       return;
     }
-    if (!isValidDateOnly(ppDetailEditForm.starts_at)) {
+    if (canEditStartsAt && !isValidDateOnly(ppDetailEditForm.starts_at)) {
       toast.error("Informe uma data de início válida.");
       return;
     }
-    const currentAgenda = getPatientPlanAgendaInfo(ppDetailPlan, professionals);
-    const seriesId = currentAgenda?.seriesId;
-    const selectedPlan = [
-      ...activeServicePlans,
-      ppDetailPlan?.ServicePlan,
-    ].filter(Boolean).find((sp) => String(sp.id) === String(ppDetailEditForm.service_plan_id));
-    const weekdayLimit = normalizeSessionsPerWeek(selectedPlan?.sessions_per_week);
+    const seriesId = null;
+    const weekdayLimit = null;
     if (seriesId && !ppDetailEditForm.professional_user_id) {
       toast.error("Selecione o profissional.");
       return;
@@ -1437,14 +1511,15 @@ export default function Planos() {
     }
     setIsSaving(true);
     try {
-      await updatePatientPlan(ppDetailPlan.id, {
+      const payload = {
         patient_id: Number(ppDetailPlan.patient_id),
-        service_plan_id: Number(ppDetailEditForm.service_plan_id),
         anchor_day: anchor,
-        starts_at: ppDetailEditForm.starts_at,
-        ends_at: ppDetailEditForm.ends_at || null,
         notes: ppDetailEditForm.notes.trim() || null,
-      });
+      };
+      if (canEditStartsAt) {
+        payload.starts_at = ppDetailEditForm.starts_at;
+      }
+      await updatePatientPlan(ppDetailPlan.id, payload);
       if (seriesId) {
         const currentSeries = getPrimaryPlanSeries(ppDetailPlan);
         const rawSeriesDate = String(currentSeries?.starts_at || "").slice(0, 10);
@@ -1468,7 +1543,7 @@ export default function Planos() {
     } finally {
       setIsSaving(false);
     }
-  }, [activeServicePlans, loadPatientPlanDetail, loadPatientPlans, ppDetailEditForm, ppDetailPlan, professionals]);
+  }, [loadPatientPlanDetail, loadPatientPlans, ppDetailEditForm, ppDetailPlan]);
 
   const closePpDrawer = useCallback(() => {
     setPpDrawerOpen(false);
@@ -1508,7 +1583,6 @@ export default function Planos() {
           service_plan_id: Number(ppForm.service_plan_id),
           anchor_day: anchor,
           starts_at: ppForm.starts_at,
-          ends_at: ppForm.ends_at || null,
           notes: ppForm.notes.trim() || null,
         };
         if (ppEditingId) {
@@ -1872,12 +1946,14 @@ export default function Planos() {
       occurrence_count: String(suggestedCount),
       included_cycle_weeks: resetAgendaForNewSeries ? [] : getPlanIncludedCycleWeeks(pp),
     });
+    setSchedConfirmOpen(false);
     setSchedDrawerOpen(true);
     setSchedPrompt(null);
   }, []);
 
   const closeSchedDrawer = useCallback(() => {
     setSchedDrawerOpen(false);
+    setSchedConfirmOpen(false);
     setSchedPlan(null);
     setSchedForm(EMPTY_SCHED);
   }, []);
@@ -1907,9 +1983,25 @@ export default function Planos() {
       const next = prev.weekdays.includes(day)
         ? prev.weekdays.filter((d) => d !== day)
         : [...prev.weekdays, day].sort((a, b) => a - b);
-      return { ...prev, weekdays: next };
+      const timesByWeekday = { ...(prev.times_by_weekday || {}) };
+      if (prev.weekdays.includes(day)) {
+        delete timesByWeekday[String(day)];
+      } else if (!timesByWeekday[String(day)]) {
+        timesByWeekday[String(day)] = prev.time || "08:00";
+      }
+      return { ...prev, weekdays: next, times_by_weekday: timesByWeekday };
     });
   }, [schedWeekdayLimit]);
+
+  const setSchedWeekdayTime = useCallback((day, time) => {
+    setSchedForm((prev) => ({
+      ...prev,
+      times_by_weekday: {
+        ...(prev.times_by_weekday || {}),
+        [String(day)]: time,
+      },
+    }));
+  }, []);
 
   const toggleAllSchedCycleWeeks = useCallback(() => {
     setSchedForm((prev) => ({
@@ -1935,6 +2027,11 @@ export default function Planos() {
       included_cycle_weeks: mode === "next_week" ? [2, 4] : [1, 3],
     }));
   }, []);
+
+  const schedDayTimeEntries = useMemo(
+    () => getSchedDayTimeEntries(schedForm),
+    [schedForm],
+  );
 
   const handleSchedSubmit = useCallback(
     async (e) => {
@@ -1983,51 +2080,197 @@ export default function Planos() {
         return;
       }
 
-      const startsAt = `${schedForm.date}T${schedForm.time}:00`;
-      const sp = schedPlan.ServicePlan;
-      const serviceId = sp?.service_id || schedPlan.service_id;
-
-      const payload = {
-        patient_id: schedPlan.patient_id,
-        patient_plan_id: schedPlan.id,
-        service_id: serviceId,
-        professional_user_id: Number(schedForm.professional_user_id),
-        starts_at: startsAt,
-        duration_minutes: Number(schedForm.duration_minutes) || 60,
-        repeat_interval: 1,
-        weekdays: schedForm.weekdays,
-        included_cycle_weeks: includedCycleWeeks,
-        billing_mode: "covered_by_plan",
-      };
-
-
-      setIsSaving(true);
-      try {
-        const currentPlanStart = schedPlan.starts_at
-          ? String(schedPlan.starts_at).slice(0, 10)
-          : "";
-        if (schedForm.date !== currentPlanStart) {
-          await updatePatientPlan(schedPlan.id, { starts_at: schedForm.date });
-        }
-
-        const res = await axios.post("/session-series", payload);
-        const count = res.data?.total_created ?? res.data?.total_sessions ?? "—";
-        const skipped = Number(res.data?.total_skipped_by_availability || res.data?.total_skipped || 0);
-        toast.success(skipped > 0
-          ? `Agenda criada. ${skipped} data(s) bloqueada(s) foram ignorada(s).`
-          : `${count} sessão(ões) criada(s) na agenda!`);
-        closeSchedDrawer();
-        await loadPatientPlans();
-        if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
-      } catch (err) {
-        const msg = err?.response?.data?.error || "Erro ao criar agendamentos.";
-        toast.error(msg);
-      } finally {
-        setIsSaving(false);
+      if (!schedDayTimeEntries.every((entry) => !!entry.time)) {
+        toast.error("Informe o horário de cada dia.");
+        return;
       }
+
+      setSchedConfirmOpen(true);
+
     },
-    [schedPlan, schedForm, schedWeekdayLimit, closeSchedDrawer, loadPatientPlans, patientPlanId, loadPatientPlanDetail],
+    [schedPlan, schedForm, schedWeekdayLimit, schedDayTimeEntries],
   );
+
+  const handleSchedConfirm = useCallback(async () => {
+    if (!schedPlan || isSaving) return;
+
+    const sp = schedPlan.ServicePlan;
+    const serviceId = sp?.service_id || schedPlan.service_id;
+    const includedCycleWeeks = normalizeIncludedCycleWeeks(
+      getSelectedCycleWeeks(schedForm.included_cycle_weeks),
+    );
+    const series = schedDayTimeEntries.map((entry) => ({
+      patient_id: schedPlan.patient_id,
+      patient_plan_id: schedPlan.id,
+      service_id: serviceId,
+      professional_user_id: Number(schedForm.professional_user_id),
+      starts_at: `${schedForm.date}T${entry.time}:00`,
+      duration_minutes: Number(schedForm.duration_minutes) || 60,
+      repeat_interval: 1,
+      weekdays: [entry.weekday],
+      included_cycle_weeks: includedCycleWeeks,
+      billing_mode: "covered_by_plan",
+    }));
+
+    setIsSaving(true);
+    try {
+      const res = await axios.post("/session-series/plan-bulk", { series });
+      const count = res.data?.total_created ?? res.data?.total_sessions ?? "—";
+      const skipped = Number(res.data?.total_skipped_by_availability || res.data?.total_skipped || 0);
+      toast.success(skipped > 0
+        ? `Agenda criada. ${skipped} data(s) bloqueada(s) foram ignorada(s).`
+        : `${count} sessão(ões) criada(s) na agenda!`);
+      closeSchedDrawer();
+      await loadPatientPlans();
+      if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
+    } catch (err) {
+      const msg = err?.response?.data?.error || "Erro ao criar agendamentos.";
+      toast.error(msg);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    schedPlan,
+    schedForm,
+    schedDayTimeEntries,
+    closeSchedDrawer,
+    isSaving,
+    loadPatientPlans,
+    patientPlanId,
+    loadPatientPlanDetail,
+  ]);
+
+  const openPlanChange = useCallback(() => {
+    if (!ppDetailPlan) return;
+    const firstOption = buildPlanChangeOptions(activeServicePlans, ppDetailPlan)[0];
+    setPlanChangeForm({
+      ...EMPTY_PLAN_CHANGE,
+      service_plan_id: firstOption?.id ? String(firstOption.id) : "",
+    });
+    setPlanChangeConfirmOpen(false);
+    setPlanChangeOpen(true);
+  }, [activeServicePlans, ppDetailPlan]);
+
+  const closePlanChange = useCallback(() => {
+    setPlanChangeOpen(false);
+    setPlanChangeConfirmOpen(false);
+    setPlanChangeForm(EMPTY_PLAN_CHANGE);
+    planChangeSubmittingRef.current = false;
+  }, []);
+
+  const handlePlanChangeField = useCallback((event) => {
+    const { name, value } = event.target;
+    setPlanChangeForm((prev) => ({
+      ...prev,
+      [name]: value,
+      ...(name === "service_plan_id" ? { weekdays: [], times_by_weekday: {} } : {}),
+    }));
+  }, []);
+
+  const togglePlanChangeWeekday = useCallback((day) => {
+    setPlanChangeForm((prev) => {
+      const selectedPlan = buildPlanChangeOptions(activeServicePlans, ppDetailPlan).find((plan) => (
+        String(plan.id) === String(prev.service_plan_id)
+      ));
+      const weekdayLimit = normalizeSessionsPerWeek(selectedPlan?.sessions_per_week);
+      if (
+        weekdayLimit
+        && !prev.weekdays.includes(day)
+        && prev.weekdays.length >= weekdayLimit
+      ) {
+        return prev;
+      }
+      const next = prev.weekdays.includes(day)
+        ? prev.weekdays.filter((item) => item !== day)
+        : [...prev.weekdays, day].sort((a, b) => a - b);
+      const timesByWeekday = { ...(prev.times_by_weekday || {}) };
+      if (prev.weekdays.includes(day)) {
+        delete timesByWeekday[String(day)];
+      } else if (!timesByWeekday[String(day)]) {
+        timesByWeekday[String(day)] = prev.time || "08:00";
+      }
+      return { ...prev, weekdays: next, times_by_weekday: timesByWeekday };
+    });
+  }, [activeServicePlans, ppDetailPlan]);
+
+  const setPlanChangeWeekdayTime = useCallback((day, time) => {
+    setPlanChangeForm((prev) => ({
+      ...prev,
+      times_by_weekday: {
+        ...(prev.times_by_weekday || {}),
+        [String(day)]: time,
+      },
+    }));
+  }, []);
+
+  const submitPlanChange = useCallback((event) => {
+    event.preventDefault();
+    if (!ppDetailPlan) return;
+    const selectedPlan = buildPlanChangeOptions(activeServicePlans, ppDetailPlan).find((plan) => (
+      String(plan.id) === String(planChangeForm.service_plan_id)
+    ));
+    if (!selectedPlan) {
+      toast.error("Selecione o novo plano.");
+      return;
+    }
+    const weekdayLimit = normalizeSessionsPerWeek(selectedPlan.sessions_per_week);
+    if (weekdayLimit && planChangeForm.weekdays.length !== weekdayLimit) {
+      toast.error(`Selecione exatamente ${weekdayLimit} dia(s) para o novo plano.`);
+      return;
+    }
+    if (!planChangeForm.professional_user_id) {
+      toast.error("Selecione o profissional.");
+      return;
+    }
+    const entries = getSchedDayTimeEntries(planChangeForm);
+    if (entries.length === 0 || !entries.every((entry) => !!entry.time)) {
+      toast.error("Informe os horarios.");
+      return;
+    }
+    setPlanChangeConfirmOpen(true);
+  }, [activeServicePlans, planChangeForm, ppDetailPlan]);
+
+  const confirmPlanChange = useCallback(async () => {
+    if (!ppDetailPlan || isSaving || planChangeSubmittingRef.current) return;
+    const selectedPlan = buildPlanChangeOptions(activeServicePlans, ppDetailPlan).find((plan) => (
+      String(plan.id) === String(planChangeForm.service_plan_id)
+    ));
+    if (!selectedPlan) {
+      toast.error("Selecione o novo plano.");
+      return;
+    }
+    const entries = getSchedDayTimeEntries(planChangeForm);
+    planChangeSubmittingRef.current = true;
+    toast.dismiss();
+    setIsSaving(true);
+    try {
+      await axios.post(`/patient-plans/${ppDetailPlan.id}/change-plan`, {
+        service_plan_id: Number(selectedPlan.id),
+        professional_user_id: Number(planChangeForm.professional_user_id),
+        schedule: entries.map((entry) => ({
+          weekday: entry.weekday,
+          time: entry.time,
+        })),
+      });
+      toast.success("Plano alterado para o proximo ciclo.");
+      closePlanChange();
+      await loadPatientPlans();
+      await loadPatientPlanDetail(ppDetailPlan.id);
+    } catch (err) {
+      toast.error(err?.response?.data?.error || "Erro ao alterar plano.");
+    } finally {
+      planChangeSubmittingRef.current = false;
+      setIsSaving(false);
+    }
+  }, [
+    closePlanChange,
+    isSaving,
+    loadPatientPlanDetail,
+    loadPatientPlans,
+    planChangeForm,
+    ppDetailPlan,
+    activeServicePlans,
+  ]);
 
   // ---- Sidebar handlers ----
 
@@ -2095,9 +2338,6 @@ export default function Planos() {
   const ppPauseEditSummary = ppPauseEditPlan ? getPatientPlanSummary(ppPauseEditPlan) : null;
   const ppPauseEditActivePause = ppPauseEditPlan ? getPatientPlanActivePause(ppPauseEditPlan) : null;
   const ppResumeSummary = ppResumePlan ? getPatientPlanSummary(ppResumePlan) : null;
-  const ppResumeOkSessions = Array.isArray(ppResumePreview?.resumable_sessions)
-    ? ppResumePreview.resumable_sessions
-    : [];
   const ppResumeConflictSessions = Array.isArray(ppResumePreview?.conflicted_sessions)
     ? ppResumePreview.conflicted_sessions
     : [];
@@ -2138,6 +2378,8 @@ export default function Planos() {
   const ppAdminHeader = ppAdminSummary?.header_summary || null;
   const ppAdminBilling = ppAdminSummary?.billing_summary || null;
   const ppAdminPlanData = ppAdminSummary?.plan_data_summary || null;
+  const ppPendingPlanChange = ppAdminSummary?.pending_plan_change || null;
+  const ppDetailEditPermissions = ppDetailPlan?.edit_permissions || {};
   const ppDetailAgendaSummary = ppAdminSummary?.agenda_summary
     || getPatientPlanBackendAgendaSummary(ppDetailPlan);
   const ppDetailHeaderPatientName = ppAdminHeader?.patient_name || ppDetailSummary?.patientName || "-";
@@ -2198,6 +2440,35 @@ export default function Planos() {
   const ppDetailEditingFrequency = ppDetailEditingPlan?.sessions_per_week
     ? `${ppDetailEditingPlan.sessions_per_week}x/sem`
     : ppDetailEditingPlan?.frequency_label || ppDetailSummary?.frequency || "-";
+  const canEditPpDetailStartsAt = ppDetailEditPermissions.can_edit_starts_at !== false;
+  const planChangeOptions = useMemo(
+    () => buildPlanChangeOptions(ppDetailPlanOptions, ppDetailPlan),
+    [ppDetailPlanOptions, ppDetailPlan],
+  );
+  useEffect(() => {
+    if (!planChangeOpen) return;
+    const selectedIsValid = planChangeOptions.some((plan) => (
+      String(plan.id) === String(planChangeForm.service_plan_id)
+    ));
+    if (selectedIsValid) return;
+    const firstOption = planChangeOptions[0];
+    setPlanChangeForm((prev) => ({
+      ...prev,
+      service_plan_id: firstOption?.id ? String(firstOption.id) : "",
+      weekdays: [],
+      times_by_weekday: {},
+    }));
+  }, [planChangeOpen, planChangeOptions, planChangeForm.service_plan_id]);
+  const planChangeSelectedPlan = planChangeOptions.find((plan) => (
+    String(plan.id) === String(planChangeForm.service_plan_id)
+  ));
+  const planChangeWeekdayLimit = normalizeSessionsPerWeek(planChangeSelectedPlan?.sessions_per_week);
+  const planChangeDayTimeEntries = getSchedDayTimeEntries(planChangeForm);
+  const isPlanChangeWeekdayCountValid = !planChangeWeekdayLimit
+    || planChangeForm.weekdays.length === planChangeWeekdayLimit;
+  const canContinuePlanChange = Boolean(planChangeForm.service_plan_id)
+    && isPlanChangeWeekdayCountValid;
+  const planChangeWindow = getNextCycleWindow(ppDetailPlan);
   const isPpStatusActionBusy = Boolean(
     isSaving || ppPausePlan || ppPauseEditPlan || ppResumePlan || ppCancelPlan,
   );
@@ -2224,9 +2495,16 @@ export default function Planos() {
     );
   } else if (!isPpDetailDataLoading && ppDetailPlan?.status !== "canceled") {
     ppDetailEditActions = (
-      <GhostButton type="button" onClick={startPpDetailEditing}>
-        Editar dados
-      </GhostButton>
+      <>
+        <GhostButton type="button" onClick={startPpDetailEditing}>
+          Editar dados
+        </GhostButton>
+        {ppDetailPlan?.status === "active" && (
+          <GhostButton type="button" onClick={openPlanChange}>
+            Trocar plano
+          </GhostButton>
+        )}
+      </>
     );
   }
   let ppDetailAgendaCardAction = null;
@@ -2376,20 +2654,7 @@ export default function Planos() {
         <PlanSummaryItem>
           <PlanSummaryLabel>Plano comercial</PlanSummaryLabel>
           <PlanSummaryValue>
-            <PlanDetailField
-              as="select"
-              name="service_plan_id"
-              value={ppDetailEditForm.service_plan_id}
-              onChange={handlePpDetailEditChange}
-            >
-              <option value="">Selecione...</option>
-              {ppDetailPlanOptions.map((sp) => (
-                <option key={sp.id} value={sp.id}>
-                  {sp.name}
-                  {sp.Service?.name ? ` (${sp.Service.name})` : ""}
-                </option>
-              ))}
-            </PlanDetailField>
+            <strong>{ppDetailSummary?.planName || ppDetailEditingPlan?.name || "-"}</strong>
           </PlanSummaryValue>
         </PlanSummaryItem>
         <PlanSummaryItem>
@@ -2399,25 +2664,17 @@ export default function Planos() {
         <PlanSummaryItem>
           <PlanSummaryLabel>Data de início</PlanSummaryLabel>
           <PlanSummaryValue>
-            <PlanDetailField
-              name="starts_at"
-              type="date"
-              $compact
-              value={ppDetailEditForm.starts_at}
-              onChange={handlePpDetailEditChange}
-            />
-          </PlanSummaryValue>
-        </PlanSummaryItem>
-        <PlanSummaryItem>
-          <PlanSummaryLabel>Data de término</PlanSummaryLabel>
-          <PlanSummaryValue>
-            <PlanDetailField
-              name="ends_at"
-              type="date"
-              $compact
-              value={ppDetailEditForm.ends_at}
-              onChange={handlePpDetailEditChange}
-            />
+            {canEditPpDetailStartsAt ? (
+              <PlanDetailField
+                name="starts_at"
+                type="date"
+                $compact
+                value={ppDetailEditForm.starts_at}
+                onChange={handlePpDetailEditChange}
+              />
+            ) : (
+              <strong>{formatDateBR(ppDetailPlan?.starts_at)}</strong>
+            )}
           </PlanSummaryValue>
         </PlanSummaryItem>
         <PlanSummaryItem>
@@ -2846,7 +3103,16 @@ export default function Planos() {
                   {ppResumeSummary.serviceName ? ` · ${ppResumeSummary.serviceName}` : ""}
                 </span>
                 <small>
-                  Ciclos mensais voltarão a ser gerados conforme a regra do plano.
+                  {ppResumePreview?.pause ? (
+                    <>
+                      Pausa ativa desde {formatDateBR(ppResumePreview.pause.starts_on)}
+                      {ppResumePreview.pause.is_indefinite
+                        ? " por tempo indeterminado"
+                        : ` até ${formatDateBR(ppResumePreview.pause.ends_on)}`}
+                    </>
+                  ) : (
+                    "Ciclos mensais voltarão a ser gerados conforme a regra do plano."
+                  )}
                 </small>
               </CancelPlanSummary>
             )}
@@ -2864,55 +3130,22 @@ export default function Planos() {
 	                />
 	              </Field>
 	            </PauseFormGrid>
-	            <ResumePreviewPanel>
-	              <ResumePreviewHeader>
-	                <strong>Prévia da retomada</strong>
-	                {ppResumePreviewLoading && <DataLoadingState text="Atualizando prévia..." compact />}
-	              </ResumePreviewHeader>
-	              {ppResumePreview?.pause && (
-	                <ResumePauseSummary>
-	                  Pausa ativa desde {formatDateBR(ppResumePreview.pause.starts_on)}
-                  {ppResumePreview.pause.is_indefinite
-                    ? " por tempo indeterminado"
-                    : ` até ${formatDateBR(ppResumePreview.pause.ends_on)}`}
-	                </ResumePauseSummary>
-	              )}
-	              {!ppResumePreviewLoading && ppResumeOkSessions.length === 0 && ppResumeConflictSessions.length === 0 && (
-	                <ResumePreviewEmpty>
-	                  Nenhuma sessão suspensa futura a partir desta data.
-	                </ResumePreviewEmpty>
-	              )}
-	              {ppResumeOkSessions.length > 0 && (
-	                <ResumePreviewSection>
-	                  <ResumePreviewSectionTitle>Sessões que podem ser retomadas</ResumePreviewSectionTitle>
-	                  <ResumePreviewList>
-	                    {ppResumeOkSessions.map((session) => (
-	                      <ResumePreviewItem key={session.id} $tone="ok">
-	                        <span>
-	                          {formatDateTimeBR(session.starts_at)} — {session.service_name || "Serviço"}
-	                        </span>
-	                        <strong>OK</strong>
-	                      </ResumePreviewItem>
-	                    ))}
-	                  </ResumePreviewList>
-	                </ResumePreviewSection>
-	              )}
-	              {ppResumeConflictSessions.length > 0 && (
-	                <ResumePreviewSection>
-	                  <ResumePreviewSectionTitle>Sessões com conflito ou ajuste</ResumePreviewSectionTitle>
-	                  <ResumePreviewList>
-	                    {ppResumeConflictSessions.map((session) => (
-	                      <ResumePreviewItem key={session.id} $tone="warning">
-	                        <span>
-	                          {formatDateTimeBR(session.starts_at)} — {session.service_name || "Serviço"}
-	                        </span>
-	                        <strong>{session.conflict_reason || "Precisa de revisão"}</strong>
-	                      </ResumePreviewItem>
-	                    ))}
-	                  </ResumePreviewList>
-	                </ResumePreviewSection>
-	              )}
-	            </ResumePreviewPanel>
+	            {ppResumePreviewLoading && <DataLoadingState text="Atualizando prévia..." compact />}
+	            {ppResumeConflictSessions.length > 0 && (
+	              <ResumePreviewSection>
+	                <ResumePreviewSectionTitle>Sessões com conflito ou ajuste</ResumePreviewSectionTitle>
+	                <ResumePreviewList>
+	                  {ppResumeConflictSessions.map((session) => (
+	                    <ResumePreviewItem key={session.id} $tone="warning">
+	                      <span>
+	                        {formatDateTimeBR(session.starts_at)} — {session.service_name || "Serviço"}
+	                      </span>
+	                      <strong>{session.conflict_reason || "Precisa de revisão"}</strong>
+	                    </ResumePreviewItem>
+	                  ))}
+	                </ResumePreviewList>
+	              </ResumePreviewSection>
+	            )}
             <ResumePlanActions>
               <GhostButton type="button" onClick={closePpResumeModal} disabled={isSaving}>
                 Voltar
@@ -3062,6 +3295,91 @@ export default function Planos() {
               >
                 {futureRemovalConfirming ? "Removendo..." : "Confirmar remoção"}
               </DangerButton>
+            </PromptActions>
+          </PromptCard>
+        </PromptOverlay>
+      )}
+
+      {schedConfirmOpen && schedPlan && (
+        <PromptOverlay>
+          <PromptCard>
+            <PromptTitle>Confirmar agenda</PromptTitle>
+            <ScheduleConfirmSummary>
+              <ScheduleConfirmLine>
+                <span>Paciente</span>
+                <strong>
+                  {schedPlan.Patient
+                    ? getPatientDisplayName(schedPlan.Patient)
+                    : getPatientDisplayName(patients.find((p) => p.id === schedPlan.patient_id))}
+                </strong>
+              </ScheduleConfirmLine>
+              <ScheduleConfirmLine>
+                <span>Plano</span>
+                <strong>{schedPlan.ServicePlan?.name || "Plano"}</strong>
+              </ScheduleConfirmLine>
+              <ScheduleConfirmLine>
+                <span>Profissional</span>
+                <strong>
+                  {professionals.find((item) => String(item.id) === String(schedForm.professional_user_id))?.name || "-"}
+                </strong>
+              </ScheduleConfirmLine>
+              <ScheduleConfirmLine>
+                <span>Início</span>
+                <strong>{formatDateBR(schedForm.date)}</strong>
+              </ScheduleConfirmLine>
+              <ScheduleConfirmLine>
+                <span>Dias</span>
+                <strong>
+                  {schedDayTimeEntries.map((entry) => `${entry.shortLabel} ${formatHourLabel(entry.time)}`).join(" · ")}
+                </strong>
+              </ScheduleConfirmLine>
+            </ScheduleConfirmSummary>
+            <PromptActions>
+              <GhostButton type="button" onClick={() => setSchedConfirmOpen(false)} disabled={isSaving}>
+                Voltar
+              </GhostButton>
+              <PrimaryButton type="button" onClick={handleSchedConfirm} disabled={isSaving}>
+                {isSaving ? "Lançando..." : "Confirmar lançamento"}
+              </PrimaryButton>
+            </PromptActions>
+          </PromptCard>
+        </PromptOverlay>
+      )}
+
+      {planChangeConfirmOpen && ppDetailPlan && planChangeSelectedPlan && (
+        <PromptOverlay>
+          <PromptCard>
+            <PromptTitle>Confirmar alteração</PromptTitle>
+            <ScheduleConfirmSummary>
+              <ScheduleConfirmLine>
+                <span>Atual</span>
+                <strong>{ppDetailPlan.ServicePlan?.name || ppDetailSummary?.planName || "-"}</strong>
+              </ScheduleConfirmLine>
+              <ScheduleConfirmLine>
+                <span>Novo</span>
+                <strong>{planChangeSelectedPlan.name}</strong>
+              </ScheduleConfirmLine>
+              <ScheduleConfirmLine>
+                <span>Início</span>
+                <strong>{formatDateBR(planChangeWindow?.nextCycleStart)}</strong>
+              </ScheduleConfirmLine>
+              <ScheduleConfirmLine>
+                <span>Agenda</span>
+                <strong>
+                  {planChangeDayTimeEntries.map((entry) => `${entry.shortLabel} ${formatHourLabel(entry.time)}`).join(" · ")}
+                </strong>
+              </ScheduleConfirmLine>
+            </ScheduleConfirmSummary>
+            <PromptCopy>
+              Plano atual segue até {formatDateBR(planChangeWindow?.currentCycleEnd)}. Novo plano começa em {formatDateBR(planChangeWindow?.nextCycleStart)}.
+            </PromptCopy>
+            <PromptActions>
+              <GhostButton type="button" onClick={() => setPlanChangeConfirmOpen(false)} disabled={isSaving}>
+                Voltar
+              </GhostButton>
+              <PrimaryButton type="button" onClick={confirmPlanChange} disabled={isSaving}>
+                {isSaving ? "Alterando..." : "Confirmar alteração"}
+              </PrimaryButton>
             </PromptActions>
           </PromptCard>
         </PromptOverlay>
@@ -3318,6 +3636,121 @@ export default function Planos() {
         </DrawerBody>
       </AppDrawer>
 
+      {/* ---- Change patient plan drawer ---- */}
+      <AppDrawer $open={planChangeOpen}>
+        <DrawerHeader>
+          <DrawerTitle>Trocar plano</DrawerTitle>
+          <DrawerCloseBtn type="button" onClick={closePlanChange}>
+            <FaTimes />
+          </DrawerCloseBtn>
+        </DrawerHeader>
+        <DrawerBody>
+          {ppDetailPlan && (
+            <SchedPlanInfo>
+              <strong>{ppDetailHeaderPatientName}</strong>
+              <span>{ppDetailPlan.ServicePlan?.name || ppDetailSummary?.planName || "Plano atual"}</span>
+            </SchedPlanInfo>
+          )}
+          {ppPendingPlanChange?.label && (
+            <PlanChangeSmallSummary>{ppPendingPlanChange.label}</PlanChangeSmallSummary>
+          )}
+          <form onSubmit={submitPlanChange}>
+            <Field>
+              Novo plano *
+              <select
+                name="service_plan_id"
+                value={planChangeForm.service_plan_id}
+                onChange={handlePlanChangeField}
+              >
+                <option value="">Selecione...</option>
+                {planChangeOptions.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field>
+              Profissional *
+              <select
+                name="professional_user_id"
+                value={planChangeForm.professional_user_id}
+                onChange={handlePlanChangeField}
+              >
+                <option value="">Selecione um profissional</option>
+                {professionals.map((professional) => (
+                  <option key={professional.id} value={professional.id}>
+                    {professional.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {planChangeWindow && (
+              <PlanChangeSmallSummary>
+                Atual até {formatDateBR(planChangeWindow.currentCycleEnd)} · Novo em {formatDateBR(planChangeWindow.nextCycleStart)}
+              </PlanChangeSmallSummary>
+            )}
+            <Field as="div">
+              Dias da semana *
+              <WeekdayPicker>
+                {WEEKDAY_OPTIONS.map((option) => {
+                  const isActive = planChangeForm.weekdays.includes(option.value);
+                  const isDisabled = !!(
+                    planChangeWeekdayLimit
+                    && !isActive
+                    && planChangeForm.weekdays.length >= planChangeWeekdayLimit
+                  );
+                  return (
+                    <WeekdayBtn
+                      key={option.value}
+                      type="button"
+                      $active={isActive}
+                      disabled={isDisabled}
+                      onClick={() => togglePlanChangeWeekday(option.value)}
+                    >
+                      {option.label}
+                    </WeekdayBtn>
+                  );
+                })}
+              </WeekdayPicker>
+              {planChangeWeekdayLimit && (
+                <FieldHint>Selecione {planChangeWeekdayLimit} dia(s).</FieldHint>
+              )}
+            </Field>
+            {planChangeDayTimeEntries.length > 0 && (
+              <Field as="div">
+                Horários por dia *
+                <DayTimeList>
+                  {planChangeDayTimeEntries.map((entry) => (
+                    <DayTimeRow key={entry.weekday}>
+                      <span>{entry.fullLabel}</span>
+                      <select
+                        value={entry.time}
+                        onChange={(event) => setPlanChangeWeekdayTime(entry.weekday, event.target.value)}
+                      >
+                        {PLAN_HOUR_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </DayTimeRow>
+                  ))}
+                </DayTimeList>
+              </Field>
+            )}
+            <DrawerFooter>
+              <GhostButton type="button" onClick={closePlanChange}>
+                Cancelar
+              </GhostButton>
+              <SaveBtn type="submit" disabled={isSaving || !canContinuePlanChange}>
+                Continuar
+              </SaveBtn>
+            </DrawerFooter>
+          </form>
+        </DrawerBody>
+      </AppDrawer>
+
       {/* ---- Schedule sessions drawer ---- */}
       <AppDrawer $open={schedDrawerOpen}>
         <DrawerHeader>
@@ -3365,20 +3798,6 @@ export default function Planos() {
                 onChange={handleSchedChange}
               />
             </Field>
-            <Field>
-              Horário *
-              <select
-                name="time"
-                value={schedForm.time}
-                onChange={handleSchedChange}
-              >
-                {PLAN_HOUR_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
             <Field as="div">
               Dias da semana *
               <WeekdayPicker>
@@ -3408,6 +3827,28 @@ export default function Planos() {
                 </FieldHint>
               )}
             </Field>
+            {schedDayTimeEntries.length > 0 && (
+              <Field as="div">
+                Horários por dia *
+                <DayTimeList>
+                  {schedDayTimeEntries.map((entry) => (
+                    <DayTimeRow key={entry.weekday}>
+                      <span>{entry.fullLabel}</span>
+                      <select
+                        value={entry.time}
+                        onChange={(event) => setSchedWeekdayTime(entry.weekday, event.target.value)}
+                      >
+                        {PLAN_HOUR_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </DayTimeRow>
+                  ))}
+                </DayTimeList>
+              </Field>
+            )}
             <Field as="div">
               Periodicidade no ciclo
               <CycleWeekPicker>
@@ -3585,13 +4026,13 @@ export default function Planos() {
                   {ppDetailSection === PATIENT_PLAN_DETAIL_SECTIONS.plan && (
                     <PlanDetailHero>
                       <PlanDetailTitleGroup>
-                        <AgendaBlockHeader>
+                        <AgendaBlockHeader $spacious={ppDetailEditing}>
                           <AgendaTitleGroup>
                             <AgendaBlockTitle>Plano</AgendaBlockTitle>
                           </AgendaTitleGroup>
                           <PlanDetailsActions>
                             {ppDetailEditActions}
-                            {ppDetailPlan?.status === "active" && (
+                            {!ppDetailEditing && ppDetailPlan?.status === "active" && (
                               <GhostButton
                                 type="button"
                                 onClick={() => handlePpPause(ppDetailPlan)}
@@ -3612,6 +4053,7 @@ export default function Planos() {
                             {!ppDetailEditing && ppDetailPlan && ppDetailPlan.status !== "canceled" && (
                               <DangerButton
                                 type="button"
+                                className="plan-cancel-action"
                                 onClick={() => handlePpCancel(ppDetailPlan)}
                                 disabled={ppDetailEditing || isPpStatusActionBusy}
                               >
@@ -4249,6 +4691,7 @@ const AgendaBlockHeader = styled.div`
   display: flex;
   gap: 10px;
   justify-content: space-between;
+  margin-bottom: ${(props) => (props.$spacious ? "14px" : "0")};
   width: 100%;
 
   @media (max-width: 520px) {
@@ -4263,7 +4706,8 @@ const AgendaTitleGroup = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  min-width: 0;
+  flex: 0 0 auto;
+  min-width: fit-content;
 `;
 
 const AgendaBlockTitle = styled.strong`
@@ -4271,7 +4715,7 @@ const AgendaBlockTitle = styled.strong`
   font-size: 0.98rem;
   font-weight: 900;
   line-height: 1.25;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 `;
 
 const AgendaStatusText = styled.span`
@@ -4515,9 +4959,11 @@ const PlanDetailPauseNote = styled.div`
 
 const PlanDetailsActions = styled.div`
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+  min-width: 0;
 
   @media (max-width: 640px) {
     justify-content: flex-start;
@@ -4859,35 +5305,6 @@ const PauseCheckboxLabel = styled.label`
   }
 `;
 
-const ResumePreviewPanel = styled.div`
-  background: #f8faf6;
-  border: 1px solid rgba(106, 121, 92, 0.16);
-  border-radius: 12px;
-  display: grid;
-  gap: 12px;
-  margin: 0 0 22px;
-  padding: 14px;
-`;
-
-const ResumePreviewHeader = styled.div`
-  align-items: center;
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
-
-  strong {
-    color: #2f3d2a;
-    font-size: 0.95rem;
-    font-weight: 900;
-  }
-`;
-
-const ResumePauseSummary = styled.div`
-  color: #65715d;
-  font-size: 0.86rem;
-  font-weight: 700;
-`;
-
 const ResumePreviewSection = styled.div`
   display: grid;
   gap: 8px;
@@ -4930,13 +5347,71 @@ const ResumePreviewItem = styled.div`
   }
 `;
 
-const ResumePreviewEmpty = styled.div`
-  border: 1px dashed rgba(106, 121, 92, 0.22);
-  border-radius: 10px;
-  color: #6f7869;
+const DayTimeList = styled.div`
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+`;
+
+const DayTimeRow = styled.div`
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(86px, 1fr) 104px;
+
+  span {
+    color: #2f3d2a;
+    font-size: 0.9rem;
+    font-weight: 800;
+    text-transform: capitalize;
+  }
+
+  select {
+    min-width: 0;
+  }
+`;
+
+const ScheduleConfirmSummary = styled.div`
+  border-top: 1px solid rgba(106, 121, 92, 0.14);
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 16px;
+  padding-top: 12px;
+`;
+
+const ScheduleConfirmLine = styled.div`
+  align-items: baseline;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 84px minmax(0, 1fr);
+
+  span {
+    color: #6a745f;
+    font-size: 0.82rem;
+    font-weight: 800;
+  }
+
+  strong {
+    color: #1f2a1c;
+    font-size: 0.9rem;
+    font-weight: 900;
+    overflow-wrap: anywhere;
+  }
+`;
+
+const PromptCopy = styled.p`
+  color: #4d5b45;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: -4px 0 16px;
+`;
+
+const PlanChangeSmallSummary = styled.div`
+  color: #53624b;
   font-size: 0.88rem;
-  padding: 12px;
-  text-align: center;
+  font-weight: 800;
+  margin: 2px 0 14px;
 `;
 
 const PromptActions = styled.div`
