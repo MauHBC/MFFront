@@ -10,6 +10,7 @@ import {
   getFinancialOverview,
   getFinancialRevenuePatientDetail,
   getFinancialRevenuesSummary,
+  listBillingCycles,
   listFinancialEntries,
   listFinancialPayments,
   listPatientCredits,
@@ -203,6 +204,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
         ],
       },
     });
+    listBillingCycles.mockResolvedValue({ data: [] });
   });
 
   it("usa patient-detail ao clicar em Detalhes sem carregar listas pesadas", async () => {
@@ -235,6 +237,64 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(screen.getByText("Pagamento parcial")).toBeInTheDocument();
     expect(within(screen.getByText("Pagamento parcial").closest("tr")).getByText("R$ 400,00"))
       .toBeInTheDocument();
+  });
+
+  it("usa credito disponivel do backend no detalhe do paciente", async () => {
+    getFinancialRevenuePatientDetail.mockResolvedValueOnce({
+      data: {
+        patient: { id: 30, name: "Maria Silva" },
+        month: "2026-06",
+        summary: {
+          total: 75000,
+          received: 62000,
+          pending: 13000,
+          creditAvailable: 10000,
+        },
+        entries: [
+          {
+            id: 745,
+            clinic_id: 1,
+            patient_id: 30,
+            session_id: 880,
+            service_id: 12,
+            type: "income",
+            description: "Atendimento - Fisioterapia",
+            amount_cents: 75000,
+            reference_date: "2026-06-12",
+            status: "partial",
+          },
+        ],
+        sessions: [
+          {
+            id: 880,
+            clinic_id: 1,
+            patient_id: 30,
+            service_id: 12,
+            starts_at: "2026-06-12T09:00:00.000Z",
+            status: "scheduled",
+            billing_mode: "per_session",
+            Service: { id: 12, name: "Fisioterapia" },
+          },
+        ],
+        payments: [],
+        credits: [],
+        series: [],
+        packages: [],
+      },
+    });
+
+    renderFinanceiro();
+
+    await revealFinancialValues();
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    expect(await screen.findByText("Crédito disponível")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Usar crédito" })).toBeInTheDocument();
+      expect(screen.getAllByText("R$ 100,00").length).toBeGreaterThan(0);
+    });
   });
 
   it("usa financeiro agregado do pacote retornado pelo patient-detail", async () => {
@@ -319,6 +379,63 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(screen.queryByText("Sem cobrança gerada")).not.toBeInTheDocument();
   });
 
+  it("mantem servicos avulsos no detalhe ao pesquisar pelo paciente", async () => {
+    getFinancialRevenuePatientDetail.mockResolvedValueOnce({
+      data: {
+        patient: { id: 30, name: "Maria Silva" },
+        month: "2026-06",
+        summary: {
+          total: 30000,
+          received: 30000,
+          pending: 0,
+          creditAvailable: 0,
+        },
+        entries: [
+          {
+            id: 745,
+            clinic_id: 1,
+            patient_id: 30,
+            session_id: 880,
+            service_id: 12,
+            type: "income",
+            description: "Atendimento - Avaliação Coluna",
+            amount_cents: 30000,
+            reference_date: "2026-06-12",
+            status: "paid",
+          },
+        ],
+        sessions: [
+          {
+            id: 880,
+            clinic_id: 1,
+            patient_id: 30,
+            service_id: 12,
+            starts_at: "2026-06-12T09:00:00.000Z",
+            status: "scheduled",
+            billing_mode: "per_session",
+            Service: { id: 12, name: "Avaliação Coluna" },
+          },
+        ],
+        payments: [],
+        credits: [],
+        series: [],
+        packages: [],
+      },
+    });
+
+    renderFinanceiro();
+
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    expect(await screen.findByText("Avaliação Coluna")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Pesquisar paciente"), "Maria Silva");
+
+    expect(screen.getByText("Avaliação Coluna")).toBeInTheDocument();
+  });
+
   it("usa resumo agregado no modo anual", async () => {
     renderFinanceiro();
 
@@ -329,6 +446,75 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       expect(getFinancialRevenuesSummary).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}$/), "year");
     });
     expect(listFinancialEntries).not.toHaveBeenCalled();
+  });
+
+  it("mantem todas as mensalidades do paciente no detalhe mesmo com busca preenchida", async () => {
+    listBillingCycles.mockResolvedValueOnce({
+      data: [
+        {
+          id: 11,
+          clinic_id: 1,
+          patient_id: 30,
+          service_plan_id: 101,
+          cycle_start: "2026-06-01",
+          cycle_end: "2026-06-30",
+          amount_cents: 70000,
+          status: "active",
+          Patient: { id: 30, full_name: "Maria Silva" },
+          ServicePlan: { id: 101, name: "Recovery" },
+          FinancialEntry: {
+            id: 901,
+            amount_cents: 70000,
+            status: "pending",
+            installments: [
+              {
+                amount_cents: 70000,
+                paid_amount_cents: 0,
+                open_amount_cents: 70000,
+                status: "pending",
+              },
+            ],
+          },
+        },
+        {
+          id: 12,
+          clinic_id: 1,
+          patient_id: 30,
+          service_plan_id: 102,
+          cycle_start: "2026-06-01",
+          cycle_end: "2026-06-30",
+          amount_cents: 50000,
+          status: "active",
+          Patient: { id: 30, full_name: "Maria Silva" },
+          ServicePlan: { id: 102, name: "Pilates" },
+          FinancialEntry: {
+            id: 902,
+            amount_cents: 50000,
+            status: "pending",
+            installments: [
+              {
+                amount_cents: 50000,
+                paid_amount_cents: 0,
+                open_amount_cents: 50000,
+                status: "pending",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    renderFinanceiro();
+
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mensalidades" }));
+    await screen.findByText("Maria Silva");
+
+    await userEvent.type(screen.getByLabelText("Pesquisar paciente"), "Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    expect(await screen.findByText("Recovery")).toBeInTheDocument();
+    expect(screen.getByText("Pilates")).toBeInTheDocument();
   });
 
   it("nao mostra mensalidade sem sessao no detalhe por sessao", async () => {
