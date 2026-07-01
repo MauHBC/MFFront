@@ -646,6 +646,22 @@ const getYearRangeFromValue = (value) => {
   };
 };
 
+const getAttendanceDetailPeriod = ({ periodMode, periodMonth, periodYear }) => {
+  const mode = periodMode === "year" ? "year" : "month";
+  return {
+    mode,
+    period: mode === "year" ? String(periodYear || "") : String(periodMonth || ""),
+  };
+};
+
+const buildAttendanceDetailCacheKey = ({ patientId, periodMode, period }) => {
+  const normalizedPatientId = Number(patientId || 0);
+  const normalizedMode = periodMode === "year" ? "year" : "month";
+  const normalizedPeriod = String(period || "").trim();
+  if (!normalizedPatientId || !normalizedPeriod) return "";
+  return `${normalizedPatientId}:${normalizedMode}:${normalizedPeriod}`;
+};
+
 const isDateOnlyWithinRange = (value, start, end) => {
   const dateOnly = String(value || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return false;
@@ -895,6 +911,7 @@ export default function Financeiro() {
     error: "",
   });
   const [attendanceDetailPackages, setAttendanceDetailPackages] = useState([]);
+  const [attendanceDetailSummary, setAttendanceDetailSummary] = useState(null);
   const [attendanceBackendCreditByPatient, setAttendanceBackendCreditByPatient] = useState(() => new Map());
   const [attendanceDetailTab, setAttendanceDetailTab] = useState("charges");
   const [selectedAttendancePackageId, setSelectedAttendancePackageId] = useState(null);
@@ -907,6 +924,7 @@ export default function Financeiro() {
   );
   const attendanceMonthPickerRef = useRef(null);
   const attendanceDetailRequestRef = useRef(0);
+  const attendanceDetailCacheRef = useRef(new Map());
 
   const [billingCycles, setBillingCycles] = useState([]);
   const [isBillingCyclesLoading, setIsBillingCyclesLoading] = useState(false);
@@ -2761,16 +2779,82 @@ export default function Financeiro() {
     }
   }, []);
 
-  const handleViewPatientSessions = useCallback(async (patientId) => {
+  const applyCachedAttendanceDetail = useCallback(({ patientId, cacheKey, detail }) => {
+    const normalizedPatientId = String(patientId);
+    const patientIdNumber = Number(normalizedPatientId);
+    const detailPatient = detail?.patient?.id
+      ? {
+        id: Number(detail.patient.id),
+        full_name: detail.patient.name || "Paciente",
+      }
+      : null;
+
+    if (detailPatient) {
+      setPatients((prev) => {
+        const map = new Map(prev.map((item) => [Number(item.id), item]));
+        map.set(Number(detailPatient.id), {
+          ...(map.get(Number(detailPatient.id)) || {}),
+          ...detailPatient,
+        });
+        return Array.from(map.values());
+      });
+    }
+
+    setEntries(Array.isArray(detail?.entries) ? detail.entries : []);
+    setPayments(Array.isArray(detail?.payments) ? detail.payments : []);
+    setPatientCredits(Array.isArray(detail?.credits) ? detail.credits : []);
+    setAttendanceSeries(Array.isArray(detail?.series) ? detail.series : []);
+    setAttendanceSessions(Array.isArray(detail?.sessions) ? detail.sessions : []);
+    setAttendanceDetailPackages(Array.isArray(detail?.packages) ? detail.packages : []);
+    setAttendanceDetailSummary({
+      patientId: patientIdNumber,
+      cacheKey,
+      summary: detail?.summary || {},
+    });
+    setAttendanceBackendCreditByPatient((prev) => {
+      const next = new Map(prev);
+      const creditValue = Number(detail?.summary?.creditAvailable);
+      if (Number.isFinite(creditValue)) {
+        next.set(patientIdNumber, Math.max(0, creditValue));
+      } else {
+        next.delete(patientIdNumber);
+      }
+      return next;
+    });
+    setHasAttendanceLoaded(true);
+    setAttendanceDetailSessions({
+      patientId: normalizedPatientId,
+      sessions: Array.isArray(detail?.sessions) ? detail.sessions : [],
+      isLoading: false,
+      error: "",
+    });
+  }, []);
+
+  const invalidateAttendanceDetailCacheForPatient = useCallback((patientId) => {
+    const patientIdNumber = Number(patientId || 0);
+    if (!patientIdNumber) return;
+    Array.from(attendanceDetailCacheRef.current.keys()).forEach((key) => {
+      if (String(key).startsWith(`${patientIdNumber}:`)) {
+        attendanceDetailCacheRef.current.delete(key);
+      }
+    });
+  }, []);
+
+  const handleViewPatientSessions = useCallback(async (patientId, options = {}) => {
     if (!patientId) return;
     const normalizedPatientId = String(patientId);
     const requestId = attendanceDetailRequestRef.current + 1;
     attendanceDetailRequestRef.current = requestId;
     const detailPeriodMode = attendancePeriodMode === "year" ? "year" : "month";
     const detailPeriod = detailPeriodMode === "year" ? attendancePeriodYear : attendancePeriodMonth;
+    const detailCacheKey = buildAttendanceDetailCacheKey({
+      patientId: normalizedPatientId,
+      periodMode: detailPeriodMode,
+      period: detailPeriod,
+    });
 
     setAttendanceDrilldownPatientId(normalizedPatientId);
-    setAttendanceDetailTab("charges");
+    if (!options.keepTab) setAttendanceDetailTab("charges");
     setSelectedAttendancePackageId(null);
     const summaryPatient = (revenuesSummary.patients || []).find(
       (item) => String(item.patient_id || "") === normalizedPatientId,
@@ -2787,6 +2871,15 @@ export default function Financeiro() {
         return Array.from(map.values());
       });
     }
+    const cachedDetail = detailCacheKey ? attendanceDetailCacheRef.current.get(detailCacheKey) : null;
+    if (cachedDetail) {
+      applyCachedAttendanceDetail({
+        patientId: normalizedPatientId,
+        cacheKey: detailCacheKey,
+        detail: cachedDetail,
+      });
+      return;
+    }
     setAttendanceDetailSessions({
       patientId: normalizedPatientId,
       sessions: [],
@@ -2799,6 +2892,7 @@ export default function Financeiro() {
     setAttendanceSeries([]);
     setAttendanceSessions([]);
     setAttendanceDetailPackages([]);
+    setAttendanceDetailSummary(null);
 
     try {
       const response = await getFinancialRevenuePatientDetail(
@@ -2808,6 +2902,9 @@ export default function Financeiro() {
       );
       if (attendanceDetailRequestRef.current !== requestId) return;
       const detail = response.data || {};
+      if (detailCacheKey) {
+        attendanceDetailCacheRef.current.set(detailCacheKey, detail);
+      }
       const detailPatient = detail.patient?.id
         ? {
           id: Number(detail.patient.id),
@@ -2832,6 +2929,11 @@ export default function Financeiro() {
       setAttendanceSeries(Array.isArray(detail.series) ? detail.series : []);
       setAttendanceSessions(Array.isArray(detail.sessions) ? detail.sessions : []);
       setAttendanceDetailPackages(Array.isArray(detail.packages) ? detail.packages : []);
+      setAttendanceDetailSummary({
+        patientId: Number(normalizedPatientId),
+        cacheKey: detailCacheKey,
+        summary: detail.summary || {},
+      });
       setAttendanceBackendCreditByPatient((prev) => {
         const next = new Map(prev);
         const creditValue = Number(detail.summary?.creditAvailable);
@@ -2862,7 +2964,13 @@ export default function Financeiro() {
         ) || "Não foi possível carregar os detalhes deste paciente.",
       });
     }
-  }, [attendancePeriodMode, attendancePeriodMonth, attendancePeriodYear, revenuesSummary.patients]);
+  }, [
+    applyCachedAttendanceDetail,
+    attendancePeriodMode,
+    attendancePeriodMonth,
+    attendancePeriodYear,
+    revenuesSummary.patients,
+  ]);
 
   const handleClosePatientSessions = useCallback(() => {
     attendanceDetailRequestRef.current += 1;
@@ -2876,7 +2984,33 @@ export default function Financeiro() {
       error: "",
     });
     setAttendanceDetailPackages([]);
+    setAttendanceDetailSummary(null);
   }, []);
+
+  useEffect(() => {
+    if (!attendanceDrilldownPatientId) return;
+    if (attendanceDetailSessions.isLoading) return;
+    const { mode, period } = getAttendanceDetailPeriod({
+      periodMode: attendancePeriodMode,
+      periodMonth: attendancePeriodMonth,
+      periodYear: attendancePeriodYear,
+    });
+    const cacheKey = buildAttendanceDetailCacheKey({
+      patientId: attendanceDrilldownPatientId,
+      periodMode: mode,
+      period,
+    });
+    if (!cacheKey || attendanceDetailSummary?.cacheKey === cacheKey) return;
+    handleViewPatientSessions(attendanceDrilldownPatientId, { keepTab: true });
+  }, [
+    attendanceDetailSessions.isLoading,
+    attendanceDetailSummary?.cacheKey,
+    attendanceDrilldownPatientId,
+    attendancePeriodMode,
+    attendancePeriodMonth,
+    attendancePeriodYear,
+    handleViewPatientSessions,
+  ]);
 
   const handleViewBillingCyclesPatient = useCallback((patientId) => {
     if (!patientId) return;
@@ -3519,8 +3653,14 @@ export default function Financeiro() {
         toast.success("Recebimento em lote registrado.");
         closePaymentModal();
         setPaymentAllocations({});
-        loadRevenuesData();
-        loadRevenuesSummary();
+        invalidateAttendanceDetailCacheForPatient(selectedPatientId);
+        await Promise.all([
+          loadRevenuesData(),
+          loadRevenuesSummary(),
+        ]);
+        if (attendanceDrilldownPatientId && Number(attendanceDrilldownPatientId) === selectedPatientId) {
+          await handleViewPatientSessions(selectedPatientId, { keepTab: true });
+        }
         if (hasBillingCyclesLoaded) loadBillingCycles();
         return;
       }
@@ -3569,8 +3709,14 @@ export default function Financeiro() {
       toast.success("Recebimento registrado.");
       closePaymentModal();
       setPaymentAllocations({});
-      loadRevenuesData();
-      loadRevenuesSummary();
+      invalidateAttendanceDetailCacheForPatient(selectedPatientId);
+      await Promise.all([
+        loadRevenuesData(),
+        loadRevenuesSummary(),
+      ]);
+      if (attendanceDrilldownPatientId && Number(attendanceDrilldownPatientId) === selectedPatientId) {
+        await handleViewPatientSessions(selectedPatientId, { keepTab: true });
+      }
       if (hasBillingCyclesLoaded) loadBillingCycles();
     } catch (error) {
       toast.error(
@@ -3592,6 +3738,9 @@ export default function Financeiro() {
     paymentModalContext,
     createStandalonePaymentAnchor,
     closePaymentModal,
+    attendanceDrilldownPatientId,
+    handleViewPatientSessions,
+    invalidateAttendanceDetailCacheForPatient,
     loadRevenuesData,
     loadRevenuesSummary,
     loadBillingCycles,
@@ -3601,16 +3750,32 @@ export default function Financeiro() {
   const handleApplyCreditToEntry = useCallback(
     async (entryId) => {
       try {
+        const affectedEntry = entryMap.get(Number(entryId || 0));
+        const affectedPatientId = Number(affectedEntry?.patient_id || 0);
         await applyCreditToFinancialEntry(entryId);
+        invalidateAttendanceDetailCacheForPatient(affectedPatientId);
         toast.success("Crédito aplicado na cobrança.");
-        loadRevenuesData();
-        loadRevenuesSummary();
-        loadAttendance();
+        await Promise.all([
+          loadRevenuesData(),
+          loadRevenuesSummary(),
+          loadAttendance(),
+        ]);
+        if (attendanceDrilldownPatientId && Number(attendanceDrilldownPatientId) === affectedPatientId) {
+          await handleViewPatientSessions(affectedPatientId, { keepTab: true });
+        }
       } catch (error) {
         toast.error("Não foi possível usar o crédito.");
       }
     },
-    [loadAttendance, loadRevenuesData, loadRevenuesSummary],
+    [
+      attendanceDrilldownPatientId,
+      entryMap,
+      handleViewPatientSessions,
+      invalidateAttendanceDetailCacheForPatient,
+      loadAttendance,
+      loadRevenuesData,
+      loadRevenuesSummary,
+    ],
   );
 
   const attendanceRows = useMemo(() => {
@@ -4235,6 +4400,21 @@ export default function Financeiro() {
     const patientName = selectedAttendancePatient
       ? getPatientDisplayName(selectedAttendancePatient)
       : patientSummary?.patientName || "Paciente";
+    const { mode: detailPeriodMode, period: detailPeriod } = getAttendanceDetailPeriod({
+      periodMode: attendancePeriodMode,
+      periodMonth: attendancePeriodMonth,
+      periodYear: attendancePeriodYear,
+    });
+    const currentDetailCacheKey = buildAttendanceDetailCacheKey({
+      patientId: selectedAttendancePatientId,
+      periodMode: detailPeriodMode,
+      period: detailPeriod,
+    });
+    const currentDetailSummary =
+      attendanceDetailSummary?.patientId === selectedAttendancePatientId
+        && attendanceDetailSummary?.cacheKey === currentDetailCacheKey
+        ? attendanceDetailSummary.summary || null
+        : null;
     const hasBackendCredit = attendanceBackendCreditByPatient.has(selectedAttendancePatientId);
     const backendCredit = hasBackendCredit
       ? attendanceBackendCreditByPatient.get(selectedAttendancePatientId)
@@ -4246,15 +4426,21 @@ export default function Financeiro() {
       patientId: selectedAttendancePatientId,
       patientName,
       sessions: patientSummary?.sessions || sessionRows.length,
-      openCents: sessionRows.reduce(
-        (sum, row) => sum + (row.isManualReceiptRow ? 0 : Math.max(0, Number(row.openCents || 0))),
-        0,
-      ),
+      openCents: currentDetailSummary
+        ? Number(currentDetailSummary.pending || 0)
+        : sessionRows.reduce(
+          (sum, row) => sum + (row.isManualReceiptRow ? 0 : Math.max(0, Number(row.openCents || 0))),
+          0,
+        ),
       creditsAvailable: backendCredit ?? fallbackCredit,
     };
   }, [
     attendanceBackendCreditByPatient,
     attendanceByPatient,
+    attendanceDetailSummary,
+    attendancePeriodMode,
+    attendancePeriodMonth,
+    attendancePeriodYear,
     attendanceSessionRows,
     creditBalanceByPatient,
     selectedAttendancePatient,
@@ -4946,18 +5132,28 @@ export default function Financeiro() {
         period_end: creditUseModalContext.periodEnd,
       });
       toast.success("Crédito aplicado nas cobranças pendentes.");
+      invalidateAttendanceDetailCacheForPatient(creditUseModalContext.patientId);
       setCreditUseModalContext(null);
       await loadRevenuesData();
       await loadRevenuesSummary();
       await loadAttendance();
+      if (
+        attendanceDrilldownPatientId
+        && Number(attendanceDrilldownPatientId) === Number(creditUseModalContext.patientId)
+      ) {
+        await handleViewPatientSessions(creditUseModalContext.patientId, { keepTab: true });
+      }
     } catch (error) {
       toast.error(getUserFacingApiError(error, "Não foi possível usar o crédito."));
     } finally {
       setIsCreditUseSaving(false);
     }
   }, [
+    attendanceDrilldownPatientId,
     creditUseModalContext,
     creditUsePreview,
+    handleViewPatientSessions,
+    invalidateAttendanceDetailCacheForPatient,
     isCreditUseSaving,
     loadAttendance,
     loadRevenuesData,

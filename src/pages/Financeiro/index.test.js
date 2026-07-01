@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import Financeiro from "./index";
 import axios from "../../services/axios";
 import {
+  applyScopedFinancialCredit,
   getClinicExpenseAlerts,
   getFinancialOverview,
   getFinancialRevenuePatientDetail,
@@ -205,6 +206,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       },
     });
     listBillingCycles.mockResolvedValue({ data: [] });
+    applyScopedFinancialCredit.mockResolvedValue({ data: {} });
   });
 
   it("usa patient-detail ao clicar em Detalhes sem carregar listas pesadas", async () => {
@@ -446,6 +448,308 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       expect(getFinancialRevenuesSummary).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}$/), "year");
     });
     expect(listFinancialEntries).not.toHaveBeenCalled();
+  });
+
+  it("recarrega detalhe ao mudar mes e reaproveita cache ao voltar", async () => {
+    getFinancialRevenuePatientDetail.mockReset();
+    getFinancialRevenuePatientDetail
+      .mockResolvedValueOnce({
+        data: {
+          patient: { id: 30, name: "Maria Silva" },
+          month: "2026-06",
+          summary: { total: 30000, received: 30000, pending: 0, creditAvailable: 0 },
+          entries: [
+            {
+              id: 1345,
+              clinic_id: 1,
+              patient_id: 30,
+              session_id: 1696,
+              service_id: 6,
+              type: "income",
+              description: "Atendimento - Avaliacao Coluna",
+              amount_cents: 30000,
+              reference_date: "2026-06-29",
+              status: "paid",
+            },
+          ],
+          sessions: [
+            {
+              id: 1696,
+              clinic_id: 1,
+              patient_id: 30,
+              service_id: 6,
+              starts_at: "2026-06-29T10:00:00.000Z",
+              status: "scheduled",
+              billing_mode: "per_session",
+              Service: { id: 6, name: "Avaliacao Coluna" },
+            },
+          ],
+          payments: [],
+          credits: [],
+          series: [],
+          packages: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          patient: { id: 30, name: "Maria Silva" },
+          month: "2026-07",
+          summary: { total: 120000, received: 0, pending: 120000, creditAvailable: 144000 },
+          entries: [],
+          sessions: [],
+          payments: [],
+          credits: [],
+          series: [
+            {
+              id: 160,
+              clinic_id: 1,
+              patient_id: 30,
+              service_id: 1,
+              starts_at: "2026-07-02T14:00:00.000Z",
+              occurrence_count: 8,
+              Service: { id: 1, name: "Fisioterapia" },
+            },
+          ],
+          packages: [
+            {
+              id: "series-160",
+              sourceId: 160,
+              series_id: 160,
+              service_id: 1,
+              service_name: "Fisioterapia",
+              reference_date: "2026-07-02T14:00:00.000Z",
+              total_sessions: 8,
+              used_sessions: 0,
+              amount_cents: 120000,
+              paid_cents: 0,
+              open_cents: 120000,
+              financial_status: "pending",
+              sessions: [],
+              entries: [{ entryId: 1346, openCents: 120000 }],
+            },
+          ],
+        },
+      });
+
+    renderFinanceiro();
+
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    expect(await screen.findByText("Avaliacao Coluna")).toBeInTheDocument();
+    expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "Proximo >" }));
+
+    expect(await screen.findByText("Fisioterapia")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getFinancialRevenuePatientDetail).toHaveBeenCalledWith("30", "2026-07", "month");
+    });
+    expect(screen.queryByText("Avaliacao Coluna")).not.toBeInTheDocument();
+    expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(2);
+
+    await userEvent.click(screen.getByRole("button", { name: "< Anterior" }));
+
+    expect(await screen.findByText("Avaliacao Coluna")).toBeInTheDocument();
+    expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it("alterna mensal e anual no detalhe usando cache por modo e periodo", async () => {
+    getFinancialRevenuePatientDetail.mockReset();
+    getFinancialRevenuePatientDetail
+      .mockResolvedValueOnce({
+        data: {
+          patient: { id: 30, name: "Maria Silva" },
+          month: "2026-06",
+          summary: { total: 30000, received: 30000, pending: 0, creditAvailable: 0 },
+          entries: [],
+          sessions: [
+            {
+              id: 1696,
+              clinic_id: 1,
+              patient_id: 30,
+              service_id: 6,
+              starts_at: "2026-06-29T10:00:00.000Z",
+              status: "scheduled",
+              billing_mode: "per_session",
+              Service: { id: 6, name: "Avaliacao Coluna" },
+            },
+          ],
+          payments: [],
+          credits: [],
+          series: [],
+          packages: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          patient: { id: 30, name: "Maria Silva" },
+          year: "2026",
+          summary: { total: 150000, received: 30000, pending: 120000, creditAvailable: 144000 },
+          entries: [],
+          sessions: [],
+          payments: [],
+          credits: [],
+          series: [
+            {
+              id: 160,
+              clinic_id: 1,
+              patient_id: 30,
+              service_id: 1,
+              starts_at: "2026-07-02T14:00:00.000Z",
+              occurrence_count: 8,
+              Service: { id: 1, name: "Fisioterapia" },
+            },
+          ],
+          packages: [
+            {
+              id: "series-160",
+              sourceId: 160,
+              series_id: 160,
+              service_id: 1,
+              service_name: "Fisioterapia",
+              reference_date: "2026-07-02T14:00:00.000Z",
+              total_sessions: 8,
+              used_sessions: 0,
+              amount_cents: 120000,
+              paid_cents: 0,
+              open_cents: 120000,
+              financial_status: "pending",
+              sessions: [],
+              entries: [{ entryId: 1346, openCents: 120000 }],
+            },
+          ],
+        },
+      });
+
+    renderFinanceiro();
+
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    expect(await screen.findByText("Avaliacao Coluna")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Vis.o anual/ }));
+
+    expect(await screen.findByText("Fisioterapia")).toBeInTheDocument();
+    expect(getFinancialRevenuePatientDetail).toHaveBeenCalledWith("30", "2026", "year");
+    expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(2);
+
+    await userEvent.click(screen.getByRole("button", { name: /^M.s$/ }));
+
+    expect(await screen.findByText("Avaliacao Coluna")).toBeInTheDocument();
+    expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalida cache do detalhe apos usar credito financeiro", async () => {
+    getFinancialRevenuePatientDetail.mockReset();
+    getFinancialRevenuePatientDetail
+      .mockResolvedValueOnce({
+        data: {
+          patient: { id: 30, name: "Maria Silva" },
+          month: "2026-06",
+          summary: { total: 120000, received: 0, pending: 120000, creditAvailable: 144000 },
+          entries: [],
+          sessions: [],
+          payments: [],
+          credits: [],
+          series: [
+            {
+              id: 160,
+              clinic_id: 1,
+              patient_id: 30,
+              service_id: 1,
+              starts_at: "2026-06-10T14:00:00.000Z",
+              occurrence_count: 8,
+              Service: { id: 1, name: "Fisioterapia" },
+            },
+          ],
+          packages: [
+            {
+              id: "series-160",
+              sourceId: 160,
+              series_id: 160,
+              service_id: 1,
+              service_name: "Fisioterapia",
+              reference_date: "2026-06-10T14:00:00.000Z",
+              total_sessions: 8,
+              used_sessions: 0,
+              amount_cents: 120000,
+              paid_cents: 0,
+              open_cents: 120000,
+              financial_status: "pending",
+              sessions: [],
+              entries: [{ entryId: 1346, openCents: 120000 }],
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          patient: { id: 30, name: "Maria Silva" },
+          month: "2026-06",
+          summary: { total: 120000, received: 120000, pending: 0, creditAvailable: 24000 },
+          entries: [],
+          sessions: [],
+          payments: [],
+          credits: [],
+          series: [
+            {
+              id: 160,
+              clinic_id: 1,
+              patient_id: 30,
+              service_id: 1,
+              starts_at: "2026-06-10T14:00:00.000Z",
+              occurrence_count: 8,
+              Service: { id: 1, name: "Fisioterapia" },
+            },
+          ],
+          packages: [
+            {
+              id: "series-160",
+              sourceId: 160,
+              series_id: 160,
+              service_id: 1,
+              service_name: "Fisioterapia",
+              reference_date: "2026-06-10T14:00:00.000Z",
+              total_sessions: 8,
+              used_sessions: 0,
+              amount_cents: 120000,
+              paid_cents: 120000,
+              open_cents: 0,
+              financial_status: "paid",
+              sessions: [],
+              entries: [],
+            },
+          ],
+        },
+      });
+
+    renderFinanceiro();
+
+    await revealFinancialValues();
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    expect(await screen.findByText("Fisioterapia")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Usar cr.dito/ })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Usar cr.dito/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Confirmar uso do cr.dito/ }));
+
+    await waitFor(() => {
+      expect(applyScopedFinancialCredit).toHaveBeenCalledWith({
+        patient_id: 30,
+        allocation_scope: "per_session_current_period",
+        period_start: "2026-06-01",
+        period_end: "2026-06-30",
+      });
+      expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.queryByRole("button", { name: /Usar cr.dito/ })).not.toBeInTheDocument();
   });
 
   it("mantem todas as mensalidades do paciente no detalhe mesmo com busca preenchida", async () => {
