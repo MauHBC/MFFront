@@ -59,12 +59,34 @@ const emptyHolidayForm = {
 };
 
 const emptyOperationalPolicyForm = {
+  allow_weekend_scheduling: false,
+  allow_broken_time_scheduling: false,
   late_change_minimum_notice_hours: "24",
   monthly_reschedule_limit: "2",
   monthly_absence_limit: "2",
   replacement_credit_validity_days: "30",
   replacement_credit_expiring_alert_days: "7",
 };
+
+const buildOperationalPolicyForm = (data = {}) => ({
+  allow_weekend_scheduling: !!data.allow_weekend_scheduling,
+  allow_broken_time_scheduling: !!data.allow_broken_time_scheduling,
+  late_change_minimum_notice_hours: String(
+    data.late_change_minimum_notice_hours ?? emptyOperationalPolicyForm.late_change_minimum_notice_hours,
+  ),
+  monthly_reschedule_limit: String(
+    data.monthly_reschedule_limit ?? emptyOperationalPolicyForm.monthly_reschedule_limit,
+  ),
+  monthly_absence_limit: String(
+    data.monthly_absence_limit ?? emptyOperationalPolicyForm.monthly_absence_limit,
+  ),
+  replacement_credit_validity_days: String(
+    data.replacement_credit_validity_days ?? emptyOperationalPolicyForm.replacement_credit_validity_days,
+  ),
+  replacement_credit_expiring_alert_days: String(
+    data.replacement_credit_expiring_alert_days ?? emptyOperationalPolicyForm.replacement_credit_expiring_alert_days,
+  ),
+});
 
 const formatHolidayDate = (value) => {
   if (!value) return "-";
@@ -124,6 +146,8 @@ export default function SchedulingEvents() {
   const [isHolidayOpen, setIsHolidayOpen] = useState(false);
   const [holidayForm, setHolidayForm] = useState(emptyHolidayForm);
   const [operationalPolicyForm, setOperationalPolicyForm] = useState(emptyOperationalPolicyForm);
+  const [savedOperationalPolicyForm, setSavedOperationalPolicyForm] = useState(emptyOperationalPolicyForm);
+  const [isPolicyEditing, setIsPolicyEditing] = useState(false);
   const [isPolicyLoading, setIsPolicyLoading] = useState(false);
   const [isPolicySaving, setIsPolicySaving] = useState(false);
 
@@ -155,23 +179,10 @@ export default function SchedulingEvents() {
       setIsPolicyLoading(true);
       const response = await getUnitSchedulingPolicy();
       const data = response.data || {};
-      setOperationalPolicyForm({
-        late_change_minimum_notice_hours: String(
-          data.late_change_minimum_notice_hours ?? emptyOperationalPolicyForm.late_change_minimum_notice_hours,
-        ),
-        monthly_reschedule_limit: String(
-          data.monthly_reschedule_limit ?? emptyOperationalPolicyForm.monthly_reschedule_limit,
-        ),
-        monthly_absence_limit: String(
-          data.monthly_absence_limit ?? emptyOperationalPolicyForm.monthly_absence_limit,
-        ),
-        replacement_credit_validity_days: String(
-          data.replacement_credit_validity_days ?? emptyOperationalPolicyForm.replacement_credit_validity_days,
-        ),
-        replacement_credit_expiring_alert_days: String(
-          data.replacement_credit_expiring_alert_days ?? emptyOperationalPolicyForm.replacement_credit_expiring_alert_days,
-        ),
-      });
+      const nextForm = buildOperationalPolicyForm(data);
+      setOperationalPolicyForm(nextForm);
+      setSavedOperationalPolicyForm(nextForm);
+      setIsPolicyEditing(false);
     } catch (error) {
       toast.error(getUserFacingApiError(error, "Não foi possível carregar as regras operacionais."));
     } finally {
@@ -185,9 +196,17 @@ export default function SchedulingEvents() {
   }, [loadHolidays, loadOperationalPolicy]);
 
   const handleOperationalPolicyChange = useCallback((event) => {
-    const { name, value } = event.target;
-    setOperationalPolicyForm((prev) => ({ ...prev, [name]: value }));
+    const { name, type, value, checked } = event.target;
+    setOperationalPolicyForm((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value,
+    }));
   }, []);
+
+  const handleCancelOperationalPolicyEdit = useCallback(() => {
+    setOperationalPolicyForm(savedOperationalPolicyForm);
+    setIsPolicyEditing(false);
+  }, [savedOperationalPolicyForm]);
 
   const handleSaveOperationalPolicy = useCallback(async () => {
     const payload = {};
@@ -215,15 +234,14 @@ export default function SchedulingEvents() {
 
     try {
       setIsPolicySaving(true);
+      payload.allow_weekend_scheduling = !!operationalPolicyForm.allow_weekend_scheduling;
+      payload.allow_broken_time_scheduling = !!operationalPolicyForm.allow_broken_time_scheduling;
       const response = await updateUnitSchedulingPolicy(payload);
       const data = response.data || payload;
-      setOperationalPolicyForm({
-        late_change_minimum_notice_hours: String(data.late_change_minimum_notice_hours),
-        monthly_reschedule_limit: String(data.monthly_reschedule_limit),
-        monthly_absence_limit: String(data.monthly_absence_limit),
-        replacement_credit_validity_days: String(data.replacement_credit_validity_days),
-        replacement_credit_expiring_alert_days: String(data.replacement_credit_expiring_alert_days),
-      });
+      const nextForm = buildOperationalPolicyForm(data);
+      setOperationalPolicyForm(nextForm);
+      setSavedOperationalPolicyForm(nextForm);
+      setIsPolicyEditing(false);
       toast.success("Regras operacionais atualizadas.");
     } catch (error) {
       toast.error(getUserFacingApiError(error, "Não foi possível salvar as regras operacionais."));
@@ -488,17 +506,71 @@ export default function SchedulingEvents() {
             <SectionHeader>
               <div>
                 <SectionTitle>Regras operacionais</SectionTitle>
-                <SectionSubtitle>
-                  Configure prazos, limites mensais e alertas usados nas próximas validações.
-                </SectionSubtitle>
               </div>
+              <HeaderActions>
+                {!isPolicyEditing ? (
+                  <GhostButton
+                    type="button"
+                    onClick={() => setIsPolicyEditing(true)}
+                    disabled={isPolicyLoading || isPolicySaving}
+                  >
+                    Editar
+                  </GhostButton>
+                ) : (
+                  <>
+                    <GhostButton
+                      type="button"
+                      onClick={handleCancelOperationalPolicyEdit}
+                      disabled={isPolicySaving}
+                    >
+                      Cancelar
+                    </GhostButton>
+                    <PrimaryButton
+                      type="button"
+                      onClick={handleSaveOperationalPolicy}
+                      disabled={isPolicyLoading || isPolicySaving}
+                    >
+                      {isPolicySaving ? <ButtonSpinner /> : "Salvar"}
+                    </PrimaryButton>
+                  </>
+                )}
+              </HeaderActions>
             </SectionHeader>
 
             {isPolicyLoading ? (
               <DataLoadingState text="Carregando regras operacionais..." />
             ) : (
-              <>
-                <PolicyList>
+              <PolicyList>
+	                  <PolicyField>
+	                    <CheckboxLabel>
+	                      <input
+	                        type="checkbox"
+	                        name="allow_broken_time_scheduling"
+	                        checked={!!operationalPolicyForm.allow_broken_time_scheduling}
+	                        onChange={handleOperationalPolicyChange}
+	                        disabled={!isPolicyEditing || isPolicySaving}
+	                      />
+	                      <span>Permitir horários quebrados</span>
+	                    </CheckboxLabel>
+	                    <MutedText>
+	                      Quando ativo, a clínica pode escolher hora e minuto nos agendamentos.
+	                    </MutedText>
+	                  </PolicyField>
+	                  <PolicyField>
+                    <CheckboxLabel>
+                      <input
+                        type="checkbox"
+                        name="allow_weekend_scheduling"
+                        checked={!!operationalPolicyForm.allow_weekend_scheduling}
+                        onChange={handleOperationalPolicyChange}
+                        disabled={!isPolicyEditing || isPolicySaving}
+                      />
+                      <span>Permitir agendamentos aos finais de semana</span>
+                    </CheckboxLabel>
+                    <MutedText>
+                      Quando ativo, sábado e domingo aparecem na agenda semanal/mensal e podem receber agendamentos.
+                    </MutedText>
+                  </PolicyField>
                   <PolicyField>
                     <Label htmlFor="late-change-hours">Prazo mínimo sem falta</Label>
                     <Input
@@ -509,6 +581,7 @@ export default function SchedulingEvents() {
                       name="late_change_minimum_notice_hours"
                       value={operationalPolicyForm.late_change_minimum_notice_hours}
                       onChange={handleOperationalPolicyChange}
+                      disabled={!isPolicyEditing || isPolicySaving}
                     />
                     <MutedText>Tempo mínimo, em horas, para remarcar ou cancelar sem virar falta.</MutedText>
                   </PolicyField>
@@ -522,6 +595,7 @@ export default function SchedulingEvents() {
                       name="monthly_reschedule_limit"
                       value={operationalPolicyForm.monthly_reschedule_limit}
                       onChange={handleOperationalPolicyChange}
+                      disabled={!isPolicyEditing || isPolicySaving}
                     />
                     <MutedText>Quantidade mensal permitida antes de exigir exceção justificada.</MutedText>
                   </PolicyField>
@@ -535,6 +609,7 @@ export default function SchedulingEvents() {
                       name="monthly_absence_limit"
                       value={operationalPolicyForm.monthly_absence_limit}
                       onChange={handleOperationalPolicyChange}
+                      disabled={!isPolicyEditing || isPolicySaving}
                     />
                     <MutedText>Quantidade mensal usada para alertar a equipe sobre faltas recorrentes.</MutedText>
                   </PolicyField>
@@ -548,6 +623,7 @@ export default function SchedulingEvents() {
                       name="replacement_credit_validity_days"
                       value={operationalPolicyForm.replacement_credit_validity_days}
                       onChange={handleOperationalPolicyChange}
+                      disabled={!isPolicyEditing || isPolicySaving}
                     />
                     <MutedText>Prazo padrão, em dias, para créditos operacionais de reposição.</MutedText>
                   </PolicyField>
@@ -561,20 +637,11 @@ export default function SchedulingEvents() {
                       name="replacement_credit_expiring_alert_days"
                       value={operationalPolicyForm.replacement_credit_expiring_alert_days}
                       onChange={handleOperationalPolicyChange}
+                      disabled={!isPolicyEditing || isPolicySaving}
                     />
                     <MutedText>Quantos dias antes do vencimento a reposição aparece nos alertas.</MutedText>
                   </PolicyField>
                 </PolicyList>
-                <PolicyActions>
-                  <PrimaryButton
-                    type="button"
-                    onClick={handleSaveOperationalPolicy}
-                    disabled={isPolicyLoading || isPolicySaving}
-                  >
-                    {isPolicySaving ? <ButtonSpinner /> : "Salvar alterações"}
-                  </PrimaryButton>
-                </PolicyActions>
-              </>
             )}
           </Section>
         )}
@@ -770,26 +837,46 @@ const TabButton = styled.button`
 const PolicyList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  max-width: 560px;
+  max-width: 760px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
 `;
 
 const PolicyField = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-bottom: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 180px);
+  align-items: center;
+  column-gap: 18px;
+  row-gap: 6px;
+  padding: 16px 0;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 
   input {
-    max-width: 180px;
+    width: 100%;
+  }
+
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr;
+
+    input {
+      width: 100%;
+      max-width: 180px;
+    }
   }
 `;
 
-const PolicyActions = styled.div`
-  display: flex;
-  justify-content: flex-start;
-  margin-top: 22px;
+const CheckboxLabel = styled.label`
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: #4a4a4a;
+  grid-column: 1 / -1;
+
+  input {
+    width: 16px;
+    height: 16px;
+    max-width: none;
+  }
 `;
 
 const SectionTitle = styled.h2`

@@ -24,7 +24,6 @@ import {
   listSpecialSchedulingEvents,
   previewSchedulingOccurrences,
 } from "../../services/scheduling";
-import { listPatientPlans, getCoveragePreview } from "../../services/financial";
 import { AppDrawer, DrawerBackdrop } from "../../components/AppDrawer";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { SessionStatusButton } from "../../components/AppSessionStatus";
@@ -43,6 +42,10 @@ const APPOINTMENT_HOUR_OPTIONS = Array.from({ length: END_HOUR - START_HOUR + 1 
     value: String(hour).padStart(2, "0"),
     label: `${String(hour).padStart(2, "0")}h`,
   };
+});
+const APPOINTMENT_MINUTE_OPTIONS = Array.from({ length: 60 }, (_, minute) => {
+  const value = String(minute).padStart(2, "0");
+  return { value, label: value };
 });
 const PROFESSIONAL_GROUP_SLUG = "profissional";
 const ATTENDANCE_CONFIRMATION_TOLERANCE_MINUTES = 15;
@@ -336,6 +339,8 @@ const buildReplacementCreditFromAlert = (alert) => ({
   reason: alert?.details?.reason || alert?.title || "Reposição pendente",
   expires_at: alert?.due_date || null,
   source_session_id: alert?.details?.source_session_id || null,
+  source_starts_at: alert?.details?.source_starts_at || null,
+  source_status: alert?.details?.source_status || null,
   source_service_id: alert?.details?.source_service_id || null,
   source_service_type: alert?.details?.source_service_type || null,
   source_service_name: alert?.details?.source_service_name || null,
@@ -614,6 +619,9 @@ const isSessionStatusActive = (currentStatus, targetStatus) =>
 const isHistoricalSessionStatus = (status) =>
   status === "canceled" || status === "no_show" || status === "suspended";
 
+const canEditSession = (session) => String(session?.status || "") === "scheduled";
+
+const DAY_HIDDEN_HISTORY_STATUSES = new Set(["canceled", "no_show"]);
 const WEEK_HIDDEN_HISTORY_STATUSES = new Set(["canceled", "no_show", "suspended"]);
 
 const SESSION_STATUS_OPTIONS = [
@@ -798,6 +806,8 @@ const WEEKDAY_OPTIONS = [
   { value: 3, label: "Qua" },
   { value: 4, label: "Qui" },
   { value: 5, label: "Sex" },
+  { value: 6, label: "Sab" },
+  { value: 7, label: "Dom" },
 ];
 
 const OCCURRENCE_STATUS_LABELS = {
@@ -907,6 +917,8 @@ const normalizeText = (value) => {
 };
 
 const DEFAULT_OPERATIONAL_POLICY = {
+  allow_weekend_scheduling: false,
+  allow_broken_time_scheduling: false,
   late_change_minimum_notice_hours: 24,
   monthly_reschedule_limit: 2,
   monthly_absence_limit: 2,
@@ -1005,9 +1017,16 @@ const toIsoWeekday = (date) => {
   return day === 0 ? 7 : day;
 };
 
-const toSelectableWeekday = (date) => {
+const isWeekendDate = (value) => {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return date.getDay() === 0 || date.getDay() === 6;
+};
+
+const toSelectableWeekday = (date, allowWeekendScheduling = false) => {
   const weekday = toIsoWeekday(date);
-  return weekday >= 1 && weekday <= 5 ? weekday : null;
+  return weekday >= 1 && weekday <= (allowWeekendScheduling ? 7 : 5) ? weekday : null;
 };
 
 const formatDateTime = (value) => {
@@ -1123,6 +1142,21 @@ const formatDate = (value) => {
   });
 };
 
+const formatShortDate = (value) => {
+  if (!value) return "";
+  const dateOnlyMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (dateOnlyMatch) {
+    return `${dateOnlyMatch[3]}/${dateOnlyMatch[2]}/${dateOnlyMatch[1].slice(2)}`;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
+};
+
 const formatTime = (value) => {
   if (!value) return "";
   const date = new Date(value);
@@ -1205,11 +1239,23 @@ const getHourInputValue = (value) => {
   return String(date.getHours()).padStart(2, "0");
 };
 
-const buildDateHourInputValue = (dateValue, hourValue) => {
+const getMinuteInputValue = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return String(date.getMinutes()).padStart(2, "0");
+};
+
+const buildDateTimeInputValue = (dateValue, hourValue, minuteValue = "00") => {
   if (!dateValue || !hourValue) return "";
   const normalizedHour = String(hourValue).padStart(2, "0");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue) || !/^\d{2}$/.test(normalizedHour)) return "";
-  return `${dateValue}T${normalizedHour}:00`;
+  const normalizedMinute = String(minuteValue || "00").padStart(2, "0");
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(dateValue)
+    || !/^\d{2}$/.test(normalizedHour)
+    || !/^\d{2}$/.test(normalizedMinute)
+  ) return "";
+  return `${dateValue}T${normalizedHour}:${normalizedMinute}`;
 };
 
 const getMonthDateRange = (value) => {
@@ -1283,12 +1329,12 @@ const endOfDay = (date) => {
 const isScheduledStatus = (status) =>
   !status || status === "scheduled" || status === "open";
 
-const getWeekDays = (baseDate) => {
+const getWeekDays = (baseDate, includeWeekend = false) => {
   const start = startOfDay(baseDate);
   const day = start.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   start.setDate(start.getDate() + diff);
-  return Array.from({ length: 5 }).map((_, index) => {
+  return Array.from({ length: includeWeekend ? 7 : 5 }).map((_, index) => {
     const d = new Date(start);
     d.setDate(start.getDate() + index);
     return d;
@@ -1309,7 +1355,7 @@ const getMonthDays = (baseDate) => {
   return days;
 };
 
-const getVisibleDateRange = (view, baseDate) => {
+const getVisibleDateRange = (view, baseDate, includeWeekend = false) => {
   if (view === "month") {
     const firstDayOfMonth = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
     const lastDayOfMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0);
@@ -1323,7 +1369,7 @@ const getVisibleDateRange = (view, baseDate) => {
   }
 
   if (view === "week") {
-    const weekDays = getWeekDays(baseDate);
+    const weekDays = getWeekDays(baseDate, includeWeekend);
     return {
       sessionsFrom: startOfDay(weekDays[0]),
       sessionsTo: startOfNextDay(weekDays[weekDays.length - 1]),
@@ -1384,7 +1430,7 @@ export default function Agendamentos() {
   const [pendingCenterSelectedItemKey, setPendingCenterSelectedItemKey] = useState(null);
   const [groupContext, setGroupContext] = useState(null);
   const [view, setView] = useState("week");
-  const [showMonthWeekend, setShowMonthWeekend] = useState(false);
+  const [showCanceledAndNoShowInDayView, setShowCanceledAndNoShowInDayView] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [filters, setFilters] = useState({
@@ -1402,14 +1448,10 @@ export default function Agendamentos() {
   const [deleteModal, setDeleteModal] = useState(emptyDeleteModal);
   const [isDeletePreviewing, setIsDeletePreviewing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [activePlansForPatient, setActivePlansForPatient] = useState([]);
   const [replacementCreditsForPatient, setReplacementCreditsForPatient] = useState([]);
-  const [patientCreditsForPatient, setPatientCreditsForPatient] = useState([]);
   const [operationalPolicy, setOperationalPolicy] = useState(DEFAULT_OPERATIONAL_POLICY);
   const [operationalAlerts, setOperationalAlerts] = useState([]);
   const [isOperationalAlertsLoading, setIsOperationalAlertsLoading] = useState(false);
-  const [coveragePreview, setCoveragePreview] = useState(null);
-  const [coveragePreviewLoading, setCoveragePreviewLoading] = useState(false);
   const [showEditReasonError, setShowEditReasonError] = useState(false);
   const [expandedHours, setExpandedHours] = useState(new Set());
   const [expandedPeriods, setExpandedPeriods] = useState({
@@ -1420,9 +1462,21 @@ export default function Agendamentos() {
   const [openActionMenu, setOpenActionMenu] = useState(null);
   const sessionsRequestIdRef = useRef(0);
   const specialEventsRequestIdRef = useRef(0);
-  const visibleRange = useMemo(() => getVisibleDateRange(view, selectedDate), [selectedDate, view]);
+  const allowWeekendScheduling = !!operationalPolicy.allow_weekend_scheduling;
+  const allowBrokenTimeScheduling = !!operationalPolicy.allow_broken_time_scheduling;
+  const visibleWeekdayOptions = useMemo(
+    () => WEEKDAY_OPTIONS.filter((option) => allowWeekendScheduling || option.value <= 5),
+    [allowWeekendScheduling],
+  );
+  const visibleRange = useMemo(
+    () => getVisibleDateRange(view, selectedDate, allowWeekendScheduling),
+    [allowWeekendScheduling, selectedDate, view],
+  );
   const selectedMonthKey = useMemo(() => toMonthInputValue(selectedDate), [selectedDate]);
-  const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
+  const weekDays = useMemo(
+    () => getWeekDays(selectedDate, allowWeekendScheduling),
+    [allowWeekendScheduling, selectedDate],
+  );
 
   useEffect(() => {
     const params = new URLSearchParams(routeLocation.search || "");
@@ -1446,6 +1500,11 @@ export default function Agendamentos() {
       current === patientName ? current : patientName
     ));
   }, [patients, routeLocation.search]);
+
+  useEffect(() => {
+    if (allowWeekendScheduling) return;
+    setRepeatWeekdays((current) => current.filter((weekday) => weekday <= 5));
+  }, [allowWeekendScheduling]);
 
   const loadBaseData = useCallback(async () => {
     setIsBaseDataLoading(true);
@@ -1560,19 +1619,6 @@ export default function Agendamentos() {
     [loadSessions, visibleRange.sessionsFrom, visibleRange.sessionsTo],
   );
 
-  const loadActivePlansForPatient = useCallback(async (patientId) => {
-    if (!patientId) {
-      setActivePlansForPatient([]);
-      return;
-    }
-    try {
-      const response = await listPatientPlans({ patient_id: patientId, status: "active" });
-      setActivePlansForPatient(Array.isArray(response.data) ? response.data : []);
-    } catch (_err) {
-      setActivePlansForPatient([]);
-    }
-  }, []);
-
   const loadReplacementCreditsForPatient = useCallback(async (patientId) => {
     if (!patientId) {
       setReplacementCreditsForPatient([]);
@@ -1585,23 +1631,6 @@ export default function Agendamentos() {
       setReplacementCreditsForPatient(Array.isArray(response.data) ? response.data : []);
     } catch (_err) {
       setReplacementCreditsForPatient([]);
-    }
-  }, []);
-
-  const loadPatientCreditsForPatient = useCallback(async (patientId) => {
-    if (!patientId) {
-      setPatientCreditsForPatient([]);
-      return;
-    }
-    try {
-      const response = await axios.get("/patient-credits", {
-        params: { patient_id: patientId },
-      });
-      const availableCredits = (Array.isArray(response.data) ? response.data : [])
-        .filter((credit) => Number(credit.total_sessions || 0) - Number(credit.used_sessions || 0) > 0);
-      setPatientCreditsForPatient(availableCredits);
-    } catch (_err) {
-      setPatientCreditsForPatient([]);
     }
   }, []);
 
@@ -1626,68 +1655,33 @@ export default function Agendamentos() {
   }, []);
 
   useEffect(() => {
-    loadActivePlansForPatient(form.patient_id);
     loadReplacementCreditsForPatient(form.patient_id);
-    loadPatientCreditsForPatient(form.patient_id);
   }, [
     form.patient_id,
-    loadActivePlansForPatient,
     loadReplacementCreditsForPatient,
-    loadPatientCreditsForPatient,
   ]);
 
   useEffect(() => {
     loadOperationalAlerts(selectedMonthKey);
   }, [loadOperationalAlerts, selectedMonthKey]);
 
-  // Derived: plano elegível para cobertura mensal — considera serviço E data da sessão
-  const eligiblePlan = useMemo(() => {
-    if (!activePlansForPatient.length || !form.service_id || !form.starts_at) return null;
-    const dateStr = String(form.starts_at).slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
-    return activePlansForPatient.find((p) => {
-      if (String(p.ServicePlan?.service_id) !== String(form.service_id)) return false;
-      if (dateStr < String(p.starts_at).slice(0, 10)) return false;
-      if (p.ends_at && dateStr > String(p.ends_at).slice(0, 10)) return false;
-      return true;
-    }) || null;
-  }, [activePlansForPatient, form.service_id, form.starts_at]);
-
-  // Auto-seleciona billing_mode apenas em modo criação (não edição)
+  // Novo agendamento e sempre avulso; planos mensais entram pelo menu Planos.
   useEffect(() => {
     if (editingId) return;
     if (!form.patient_id || !form.service_id || !form.starts_at) return;
     setForm((prev) => ({
       ...prev,
-      billing_mode: eligiblePlan ? "covered_by_plan" : "per_session",
+      billing_mode: "per_session",
     }));
-  }, [eligiblePlan, editingId, form.patient_id, form.service_id, form.starts_at]);
+  }, [editingId, form.patient_id, form.service_id, form.starts_at]);
 
-  const canUsePlanRepeatMode =
-    !!eligiblePlan && form.billing_mode === "covered_by_plan";
+  const canUsePlanRepeatMode = false;
 
   useEffect(() => {
     if (repeatMode === "plan" && !canUsePlanRepeatMode) {
       setRepeatMode("count");
     }
   }, [canUsePlanRepeatMode, repeatMode]);
-
-  // Prévias de cobertura — só em criação e quando billing_mode é covered_by_plan
-  useEffect(() => {
-    let cancelled = false;
-    const dateStr = String(form.starts_at || "").slice(0, 10);
-    const ready = !editingId && form.patient_id && form.service_id && /^\d{4}-\d{2}-\d{2}$/.test(dateStr);
-    if (ready && form.billing_mode === "covered_by_plan") {
-      setCoveragePreviewLoading(true);
-      getCoveragePreview({ patient_id: form.patient_id, service_id: form.service_id, date: dateStr })
-        .then((res) => { if (!cancelled) setCoveragePreview(res.data); })
-        .catch(() => { if (!cancelled) setCoveragePreview(null); })
-        .finally(() => { if (!cancelled) setCoveragePreviewLoading(false); });
-    } else {
-      setCoveragePreview(null);
-    }
-    return () => { cancelled = true; };
-  }, [form.patient_id, form.service_id, form.starts_at, form.billing_mode, editingId]);
 
   useEffect(() => {
     loadBaseData();
@@ -1770,9 +1764,17 @@ export default function Agendamentos() {
   );
 
   const handleSelectPatient = useCallback((patient) => {
-    setForm((prev) => ({ ...prev, patient_id: String(patient.id) }));
+    setForm((prev) => ({
+      ...prev,
+      patient_id: String(patient.id),
+      billing_mode: editingId ? prev.billing_mode : "per_session",
+      patient_credit_id: "",
+      session_replacement_credit_id: "",
+      cycle_reschedule_exception_justified: false,
+      cycle_reschedule_exception_reason: "",
+    }));
     setFormPatientQuery(getPatientName(patient));
-  }, []);
+  }, [editingId]);
 
   const professionalOptions = useMemo(
     () =>
@@ -2062,10 +2064,17 @@ export default function Agendamentos() {
     return sessionsByDay.get(key) || [];
   }, [selectedDate, sessionsByDay]);
 
+  const visibleDaySessions = useMemo(() => {
+    if (showCanceledAndNoShowInDayView) return daySessions;
+    return daySessions.filter(
+      (session) => !DAY_HIDDEN_HISTORY_STATUSES.has(String(session.status || "")),
+    );
+  }, [daySessions, showCanceledAndNoShowInDayView]);
+
   const daySessionGroups = useMemo(() => {
     const timeMap = new Map();
 
-    daySessions.forEach((session) => {
+    visibleDaySessions.forEach((session) => {
       if (!session?.starts_at) return;
       const startsAt = new Date(session.starts_at);
       if (Number.isNaN(startsAt.getTime())) return;
@@ -2138,7 +2147,7 @@ export default function Agendamentos() {
           .sort(compareServiceGroups),
       }))
       .sort((first, second) => first.sortMinutes - second.sortMinutes);
-  }, [compareServiceGroups, compareSessionsByPatientThenId, daySessions, getSessionServiceCode, serviceColor, serviceName]);
+  }, [compareServiceGroups, compareSessionsByPatientThenId, visibleDaySessions, getSessionServiceCode, serviceColor, serviceName]);
 
   const selectedDaySpecialEvents = useMemo(() => {
     const key = startOfDay(selectedDate).toISOString();
@@ -2451,8 +2460,9 @@ export default function Agendamentos() {
     setForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   }, [editingId, showEditReasonError]);
 
-  const updateStartDateTime = useCallback((dateValue, hourValue) => {
-    const nextStartsAt = buildDateHourInputValue(dateValue, hourValue);
+  const updateStartDateTime = useCallback((dateValue, hourValue, minuteValue = "00") => {
+    const nextMinuteValue = allowBrokenTimeScheduling ? minuteValue : "00";
+    const nextStartsAt = buildDateTimeInputValue(dateValue, hourValue, nextMinuteValue);
     if (!nextStartsAt) {
       setForm((prev) => ({ ...prev, starts_at: "", ends_at: "" }));
       return;
@@ -2470,21 +2480,30 @@ export default function Agendamentos() {
       ends_at: toInputValue(nextEndsAt),
     }));
     if (repeatEnabled && repeatWeekdays.length === 0) {
-      const weekday = toSelectableWeekday(startDate);
+      const weekday = toSelectableWeekday(startDate, allowWeekendScheduling);
       if (weekday) setRepeatWeekdays([weekday]);
     }
-  }, [repeatEnabled, repeatWeekdays.length]);
+  }, [allowBrokenTimeScheduling, allowWeekendScheduling, repeatEnabled, repeatWeekdays.length]);
 
   const handleStartDateChange = useCallback((event) => {
     const dateValue = event.target.value;
     const hourValue = getHourInputValue(form.starts_at) || String(START_HOUR).padStart(2, "0");
-    updateStartDateTime(dateValue, hourValue);
-  }, [form.starts_at, updateStartDateTime]);
+    const minuteValue = allowBrokenTimeScheduling ? getMinuteInputValue(form.starts_at) || "00" : "00";
+    updateStartDateTime(dateValue, hourValue, minuteValue);
+  }, [allowBrokenTimeScheduling, form.starts_at, updateStartDateTime]);
 
   const handleStartHourChange = useCallback((event) => {
     const hourValue = event.target.value;
     const dateValue = toDateInputValue(form.starts_at) || toDateInputValue(selectedDate);
-    updateStartDateTime(dateValue, hourValue);
+    const minuteValue = allowBrokenTimeScheduling ? getMinuteInputValue(form.starts_at) || "00" : "00";
+    updateStartDateTime(dateValue, hourValue, minuteValue);
+  }, [allowBrokenTimeScheduling, form.starts_at, selectedDate, updateStartDateTime]);
+
+  const handleStartMinuteChange = useCallback((event) => {
+    const minuteValue = event.target.value;
+    const dateValue = toDateInputValue(form.starts_at) || toDateInputValue(selectedDate);
+    const hourValue = getHourInputValue(form.starts_at) || String(START_HOUR).padStart(2, "0");
+    updateStartDateTime(dateValue, hourValue, minuteValue);
   }, [form.starts_at, selectedDate, updateStartDateTime]);
 
   useEffect(() => {
@@ -2774,7 +2793,6 @@ export default function Agendamentos() {
     setForm(emptyForm);
     setFormPatientQuery("");
     setReplacementCreditsForPatient([]);
-    setPatientCreditsForPatient([]);
     setRepeatEnabled(false);
     setRepeatWeekdays([]);
     setRepeatMode("count");
@@ -2843,7 +2861,7 @@ export default function Agendamentos() {
       );
 
       setRecurrencePreview(null);
-      resetForm();
+	      resetForm();
       closeDrawer();
       await reloadVisibleSessions();
       await loadPendingSessions();
@@ -2888,8 +2906,19 @@ export default function Agendamentos() {
 
 	  const handleCreateAt = useCallback(
 	    (date) => {
-      resetForm();
-      const endsAt = new Date(date);
+      if (!allowWeekendScheduling && isWeekendDate(date)) {
+        toast.error("Agendamentos aos sábados e domingos estão desativados nas regras operacionais da clínica.");
+        return;
+      }
+	      if (
+	        !allowBrokenTimeScheduling
+	        && (date.getMinutes() !== 0 || date.getSeconds() !== 0 || date.getMilliseconds() !== 0)
+	      ) {
+	        toast.error("Esta clínica permite agendamentos apenas em horários cheios.");
+	        return;
+	      }
+	      resetForm();
+	      const endsAt = new Date(date);
       endsAt.setHours(endsAt.getHours() + 1);
       setDrawerMode("form");
       setGroupContext(null);
@@ -2900,7 +2929,7 @@ export default function Agendamentos() {
       }));
       setIsDrawerOpen(true);
     },
-	    [resetForm],
+		    [allowBrokenTimeScheduling, allowWeekendScheduling, resetForm],
 	  );
 
 	  const handleScheduleReplacement = useCallback((alert) => {
@@ -2929,11 +2958,10 @@ export default function Agendamentos() {
 	    setPendingCenterSelectedItemKey(null);
 	    setGroupContext(null);
 	    setEditingId(null);
-	    setEditingIntent("create");
-	    setRepeatEnabled(false);
-	    setReplacementCreditsForPatient([replacementCredit]);
-	    setPatientCreditsForPatient([]);
-	    setFormPatientQuery(replacementCredit.patient_name || "Paciente");
+    setEditingIntent("create");
+    setRepeatEnabled(false);
+    setReplacementCreditsForPatient([replacementCredit]);
+    setFormPatientQuery(replacementCredit.patient_name || "Paciente");
 	    setForm({
 	      ...emptyForm,
 	      patient_id: String(replacementCredit.patient_id),
@@ -3082,6 +3110,7 @@ export default function Agendamentos() {
     (event) => {
       const { id } = event.currentTarget.dataset;
       const session = filteredSessions.find((item) => String(item.id) === id);
+      if (!canEditSession(session)) return;
       openSessionForm(session, "edit");
     },
     [filteredSessions, openSessionForm],
@@ -3574,12 +3603,8 @@ export default function Agendamentos() {
     [updateSessionStatus],
   );
 
-  const handleAbsence = useCallback(async (event) => {
-    const { id, status } = event.currentTarget.dataset;
-    if (!id || !status) return;
-    const sourceSession =
-      pendingSessionsSource.find((item) => String(item.id) === String(id)) ||
-      sessions.find((item) => String(item.id) === String(id));
+  const buildAbsenceModalState = useCallback(
+    async ({ id, status, sourceSession }) => {
     const latePolicyApplies =
       status === "canceled" &&
       isLessThanConfiguredNoticeBeforeSession(
@@ -3618,13 +3643,10 @@ export default function Agendamentos() {
     }
     const monthlyAbsenceCountAfter =
       status === "no_show" ? monthlyAbsenceCountBefore + 1 : monthlyAbsenceCountBefore;
-    setAbsenceModal({
-      ...emptyAbsenceModal,
-      open: true,
+    return {
       id,
       status,
       session: sourceSession || null,
-      reason: "",
       latePolicyApplies,
       monthlyAbsenceCountBefore,
       monthlyAbsenceCountAfter,
@@ -3634,13 +3656,48 @@ export default function Agendamentos() {
       monthlyAbsenceExceededLimit:
         status === "no_show" && monthlyAbsenceCountAfter > monthlyAbsenceLimit,
       hasFixedSchedule: !!sourceSession?.series_id,
-    });
+    };
   }, [
     operationalPolicy.late_change_minimum_notice_hours,
     operationalPolicy.monthly_absence_limit,
     pendingSessionsSource,
     sessions,
   ]);
+
+  const handleAbsence = useCallback(async (event) => {
+    const { id, status = "canceled" } = event.currentTarget.dataset;
+    if (!id) return;
+    const sourceSession =
+      pendingSessionsSource.find((item) => String(item.id) === String(id)) ||
+      sessions.find((item) => String(item.id) === String(id));
+    const modalState = await buildAbsenceModalState({ id, status, sourceSession });
+    setAbsenceModal({
+      ...emptyAbsenceModal,
+      open: true,
+      ...modalState,
+      reason: "",
+    });
+  }, [
+    buildAbsenceModalState,
+    pendingSessionsSource,
+    sessions,
+  ]);
+
+  const handleAbsenceStatusChoice = useCallback(async (status) => {
+    if (!absenceModal.id || absenceModal.status === status || absenceModal.isSaving) return;
+    const modalState = await buildAbsenceModalState({
+      id: absenceModal.id,
+      status,
+      sourceSession: absenceModal.session,
+    });
+    setAbsenceModal((prev) => ({
+      ...prev,
+      ...modalState,
+      latePolicyExceptionJustified: false,
+      latePolicyExceptionReason: "",
+      generateReplacementCredit: status === "canceled" ? prev.generateReplacementCredit : false,
+    }));
+  }, [absenceModal, buildAbsenceModalState]);
 
   const handleConfirmAbsence = useCallback(async () => {
     if (!absenceModal.id || !absenceModal.status || absenceModal.isSaving) return;
@@ -3817,18 +3874,49 @@ export default function Agendamentos() {
 	    ) || null,
 	    [form.session_replacement_credit_id, replacementCreditsForPatient],
 	  );
-	  const isSchedulingReplacement = !editingId && !!selectedReplacementCredit;
-	  const showReplacementCycleWarning = useMemo(() => {
-	    if (!isSchedulingReplacement || selectedReplacementCredit?.source_billing_mode !== "covered_by_plan") {
-	      return false;
-	    }
+		  const isSchedulingReplacement = !editingId && !!selectedReplacementCredit;
+		  const selectedReplacementBillingMode = selectedReplacementCredit?.source_billing_mode;
+		  const showReplacementCycleWarning = useMemo(() => {
+		    if (!isSchedulingReplacement || selectedReplacementBillingMode !== "covered_by_plan") {
+		      return false;
+		    }
 	    const cycleStart = selectedReplacementCredit.source_billing_cycle_start;
 	    const cycleEnd = selectedReplacementCredit.source_billing_cycle_end;
 	    if (!cycleStart || !cycleEnd || !form.starts_at) return false;
 	    return !isDateWithinInputRange(form.starts_at, cycleStart, cycleEnd);
-	  }, [form.starts_at, isSchedulingReplacement, selectedReplacementCredit]);
-	  const selectedReplacementServiceLabel =
-	    selectedReplacementCredit?.source_service_name || serviceName(form.service_type) || "Atendimento";
+	  }, [form.starts_at, isSchedulingReplacement, selectedReplacementBillingMode, selectedReplacementCredit]);
+  const getReplacementCreditOptionLabel = useCallback(
+    (credit) => {
+      const sourceSession = credit?.sourceSession || credit?.source_session || null;
+      const sourceStatus = String(
+        sourceSession?.status || credit?.source_status || credit?.status || "",
+      ).toLowerCase();
+      const sourceReason = String(credit?.reason || "").toLowerCase();
+      const sourceAction = sourceStatus === "no_show" || sourceReason.includes("falta")
+        ? "falta"
+        : "cancelada";
+      const sourceServiceTypeLabel = credit?.source_service_type
+        ? serviceName(credit.source_service_type)
+        : "";
+      const service =
+        credit?.source_service_name ||
+        sourceSession?.Service?.name ||
+        servicesById.get(credit?.source_service_id)?.name ||
+        servicesById.get(String(credit?.source_service_id || ""))?.name ||
+        sourceServiceTypeLabel ||
+        "Atendimento";
+      const sourceDate = formatShortDate(
+        sourceSession?.starts_at ||
+        credit?.source_starts_at ||
+        credit?.source_date ||
+        credit?.starts_at,
+      );
+
+      if (!sourceDate) return `${service} — reposição pendente`;
+      return `${service} — ${sourceAction} em ${sourceDate}`;
+    },
+    [serviceName, servicesById],
+  );
 
 	  const handleSubmit = useCallback(
     async (event) => {
@@ -3853,6 +3941,18 @@ export default function Agendamentos() {
       const startsAtDate = new Date(form.starts_at);
       if (Number.isNaN(startsAtDate.getTime())) {
         toast.error("Data de início inválida.");
+        return;
+      }
+      if (!allowWeekendScheduling && isWeekendDate(startsAtDate)) {
+        toast.error("Agendamentos aos sábados e domingos estão desativados nas regras operacionais da clínica.");
+        return;
+      }
+
+      if (
+        !allowBrokenTimeScheduling
+        && (startsAtDate.getMinutes() !== 0 || startsAtDate.getSeconds() !== 0 || startsAtDate.getMilliseconds() !== 0)
+      ) {
+        toast.error("Esta clínica permite agendamentos apenas em horários cheios.");
         return;
       }
 
@@ -3945,7 +4045,7 @@ export default function Agendamentos() {
         submitLockRef.current = false;
       };
       let selectedPatientCreditId = null;
-      if (form.billing_mode !== "covered_by_plan" && form.patient_credit_id) {
+      if (editingId && form.billing_mode !== "covered_by_plan" && form.patient_credit_id) {
         selectedPatientCreditId = Number(form.patient_credit_id);
       }
 
@@ -3954,6 +4054,15 @@ export default function Agendamentos() {
         editingId
         && editingScheduleWasChanged
         && editReason;
+
+      const billingModePayload = {};
+      if (!editingId) {
+        billingModePayload.billing_mode = isSchedulingReplacement
+          ? selectedReplacementBillingMode || form.billing_mode || "per_session"
+          : "per_session";
+      } else if (isSchedulingReplacement) {
+        billingModePayload.billing_mode = form.billing_mode || "per_session";
+      }
 
       const payload = {
         patient_id: Number(form.patient_id),
@@ -3984,9 +4093,7 @@ export default function Agendamentos() {
           ? Number(form.session_replacement_credit_id)
           : null,
         patient_credit_id: selectedPatientCreditId,
-	        ...(eligiblePlan || isSchedulingReplacement
-	          ? { billing_mode: form.billing_mode || "per_session" }
-	          : {}),
+        ...billingModePayload,
       };
 
       if (isRecurring) {
@@ -4173,12 +4280,13 @@ export default function Agendamentos() {
           override_reason: overrideReason,
         };
 	        if (editingId) {
-	          const originalSession = editingOriginalSession;
-	          const isReschedule =
-	            originalSession &&
-	            editingScheduleWasChanged &&
-	            originalSession.status === "scheduled" &&
-	            payload.status === "scheduled";
+		          const originalSession = editingOriginalSession;
+		          const isReschedule =
+		            originalSession &&
+		            editingIntent === "reschedule" &&
+		            editingScheduleWasChanged &&
+		            originalSession.status === "scheduled" &&
+		            payload.status === "scheduled";
 
 	          if (shouldUsePackageScopeUpdate) {
 	            const response = await axios.post(`/sessions/${editingId}/package-scope-update`, {
@@ -4235,11 +4343,12 @@ export default function Agendamentos() {
       }
     },
     [
-      closeDrawer,
+	      closeDrawer,
+	      allowBrokenTimeScheduling,
+	      allowWeekendScheduling,
       editingId,
-	      editingIntent,
-	      eligiblePlan,
-	      filteredSessions,
+      editingIntent,
+      filteredSessions,
 	      form,
 		      formLocalSpecialSummary,
 		      isSaving,
@@ -4254,8 +4363,9 @@ export default function Agendamentos() {
       repeatWeeks,
 	      repeatWeekdays,
 	      resetForm,
-		      selectedMonthKey,
-		      showReplacementCycleWarning,
+			      selectedMonthKey,
+			      selectedReplacementBillingMode,
+			      showReplacementCycleWarning,
 	      submitLockRef,
     ],
   );
@@ -4296,9 +4406,9 @@ export default function Agendamentos() {
 	  }, [getSessionServiceCode, sessionsByDay, serviceColor, serviceName]);
 
   const visibleMonthDays = useMemo(() => {
-    if (showMonthWeekend) return monthDays;
+    if (allowWeekendScheduling) return monthDays;
     return monthDays.filter((day) => day.getDay() !== 0 && day.getDay() !== 6);
-  }, [monthDays, showMonthWeekend]);
+  }, [allowWeekendScheduling, monthDays]);
 
   const handlePrev = useCallback(() => {
     const next = new Date(selectedDate);
@@ -4602,21 +4712,17 @@ export default function Agendamentos() {
     drawerTitle = "Central de pendencias";
   } else if (drawerMode === "group") {
     drawerTitle = "Detalhes do horário";
-  } else if (isSchedulingReplacement) {
-    drawerTitle = "Agendar reposição";
   } else if (isReschedulingSession) {
 	    drawerTitle = "Editar agendamento";
   } else if (editingId) {
     drawerTitle = "Editar agendamento";
   }
 
-  let drawerSubtitle = "Preencha os dados do atendimento.";
+  let drawerSubtitle = "";
   if (drawerMode === "pending") {
     drawerSubtitle = "";
 	  } else if (drawerMode === "group") {
 	    drawerSubtitle = groupContext ? formatDateTime(groupContext.date) : "";
-  } else if (isSchedulingReplacement) {
-    drawerSubtitle = "Reposição pendente";
   } else if (editingId) {
     drawerSubtitle = editingBillingSummary || "";
   }
@@ -4624,8 +4730,6 @@ export default function Agendamentos() {
   let submitButtonLabel = "Criar agendamento";
   if (isSaving) {
     submitButtonLabel = "Processando...";
-  } else if (isSchedulingReplacement) {
-    submitButtonLabel = "Agendar reposição";
 	  } else if (editingId) {
 	    submitButtonLabel = "Salvar";
   }
@@ -4730,15 +4834,6 @@ export default function Agendamentos() {
                 Hoje
               </SecondaryButton>
             )}
-            {view === "month" && (
-              <WeekendToggleButton
-                type="button"
-                $active={showMonthWeekend}
-                onClick={() => setShowMonthWeekend((prev) => !prev)}
-              >
-                {showMonthWeekend ? "Ocultar fim de semana" : "Fins de semana"}
-              </WeekendToggleButton>
-            )}
             <AgendaRefreshStatus
               $visible={isLoading}
               aria-live="polite"
@@ -4813,8 +4908,8 @@ export default function Agendamentos() {
           <AgendaRefreshLine $visible={isLoading} aria-hidden="true" />
           <AgendaContentBody $loading={isLoading}>
             {view === "week" && (
-              <WeekGrid>
-                <WeekHeader>
+              <WeekGrid $cols={weekDays.length}>
+                <WeekHeader $cols={weekDays.length}>
                   <div />
                   {weekDays.map((day) => (
                     <WeekHeaderCell
@@ -4892,7 +4987,11 @@ export default function Agendamentos() {
                           </WeekPeriodRow>
                         )}
                         {isPeriodExpanded && (
-                          <WeekRow key={`row-${hour}`} $striped={hour % 2 === 0}>
+                          <WeekRow
+                            key={`row-${hour}`}
+                            $cols={weekDays.length}
+                            $striped={hour % 2 === 0}
+                          >
                             <TimeCell $striped={hour % 2 === 0}>
                               <span>{`${hour.toString().padStart(2, "0")}:00`}</span>
                               {rowHasMore && (
@@ -5004,9 +5103,14 @@ export default function Agendamentos() {
               <DayPanel>
                 <DayHeader>
                   <h2>{formatDate(selectedDate)}</h2>
-                  <SecondaryButton type="button" onClick={() => handleCreateAt(selectedDate)}>
-                    Adicionar horario
-                  </SecondaryButton>
+                  <DayHistoryFilterToggle>
+                    <input
+                      type="checkbox"
+                      checked={showCanceledAndNoShowInDayView}
+                      onChange={(event) => setShowCanceledAndNoShowInDayView(event.target.checked)}
+                    />
+                    <span>Mostrar cancelados e faltas</span>
+                  </DayHistoryFilterToggle>
                 </DayHeader>
                 {selectedDaySpecialSummary && (
                   <DaySpecialStateBanner $severity={selectedDaySpecialSummary.severity}>
@@ -5033,10 +5137,10 @@ export default function Agendamentos() {
                     ))}
                   </DaySpecialList>
                 )}
-                {daySessions.length === 0 && (
+                {visibleDaySessions.length === 0 && (
                   <EmptyState>Nenhum agendamento para este dia.</EmptyState>
                 )}
-                {daySessions.length > 0 && (
+                {visibleDaySessions.length > 0 && (
                   <DayList>
                     {daySessionGroups.map((timeGroup) => (
                       <DayTimeGroup key={timeGroup.key}>
@@ -5148,22 +5252,12 @@ export default function Agendamentos() {
                                                   <GroupStatusButton
                                                     type="button"
                                                     data-id={session.id}
-                                                    data-status="no_show"
-                                                    $status="no_show"
-                                                    $active={isSessionStatusActive(session.status, "no_show")}
-                                                    onClick={(event) => { handleAbsence(event); setOpenActionMenu(null); }}
-                                                  >
-                                                    Marcar falta
-                                                  </GroupStatusButton>
-                                                  <GroupStatusButton
-                                                    type="button"
-                                                    data-id={session.id}
                                                     data-status="canceled"
                                                     $status="canceled"
-                                                    $active={isSessionStatusActive(session.status, "canceled")}
+                                                    $active={isSessionStatusActive(session.status, "canceled") || isSessionStatusActive(session.status, "no_show")}
                                                     onClick={(event) => { handleAbsence(event); setOpenActionMenu(null); }}
                                                   >
-                                                    Cancelar
+                                                    Cancelamento/falta
                                                   </GroupStatusButton>
                                                 </ActionsDropdown>
                                               )}
@@ -5183,13 +5277,15 @@ export default function Agendamentos() {
                                               </DayKebabButton>
                                               {openActionMenu === actionsMenuKey && (
                                                 <ActionsDropdown onClick={(event) => event.stopPropagation()}>
-                                                  <ActionsDropdownItem
-                                                    type="button"
-                                                    data-id={session.id}
-                                                    onClick={(event) => { handleEdit(event); setOpenActionMenu(null); }}
-                                                  >
-                                                    Editar agendamento
-                                                  </ActionsDropdownItem>
+                                                  {canEditSession(session) && (
+                                                    <ActionsDropdownItem
+                                                      type="button"
+                                                      data-id={session.id}
+                                                      onClick={(event) => { handleEdit(event); setOpenActionMenu(null); }}
+                                                    >
+                                                      Editar agendamento
+                                                    </ActionsDropdownItem>
+                                                  )}
                                                   <ActionsDropdownItem
                                                     type="button"
                                                     $danger
@@ -5293,26 +5389,16 @@ export default function Agendamentos() {
 	                                                      >
 	                                                        Concluir
 	                                                      </GroupStatusButton>
-	                                                      <GroupStatusButton
-	                                                        type="button"
-	                                                        data-id={session.id}
-	                                                        data-status="no_show"
-	                                                        $status="no_show"
-	                                                        $active={isSessionStatusActive(session.status, "no_show")}
-	                                                        onClick={(event) => { handleAbsence(event); setOpenActionMenu(null); }}
-	                                                      >
-	                                                        Marcar falta
-	                                                      </GroupStatusButton>
-	                                                      <GroupStatusButton
-	                                                        type="button"
-	                                                        data-id={session.id}
-	                                                        data-status="canceled"
-	                                                        $status="canceled"
-	                                                        $active={isSessionStatusActive(session.status, "canceled")}
-	                                                        onClick={(event) => { handleAbsence(event); setOpenActionMenu(null); }}
-	                                                      >
-	                                                        Cancelar
-	                                                      </GroupStatusButton>
+		                                                      <GroupStatusButton
+		                                                        type="button"
+		                                                        data-id={session.id}
+		                                                        data-status="canceled"
+		                                                        $status="canceled"
+		                                                        $active={isSessionStatusActive(session.status, "canceled") || isSessionStatusActive(session.status, "no_show")}
+		                                                        onClick={(event) => { handleAbsence(event); setOpenActionMenu(null); }}
+		                                                      >
+		                                                        Cancelamento/falta
+		                                                      </GroupStatusButton>
 	                                                    </ActionsDropdown>
 	                                                  )}
 	                                                </DayDropdownWrapper>
@@ -5329,19 +5415,21 @@ export default function Agendamentos() {
 	                                                  >
 	                                                    ⋮
 	                                                  </DayKebabButton>
-	                                                  {openActionMenu === actionsMenuKey && (
-	                                                    <ActionsDropdown onClick={(event) => event.stopPropagation()}>
-	                                                      <ActionsDropdownItem
-	                                                        type="button"
-	                                                        data-id={session.id}
-	                                                        onClick={(event) => { handleEdit(event); setOpenActionMenu(null); }}
-	                                                      >
-			                                                        Editar agendamento
-	                                                      </ActionsDropdownItem>
-	                                                      <ActionsDropdownItem
-	                                                        type="button"
-	                                                        $danger
-	                                                        onClick={() => { handleOpenDelete(session); setOpenActionMenu(null); }}
+		                                                  {openActionMenu === actionsMenuKey && (
+		                                                    <ActionsDropdown onClick={(event) => event.stopPropagation()}>
+		                                                      {canEditSession(session) && (
+		                                                        <ActionsDropdownItem
+		                                                          type="button"
+		                                                          data-id={session.id}
+		                                                          onClick={(event) => { handleEdit(event); setOpenActionMenu(null); }}
+		                                                        >
+				                                                          Editar agendamento
+		                                                        </ActionsDropdownItem>
+		                                                      )}
+		                                                      <ActionsDropdownItem
+		                                                        type="button"
+		                                                        $danger
+		                                                        onClick={() => { handleOpenDelete(session); setOpenActionMenu(null); }}
 	                                                      >
 		                                                        Remover da agenda
 	                                                      </ActionsDropdownItem>
@@ -5368,8 +5456,8 @@ export default function Agendamentos() {
 
             {view === "month" && (
               <MonthPanel>
-                <MonthGrid $cols={showMonthWeekend ? 7 : 5}>
-                  {(showMonthWeekend
+                <MonthGrid $cols={allowWeekendScheduling ? 7 : 5}>
+                  {(allowWeekendScheduling
                     ? ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
                     : ["Seg", "Ter", "Qua", "Qui", "Sex"]
                   ).map((label) => (
@@ -5407,12 +5495,14 @@ export default function Agendamentos() {
               <h2>
                 {drawerTitle}
               </h2>
-              <DrawerSubtitle
-                $prominent={drawerMode === "group"}
-                $billingSummary={Boolean(editingId && drawerSubtitle)}
-              >
-                {drawerSubtitle}
-              </DrawerSubtitle>
+              {drawerSubtitle && (
+                <DrawerSubtitle
+                  $prominent={drawerMode === "group"}
+                  $billingSummary={Boolean(editingId && drawerSubtitle)}
+                >
+                  {drawerSubtitle}
+                </DrawerSubtitle>
+              )}
             </div>
             <IconButton type="button" onClick={closeDrawer}>
               <FaTimes />
@@ -5815,24 +5905,15 @@ export default function Agendamentos() {
                                     <GroupStatusButton
                                       type="button"
                                       data-id={session.id}
-                                      data-status="no_show"
-                                      $status="no_show"
-                                      $active={isSessionStatusActive(session.status, "no_show")}
-                                      disabled={isGroupSessionSaving}
-                                      onClick={(e) => { handleAbsence(e); setOpenActionMenu(null); }}
-                                    >
-                                      {groupSessionSavingAction === "no_show" ? "Salvando..." : "Marcar falta"}
-                                    </GroupStatusButton>
-                                    <GroupStatusButton
-                                      type="button"
-                                      data-id={session.id}
                                       data-status="canceled"
                                       $status="canceled"
-                                      $active={isSessionStatusActive(session.status, "canceled")}
+                                      $active={isSessionStatusActive(session.status, "canceled") || isSessionStatusActive(session.status, "no_show")}
                                       disabled={isGroupSessionSaving}
                                       onClick={(e) => { handleAbsence(e); setOpenActionMenu(null); }}
                                     >
-                                      {groupSessionSavingAction === "canceled" ? "Salvando..." : "Cancelar"}
+                                      {groupSessionSavingAction === "canceled" || groupSessionSavingAction === "no_show"
+                                        ? "Salvando..."
+                                        : "Cancelamento/falta"}
                                     </GroupStatusButton>
                                   </ActionsDropdown>
                                 )}
@@ -5850,19 +5931,21 @@ export default function Agendamentos() {
                                 >
                                   ⋮
                                 </DayKebabButton>
-                                {openActionMenu === groupActionsMenuKey && (
-                                  <ActionsDropdown onClick={(e) => e.stopPropagation()}>
-                                    <ActionsDropdownItem
-                                      type="button"
-                                      data-id={session.id}
-                                      onClick={(e) => { handleEdit(e); setOpenActionMenu(null); }}
-                                    >
-	                                      Editar agendamento
-                                    </ActionsDropdownItem>
-                                    <ActionsDropdownItem
-                                      type="button"
-                                      $danger
-                                      onClick={() => { handleOpenDelete(session); setOpenActionMenu(null); }}
+	                                {openActionMenu === groupActionsMenuKey && (
+	                                  <ActionsDropdown onClick={(e) => e.stopPropagation()}>
+	                                    {canEditSession(session) && (
+	                                      <ActionsDropdownItem
+	                                        type="button"
+	                                        data-id={session.id}
+	                                        onClick={(e) => { handleEdit(e); setOpenActionMenu(null); }}
+	                                      >
+		                                        Editar agendamento
+	                                      </ActionsDropdownItem>
+	                                    )}
+	                                    <ActionsDropdownItem
+	                                      type="button"
+	                                      $danger
+	                                      onClick={() => { handleOpenDelete(session); setOpenActionMenu(null); }}
                                     >
 	                                      Remover da agenda
                                     </ActionsDropdownItem>
@@ -5881,7 +5964,7 @@ export default function Agendamentos() {
             {drawerMode !== "pending" && drawerMode !== "group" && (
               <Form onSubmit={handleSubmit}>
                 <FormGrid>
-		                  {editingId || isSchedulingReplacement ? (
+			                  {editingId ? (
 		                    <Field className="span-2">
 		                      Paciente
 		                      <ReadonlyText>{formPatientQuery || "Paciente"}</ReadonlyText>
@@ -5897,32 +5980,25 @@ export default function Agendamentos() {
                       onChange={(nextValue) => {
                         setFormPatientQuery(nextValue);
                         if (form.patient_id) {
-                          setForm((prev) => ({ ...prev, patient_id: "" }));
+                          setForm((prev) => ({
+                            ...prev,
+                            patient_id: "",
+                            billing_mode: "per_session",
+                            patient_credit_id: "",
+                            session_replacement_credit_id: "",
+                            cycle_reschedule_exception_justified: false,
+                            cycle_reschedule_exception_reason: "",
+                          }));
                         }
                       }}
                       onSelect={handleSelectPatient}
                     />
                   )}
-	                  {!editingId && !isSchedulingReplacement && form.patient_id && activePlansForPatient.length > 0 && (
-                    <ActivePlansCard className="span-2">
-                      {activePlansForPatient.map((p) => {
-                        const planServiceName = p.ServicePlan?.Service?.name || p.ServicePlan?.name || "Plano";
-                        const freq = compactWeeklyFrequencyLabel(p.ServicePlan);
-                        return (
-                          <ActivePlanRow key={p.id}>
-                            <strong>Plano ativo:</strong> {planServiceName}{freq ? ` · ${freq}` : ""}
-                          </ActivePlanRow>
-                        );
-                      })}
-		                    </ActivePlansCard>
-		                  )}
 	                  <Field>
 	                    Tipo de atendimento
-		                    {editingId || isSchedulingReplacement ? (
+			                    {editingId ? (
 		                      <ReadonlyText>
-		                        {isSchedulingReplacement
-		                          ? selectedReplacementServiceLabel
-		                          : getSessionServiceLabel(editingSession, serviceName) || "Atendimento"}
+			                        {getSessionServiceLabel(editingSession, serviceName) || "Atendimento"}
 		                      </ReadonlyText>
 	                    ) : (
 	                      <SelectionFieldShell>
@@ -5935,12 +6011,16 @@ export default function Agendamentos() {
 	                            const service = serviceOptions.find(
 	                              (item) => String(item.id) === selectedId,
 	                            );
-	                            setForm((prev) => ({
-	                              ...prev,
-	                              service_id: selectedId,
-	                              service_type: service?.code || "",
-	                            }));
-	                          }}
+                            setForm((prev) => ({
+                              ...prev,
+                              service_id: selectedId,
+                              service_type: service?.code || "",
+                              patient_credit_id: "",
+                              session_replacement_credit_id: "",
+                              cycle_reschedule_exception_justified: false,
+                              cycle_reschedule_exception_reason: "",
+                            }));
+                          }}
 	                        >
 	                          <option value="" disabled hidden>
 	                            Selecionar
@@ -5986,8 +6066,8 @@ export default function Agendamentos() {
                       </SelectionFieldShell>
                     </Field>
                   )}
-		                  {!editingId && !isSchedulingReplacement && (
-	                    <Field>
+				                  {!editingId && (
+		                    <Field className="span-2">
 	                      Status
                       <select
                         name="status"
@@ -6021,17 +6101,31 @@ export default function Agendamentos() {
 		                      </Field>
 		                      <Field>
 		                        Horário *
-		                        <select
-		                          value={getHourInputValue(form.starts_at)}
-		                          onChange={handleStartHourChange}
-		                        >
-		                          <option value="" disabled>Selecione</option>
-		                          {APPOINTMENT_HOUR_OPTIONS.map((option) => (
-		                            <option key={option.value} value={option.value}>
-		                              {option.label}
-		                            </option>
-		                          ))}
-		                        </select>
+			                        <TimeInputGrid>
+			                          <select
+			                            value={getHourInputValue(form.starts_at)}
+			                            onChange={handleStartHourChange}
+			                          >
+			                            <option value="" disabled>Selecione</option>
+			                            {APPOINTMENT_HOUR_OPTIONS.map((option) => (
+			                              <option key={option.value} value={option.value}>
+			                                {option.label}
+			                              </option>
+			                            ))}
+			                          </select>
+			                          {allowBrokenTimeScheduling && (
+			                            <select
+			                              value={getMinuteInputValue(form.starts_at) || "00"}
+			                              onChange={handleStartMinuteChange}
+			                            >
+			                              {APPOINTMENT_MINUTE_OPTIONS.map((option) => (
+			                                <option key={option.value} value={option.value}>
+			                                  {option.label}
+			                                </option>
+			                              ))}
+			                            </select>
+			                          )}
+			                        </TimeInputGrid>
 		                      </Field>
 		                    </>
 		                  )}
@@ -6044,7 +6138,7 @@ export default function Agendamentos() {
                           checked={!!form.late_policy_exception_justified}
                           onChange={handleFormChange}
                         />
-		                        <span>Não considerar como falta</span>
+			                        <span>Tem justificativa</span>
 		                      </LatePolicyToggle>
 		                      {form.late_policy_exception_justified && (
 		                        <textarea
@@ -6101,54 +6195,7 @@ export default function Agendamentos() {
                       )}
                     </LatePolicyCard>
                   )}
-	                  {!editingId && !isSchedulingReplacement && eligiblePlan && (
-                    <BillingModeCard className="span-2">
-                      <BillingModeHeader>
-                        <strong>Cobrança</strong>
-                        <span>{eligiblePlan.ServicePlan?.name || "Plano mensal"}</span>
-                      </BillingModeHeader>
-                      <BillingModeOptions>
-                        <BillingModeOption
-                          type="button"
-                          $active={form.billing_mode === "covered_by_plan"}
-                          disabled={!!(editingId && form.status === "done")}
-                          onClick={() =>
-                            setForm((prev) => ({
-                              ...prev,
-                              billing_mode: "covered_by_plan",
-                              patient_credit_id: "",
-                            }))
-                          }
-                        >
-                          <strong>Mensal</strong>
-                          <span>Incluída no plano</span>
-                        </BillingModeOption>
-                        <BillingModeOption
-                          type="button"
-                          $active={form.billing_mode === "per_session"}
-                          disabled={!!(editingId && form.status === "done")}
-                          onClick={() =>
-                            setForm((prev) => ({ ...prev, billing_mode: "per_session" }))
-                          }
-                        >
-                          <strong>Por sessão</strong>
-                          <span>Cobrança separada</span>
-                        </BillingModeOption>
-                      </BillingModeOptions>
-                    </BillingModeCard>
-                  )}
-	                  {isSchedulingReplacement && selectedReplacementCredit && (
-	                    <Field className="span-2">
-	                      Origem
-	                      <ReadonlyValue>
-	                        Reposição pendente
-	                        {selectedReplacementCredit.expires_at
-	                          ? ` - vence em ${selectedReplacementCredit.expires_at}`
-	                          : ""}
-	                      </ReadonlyValue>
-	                    </Field>
-	                  )}
-	                  {showReplacementCycleWarning && (
+		                  {showReplacementCycleWarning && (
 	                    <LatePolicyCard className="span-2">
 	                      <LatePolicyToggle>
 	                        <input
@@ -6161,44 +6208,28 @@ export default function Agendamentos() {
 	                      </LatePolicyToggle>
 	                    </LatePolicyCard>
 	                  )}
-	                  {!isSchedulingReplacement && replacementCreditsForPatient.length > 0 && (
-                    <Field className="span-2">
-                      Reposição de sessão
-                      <select
-                        name="session_replacement_credit_id"
-                        value={form.session_replacement_credit_id}
-                        onChange={handleFormChange}
-                      >
-                        <option value="">Não usar reposição</option>
-                        {replacementCreditsForPatient.map((credit) => (
-                          <option key={credit.id} value={credit.id}>
-                            #{credit.id} - vence em {credit.expires_at} - {credit.reason}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                  )}
-	                  {!editingId && !isSchedulingReplacement && form.billing_mode !== "covered_by_plan" && patientCreditsForPatient.length > 0 && (
-                    <Field className="span-2">
-                      Pacote de sessões
-                      <select
-                        name="patient_credit_id"
-                        value={form.patient_credit_id}
-                        onChange={handleFormChange}
-                      >
-                        <option value="">Nao usar pacote</option>
-                        {patientCreditsForPatient.map((credit) => {
-                          const remaining = Number(credit.total_sessions || 0) - Number(credit.used_sessions || 0);
-                          const creditServiceName = credit.Service?.name || "Pacote de sessões";
-                          return (
-                            <option key={credit.id} value={credit.id}>
-                              {creditServiceName} - {remaining} de {credit.total_sessions} restantes
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </Field>
-                  )}
+		                  {!editingId && replacementCreditsForPatient.length > 0 && (
+	                    <Field className="span-2">
+	                      Reposição de sessão
+	                      <select
+	                        name="session_replacement_credit_id"
+	                        value={form.session_replacement_credit_id}
+	                        onChange={handleFormChange}
+	                      >
+	                        <option value="">Não usar reposição</option>
+	                        {replacementCreditsForPatient.map((credit) => (
+	                          <option key={credit.id} value={credit.id}>
+	                            {getReplacementCreditOptionLabel(credit)}
+	                          </option>
+	                        ))}
+	                      </select>
+                      {selectedReplacementCredit && (
+                        <ReplacementSelectionHint>
+                          Reposição selecionada. Sem nova cobrança.
+                        </ReplacementSelectionHint>
+                      )}
+	                    </Field>
+	                  )}
 		                  {!editingId && (
                     <>
                       <Field>
@@ -6211,48 +6242,33 @@ export default function Agendamentos() {
                       </Field>
                       <Field>
                         Horário *
-                        <select
-                          value={getHourInputValue(form.starts_at)}
-                          onChange={handleStartHourChange}
-                        >
-                          <option value="" disabled>Selecione</option>
-                          {APPOINTMENT_HOUR_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
+	                        <TimeInputGrid>
+	                          <select
+	                            value={getHourInputValue(form.starts_at)}
+	                            onChange={handleStartHourChange}
+	                          >
+	                            <option value="" disabled>Selecione</option>
+	                            {APPOINTMENT_HOUR_OPTIONS.map((option) => (
+	                              <option key={option.value} value={option.value}>
+	                                {option.label}
+	                              </option>
+	                            ))}
+	                          </select>
+	                          {allowBrokenTimeScheduling && (
+	                            <select
+	                              value={getMinuteInputValue(form.starts_at) || "00"}
+	                              onChange={handleStartMinuteChange}
+	                            >
+	                              {APPOINTMENT_MINUTE_OPTIONS.map((option) => (
+	                                <option key={option.value} value={option.value}>
+	                                  {option.label}
+	                                </option>
+	                              ))}
+	                            </select>
+	                          )}
+	                        </TimeInputGrid>
                       </Field>
                     </>
-                  )}
-                  {!editingId && form.patient_id && form.service_id && form.starts_at && (
-                    <CoveragePreviewCard className="span-2">
-                      {form.billing_mode !== "covered_by_plan" && (
-                        <CoveragePreviewRow><strong>Cobrança prevista:</strong> Avulsa</CoveragePreviewRow>
-                      )}
-                      {form.billing_mode === "covered_by_plan" && coveragePreviewLoading && (
-                        <CoveragePreviewRow>Verificando cobertura...</CoveragePreviewRow>
-                      )}
-                      {form.billing_mode === "covered_by_plan" && !coveragePreviewLoading && coveragePreview && (
-                        <>
-                          <CoveragePreviewRow>
-                            <strong>Cobrança prevista:</strong>{" "}
-                            Plano mensal
-                          </CoveragePreviewRow>
-                          {coveragePreview.sessions_per_week && (
-                            <CoveragePreviewRow>Frequência planejada: {coveragePreview.sessions_per_week}x/sem</CoveragePreviewRow>
-                          )}
-                          {coveragePreview.usage_summary && (
-                            <CoveragePreviewRow>
-                              Sessões neste ciclo: {coveragePreview.usage_summary.total_reserved || 0} agendada(s) / {coveragePreview.usage_summary.total_consumed || 0} realizada(s)
-                            </CoveragePreviewRow>
-                          )}
-                          {!coveragePreview.usage_summary && (
-                            <CoveragePreviewRow>{coveragePreview.message}</CoveragePreviewRow>
-                          )}
-                        </>
-                      )}
-                    </CoveragePreviewCard>
                   )}
                   {shouldShowFormContext && (
                     <ScheduleContextCard className="span-2" $severity="block">
@@ -6280,7 +6296,7 @@ export default function Agendamentos() {
                               ) {
                                 const start = new Date(form.starts_at);
                                 if (!Number.isNaN(start.getTime())) {
-                                  const weekday = toSelectableWeekday(start);
+                                  const weekday = toSelectableWeekday(start, allowWeekendScheduling);
                                   if (weekday) setRepeatWeekdays([weekday]);
                                 }
                               }
@@ -6387,7 +6403,7 @@ export default function Agendamentos() {
                             <RepeatField className="full">
                               <RepeatLabel>Quais dias?</RepeatLabel>
                               <WeekdayGrid>
-                                {WEEKDAY_OPTIONS.map((option) => (
+                                {visibleWeekdayOptions.map((option) => (
                                   <WeekdayButton
                                     key={option.value}
                                     type="button"
@@ -6764,9 +6780,7 @@ export default function Agendamentos() {
           <ModalOverlay>
             <ModalCard>
               <ModalHeader>
-                <h3>
-                  {absenceModal.status === "no_show" ? "Motivo da falta" : "Motivo do cancelamento"}
-                </h3>
+	                <h3>Cancelamento/falta</h3>
                 <IconButton
                   type="button"
                   disabled={absenceModal.isSaving}
@@ -6776,6 +6790,31 @@ export default function Agendamentos() {
                 </IconButton>
               </ModalHeader>
               <ModalBody>
+                <AbsenceQuestion>O que aconteceu?</AbsenceQuestion>
+                <AbsenceChoiceGroup role="group" aria-label="Tipo de cancelamento ou falta">
+                  <AbsenceChoiceCard
+                    type="button"
+                    $active={absenceModal.status === "canceled"}
+                    $tone="canceled"
+                    aria-pressed={absenceModal.status === "canceled"}
+                    disabled={absenceModal.isSaving}
+                    onClick={() => handleAbsenceStatusChoice("canceled")}
+                  >
+                    <strong>Cancelamento</strong>
+                    <span>Não conta falta.</span>
+                  </AbsenceChoiceCard>
+                  <AbsenceChoiceCard
+                    type="button"
+                    $active={absenceModal.status === "no_show"}
+                    $tone="no_show"
+                    aria-pressed={absenceModal.status === "no_show"}
+                    disabled={absenceModal.isSaving}
+                    onClick={() => handleAbsenceStatusChoice("no_show")}
+                  >
+                    <strong>Falta</strong>
+                    <span>Conta falta.</span>
+                  </AbsenceChoiceCard>
+                </AbsenceChoiceGroup>
                 {absenceModal.status === "no_show" && (
                   <AbsenceImpactPanel>
                     <span>
@@ -6786,7 +6825,7 @@ export default function Agendamentos() {
                 {absenceModal.latePolicyApplies && (
                   <AbsencePolicyInline>
                     <span>
-                      Este atendimento está sendo cancelado com menos de {operationalPolicy.late_change_minimum_notice_hours || 24}h e poderá ser registrado como Falta se não houver justificativa.
+                      Menos de {operationalPolicy.late_change_minimum_notice_hours || 24}h. Sem justificativa vira falta.
                     </span>
                     <LatePolicyToggle>
                       <input
@@ -6803,12 +6842,12 @@ export default function Agendamentos() {
                           }))
                         }
                       />
-	                      <span>Não considerar como falta</span>
+			                      <span>Tem justificativa</span>
                     </LatePolicyToggle>
                   </AbsencePolicyInline>
                 )}
-	                {absenceModal.status === "canceled" &&
-	                  (!absenceModal.latePolicyApplies || absenceModal.latePolicyExceptionJustified) && (
+		                {absenceModal.status === "canceled" &&
+		                  (!absenceModal.latePolicyApplies || absenceModal.latePolicyExceptionJustified) && (
 	                    <LatePolicyToggle>
 	                      <input
 	                        type="checkbox"
@@ -6819,21 +6858,17 @@ export default function Agendamentos() {
 	                            ...prev,
 	                            generateReplacementCredit: event.target.checked,
 	                          }))
-	                        }
-	                      />
-	                      <span>Gerar reposição pendente</span>
-	                    </LatePolicyToggle>
-	                  )}
-	                <ModalFieldLabel>
-                  {absenceModal.status === "no_show" ? "Motivo da falta" : "Motivo do cancelamento"}
+		                        }
+		                      />
+		                      <span>Gerar reposição</span>
+		                    </LatePolicyToggle>
+		                  )}
+		                <ModalFieldLabel>
+                  Motivo
                 </ModalFieldLabel>
                 <textarea
                   rows={4}
-                  placeholder={
-                    absenceModal.status === "no_show"
-                      ? "Descreva o motivo da falta"
-                      : "Descreva o motivo"
-                  }
+                  placeholder="Descreva o motivo"
                   value={absenceModal.reason}
                   disabled={absenceModal.isSaving}
                   onChange={(event) =>
@@ -6846,20 +6881,18 @@ export default function Agendamentos() {
                   type="button"
                   disabled={absenceModal.isSaving}
                   onClick={() => setAbsenceModal(emptyAbsenceModal)}
-                >
-                  Cancelar
-                </SecondaryButton>
+	                >
+	                  Voltar
+	                </SecondaryButton>
                 <ModalSaveButton
-                  type="button"
-                  onClick={handleConfirmAbsence}
-                  disabled={absenceModal.isSaving}
-                  aria-label={absenceModal.isSaving ? "Salvando motivo" : "Salvar motivo"}
-                >
-                  {absenceModal.isSaving && <ButtonSpinner aria-hidden="true" />}
-                  {!absenceModal.isSaving && (
-                    absenceModal.status === "no_show" ? "Confirmar falta" : "Salvar"
-                  )}
-                </ModalSaveButton>
+	                  type="button"
+	                  onClick={handleConfirmAbsence}
+	                  disabled={absenceModal.isSaving}
+	                  aria-label={absenceModal.isSaving ? "Salvando" : "Salvar"}
+	                >
+	                  {absenceModal.isSaving && <ButtonSpinner aria-hidden="true" />}
+	                  {!absenceModal.isSaving && "Salvar"}
+	                </ModalSaveButton>
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
@@ -7777,6 +7810,34 @@ const FiltersRow = styled.div`
   }
 `;
 
+const DayHistoryFilterToggle = styled.label`
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  border-radius: 10px;
+  background: #fff;
+  color: #4f5948;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+
+  input {
+    width: 15px;
+    height: 15px;
+    accent-color: #6a795c;
+  }
+
+  @media (max-width: 700px) {
+    width: 100%;
+    justify-content: flex-start;
+  }
+`;
+
 const NotificationButton = styled.button`
   position: relative;
   width: 42px;
@@ -8384,7 +8445,7 @@ const WeekGrid = styled.div`
 
 const WeekHeader = styled.div`
   display: grid;
-  grid-template-columns: 80px repeat(5, minmax(0, 1fr));
+  grid-template-columns: 80px repeat(${(props) => props.$cols || 5}, minmax(0, 1fr));
   background: #f2f4ee;
   border-bottom: 1px solid rgba(106, 121, 92, 0.15);
 `;
@@ -8506,7 +8567,7 @@ const WeekPeriodArrow = styled.strong`
 
 const WeekRow = styled.div`
   display: grid;
-  grid-template-columns: 80px repeat(5, minmax(0, 1fr));
+  grid-template-columns: 80px repeat(${(props) => props.$cols || 5}, minmax(0, 1fr));
   min-height: 80px;
   border-bottom: 1px solid rgba(106, 121, 92, 0.3);
   background: ${(props) => (props.$striped ? "rgba(106, 121, 92, 0.018)" : "#fff")};
@@ -9142,21 +9203,6 @@ const MonthHint = styled.p`
   font-size: 0.9rem;
 `;
 
-const WeekendToggleButton = styled.button`
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(106, 121, 92, 0.28);
-  background: ${(props) => (props.$active ? "rgba(106, 121, 92, 0.15)" : "transparent")};
-  color: #6a795c;
-  font-weight: 600;
-  font-size: 0.82rem;
-  cursor: pointer;
-  transition: background 0.15s;
-  &:hover {
-    background: rgba(106, 121, 92, 0.12);
-  }
-`;
-
 const MonthServiceChips = styled.div`
   display: flex;
   flex-direction: column;
@@ -9582,7 +9628,7 @@ const ModalHeader = styled.div`
 const ModalBody = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 
   textarea {
     width: 100%;
@@ -9601,14 +9647,85 @@ const ModalFieldLabel = styled.span`
   font-weight: 800;
 `;
 
+const AbsenceQuestion = styled.span`
+  color: #30362c;
+  font-size: 0.92rem;
+  font-weight: 800;
+`;
+
+const AbsenceChoiceGroup = styled.div`
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+`;
+
+const AbsenceChoiceCard = styled.button`
+  width: 100%;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 5px;
+  padding: 14px 16px;
+  border: 1px solid
+    ${(props) => {
+    if (!props.$active) return "rgba(106, 121, 92, 0.18)";
+    if (props.$tone === "no_show") return "rgba(138, 87, 24, 0.58)";
+    return "rgba(106, 121, 92, 0.68)";
+  }};
+  border-radius: 10px;
+  background: ${(props) => {
+    if (!props.$active) return "#fff";
+    if (props.$tone === "no_show") return "rgba(214, 170, 104, 0.12)";
+    return "rgba(106, 121, 92, 0.12)";
+  }};
+  color: #1f2933;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  box-shadow: ${(props) => (props.$active ? "0 0 0 3px rgba(106, 121, 92, 0.08)" : "none")};
+
+  strong {
+    color: ${(props) => {
+    if (props.$active && props.$tone === "no_show") return "#7c4e16";
+    if (props.$active) return "#3d5230";
+    return "#1f2933";
+  }};
+    font-size: 0.96rem;
+    font-weight: 900;
+    line-height: 1.2;
+  }
+
+  span {
+    color: #5d6b52;
+    font-size: 0.84rem;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+
+  &:hover {
+    border-color: ${(props) => (props.$tone === "no_show" ? "rgba(138, 87, 24, 0.42)" : "rgba(106, 121, 92, 0.42)")};
+    background: ${(props) => (props.$tone === "no_show" ? "rgba(214, 170, 104, 0.1)" : "rgba(106, 121, 92, 0.09)")};
+  }
+
+  &:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+`;
+
 const AbsencePolicyInline = styled.div`
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 2px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(214, 170, 104, 0.32);
+  border-radius: 10px;
+  background: rgba(255, 248, 235, 0.82);
 
   > span {
-    color: #b42318;
+    color: #6d4b18;
     font-size: 0.82rem;
     font-weight: 800;
     line-height: 1.35;
@@ -10612,6 +10729,19 @@ const Field = styled.label`
   }
 `;
 
+const TimeInputGrid = styled.div`
+  display: grid;
+  grid-template-columns: 98px 76px;
+  gap: 8px;
+  justify-content: flex-start;
+
+  select {
+    width: 100%;
+    padding-left: 12px;
+    padding-right: 28px;
+  }
+`;
+
 const FieldBubble = styled.span`
   position: relative;
   align-self: flex-start;
@@ -10743,104 +10873,11 @@ const PackageScopeHint = styled.small`
   line-height: 1.4;
 `;
 
-const BillingModeCard = styled.div`
-  border: 1px solid rgba(106, 121, 92, 0.18);
-  border-radius: 14px;
-  padding: 14px;
-  background: #f9faf6;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-`;
-
-const BillingModeHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-
-  strong {
-    font-size: 0.95rem;
-    color: #1b1b1b;
-  }
-
-  span {
-    font-size: 0.82rem;
-    color: #6a795c;
-  }
-`;
-
-const BillingModeOptions = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-`;
-
-const BillingModeOption = styled.button`
-  border: 2px solid
-    ${(props) => (props.$active ? "#6a795c" : "rgba(106, 121, 92, 0.2)")};
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: ${(props) => (props.$active ? "rgba(106, 121, 92, 0.12)" : "#fff")};
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  text-align: left;
-  transition: border-color 0.15s, background 0.15s;
-
-  strong {
-    font-size: 0.9rem;
-    color: ${(props) => (props.$active ? "#3d5230" : "#1b1b1b")};
-  }
-
-  span {
-    font-size: 0.78rem;
-    color: #6a795c;
-  }
-
-  &:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-`;
-
-const ActivePlansCard = styled.div`
-  border: 1px solid rgba(106, 121, 92, 0.35);
-  border-radius: 12px;
-  padding: 10px 14px;
-  background: rgba(106, 121, 92, 0.09);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-`;
-
-const ActivePlanRow = styled.span`
-  font-size: 0.86rem;
-  color: #2e4025;
-
-  strong {
-    color: #1b1b1b;
-  }
-`;
-
-const CoveragePreviewCard = styled.div`
-  border: 1px solid rgba(106, 121, 92, 0.18);
-  border-radius: 12px;
-  padding: 10px 14px;
-  background: #f8faf5;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-`;
-
-const CoveragePreviewRow = styled.span`
-  font-size: 0.83rem;
+const ReplacementSelectionHint = styled.small`
   color: #3d5230;
-
-  strong {
-    color: #1b1b1b;
-  }
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.4;
 `;
 
 const RepeatCard = styled.div`
@@ -11013,20 +11050,6 @@ const SelectionNativeField = styled.select`
   background: ${(props) => (props.$selected ? "#fbfcf9" : "#fff")};
   box-shadow: ${(props) =>
     props.$selected ? "0 0 0 3px rgba(106, 121, 92, 0.08)" : "none"};
-`;
-
-const ReadonlyValue = styled.div`
-  width: 100%;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  border: 1px solid rgba(106, 121, 92, 0.16);
-  border-radius: 12px;
-  background: #f8faf7;
-  color: #1f2933;
-  font-size: 0.95rem;
-  font-weight: 700;
-  padding: 0 14px;
 `;
 
 const ReadonlyText = styled.div`

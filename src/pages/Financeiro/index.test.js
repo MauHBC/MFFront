@@ -1,3 +1,4 @@
+/* eslint-env jest */
 import "@testing-library/jest-dom";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -87,8 +88,31 @@ const revealFinancialValues = async () => {
   await userEvent.click(screen.getByRole("button", { name: "Mostrar valores financeiros" }));
 };
 
+const RealDate = Date;
+const fixedFinanceiroTestDate = new RealDate("2026-06-15T12:00:00-03:00");
+
+class FixedFinanceiroTestDate extends RealDate {
+  constructor(...args) {
+    if (args.length === 0) {
+      super(fixedFinanceiroTestDate.getTime());
+      return;
+    }
+
+    super(...args);
+  }
+
+  static now() {
+    return fixedFinanceiroTestDate.getTime();
+  }
+}
+
 describe("Financeiro - detalhe de receitas por paciente", () => {
   beforeEach(() => {
+    Object.defineProperty(globalThis, "Date", {
+      configurable: true,
+      writable: true,
+      value: FixedFinanceiroTestDate,
+    });
     jest.clearAllMocks();
     Object.defineProperty(window, "matchMedia", {
       writable: true,
@@ -207,6 +231,15 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     });
     listBillingCycles.mockResolvedValue({ data: [] });
     applyScopedFinancialCredit.mockResolvedValue({ data: {} });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, "Date", {
+      configurable: true,
+      writable: true,
+      value: RealDate,
+    });
+    jest.useRealTimers();
   });
 
   it("usa patient-detail ao clicar em Detalhes sem carregar listas pesadas", async () => {

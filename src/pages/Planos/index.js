@@ -109,6 +109,10 @@ const PLAN_HOUR_OPTIONS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, 
   };
 });
 
+const DEFAULT_OPERATIONAL_POLICY = {
+  allow_broken_time_scheduling: false,
+};
+
 const PROFESSIONAL_GROUP_SLUG = "profissional";
 const PATIENT_PLAN_DETAIL_SECTIONS = {
   plan: "plan",
@@ -584,14 +588,24 @@ const getHourTimeValue = (value) => {
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return `${String(date.getHours()).padStart(2, "0")}:00`;
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 };
 
-const buildDateTimeWithHour = (dateValue, timeValue) => {
+const normalizeScheduleTimeValue = (timeValue, allowBrokenTimeScheduling = false) => {
+  const match = String(timeValue || "").match(/^(\d{1,2})(?::(\d{1,2}))?$/);
+  if (!match) return "08:00";
+  const hour = Math.min(23, Math.max(0, Number(match[1]) || 0));
+  const minute = allowBrokenTimeScheduling
+    ? Math.min(59, Math.max(0, Number(match[2]) || 0))
+    : 0;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+};
+
+const buildDateTimeWithHour = (dateValue, timeValue, allowBrokenTimeScheduling = false) => {
   if (!dateValue || !timeValue) return null;
   const date = String(dateValue).slice(0, 10);
-  const hour = String(timeValue).slice(0, 2).padStart(2, "0");
-  return `${date}T${hour}:00:00`;
+  const time = normalizeScheduleTimeValue(timeValue, allowBrokenTimeScheduling);
+  return `${date}T${time}:00`;
 };
 
 const getScheduleTimeForWeekday = (form, weekday) =>
@@ -605,7 +619,10 @@ const getSchedDayTimeEntries = (form) =>
     time: getScheduleTimeForWeekday(form, weekday),
   }));
 
-const formatHourLabel = (time) => `${String(time || "").slice(0, 2).padStart(2, "0")}h`;
+const formatHourLabel = (time) => {
+  const normalized = normalizeScheduleTimeValue(time, true);
+  return normalized.endsWith(":00") ? `${normalized.slice(0, 2)}h` : normalized;
+};
 
 const getPatientPlanAgendaInfo = (pp, professionals = []) => {
   const activeSeries = getLatestPlanSeries(pp);
@@ -930,6 +947,7 @@ export default function Planos() {
   const [planChangeForm, setPlanChangeForm] = useState(EMPTY_PLAN_CHANGE);
   const [planChangeConfirmOpen, setPlanChangeConfirmOpen] = useState(false);
   const planChangeSubmittingRef = useRef(false);
+  const [operationalPolicy, setOperationalPolicy] = useState(DEFAULT_OPERATIONAL_POLICY);
 
   // Schedule sessions drawer (open from PatientPlan row)
   const [schedDrawerOpen, setSchedDrawerOpen] = useState(false);
@@ -946,16 +964,21 @@ export default function Planos() {
     setIsServicesLoading(true);
     setServicesError("");
     try {
-      const [servicesRes, pricesRes, patientsRes, profsRes] = await Promise.all([
+      const [servicesRes, pricesRes, patientsRes, profsRes, operationalPolicyRes] = await Promise.all([
         axios.get("/services"),
         listServicePrices(),
         axios.get("/patients"),
         axios.get("/users", { params: { group: PROFESSIONAL_GROUP_SLUG } }),
+        axios.get("/unit-scheduling-policy"),
       ]);
       setServices(Array.isArray(servicesRes.data) ? servicesRes.data : []);
       setServicePrices(Array.isArray(pricesRes.data) ? pricesRes.data : []);
       setPatients(Array.isArray(patientsRes.data) ? patientsRes.data : []);
       setProfessionals(Array.isArray(profsRes.data) ? profsRes.data : []);
+      setOperationalPolicy({
+        ...DEFAULT_OPERATIONAL_POLICY,
+        ...(operationalPolicyRes.data || {}),
+      });
     } catch (err) {
       const message = err?.response?.data?.error || "Erro ao carregar dados base.";
       setServicesError(message);
@@ -1115,9 +1138,11 @@ export default function Planos() {
     loadPatientPlanDetail(patientPlanId);
   }, [loadPatientPlanDetail, patientPlanId]);
 
-  // ---- Derived ----
+	  // ---- Derived ----
 
-  const filteredServicePlans = useMemo(() => {
+  const allowBrokenTimeScheduling = !!operationalPolicy.allow_broken_time_scheduling;
+
+	  const filteredServicePlans = useMemo(() => {
     if (!spFilterServiceId) return servicePlans;
     return servicePlans.filter(
       (sp) => String(sp.service_id) === spFilterServiceId,
@@ -1531,7 +1556,7 @@ export default function Planos() {
           professional_user_id: Number(ppDetailEditForm.professional_user_id),
           weekdays: ppDetailEditForm.weekdays,
           included_cycle_weeks: detailIncludedCycleWeeks,
-          starts_at: buildDateTimeWithHour(seriesDate, ppDetailEditForm.time),
+	          starts_at: buildDateTimeWithHour(seriesDate, ppDetailEditForm.time, allowBrokenTimeScheduling),
         });
       }
       toast.success("Vínculo atualizado.");
@@ -1543,7 +1568,7 @@ export default function Planos() {
     } finally {
       setIsSaving(false);
     }
-  }, [loadPatientPlanDetail, loadPatientPlans, ppDetailEditForm, ppDetailPlan]);
+  }, [allowBrokenTimeScheduling, loadPatientPlanDetail, loadPatientPlans, ppDetailEditForm, ppDetailPlan]);
 
   const closePpDrawer = useCallback(() => {
     setPpDrawerOpen(false);
@@ -2104,7 +2129,7 @@ export default function Planos() {
       patient_plan_id: schedPlan.id,
       service_id: serviceId,
       professional_user_id: Number(schedForm.professional_user_id),
-      starts_at: `${schedForm.date}T${entry.time}:00`,
+	      starts_at: buildDateTimeWithHour(schedForm.date, entry.time, allowBrokenTimeScheduling),
       duration_minutes: Number(schedForm.duration_minutes) || 60,
       repeat_interval: 1,
       weekdays: [entry.weekday],
@@ -2130,10 +2155,11 @@ export default function Planos() {
       setIsSaving(false);
     }
   }, [
-    schedPlan,
-    schedForm,
-    schedDayTimeEntries,
-    closeSchedDrawer,
+	    schedPlan,
+	    schedForm,
+	    schedDayTimeEntries,
+	    allowBrokenTimeScheduling,
+	    closeSchedDrawer,
     isSaving,
     loadPatientPlans,
     patientPlanId,
@@ -3724,16 +3750,24 @@ export default function Planos() {
                   {planChangeDayTimeEntries.map((entry) => (
                     <DayTimeRow key={entry.weekday}>
                       <span>{entry.fullLabel}</span>
-                      <select
-                        value={entry.time}
-                        onChange={(event) => setPlanChangeWeekdayTime(entry.weekday, event.target.value)}
-                      >
-                        {PLAN_HOUR_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+	                      {allowBrokenTimeScheduling ? (
+	                        <input
+	                          type="time"
+	                          value={normalizeScheduleTimeValue(entry.time, true)}
+	                          onChange={(event) => setPlanChangeWeekdayTime(entry.weekday, event.target.value)}
+	                        />
+	                      ) : (
+	                        <select
+	                          value={normalizeScheduleTimeValue(entry.time, false)}
+	                          onChange={(event) => setPlanChangeWeekdayTime(entry.weekday, event.target.value)}
+	                        >
+	                          {PLAN_HOUR_OPTIONS.map((option) => (
+	                            <option key={option.value} value={option.value}>
+	                              {option.label}
+	                            </option>
+	                          ))}
+	                        </select>
+	                      )}
                     </DayTimeRow>
                   ))}
                 </DayTimeList>
@@ -3834,16 +3868,24 @@ export default function Planos() {
                   {schedDayTimeEntries.map((entry) => (
                     <DayTimeRow key={entry.weekday}>
                       <span>{entry.fullLabel}</span>
-                      <select
-                        value={entry.time}
-                        onChange={(event) => setSchedWeekdayTime(entry.weekday, event.target.value)}
-                      >
-                        {PLAN_HOUR_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+	                      {allowBrokenTimeScheduling ? (
+	                        <input
+	                          type="time"
+	                          value={normalizeScheduleTimeValue(entry.time, true)}
+	                          onChange={(event) => setSchedWeekdayTime(entry.weekday, event.target.value)}
+	                        />
+	                      ) : (
+	                        <select
+	                          value={normalizeScheduleTimeValue(entry.time, false)}
+	                          onChange={(event) => setSchedWeekdayTime(entry.weekday, event.target.value)}
+	                        >
+	                          {PLAN_HOUR_OPTIONS.map((option) => (
+	                            <option key={option.value} value={option.value}>
+	                              {option.label}
+	                            </option>
+	                          ))}
+	                        </select>
+	                      )}
                     </DayTimeRow>
                   ))}
                 </DayTimeList>
@@ -5366,6 +5408,7 @@ const DayTimeRow = styled.div`
     text-transform: capitalize;
   }
 
+  input,
   select {
     min-width: 0;
   }
