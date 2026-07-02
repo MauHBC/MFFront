@@ -531,17 +531,6 @@ const getPrimaryPlanSeries = (pp) => {
     || null;
 };
 
-const getLatestPlanSeries = (pp) => {
-  const seriesList = getPlanSeriesList(pp);
-  return [...seriesList].sort((left, right) => {
-    const leftDate = String(left?.starts_at || "");
-    const rightDate = String(right?.starts_at || "");
-    const dateComparison = rightDate.localeCompare(leftDate);
-    if (dateComparison !== 0) return dateComparison;
-    return Number(right?.id || 0) - Number(left?.id || 0);
-  })[0] || null;
-};
-
 const getPlanIncludedCycleWeeks = (pp) => {
   const agendaSummaryWeeks = pp?.agenda_summary?.included_cycle_weeks;
   if (agendaSummaryWeeks) return normalizeIncludedCycleWeeks(agendaSummaryWeeks);
@@ -556,18 +545,6 @@ const getPlanIncludedCycleWeeks = (pp) => {
 const getSeriesSessions = (series) => {
   if (Array.isArray(series?.sessions)) return series.sessions;
   if (Array.isArray(series?.Sessions)) return series.Sessions;
-  return [];
-};
-
-const getPlanBillingCycles = (pp) => {
-  if (Array.isArray(pp?.BillingCycles)) return pp.BillingCycles;
-  if (Array.isArray(pp?.billingCycles)) return pp.billingCycles;
-  return [];
-};
-
-const getBillingCycleSessions = (cycle) => {
-  if (Array.isArray(cycle?.Sessions)) return cycle.Sessions;
-  if (Array.isArray(cycle?.sessions)) return cycle.sessions;
   return [];
 };
 
@@ -625,12 +602,18 @@ const formatHourLabel = (time) => {
 };
 
 const getPatientPlanAgendaInfo = (pp, professionals = []) => {
-  const activeSeries = getLatestPlanSeries(pp);
-  const seriesSessions = activeSeries ? getSeriesSessions(activeSeries) : [];
-  const legacySessions = getPlanBillingCycles(pp).flatMap(getBillingCycleSessions);
+  const activeSeriesList = getPlanSeriesList(pp)
+    .filter((item) => item?.lifecycle_status !== "ended");
+  const activeSeries = [...activeSeriesList].sort((left, right) => {
+    const leftDate = String(left?.starts_at || "");
+    const rightDate = String(right?.starts_at || "");
+    const dateComparison = rightDate.localeCompare(leftDate);
+    if (dateComparison !== 0) return dateComparison;
+    return Number(right?.id || 0) - Number(left?.id || 0);
+  })[0] || null;
   const futureSessionsById = new Map();
 
-  const sessionCandidates = activeSeries ? seriesSessions : legacySessions;
+  const sessionCandidates = activeSeriesList.flatMap(getSeriesSessions);
 
   sessionCandidates.forEach((session) => {
     if (session?.id) futureSessionsById.set(String(session.id), session);
