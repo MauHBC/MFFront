@@ -2,6 +2,7 @@
 import "@testing-library/jest-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { toast } from "react-toastify";
 
 import Agendamentos from "./index";
 import axios from "../../services/axios";
@@ -121,6 +122,25 @@ const renderAgendamentos = () => render(
   </MemoryRouter>,
 );
 
+const buildPreviewOccurrence = (index, date) => ({
+  index,
+  date,
+  start_time: "10:00",
+  end_time: "11:00",
+  starts_at: `${date}T13:00:00.000Z`,
+  ends_at: `${date}T14:00:00.000Z`,
+  status: "AVAILABLE",
+  matched_events: [],
+  can_override_block: false,
+});
+
+const submitAndConfirmReview = async () => {
+  fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+  expect(await screen.findByRole("heading", { name: "Revisar agendamento" }))
+    .toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+};
+
 describe("Agendamentos - editar agendamento", () => {
   let sessionsMockData;
 
@@ -173,6 +193,17 @@ describe("Agendamentos - editar agendamento", () => {
             { id: 41, code: "physio", name: "Fisioterapia", is_active: true },
           ],
         });
+      }
+      if (url === "/service-prices") {
+        return Promise.resolve({
+          data: [
+            { id: 100, service_id: 40, price_cents: 12000, currency: "BRL", is_active: true },
+            { id: 101, service_id: 41, price_cents: 9000, currency: "BRL", is_active: true },
+          ],
+        });
+      }
+      if (url === "/patient-service-agreements") {
+        return Promise.resolve({ data: [] });
       }
       if (url === "/unit-scheduling-policy") {
         return Promise.resolve({
@@ -506,7 +537,13 @@ describe("Agendamentos - editar agendamento", () => {
     expect(screen.queryByText(/Cobrança prevista/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Avulsa")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Criar agendamento" }));
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+
+    expect(await screen.findByRole("heading", { name: "Revisar agendamento" }))
+      .toBeInTheDocument();
+    expect(screen.getByText("1 sessão selecionada")).toBeInTheDocument();
+    expect(axios.post.mock.calls.some(([url]) => url === "/sessions")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
 
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/sessions",
@@ -523,10 +560,212 @@ describe("Agendamentos - editar agendamento", () => {
 
     const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
     expect(payload.billing_mode).not.toBe("covered_by_plan");
+    expect(payload).not.toHaveProperty("price_override_cents");
     expect(payload).not.toHaveProperty("billing_cycle_id");
     expect(listPatientPlans).not.toHaveBeenCalled();
     expect(getCoveragePreview).not.toHaveBeenCalled();
     expect(axios.get.mock.calls.some(([url]) => url === "/patient-credits")).toBe(false);
+  });
+
+  it("envia valor por sessao negociado apenas quando usuario altera manualmente", async () => {
+    const { container } = renderAgendamentos();
+
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+
+    const emptyPriceInput = container.querySelector('input[name="session_price"]');
+    expect(emptyPriceInput).toBeTruthy();
+    expect(emptyPriceInput).toBeDisabled();
+    expect(emptyPriceInput.value).toBe("");
+    expect(emptyPriceInput).toHaveAttribute("placeholder", "Selecione um atendimento");
+
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "40" },
+    });
+    const priceInput = container.querySelector('input[name="session_price"]');
+    expect(priceInput).toBeTruthy();
+    expect(screen.getByText("Valor da sessão")).toBeInTheDocument();
+    expect(priceInput.value).toBe("120,00");
+    fireEvent.change(priceInput, { target: { value: "100,00" } });
+
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-06-30" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+
+    await submitAndConfirmReview();
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 20,
+        service_id: 40,
+        billing_mode: "per_session",
+        price_override_cents: 10000,
+      }),
+    ));
+  });
+
+  it("envia agendamento sem cobranca sem price_override_cents", async () => {
+    const { container } = renderAgendamentos();
+
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "40" },
+    });
+    fireEvent.click(screen.getByLabelText("Sem cobrança"));
+    expect(container.querySelector('input[name="session_price"]')).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Sem cobrança")).toBeChecked();
+
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-06-30" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+
+    await submitAndConfirmReview();
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 20,
+        service_id: 40,
+        billing_mode: "per_session",
+        is_no_charge: true,
+      }),
+    ));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("price_override_cents");
+  });
+
+  it("sanitiza e formata o campo Por sessao como moeda brasileira", async () => {
+    const { container } = renderAgendamentos();
+
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "40" },
+    });
+    const priceInput = container.querySelector('input[name="session_price"]');
+
+    fireEvent.change(priceInput, { target: { value: "asdasdasd" } });
+    expect(priceInput.value).toBe("");
+
+    fireEvent.change(priceInput, { target: { value: "200,00555" } });
+    expect(priceInput.value).toBe("200,00");
+    fireEvent.blur(priceInput);
+    expect(priceInput.value).toBe("200,00");
+
+    fireEvent.change(priceInput, { target: { value: "100" } });
+    fireEvent.blur(priceInput);
+    expect(priceInput.value).toBe("100,00");
+
+    fireEvent.change(priceInput, { target: { value: "100,5" } });
+    fireEvent.blur(priceInput);
+    expect(priceInput.value).toBe("100,50");
+
+    fireEvent.change(priceInput, { target: { value: "1200" } });
+    fireEvent.blur(priceInput);
+    expect(priceInput.value).toBe("1.200,00");
+  });
+
+  it("remove Mais sessoes e volta para criacao unica", async () => {
+    const { container } = renderAgendamentos();
+
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "40" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-06-30" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "+ Adicionar" }));
+    expect(screen.getByText("Definir por")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("Ex.: 10"), {
+      target: { value: "4" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Remover" }));
+    expect(screen.queryByText("Definir por")).not.toBeInTheDocument();
+
+    await submitAndConfirmReview();
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 20,
+        service_id: 40,
+        status: "scheduled",
+        billing_mode: "per_session",
+      }),
+    ));
+    expect(previewSchedulingOccurrences).not.toHaveBeenCalled();
+  });
+
+  it("bloqueia criacao quando o valor manual fica vazio ou zerado", async () => {
+    const { container } = renderAgendamentos();
+
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "40" },
+    });
+    fireEvent.change(container.querySelector('input[name="session_price"]'), {
+      target: { value: "asdasdasd" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-06-30" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+
+    expect(toast.error).toHaveBeenCalledWith("Informe um valor por sessão válido.");
+    expect(axios.post.mock.calls.some(([url]) => url === "/sessions")).toBe(false);
   });
 
   it("nao envia reposicao disponivel quando usuario nao escolhe usar reposicao", async () => {
@@ -623,7 +862,7 @@ describe("Agendamentos - editar agendamento", () => {
       .find((select) => Array.from(select.options).some((option) => option.value === "10"));
     fireEvent.change(hourSelect, { target: { value: "10" } });
 
-    fireEvent.click(screen.getByRole("button", { name: "Criar agendamento" }));
+    await submitAndConfirmReview();
 
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/sessions",
@@ -730,7 +969,7 @@ describe("Agendamentos - editar agendamento", () => {
       .find((select) => Array.from(select.options).some((option) => option.value === "10"));
     fireEvent.change(hourSelect, { target: { value: "10" } });
 
-	    fireEvent.click(screen.getByRole("button", { name: "Criar agendamento" }));
+	    await submitAndConfirmReview();
 
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/sessions",
@@ -740,6 +979,126 @@ describe("Agendamentos - editar agendamento", () => {
         billing_mode: "per_session",
         patient_credit_id: null,
         session_replacement_credit_id: 901,
+      }),
+    ));
+  });
+
+  it("envia semana sim semana nao no preview e preserva repeat_interval na confirmacao", async () => {
+    previewSchedulingOccurrences.mockResolvedValue({
+      data: {
+        occurrences_preview: [
+          buildPreviewOccurrence(1, "2026-07-06"),
+          buildPreviewOccurrence(2, "2026-07-09"),
+          buildPreviewOccurrence(3, "2026-07-20"),
+          buildPreviewOccurrence(4, "2026-07-23"),
+        ],
+        summary: { total: 4, available: 4, warn: 0, blocked: 0 },
+      },
+    });
+    axios.post.mockResolvedValue({ data: { total_created: 4 } });
+
+    const { container } = renderAgendamentos();
+
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+
+	    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+	      target: { value: "40" },
+	    });
+    fireEvent.change(container.querySelector('input[name="session_price"]'), {
+      target: { value: "100,00" },
+    });
+	    fireEvent.change(container.querySelector('input[type="date"]'), {
+	      target: { value: "2026-07-06" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "+ Adicionar" }));
+    expect(screen.getByText("Valor por sessão")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("Ex.: 10"), {
+      target: { value: "4" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Semana sim, semana não" }));
+    fireEvent.click(screen.getByRole("button", { name: "Qui" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+
+    await waitFor(() => expect(previewSchedulingOccurrences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repeat_interval: 2,
+        occurrence_count: 4,
+	        weekdays: [1, 4],
+	        billing_mode: "per_session",
+        price_override_cents: 10000,
+	      }),
+	    ));
+    expect(await screen.findByText("Semana sim, semana não · primeira semana ativa · 4 sessões"))
+      .toBeInTheDocument();
+    expect(screen.getByText(/06\/07\/2026/)).toBeInTheDocument();
+    expect(screen.getByText(/09\/07\/2026/)).toBeInTheDocument();
+    expect(screen.getByText(/20\/07\/2026/)).toBeInTheDocument();
+    expect(screen.getByText(/23\/07\/2026/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/session-series",
+      expect.objectContaining({
+	        repeat_interval: 2,
+	        occurrence_count: 4,
+	        billing_mode: "per_session",
+        price_override_cents: 10000,
+	      }),
+	    ));
+    const seriesPayload = axios.post.mock.calls.find(([url]) => url === "/session-series")[1];
+    expect(seriesPayload).not.toHaveProperty("patient_plan_id");
+    expect(seriesPayload).not.toHaveProperty("included_cycle_weeks");
+  });
+
+  it("usa quantidade de meses como janela de vigencia no modo Por meses", async () => {
+    const { container } = renderAgendamentos();
+
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "40" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-07-06" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "+ Adicionar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Por meses" }));
+    fireEvent.change(screen.getByPlaceholderText("Ex.: 2"), {
+      target: { value: "2" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+
+    await waitFor(() => expect(previewSchedulingOccurrences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repeat_interval: 1,
+        until_date: "2026-09-05",
+        occurrence_count: null,
+        billing_mode: "per_session",
       }),
     ));
   });

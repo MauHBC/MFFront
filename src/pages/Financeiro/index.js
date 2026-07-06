@@ -39,6 +39,7 @@ import {
   PrimaryButton as SharedPrimaryButton,
   GhostButton as SharedGhostButton,
 } from "../../components/AppButton";
+import { UnsavedChangesDialog } from "../../components/AppDrawer";
 import { DataTable as SharedDataTable } from "../../components/AppTable";
 import PatientSearchField from "../../components/PatientSearchField";
 import axios, { getUserFacingApiError } from "../../services/axios";
@@ -139,6 +140,8 @@ const emptyPayment = {
   note: "",
   allocation_mode: "entry",
 };
+
+const hasFilledText = (value) => String(value || "").trim() !== "";
 
 const STANDALONE_PAYMENT_ANCHOR_DESCRIPTION = "Recebimento por sessão (sistema)";
 const LEGACY_STANDALONE_PAYMENT_ANCHOR_DESCRIPTION = "Recebimento avulso (sistema)";
@@ -986,6 +989,7 @@ export default function Financeiro() {
   });
 
   const [isEntryOpen, setIsEntryOpen] = useState(false);
+  const [discardModalClose, setDiscardModalClose] = useState(null);
   const [entryForm, setEntryForm] = useState(emptyEntry);
   const [isClinicExpenseOpen, setIsClinicExpenseOpen] = useState(false);
   const [clinicExpenseForm, setClinicExpenseForm] = useState(() => createEmptyClinicExpense());
@@ -1963,6 +1967,95 @@ export default function Financeiro() {
     if (isCreditUseSaving) return;
     setCreditUseModalContext(null);
   }, [isCreditUseSaving]);
+
+  const requestModalDiscard = useCallback((closeFn, hasInput) => {
+    if (typeof closeFn !== "function") return;
+    if (!hasInput) {
+      closeFn();
+      return;
+    }
+    setDiscardModalClose(() => closeFn);
+  }, []);
+
+  const keepModalEditing = useCallback(() => {
+    setDiscardModalClose(null);
+  }, []);
+
+  const discardModalChanges = useCallback(() => {
+    if (discardModalClose) discardModalClose();
+    setDiscardModalClose(null);
+  }, [discardModalClose]);
+
+  const ProtectedBackdrop = useCallback(({ onClick, $hasInput }) => (
+    <Backdrop
+      onClick={() => requestModalDiscard(onClick, $hasInput)}
+    />
+  ), [requestModalDiscard]);
+
+  const entryModalHasInput = Boolean(
+    hasFilledText(entryForm.description)
+    || hasFilledText(entryForm.category_id)
+    || hasFilledText(entryForm.patient_id)
+    || hasFilledText(entryForm.service_id)
+    || hasFilledText(entryForm.amount)
+    || hasFilledText(entryForm.reference_date)
+    || hasFilledText(entryForm.due_date)
+    || hasFilledText(entryForm.notes),
+  );
+  const clinicExpenseModalHasInput = Boolean(
+    editingClinicExpenseId
+    || hasFilledText(clinicExpenseForm.description)
+    || hasFilledText(clinicExpenseForm.category_id)
+    || hasFilledText(clinicExpenseForm.amount)
+    || hasFilledText(clinicExpenseForm.notes)
+    || hasFilledText(clinicExpenseForm.paid_amount)
+    || hasFilledText(clinicExpenseForm.payment_notes),
+  );
+  const clinicExpensePaymentModalHasInput = Boolean(
+    hasFilledText(clinicExpensePaymentForm.paid_amount)
+    || hasFilledText(clinicExpensePaymentForm.payment_notes),
+  );
+  const clinicExpenseCategoryModalHasInput = Boolean(
+    editingClinicExpenseCategoryId
+    || hasFilledText(clinicExpenseCategoryForm.name),
+  );
+  const creditUseModalHasInput = Boolean(creditUseModalContext);
+  const paymentModalHasInput = Boolean(
+    hasFilledText(paymentForm.entry_id)
+    || hasFilledText(paymentForm.patient_id)
+    || hasFilledText(paymentForm.payment_method_id)
+    || hasFilledText(paymentForm.amount)
+    || hasFilledText(paymentForm.discount)
+    || hasFilledText(paymentForm.surcharge)
+    || hasFilledText(paymentForm.batch_discount_per_session)
+    || hasFilledText(paymentForm.adjustment_reason)
+    || hasFilledText(paymentForm.note),
+  );
+  const categoryModalHasInput = Boolean(
+    editingCategoryId
+    || hasFilledText(categoryForm.name)
+    || hasFilledText(categoryForm.color),
+  );
+  const methodModalHasInput = Boolean(editingMethodId || hasFilledText(methodForm.name));
+  const serviceModalHasInput = Boolean(
+    editingServiceId
+    || hasFilledText(serviceForm.name)
+    || hasFilledText(serviceForm.price)
+    || hasFilledText(serviceForm.color),
+  );
+  const recurringModalHasInput = Boolean(
+    editingRecurringId
+    || hasFilledText(recurringForm.name)
+    || hasFilledText(recurringForm.category_id)
+    || hasFilledText(recurringForm.amount)
+    || hasFilledText(recurringForm.notes),
+  );
+  const holidayModalHasInput = Boolean(
+    hasFilledText(holidayForm.name)
+    || hasFilledText(holidayForm.date)
+    || hasFilledText(holidayForm.state_code)
+    || hasFilledText(holidayForm.city_name),
+  );
 
   const openCreditModal = useCallback((patient = null) => {
     const patientId = patient?.id ? String(patient.id) : "";
@@ -3910,6 +4003,7 @@ export default function Financeiro() {
         };
       })
       .filter((row) => row.billing_mode === "per_session")
+      .filter((row) => !!row.entry?.id)
       .filter((row) => {
         if (attendanceDrilldownPatientId) return true;
         if (!search) return true;
@@ -4429,7 +4523,10 @@ export default function Financeiro() {
       openCents: currentDetailSummary
         ? Number(currentDetailSummary.pending || 0)
         : sessionRows.reduce(
-          (sum, row) => sum + (row.isManualReceiptRow ? 0 : Math.max(0, Number(row.openCents || 0))),
+          (sum, row) => {
+            if (row.isManualReceiptRow || !row.entry?.id) return sum;
+            return sum + Math.max(0, Number(row.openCents || 0));
+          },
           0,
         ),
       creditsAvailable: backendCredit ?? fallbackCredit,
@@ -4616,6 +4713,8 @@ export default function Financeiro() {
           entryId,
           openCents: entryOpenCents,
         }));
+        const packageEntries = normalizePackageEntries(backendPackage, fallbackEntries);
+        if (!packageEntries.length) return null;
 
         return {
           id: `series-${seriesId}`,
@@ -4636,16 +4735,18 @@ export default function Financeiro() {
             backendPackage?.financialStatus ||
             financialStatus,
           usageSummary: mergeUsageSummary(usageSummary, backendPackage),
-          entries: normalizePackageEntries(backendPackage, fallbackEntries),
+          entries: packageEntries,
           sessions: packageSessions,
         };
       })
+      .filter(Boolean)
       .sort((first, second) => String(first.serviceName || "").localeCompare(String(second.serviceName || "")));
 
     const standalonePackages = attendanceSelectedPatientRows
       .filter((row) => {
         if (row.seriesId || row.patientCreditId) return false;
         if (row.isManualReceiptRow || row.isProjectedInstallmentRow) return false;
+        if (!row.entry?.id) return false;
         return Number(row.id || 0) > 0;
       })
       .map((row) => {
@@ -6372,7 +6473,6 @@ export default function Financeiro() {
                 <thead>
                   <tr>
                     <th>Data</th>
-                    <th>Serviço</th>
                     <th>Sessões</th>
                     <th>Valor</th>
                     <th>Recebido</th>
@@ -8071,29 +8171,23 @@ export default function Financeiro() {
 	                        {item.sessions.length === 0 ? (
 	                          <EmptyState>Nenhuma sessão vinculada a este pacote.</EmptyState>
 	                        ) : (
-	                          <TableScroll>
+		                          <AttendancePackageSessionsScroll>
 	                            <SimpleTable>
 	                              <thead>
 	                                <tr>
 	                                  <th>Data</th>
-	                                  <th>Serviço</th>
 	                                  <th>Profissional</th>
 	                                  <th>Status</th>
 	                                </tr>
 	                              </thead>
 	                              <tbody>
 	                                {item.sessions.map((session) => {
-	                                  const service =
-	                                    session?.Service ||
-	                                    (session.service_id ? serviceMap.get(session.service_id) : null) ||
-	                                    null;
-	                                  const professionalName =
-	                                    session?.professional?.name || session?.professional?.email || "-";
+		                                  const professionalName =
+		                                    session?.professional?.name || session?.professional?.email || "-";
 	
 	                                  return (
 	                                    <tr key={session.id}>
 	                                      <td>{formatSessionDateTimeBR(session.starts_at)}</td>
-	                                      <td>{service?.name || session.service_type || item.serviceName}</td>
 	                                      <td>{professionalName}</td>
 	                                      <td>
 	                                        <AttendanceStatusBadge $status={session.status}>
@@ -8105,7 +8199,7 @@ export default function Financeiro() {
 	                                })}
 	                              </tbody>
 	                            </SimpleTable>
-	                          </TableScroll>
+		                          </AttendancePackageSessionsScroll>
 	                        )}
 	                      </AttendancePackageCard>
 	                    );
@@ -8122,12 +8216,11 @@ export default function Financeiro() {
                           </AttendancePackageMeta>
                         </div>
                       </AttendancePackageHeader>
-                      <TableScroll>
+	                      <AttendancePackageSessionsScroll>
                         <SimpleTable>
                           <thead>
                             <tr>
                               <th>Data</th>
-                              <th>Serviço</th>
                               <th>Profissional</th>
                               <th>Status</th>
                               <th>Financeiro</th>
@@ -8142,7 +8235,6 @@ export default function Financeiro() {
                               return (
                                 <tr key={row.id}>
                                   <td>{formatSessionDateTimeBR(row.starts_at)}</td>
-                                  <td>{row.serviceName || "-"}</td>
                                   <td>{row.professionalName || "-"}</td>
                                   <td>
                                     <AttendanceStatusBadge $status={linkedSession?.status || row.financialStatus}>
@@ -8157,7 +8249,7 @@ export default function Financeiro() {
                             })}
                           </tbody>
                         </SimpleTable>
-                      </TableScroll>
+	                      </AttendancePackageSessionsScroll>
                     </AttendancePackageCard>
                   )}
               </ModalBody>
@@ -8168,7 +8260,7 @@ export default function Financeiro() {
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
-          <Backdrop onClick={handleClosePackageSessions} />
+          <ProtectedBackdrop onClick={handleClosePackageSessions} />
         </>
       )}
 
@@ -8239,7 +8331,7 @@ export default function Financeiro() {
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
-          <Backdrop onClick={closeBillingCycleSessionsPreview} />
+          <ProtectedBackdrop onClick={closeBillingCycleSessionsPreview} />
         </>
       )}
 
@@ -8363,7 +8455,7 @@ export default function Financeiro() {
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
-          <Backdrop onClick={closeEntryModal} />
+          <ProtectedBackdrop onClick={closeEntryModal} $hasInput={entryModalHasInput} />
         </>
       )}
 
@@ -8386,7 +8478,8 @@ export default function Financeiro() {
             ModalActions,
             SecondaryButton,
             PrimaryButton,
-            Backdrop,
+            Backdrop: ProtectedBackdrop,
+            backdropHasInput: clinicExpenseModalHasInput,
             MutedText,
           }}
           clinicExpenseForm={clinicExpenseForm}
@@ -8417,7 +8510,8 @@ export default function Financeiro() {
             ModalActions,
             SecondaryButton,
             PrimaryButton,
-            Backdrop,
+            Backdrop: ProtectedBackdrop,
+            backdropHasInput: clinicExpensePaymentModalHasInput,
           }}
           form={clinicExpensePaymentForm}
           isSaving={Boolean(clinicExpensePayingId)}
@@ -8444,7 +8538,8 @@ export default function Financeiro() {
             ModalActions,
             SecondaryButton,
             PrimaryButton,
-            Backdrop,
+            Backdrop: ProtectedBackdrop,
+            backdropHasInput: clinicExpenseCategoryModalHasInput,
           }}
           form={clinicExpenseCategoryForm}
           editingId={editingClinicExpenseCategoryId}
@@ -8497,7 +8592,7 @@ export default function Financeiro() {
               </ModalActions>
             </CompactModalCard>
           </ModalOverlay>
-          <Backdrop onClick={closeClinicExpenseCategoryDeactivateModal} />
+          <ProtectedBackdrop onClick={closeClinicExpenseCategoryDeactivateModal} />
         </>
       )}
       {clinicExpenseDeleteTarget && (
@@ -8545,7 +8640,7 @@ export default function Financeiro() {
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
-          <Backdrop onClick={closeClinicExpenseDeleteModal} />
+          <ProtectedBackdrop onClick={closeClinicExpenseDeleteModal} />
         </>
       )}
 
@@ -8614,7 +8709,7 @@ export default function Financeiro() {
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
-          <Backdrop onClick={closeCreditUseModal} />
+          <ProtectedBackdrop onClick={closeCreditUseModal} $hasInput={creditUseModalHasInput} />
         </>
       )}
 
@@ -9028,7 +9123,7 @@ export default function Financeiro() {
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
-          <Backdrop onClick={closePaymentModal} />
+          <ProtectedBackdrop onClick={closePaymentModal} $hasInput={paymentModalHasInput} />
         </>
       )}
 
@@ -9090,7 +9185,7 @@ export default function Financeiro() {
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
-          <Backdrop onClick={closeCategoryModal} />
+          <ProtectedBackdrop onClick={closeCategoryModal} $hasInput={categoryModalHasInput} />
         </>
       )}
 
@@ -9128,7 +9223,7 @@ export default function Financeiro() {
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
-          <Backdrop onClick={closeMethodModal} />
+          <ProtectedBackdrop onClick={closeMethodModal} $hasInput={methodModalHasInput} />
         </>
       )}
 
@@ -9194,7 +9289,7 @@ export default function Financeiro() {
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
-          <Backdrop onClick={() => {
+          <ProtectedBackdrop $hasInput={serviceModalHasInput} onClick={() => {
             if (!isServiceSaving) closeServiceModal();
           }} />
         </>
@@ -9284,7 +9379,7 @@ export default function Financeiro() {
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
-          <Backdrop onClick={closeRecurringModal} />
+          <ProtectedBackdrop onClick={closeRecurringModal} $hasInput={recurringModalHasInput} />
         </>
       )}
 
@@ -9397,9 +9492,14 @@ export default function Financeiro() {
               </ModalActions>
             </ModalCard>
           </ModalOverlay>
-          <Backdrop onClick={closeHolidayModal} />
+          <ProtectedBackdrop onClick={closeHolidayModal} $hasInput={holidayModalHasInput} />
         </>
       )}
+      <UnsavedChangesDialog
+        open={Boolean(discardModalClose)}
+        onKeepEditing={keepModalEditing}
+        onDiscard={discardModalChanges}
+      />
     </SidebarShellWrapper>
   );
 }
@@ -9623,6 +9723,23 @@ const TableScroll = styled.div`
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+`;
+
+const AttendancePackageSessionsScroll = styled(TableScroll)`
+  max-height: min(420px, 52vh);
+  overflow-y: auto;
+  border-top: 1px solid ${ATTENDANCE_UI.colors.border};
+
+  table {
+    margin: 0;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: ${ATTENDANCE_UI.colors.surfaceMuted};
+  }
 `;
 
 const PatientSummaryRow = styled.tr`

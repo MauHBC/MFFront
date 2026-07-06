@@ -7,6 +7,7 @@ import {
   FaCalendarAlt,
   FaChevronLeft,
   FaDollarSign,
+  FaInfoCircle,
   FaLayerGroup,
   FaPlus,
   FaTags,
@@ -51,6 +52,7 @@ import {
   DrawerCloseBtn,
   DrawerBody,
   DrawerFooter,
+  UnsavedChangesDialog,
 } from "../../components/AppDrawer";
 import {
   listServicePlans,
@@ -694,10 +696,23 @@ const getPatientPlanStatusInfo = (pp) => {
   return statusInfo[pp?.status] || { label: pp?.status || "-", tone: pp?.status };
 };
 
+const getServicePlanDisplayName = (plan, fallback = "Plano") => {
+  const name = String(plan?.name || "").trim();
+  if (name) return name;
+
+  const serviceName = String(plan?.Service?.name || "").trim();
+  const frequency = plan?.sessions_per_week
+    ? `${plan.sessions_per_week}x/sem`
+    : String(plan?.frequency_label || "").trim();
+
+  if (serviceName && frequency) return `${serviceName} ${frequency}`;
+  return serviceName || fallback;
+};
+
 const getPatientPlanSummary = (pp) => {
   const plan = pp?.ServicePlan;
   const serviceName = plan?.Service?.name;
-  const planName = plan?.name || serviceName || "-";
+  const planName = getServicePlanDisplayName(plan, serviceName || "-");
   const frequency = plan?.sessions_per_week
     ? `${plan.sessions_per_week}x/sem`
     : plan?.frequency_label || "-";
@@ -713,11 +728,15 @@ const getPatientPlanSummary = (pp) => {
   };
 };
 
+const hasFilledText = (value) => String(value || "").trim() !== "";
+const hasSelectedItems = (value) => Array.isArray(value) && value.length > 0;
+
 // ---------------------------------------------------------------------------
 // Empty forms
 // ---------------------------------------------------------------------------
 
 const EMPTY_SP = {
+  name: "",
   service_id: "",
   price: "",
   sessions_per_week: "",
@@ -927,6 +946,7 @@ export default function Planos() {
   const [futureRemovalConfirming, setFutureRemovalConfirming] = useState(false);
   const [futureRemovalIncludeToday, setFutureRemovalIncludeToday] = useState(false);
   const [planChangeOpen, setPlanChangeOpen] = useState(false);
+  const [discardDrawerClose, setDiscardDrawerClose] = useState(null);
   const [planChangeForm, setPlanChangeForm] = useState(EMPTY_PLAN_CHANGE);
   const [planChangeConfirmOpen, setPlanChangeConfirmOpen] = useState(false);
   const planChangeSubmittingRef = useRef(false);
@@ -1346,6 +1366,7 @@ export default function Planos() {
   const openSpEdit = useCallback((sp) => {
     setSpEditingId(sp.id);
     setSpForm({
+      name: getServicePlanDisplayName(sp, ""),
       service_id: String(sp.service_id || ""),
       price: centsToInputValue(sp.price_cents),
       sessions_per_week:
@@ -1363,6 +1384,11 @@ export default function Planos() {
   const handleSpSubmit = useCallback(
     async (e) => {
       e.preventDefault();
+      const planName = String(spForm.name || "").trim();
+      if (!planName) {
+        toast.error("Informe o nome do plano.");
+        return;
+      }
       if (!spForm.service_id) {
         toast.error("Selecione o serviço base.");
         return;
@@ -1374,16 +1400,11 @@ export default function Planos() {
       }
       setIsSaving(true);
       try {
-        const service = services.find((s) => String(s.id) === String(spForm.service_id));
-        const serviceName = service?.name || "";
         const sessionsN = spForm.sessions_per_week ? Number(spForm.sessions_per_week) : null;
-        const derivedName = sessionsN
-          ? `${serviceName} ${sessionsN}x na semana`
-          : serviceName;
         const derivedFrequencyLabel = sessionsN ? `${sessionsN}x na semana` : null;
         const payload = {
           service_id: Number(spForm.service_id),
-          name: derivedName,
+          name: planName,
           price_cents: priceCents,
           sessions_per_week: sessionsN,
           frequency_label: derivedFrequencyLabel,
@@ -1403,13 +1424,13 @@ export default function Planos() {
         setIsSaving(false);
       }
     },
-    [spForm, spEditingId, services, closeSpDrawer, loadServicePlans],
+    [spForm, spEditingId, closeSpDrawer, loadServicePlans],
   );
 
   const handleSpDeactivate = useCallback(
     async (sp) => {
       // eslint-disable-next-line no-alert
-      const ok = window.confirm(`Inativar "${sp.name}"?\n\nVínculos de pacientes já existentes não são afetados.`);
+      const ok = window.confirm(`Inativar "${getServicePlanDisplayName(sp)}"?\n\nVínculos de pacientes já existentes não são afetados.`);
       if (!ok) return;
       try {
         await deactivateServicePlan(sp.id);
@@ -2329,14 +2350,81 @@ export default function Planos() {
   const anyDrawerOpen = svcDrawerOpen
     || spDrawerOpen
     || ppDrawerOpen
+    || planChangeOpen
     || schedDrawerOpen;
 
-  const handleBackdropClick = () => {
-    if (schedDrawerOpen) closeSchedDrawer();
-    else if (ppDrawerOpen) closePpDrawer();
-    else if (spDrawerOpen) closeSpDrawer();
-    else if (svcDrawerOpen) closeSvcDrawer();
-  };
+  const svcDrawerHasInput = Boolean(
+    svcEditingId
+    || hasFilledText(svcForm.name)
+    || hasFilledText(svcForm.price),
+  );
+  const spDrawerHasInput = Boolean(
+    spEditingId
+    || hasFilledText(spForm.name)
+    || hasFilledText(spForm.service_id)
+    || hasFilledText(spForm.price)
+    || hasFilledText(spForm.sessions_per_week),
+  );
+  const ppDrawerHasInput = Boolean(
+    ppEditingId
+    || hasFilledText(ppForm.patient_id)
+    || hasFilledText(ppForm.service_plan_id)
+    || hasFilledText(ppForm.anchor_day)
+    || hasFilledText(ppForm.notes)
+    || hasSelectedItems(ppForm.weekdays),
+  );
+  const planChangeDrawerHasInput = Boolean(
+    hasFilledText(planChangeForm.service_plan_id)
+    || hasSelectedItems(planChangeForm.weekdays),
+  );
+  const schedDrawerHasInput = Boolean(
+    schedPlan
+    || hasFilledText(schedForm.professional_user_id)
+    || hasFilledText(schedForm.date)
+    || hasSelectedItems(schedForm.weekdays),
+  );
+
+  const requestDrawerDiscard = useCallback((closeFn, hasInput) => {
+    if (!hasInput) {
+      closeFn();
+      return;
+    }
+    setDiscardDrawerClose(() => closeFn);
+  }, []);
+
+  const keepDrawerEditing = useCallback(() => {
+    setDiscardDrawerClose(null);
+  }, []);
+
+  const discardDrawerChanges = useCallback(() => {
+    if (discardDrawerClose) discardDrawerClose();
+    setDiscardDrawerClose(null);
+  }, [discardDrawerClose]);
+
+  const handleBackdropClick = useCallback(() => {
+    if (schedDrawerOpen) requestDrawerDiscard(closeSchedDrawer, schedDrawerHasInput);
+    else if (planChangeOpen) requestDrawerDiscard(closePlanChange, planChangeDrawerHasInput);
+    else if (ppDrawerOpen) requestDrawerDiscard(closePpDrawer, ppDrawerHasInput);
+    else if (spDrawerOpen) requestDrawerDiscard(closeSpDrawer, spDrawerHasInput);
+    else if (svcDrawerOpen) requestDrawerDiscard(closeSvcDrawer, svcDrawerHasInput);
+  }, [
+    closePpDrawer,
+    closePlanChange,
+    closeSchedDrawer,
+    closeSpDrawer,
+    closeSvcDrawer,
+    planChangeOpen,
+    planChangeDrawerHasInput,
+    ppDrawerOpen,
+    ppDrawerHasInput,
+    requestDrawerDiscard,
+    schedDrawerOpen,
+    schedDrawerHasInput,
+    spDrawerOpen,
+    spDrawerHasInput,
+    svcDrawerOpen,
+    svcDrawerHasInput,
+  ]);
 
   // ---- Render ----
 
@@ -2904,11 +2992,16 @@ export default function Planos() {
     : [];
   const futureRemovalCanConfirm = Number(futureRemovalPreview?.removable_count || 0) > 0
     && !futureRemovalConfirming;
-  return (
-    <SidebarShellWrapper $collapsed={isSidebarCollapsed}>
-      {anyDrawerOpen && <DrawerBackdrop onClick={handleBackdropClick} />}
+	  return (
+	    <SidebarShellWrapper $collapsed={isSidebarCollapsed}>
+	      {anyDrawerOpen && <DrawerBackdrop onClick={handleBackdropClick} />}
+	      <UnsavedChangesDialog
+	        open={Boolean(discardDrawerClose)}
+	        onKeepEditing={keepDrawerEditing}
+	        onDiscard={discardDrawerChanges}
+	      />
 
-      {/* ---- Post-creation schedule prompt ---- */}
+	      {/* ---- Post-creation schedule prompt ---- */}
       {schedPrompt && (
         <PromptOverlay>
           <PromptCard>
@@ -3324,7 +3417,7 @@ export default function Planos() {
               </ScheduleConfirmLine>
               <ScheduleConfirmLine>
                 <span>Plano</span>
-                <strong>{schedPlan.ServicePlan?.name || "Plano"}</strong>
+                <strong>{getServicePlanDisplayName(schedPlan.ServicePlan)}</strong>
               </ScheduleConfirmLine>
               <ScheduleConfirmLine>
                 <span>Profissional</span>
@@ -3362,7 +3455,7 @@ export default function Planos() {
             <ScheduleConfirmSummary>
               <ScheduleConfirmLine>
                 <span>Atual</span>
-                <strong>{ppDetailPlan.ServicePlan?.name || ppDetailSummary?.planName || "-"}</strong>
+                <strong>{getServicePlanDisplayName(ppDetailPlan.ServicePlan, ppDetailSummary?.planName || "-")}</strong>
               </ScheduleConfirmLine>
               <ScheduleConfirmLine>
                 <span>Novo</span>
@@ -3475,6 +3568,15 @@ export default function Planos() {
         <DrawerBody>
           <form onSubmit={handleSpSubmit}>
             <Field>
+              Nome do plano *
+              <input
+                name="name"
+                value={spForm.name}
+                onChange={handleSpChange}
+                placeholder="Ex: Recovery 2x por semana"
+              />
+            </Field>
+            <Field>
               Serviço base *
               <select
                 name="service_id"
@@ -3494,28 +3596,40 @@ export default function Planos() {
             </Field>
             <Field>
               Preço mensal (R$) *
-              <input
-                name="price"
-                value={spForm.price}
-                onChange={handleSpChange}
-                placeholder="700,00"
-                inputMode="decimal"
-              />
-              <FieldHint>Aceito: 700,00 · 1.000,00 · 1000,00 · 1000.50</FieldHint>
-            </Field>
-            <Field>
-              Sessões por semana
-              <input
-                name="sessions_per_week"
-                type="number"
-                min="1"
-                max="7"
-                value={spForm.sessions_per_week}
-                onChange={handleSpChange}
-                placeholder="Ex: 2"
-              />
-              <FieldHint>Informa a frequência que aparecerá na agenda.</FieldHint>
-            </Field>
+	              <input
+	                name="price"
+	                value={spForm.price}
+	                onChange={handleSpChange}
+	                placeholder="700,00"
+	                inputMode="decimal"
+	              />
+	            </Field>
+	            <Field>
+	              <FieldLabelWithHelp>
+	                Sessões por semana
+	                <FieldHelpButton
+	                  type="button"
+	                  aria-label="Ajuda sobre sessões por semana"
+	                  title="Ajuda sobre sessões por semana"
+	                  onClick={(event) => {
+	                    event.preventDefault();
+	                    event.stopPropagation();
+	                    toast.info("Informa a frequência que aparecerá na agenda.", { autoClose: 10000 });
+	                  }}
+	                >
+	                  <FaInfoCircle />
+	                </FieldHelpButton>
+	              </FieldLabelWithHelp>
+	              <input
+	                name="sessions_per_week"
+	                type="number"
+	                min="1"
+	                max="7"
+	                value={spForm.sessions_per_week}
+	                onChange={handleSpChange}
+	                placeholder="Ex: 2"
+	              />
+	            </Field>
             <DrawerFooter>
               <GhostButton type="button" onClick={closeSpDrawer}>
                 Cancelar
@@ -3587,7 +3701,7 @@ export default function Planos() {
                 <option value="">Selecione...</option>
                 {activeServicePlans.map((sp) => (
                   <option key={sp.id} value={sp.id}>
-                    {sp.name}
+                    {getServicePlanDisplayName(sp)}
                     {sp.Service?.name ? ` (${sp.Service.name})` : ""} -{" "}
                     {formatPrice(sp.price_cents)}/mês
                   </option>
@@ -3657,7 +3771,7 @@ export default function Planos() {
           {ppDetailPlan && (
             <SchedPlanInfo>
               <strong>{ppDetailHeaderPatientName}</strong>
-              <span>{ppDetailPlan.ServicePlan?.name || ppDetailSummary?.planName || "Plano atual"}</span>
+              <span>{getServicePlanDisplayName(ppDetailPlan.ServicePlan, ppDetailSummary?.planName || "Plano atual")}</span>
             </SchedPlanInfo>
           )}
           {ppPendingPlanChange?.label && (
@@ -3785,7 +3899,7 @@ export default function Planos() {
 	                  : getPatientDisplayName(patients.find((p) => p.id === schedPlan.patient_id))}
 	              </strong>
               <span>
-                {schedPlan.ServicePlan?.name || "Plano"}
+                {getServicePlanDisplayName(schedPlan.ServicePlan)}
               </span>
             </SchedPlanInfo>
           )}
@@ -4204,7 +4318,7 @@ export default function Planos() {
                               {pp.Patient ? getPatientDisplayName(pp.Patient) : "-"}
                             </strong>
                           </TD>
-                          <TD>{pp.ServicePlan?.name || "-"}</TD>
+                          <TD>{getServicePlanDisplayName(pp.ServicePlan, "-")}</TD>
                           <TD>{freqLabel}</TD>
                           <TD>
                             <StatusPill $tone={agendaInfo.tone}>{agendaInfo.label}</StatusPill>
@@ -4287,7 +4401,7 @@ export default function Planos() {
                     {!isServicePlansLoading && !servicePlansError && filteredServicePlans.map((sp) => (
                       <tr key={sp.id}>
                         <TD>
-                          <strong>{sp.name}</strong>
+                          <strong>{getServicePlanDisplayName(sp)}</strong>
                         </TD>
                         <TD>{sp.Service?.name || "-"}</TD>
                         <TD>
@@ -4815,6 +4929,45 @@ const PlanInfoLabel = styled.span`
   display: inline-flex;
   gap: 7px;
   width: fit-content;
+`;
+
+const FieldLabelWithHelp = styled.span`
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  width: fit-content;
+`;
+
+const FieldHelpButton = styled.button`
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #6a795c;
+  cursor: pointer;
+  display: inline-flex;
+  height: 18px;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  width: 18px;
+
+  svg {
+    height: 13px;
+    width: 13px;
+  }
+
+  &:hover {
+    color: #354a2c;
+  }
+
+  &:focus {
+    outline: none;
+  }
+
+  &:focus-visible {
+    border-radius: 999px;
+    box-shadow: 0 0 0 3px rgba(106, 121, 92, 0.14);
+  }
 `;
 
 const IconShortcutButton = styled.button`

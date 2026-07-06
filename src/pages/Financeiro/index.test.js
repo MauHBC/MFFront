@@ -414,6 +414,73 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(screen.queryByText("Sem cobrança gerada")).not.toBeInTheDocument();
   });
 
+  it("nao transforma sessao sem FinancialEntry em cobranca pendente", async () => {
+    getFinancialRevenuesSummary.mockResolvedValueOnce({
+      data: {
+        month: "2026-06",
+        summary: {
+          total: 0,
+          received: 0,
+          pending: 0,
+        },
+        patients: [
+          {
+            patient_id: 30,
+            patient_name: "Maria Silva",
+            total: 0,
+            received: 0,
+            pending: 0,
+            entries_count: 0,
+          },
+        ],
+      },
+    });
+    getFinancialRevenuePatientDetail.mockResolvedValueOnce({
+      data: {
+        patient: { id: 30, name: "Maria Silva" },
+        month: "2026-06",
+        summary: {
+          total: 0,
+          received: 0,
+          pending: 0,
+          creditAvailable: 0,
+        },
+        entries: [],
+        sessions: [
+          {
+            id: 1202,
+            clinic_id: 1,
+            patient_id: 30,
+            service_id: 10,
+            starts_at: "2026-06-10T09:00:00.000Z",
+            status: "scheduled",
+            billing_mode: "per_session",
+            Patient: { id: 30, full_name: "Maria Silva" },
+            Service: { id: 10, name: "Fisioterapia" },
+          },
+        ],
+        payments: [],
+        credits: [],
+        series: [],
+        packages: [],
+      },
+    });
+
+    renderFinanceiro();
+
+    await revealFinancialValues();
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    await waitFor(() => {
+      expect(getFinancialRevenuePatientDetail).toHaveBeenCalled();
+    });
+    expect(screen.getByText("A receber").nextSibling).toHaveTextContent("R$ 0,00");
+    expect(screen.queryByText("Fisioterapia")).not.toBeInTheDocument();
+    expect(screen.queryByText("R$ 200,00")).not.toBeInTheDocument();
+  });
+
   it("mantem servicos avulsos no detalhe ao pesquisar pelo paciente", async () => {
     getFinancialRevenuePatientDetail.mockResolvedValueOnce({
       data: {
@@ -596,7 +663,20 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
           patient: { id: 30, name: "Maria Silva" },
           month: "2026-06",
           summary: { total: 30000, received: 30000, pending: 0, creditAvailable: 0 },
-          entries: [],
+          entries: [
+            {
+              id: 1345,
+              clinic_id: 1,
+              patient_id: 30,
+              session_id: 1696,
+              service_id: 6,
+              type: "income",
+              description: "Atendimento - Avaliacao Coluna",
+              amount_cents: 30000,
+              reference_date: "2026-06-29",
+              status: "paid",
+            },
+          ],
           sessions: [
             {
               id: 1696,

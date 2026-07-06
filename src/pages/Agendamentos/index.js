@@ -24,10 +24,15 @@ import {
   listSpecialSchedulingEvents,
   previewSchedulingOccurrences,
 } from "../../services/scheduling";
-import { AppDrawer, DrawerBackdrop } from "../../components/AppDrawer";
+import { AppDrawer, DrawerBackdrop, UnsavedChangesDialog } from "../../components/AppDrawer";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { SessionStatusButton } from "../../components/AppSessionStatus";
 import PatientSearchField from "../../components/PatientSearchField";
+import {
+  formatCurrencyInput,
+  parseCurrencyInputToCents as parseMoneyInputToCents,
+  sanitizePositiveCurrencyInput,
+} from "../Financeiro/helpers/expenseFormatters";
 import {
   getPatientDisplayName as getPatientName,
   getPatientSearchText,
@@ -823,6 +828,9 @@ const emptyForm = {
   service_type: "",
   service_id: "",
   status: "scheduled",
+  session_price: "",
+  session_price_manually_changed: false,
+  is_no_charge: false,
   is_initial: false,
   starts_at: "",
   ends_at: "",
@@ -838,6 +846,28 @@ const emptyForm = {
   patient_credit_id: "",
   billing_mode: "",
   package_update_scope: "single",
+};
+
+const hasFilledText = (value) => String(value || "").trim() !== "";
+
+const formatCurrencyCents = (value) => {
+  const cents = Number(value);
+  if (!Number.isFinite(cents)) return "";
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(cents / 100);
+};
+
+const centsToCurrencyInput = (value) => {
+  const cents = Number(value);
+  if (!Number.isFinite(cents) || cents <= 0) return "";
+  return (cents / 100).toFixed(2).replace(".", ",");
+};
+
+const parseCurrencyInputToCents = (value) => {
+  if (!hasFilledText(value)) return null;
+  return parseMoneyInputToCents(value);
 };
 
 const emptyDeleteModal = {
@@ -1093,7 +1123,7 @@ const parseDateInputValue = (value) => {
   return date;
 };
 
-const buildMonthlyValidityRange = (value) => {
+const buildMonthlyValidityRange = (value, months = 1) => {
   const startDate = parseDateInputValue(toDateInputValue(value));
   if (!startDate) {
     return {
@@ -1102,18 +1132,23 @@ const buildMonthlyValidityRange = (value) => {
     };
   }
 
-  const firstDayOfNextMonth = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 1);
-  const daysInNextMonth = new Date(
-    firstDayOfNextMonth.getFullYear(),
-    firstDayOfNextMonth.getMonth() + 1,
+  const safeMonths = Math.min(12, Math.max(1, Number(months) || 1));
+  const firstDayAfterPeriod = new Date(
+    startDate.getFullYear(),
+    startDate.getMonth() + safeMonths,
+    1,
+  );
+  const daysInTargetMonth = new Date(
+    firstDayAfterPeriod.getFullYear(),
+    firstDayAfterPeriod.getMonth() + 1,
     0,
   ).getDate();
-  const nextMonthSameDay = new Date(
-    firstDayOfNextMonth.getFullYear(),
-    firstDayOfNextMonth.getMonth(),
-    Math.min(startDate.getDate(), daysInNextMonth),
+  const targetMonthSameDay = new Date(
+    firstDayAfterPeriod.getFullYear(),
+    firstDayAfterPeriod.getMonth(),
+    Math.min(startDate.getDate(), daysInTargetMonth),
   );
-  const endDate = new Date(nextMonthSameDay);
+  const endDate = new Date(targetMonthSameDay);
   endDate.setDate(endDate.getDate() - 1);
 
   return {
@@ -1409,6 +1444,8 @@ export default function Agendamentos() {
   const [professionals, setProfessionals] = useState([]);
   const [serviceLimits, setServiceLimits] = useState([]);
   const [services, setServices] = useState([]);
+  const [servicePrices, setServicePrices] = useState([]);
+  const [patientServiceAgreements, setPatientServiceAgreements] = useState([]);
   const [isBaseDataLoading, setIsBaseDataLoading] = useState(true);
   const [statusOptions, setStatusOptions] = useState([]);
   const [form, setForm] = useState(emptyForm);
@@ -1426,6 +1463,7 @@ export default function Agendamentos() {
   const [editingId, setEditingId] = useState(null);
   const [editingIntent, setEditingIntent] = useState("create");
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [discardDrawerClose, setDiscardDrawerClose] = useState(null);
   const [drawerMode, setDrawerMode] = useState("form");
   const [pendingCenterSelectedItemKey, setPendingCenterSelectedItemKey] = useState(null);
   const [groupContext, setGroupContext] = useState(null);
@@ -1441,8 +1479,10 @@ export default function Agendamentos() {
   const [repeatEnabled, setRepeatEnabled] = useState(false);
   const [repeatWeekdays, setRepeatWeekdays] = useState([]);
   const [repeatMode, setRepeatMode] = useState("count");
+  const [repeatCadence, setRepeatCadence] = useState("weekly");
   const [repeatCount, setRepeatCount] = useState("10");
   const [repeatWeeks, setRepeatWeeks] = useState("4");
+  const [repeatMonths, setRepeatMonths] = useState("1");
   const [formAvailability, setFormAvailability] = useState(null);
   const [recurrencePreview, setRecurrencePreview] = useState(null);
   const [deleteModal, setDeleteModal] = useState(emptyDeleteModal);
@@ -1515,6 +1555,8 @@ export default function Agendamentos() {
         limitsResponse,
         statusResponse,
         servicesResponse,
+        servicePricesResponse,
+        patientServiceAgreementsResponse,
         operationalPolicyResponse,
       ] = await reuseInFlightAgendaRequest("agenda:base-data", () => Promise.all([
         axios.get("/patients"),
@@ -1522,6 +1564,8 @@ export default function Agendamentos() {
         axios.get("/service-limits"),
         axios.get("/session-statuses"),
         axios.get("/services"),
+        axios.get("/service-prices"),
+        axios.get("/patient-service-agreements"),
         axios.get("/unit-scheduling-policy"),
       ]));
       setPatients(Array.isArray(patientsResponse.data) ? patientsResponse.data : []);
@@ -1529,6 +1573,12 @@ export default function Agendamentos() {
       setServiceLimits(Array.isArray(limitsResponse.data) ? limitsResponse.data : []);
       setStatusOptions(Array.isArray(statusResponse.data) ? statusResponse.data : []);
       setServices(Array.isArray(servicesResponse.data) ? servicesResponse.data : []);
+      setServicePrices(Array.isArray(servicePricesResponse.data) ? servicePricesResponse.data : []);
+      setPatientServiceAgreements(
+        Array.isArray(patientServiceAgreementsResponse.data)
+          ? patientServiceAgreementsResponse.data
+          : [],
+      );
       setOperationalPolicy({
         ...DEFAULT_OPERATIONAL_POLICY,
         ...(operationalPolicyResponse.data || {}),
@@ -1835,6 +1885,44 @@ export default function Agendamentos() {
     });
     return map;
   }, [services]);
+
+  const activeServicePriceMap = useMemo(() => {
+    const map = new Map();
+    servicePrices
+      .filter((item) => item?.service_id && item.is_active !== false)
+      .sort((first, second) => Number(first.id || 0) - Number(second.id || 0))
+      .forEach((item) => {
+        map.set(String(item.service_id), item);
+      });
+    return map;
+  }, [servicePrices]);
+
+  const activePatientServiceAgreementMap = useMemo(() => {
+    const map = new Map();
+    patientServiceAgreements
+      .filter((item) => item?.patient_id && item?.service_id && item.is_active !== false)
+      .sort((first, second) => Number(first.id || 0) - Number(second.id || 0))
+      .forEach((item) => {
+        map.set(`${item.patient_id}:${item.service_id}`, item);
+      });
+    return map;
+  }, [patientServiceAgreements]);
+
+  const getSuggestedSessionPriceCents = useCallback(
+    (patientId, serviceId) => {
+      if (!serviceId) return null;
+      const agreement = patientId
+        ? activePatientServiceAgreementMap.get(`${patientId}:${serviceId}`)
+        : null;
+      const agreementCents = Number(agreement?.price_cents);
+      if (Number.isFinite(agreementCents) && agreementCents > 0) return agreementCents;
+
+      const servicePrice = activeServicePriceMap.get(String(serviceId));
+      const serviceCents = Number(servicePrice?.price_cents);
+      return Number.isFinite(serviceCents) && serviceCents > 0 ? serviceCents : null;
+    },
+    [activePatientServiceAgreementMap, activeServicePriceMap],
+  );
 
   const serviceLimitMap = useMemo(() => {
     const map = new Map();
@@ -2460,6 +2548,26 @@ export default function Agendamentos() {
     setForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   }, [editingId, showEditReasonError]);
 
+  const handleSessionPriceChange = useCallback((event) => {
+    const value = sanitizePositiveCurrencyInput(event.target.value);
+    setForm((prev) => ({
+      ...prev,
+      session_price: value,
+      session_price_manually_changed: true,
+    }));
+  }, []);
+
+  const handleSessionPriceBlur = useCallback(() => {
+    setForm((prev) => {
+      if (!hasFilledText(prev.session_price)) return prev;
+      const formattedValue = formatCurrencyInput(prev.session_price);
+      return {
+        ...prev,
+        session_price: formattedValue,
+      };
+    });
+  }, []);
+
   const updateStartDateTime = useCallback((dateValue, hourValue, minuteValue = "00") => {
     const nextMinuteValue = allowBrokenTimeScheduling ? minuteValue : "00";
     const nextStartsAt = buildDateTimeInputValue(dateValue, hourValue, nextMinuteValue);
@@ -2571,6 +2679,52 @@ export default function Agendamentos() {
     setRecurrencePreview(null);
   }, []);
 
+  const buildSingleReviewOccurrence = useCallback(async ({
+    payload,
+    durationMinutes,
+    index = 1,
+    manuallyEdited = false,
+  }) => {
+    const startsAt = new Date(payload.starts_at);
+    const endsAt = payload.ends_at
+      ? new Date(payload.ends_at)
+      : new Date(startsAt.getTime() + durationMinutes * 60000);
+    const availabilityResponse = await checkSchedulingAvailability({
+      starts_at: startsAt.toISOString(),
+      ends_at: endsAt.toISOString(),
+      professional_user_id: payload.professional_user_id,
+      service_id: payload.service_id,
+      service_type: payload.service_type,
+    });
+    const availability = availabilityResponse?.data || {};
+    const matchedEvents = Array.isArray(availability.matched_events)
+      ? availability.matched_events
+      : [];
+    let status = "AVAILABLE";
+    if (availability.has_blocking_events) {
+      status = "BLOCK";
+    } else if (availability.requires_confirmation) {
+      status = "WARN_CONFIRM";
+    } else if (availability.severity === "info" && matchedEvents.length > 0) {
+      status = "INFO";
+    }
+
+    return {
+      index,
+      starts_at: startsAt.toISOString(),
+      ends_at: endsAt.toISOString(),
+      start_time: getOccurrenceTimeValue({ starts_at: startsAt.toISOString() }),
+      date: formatDateParam(startsAt),
+      status,
+      can_override_block: false,
+      matched_events: matchedEvents,
+      manually_edited: manuallyEdited,
+      professional_user_id: payload.professional_user_id,
+      service_id: payload.service_id,
+      service_type: payload.service_type,
+    };
+  }, []);
+
   const handleTogglePreviewOccurrence = useCallback((occurrence) => {
     if (!occurrence?.index) return;
     setRecurrencePreview((previous) => {
@@ -2635,8 +2789,8 @@ export default function Agendamentos() {
     });
   }, []);
 
-  const handleSaveEditPreviewOccurrence = useCallback(async (occurrence) => {
-    if (!occurrence?.index || !recurrencePreview) return;
+	  const handleSaveEditPreviewOccurrence = useCallback(async (occurrence) => {
+	    if (!occurrence?.index || !recurrencePreview) return;
 
     const editedTimes = buildEditedOccurrenceTimes(
       occurrence,
@@ -2665,19 +2819,61 @@ export default function Agendamentos() {
         : item);
     const sortedDraftOccurrences = sortOccurrencesByDateTime(draftOccurrences);
 
-    setRecurrencePreview((previous) =>
-      previous
-        ? {
-          ...previous,
-          is_editing_occurrence: true,
-          edit_error: "",
-        }
-        : previous);
+	    setRecurrencePreview((previous) =>
+	      previous
+	        ? {
+	          ...previous,
+	          is_editing_occurrence: true,
+	          edit_error: "",
+	        }
+	        : previous);
 
-    try {
-      const response = await previewSchedulingOccurrences({
-        ...recurrencePreview.series_payload,
-        occurrences: sortedDraftOccurrences.map((item) =>
+	    try {
+	      if (recurrencePreview.review_type === "single") {
+	        const nextPayload = {
+	          ...recurrencePreview.single_payload,
+	          starts_at: editedTimes.starts_at,
+	          ends_at: editedTimes.ends_at,
+	        };
+	        const nextOccurrence = await buildSingleReviewOccurrence({
+	          payload: nextPayload,
+	          durationMinutes: getOccurrenceDurationMinutes(occurrence),
+	          index: occurrence.index,
+	          manuallyEdited: true,
+	        });
+	        const selectedIndexes =
+	          nextOccurrence.status === "BLOCK" && !nextOccurrence.can_override_block
+	            ? []
+	            : [nextOccurrence.index];
+	        setRecurrencePreview((previous) =>
+	          previous
+	            ? {
+	              ...previous,
+	              single_payload: nextPayload,
+	              occurrences: [nextOccurrence],
+	              summary: {
+	                total: 1,
+	                available: nextOccurrence.status === "AVAILABLE" ? 1 : 0,
+	                info: nextOccurrence.status === "INFO" ? 1 : 0,
+	                warn: nextOccurrence.status === "WARN_CONFIRM" ? 1 : 0,
+	                blocked: nextOccurrence.status === "BLOCK" ? 1 : 0,
+	              },
+	              selected_indexes: selectedIndexes,
+	              confirm_warning_indexes:
+	                nextOccurrence.status === "WARN_CONFIRM" ? selectedIndexes : [],
+	              force_override_indexes: [],
+	              editing_index: null,
+	              edit_date: "",
+	              edit_time: "",
+	              edit_error: "",
+	              is_editing_occurrence: false,
+	            }
+	            : previous);
+	        return;
+	      }
+	      const response = await previewSchedulingOccurrences({
+	        ...recurrencePreview.series_payload,
+	        occurrences: sortedDraftOccurrences.map((item) =>
           toOccurrencePreviewPayload(item, recurrencePreview.series_payload)),
       });
       const nextOccurrences = Array.isArray(response?.data?.occurrences_preview)
@@ -2740,7 +2936,7 @@ export default function Agendamentos() {
           }
           : previous);
     }
-  }, [recurrencePreview]);
+	  }, [buildSingleReviewOccurrence, recurrencePreview]);
 
   const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
@@ -2761,6 +2957,27 @@ export default function Agendamentos() {
       }
       return [...prev, value].sort((a, b) => a - b);
     });
+  }, []);
+
+  const handleAddMoreSessions = useCallback(() => {
+    setRepeatEnabled(true);
+    if (repeatWeekdays.length === 0 && form.starts_at) {
+      const start = new Date(form.starts_at);
+      if (!Number.isNaN(start.getTime())) {
+        const weekday = toSelectableWeekday(start, allowWeekendScheduling);
+        if (weekday) setRepeatWeekdays([weekday]);
+      }
+    }
+  }, [allowWeekendScheduling, form.starts_at, repeatWeekdays.length]);
+
+  const handleRemoveMoreSessions = useCallback(() => {
+    setRepeatEnabled(false);
+    setRepeatWeekdays([]);
+    setRepeatMode("count");
+    setRepeatCadence("weekly");
+    setRepeatCount("10");
+    setRepeatWeeks("4");
+    setRepeatMonths("1");
   }, []);
 
   const openDrawer = useCallback(() => {
@@ -2787,6 +3004,37 @@ export default function Agendamentos() {
     setIsDrawerOpen(false);
   }, []);
 
+  const requestDrawerDiscard = useCallback(() => {
+    const hasFormInput = drawerMode === "form" && Boolean(
+      editingId
+      || hasFilledText(form.patient_id)
+      || hasFilledText(form.professional_user_id)
+      || hasFilledText(form.service_type)
+      || hasFilledText(form.service_id)
+      || hasFilledText(form.starts_at)
+      || hasFilledText(form.ends_at)
+      || hasFilledText(form.notes)
+      || hasFilledText(form.absence_reason)
+      || hasFilledText(form.session_replacement_credit_id)
+      || hasFilledText(form.patient_credit_id)
+      || repeatEnabled,
+    );
+    if (!hasFormInput) {
+      closeDrawer();
+      return;
+    }
+    setDiscardDrawerClose(() => closeDrawer);
+  }, [closeDrawer, drawerMode, editingId, form, repeatEnabled]);
+
+  const keepDrawerEditing = useCallback(() => {
+    setDiscardDrawerClose(null);
+  }, []);
+
+  const discardDrawerChanges = useCallback(() => {
+    if (discardDrawerClose) discardDrawerClose();
+    setDiscardDrawerClose(null);
+  }, [discardDrawerClose]);
+
   const resetForm = useCallback(() => {
     setEditingId(null);
     setEditingIntent("create");
@@ -2796,18 +3044,20 @@ export default function Agendamentos() {
     setRepeatEnabled(false);
     setRepeatWeekdays([]);
     setRepeatMode("count");
+    setRepeatCadence("weekly");
     setRepeatCount("10");
     setRepeatWeeks("4");
+    setRepeatMonths("1");
     setFormAvailability(null);
     setRecurrencePreview(null);
     setShowEditReasonError(false);
   }, []);
 
-  const handleConfirmRecurrenceCreation = useCallback(async () => {
-    if (!recurrencePreview?.series_payload) return;
+	  const handleConfirmRecurrenceCreation = useCallback(async () => {
+	    if (!recurrencePreview?.series_payload && !recurrencePreview?.single_payload) return;
 
-    const selectedOccurrences = sortOccurrencesByDateTime(
-      (recurrencePreview.occurrences || []).filter((occurrence) =>
+	    const selectedOccurrences = sortOccurrencesByDateTime(
+	      (recurrencePreview.occurrences || []).filter((occurrence) =>
         (recurrencePreview.selected_indexes || []).includes(occurrence.index)),
     );
     if (selectedOccurrences.length === 0) {
@@ -2833,13 +3083,38 @@ export default function Agendamentos() {
       return;
     }
 
-    setRecurrencePreview((previous) =>
-      previous ? { ...previous, is_submitting: true } : previous,
-    );
+	    setRecurrencePreview((previous) =>
+	      previous ? { ...previous, is_submitting: true } : previous,
+	    );
 
-    try {
-      const response = await axios.post("/session-series", {
-        ...recurrencePreview.series_payload,
+	    try {
+	      if (recurrencePreview.review_type === "single") {
+	        const selectedOccurrence = selectedOccurrences[0];
+	        const occurrenceWasEdited = !!selectedOccurrence.manually_edited;
+	        await axios.post("/sessions", {
+	          ...recurrencePreview.single_payload,
+	          starts_at: occurrenceWasEdited
+	            ? selectedOccurrence.starts_at
+	            : recurrencePreview.single_payload.starts_at,
+	          ends_at: occurrenceWasEdited
+	            ? selectedOccurrence.ends_at || null
+	            : recurrencePreview.single_payload.ends_at || null,
+	          confirm_schedule_warning: confirmWarningIndexes.length > 0,
+	          force_override: false,
+	          override_reason: null,
+	        });
+	        toast.success("Agendamento criado.");
+	        setRecurrencePreview(null);
+	        resetForm();
+	        closeDrawer();
+	        await reloadVisibleSessions();
+	        await loadPendingSessions();
+	        await loadReplacementCreditsForPatient(recurrencePreview.single_payload.patient_id);
+	        await loadOperationalAlerts(selectedMonthKey);
+	        return;
+	      }
+	      const response = await axios.post("/session-series", {
+	        ...recurrencePreview.series_payload,
         starts_at: selectedOccurrences[0].starts_at,
         occurrence_count: selectedOccurrences.length,
         until_date: null,
@@ -2897,12 +3172,15 @@ export default function Agendamentos() {
       );
     }
   }, [
-    closeDrawer,
-    loadPendingSessions,
-    reloadVisibleSessions,
-    recurrencePreview,
-    resetForm,
-  ]);
+	    closeDrawer,
+	    loadOperationalAlerts,
+	    loadPendingSessions,
+	    loadReplacementCreditsForPatient,
+	    reloadVisibleSessions,
+	    recurrencePreview,
+	    resetForm,
+	    selectedMonthKey,
+	  ]);
 
 	  const handleCreateAt = useCallback(
 	    (date) => {
@@ -3885,7 +4163,56 @@ export default function Agendamentos() {
 	    if (!cycleStart || !cycleEnd || !form.starts_at) return false;
 	    return !isDateWithinInputRange(form.starts_at, cycleStart, cycleEnd);
 	  }, [form.starts_at, isSchedulingReplacement, selectedReplacementBillingMode, selectedReplacementCredit]);
-  const getReplacementCreditOptionLabel = useCallback(
+
+  const selectedServicePriceCents = useMemo(() => {
+    if (!form.service_id) return null;
+    const price = activeServicePriceMap.get(String(form.service_id));
+    const cents = Number(price?.price_cents);
+    return Number.isFinite(cents) && cents > 0 ? cents : null;
+  }, [activeServicePriceMap, form.service_id]);
+
+  const sessionPriceCents = useMemo(
+    () => parseCurrencyInputToCents(form.session_price),
+    [form.session_price],
+  );
+
+  const shouldSendPriceOverride = useMemo(
+    () =>
+      !editingId
+      && !isSchedulingReplacement
+      && !form.is_no_charge
+      && !!form.session_price_manually_changed
+      && Number.isFinite(sessionPriceCents)
+      && sessionPriceCents > 0,
+    [
+      editingId,
+      form.is_no_charge,
+      form.session_price_manually_changed,
+      isSchedulingReplacement,
+      sessionPriceCents,
+    ],
+  );
+
+  const visibleSessionPriceCents = useMemo(() => {
+    if (form.is_no_charge) return null;
+    if (Number.isFinite(sessionPriceCents) && sessionPriceCents > 0) return sessionPriceCents;
+    return selectedServicePriceCents;
+  }, [form.is_no_charge, selectedServicePriceCents, sessionPriceCents]);
+
+  const formPriceTotalLabel = useMemo(() => {
+    if (!visibleSessionPriceCents) return "";
+    if (!repeatEnabled) return "";
+    if (repeatMode === "count") {
+      const count = Math.max(1, Number(repeatCount) || 1);
+      return formatCurrencyCents(visibleSessionPriceCents * count);
+    }
+	    return "O total será mostrado antes de confirmar.";
+  }, [repeatCount, repeatEnabled, repeatMode, visibleSessionPriceCents]);
+
+  const valueFieldLabel = repeatEnabled ? "Valor por sessão" : "Valor da sessão";
+  const shouldDisableSessionPriceInput = !!form.is_no_charge || !form.service_id;
+
+	  const getReplacementCreditOptionLabel = useCallback(
     (credit) => {
       const sourceSession = credit?.sourceSession || credit?.source_session || null;
       const sourceStatus = String(
@@ -3934,11 +4261,21 @@ export default function Agendamentos() {
         toast.error("Selecione o serviço.");
         return;
       }
-      if (editingId && !normalizeText(form.notes)) {
-        setShowEditReasonError(true);
+	      if (editingId && !normalizeText(form.notes)) {
+	        setShowEditReasonError(true);
+	        return;
+	      }
+      if (
+        !editingId
+        && !isSchedulingReplacement
+        && !form.is_no_charge
+        && form.session_price_manually_changed
+        && (!Number.isFinite(sessionPriceCents) || sessionPriceCents <= 0)
+      ) {
+        toast.error("Informe um valor por sessão válido.");
         return;
       }
-      const startsAtDate = new Date(form.starts_at);
+	      const startsAtDate = new Date(form.starts_at);
       if (Number.isNaN(startsAtDate.getTime())) {
         toast.error("Data de início inválida.");
         return;
@@ -4036,6 +4373,13 @@ export default function Agendamentos() {
             return;
           }
         }
+        if (repeatMode === "month") {
+          const months = Number(repeatMonths);
+          if (!Number.isFinite(months) || months < 1 || months > 12) {
+            toast.error("Informe uma quantidade de meses entre 1 e 12.");
+            return;
+          }
+        }
       }
 
       submitLockRef.current = true;
@@ -4064,8 +4408,8 @@ export default function Agendamentos() {
         billingModePayload.billing_mode = form.billing_mode || "per_session";
       }
 
-      const payload = {
-        patient_id: Number(form.patient_id),
+	      const payload = {
+	        patient_id: Number(form.patient_id),
         professional_user_id: form.professional_user_id
           ? Number(form.professional_user_id)
           : null,
@@ -4089,16 +4433,21 @@ export default function Agendamentos() {
           || (shouldUseEditReasonAsMonthlyRescheduleException ? editReason : null),
         cycle_reschedule_exception_justified: !!form.cycle_reschedule_exception_justified,
         cycle_reschedule_exception_reason: normalizeText(form.cycle_reschedule_exception_reason),
-        session_replacement_credit_id: form.session_replacement_credit_id
-          ? Number(form.session_replacement_credit_id)
-          : null,
-        patient_credit_id: selectedPatientCreditId,
-        ...billingModePayload,
-      };
+	        session_replacement_credit_id: form.session_replacement_credit_id
+	          ? Number(form.session_replacement_credit_id)
+	          : null,
+	        patient_credit_id: selectedPatientCreditId,
+	        is_no_charge: !editingId && !isSchedulingReplacement ? !!form.is_no_charge : false,
+		        ...billingModePayload,
+		      };
+      if (shouldSendPriceOverride) {
+        payload.price_override_cents = sessionPriceCents;
+      }
 
       if (isRecurring) {
         let untilDate = null;
         const recurrenceStartsAt = new Date(startsAtDate);
+        const repeatInterval = repeatCadence === "alternate" ? 2 : 1;
         if (repeatMode === "weeks") {
           const weeks = Math.max(1, Number(repeatWeeks) || 1);
           const endDate = new Date(startsAtDate);
@@ -4107,7 +4456,7 @@ export default function Agendamentos() {
           untilDate = formatDateParam(endDate);
         }
         if (repeatMode === "month") {
-          const monthlyValidity = buildMonthlyValidityRange(startsAtDate);
+          const monthlyValidity = buildMonthlyValidityRange(startsAtDate, repeatMonths);
           if (!monthlyValidity.end) {
             releaseSubmitState();
             toast.error("Não foi possível calcular a vigência mensal.");
@@ -4128,7 +4477,7 @@ export default function Agendamentos() {
           status: payload.status,
           starts_at: recurrenceStartsAt.toISOString(),
           duration_minutes: durationMinutes,
-          repeat_interval: 1,
+          repeat_interval: repeatInterval,
           weekdays,
           ...(repeatMode === "plan"
             ? {}
@@ -4137,11 +4486,15 @@ export default function Agendamentos() {
                 repeatMode === "weeks" || repeatMode === "month" ? untilDate : null,
               occurrence_count: repeatMode === "count" ? Number(repeatCount) : null,
             }),
-          billing_mode:
-            repeatMode === "plan" ? "covered_by_plan" : payload.billing_mode || "per_session",
-          patient_credit_id: repeatMode === "plan" ? null : selectedPatientCreditId,
-          notes: payload.notes,
-        };
+		          billing_mode:
+		            repeatMode === "plan" ? "covered_by_plan" : payload.billing_mode || "per_session",
+		          patient_credit_id: repeatMode === "plan" ? null : selectedPatientCreditId,
+		          is_no_charge: repeatMode === "plan" ? false : !!payload.is_no_charge,
+		          notes: payload.notes,
+		        };
+        if (shouldSendPriceOverride && repeatMode !== "plan") {
+          seriesPayload.price_override_cents = sessionPriceCents;
+        }
 
         if (repeatMode === "plan") {
           try {
@@ -4187,11 +4540,16 @@ export default function Agendamentos() {
             )
             .map((occurrence) => occurrence.index);
 
-          setRecurrencePreview({
-            open: true,
-            is_submitting: false,
-            series_payload: seriesPayload,
-            occurrences,
+			          setRecurrencePreview({
+			            open: true,
+			            is_submitting: false,
+			            series_payload: seriesPayload,
+	              price_unit_cents: seriesPayload.is_no_charge ? null : visibleSessionPriceCents,
+	              is_no_charge: !!seriesPayload.is_no_charge,
+		              repeat_mode: repeatMode,
+              repeat_cadence: repeatCadence,
+              repeat_months: repeatMonths,
+	            occurrences,
             summary,
             selected_indexes: selectedIndexes,
             confirm_warning_indexes: [],
@@ -4210,11 +4568,70 @@ export default function Agendamentos() {
           toast.error(message);
         } finally {
           releaseSubmitState();
-        }
-        return;
-      }
+	        }
+	        return;
+	      }
 
-      let confirmScheduleWarning = false;
+	      if (!editingId) {
+	        try {
+	          let occurrence = await buildSingleReviewOccurrence({
+	            payload,
+	            durationMinutes,
+	            index: 1,
+	          });
+	          if (hasLocalHolidayBlock) {
+	            occurrence = {
+	              ...occurrence,
+	              status: "BLOCK",
+	              matched_events: formLocalSpecialSummary?.events || occurrence.matched_events || [],
+	            };
+	          }
+	          const selectedIndexes =
+	            occurrence.status === "BLOCK" && !occurrence.can_override_block
+	              ? []
+	              : [occurrence.index];
+	          setRecurrencePreview({
+	            open: true,
+	            review_type: "single",
+		            is_submitting: false,
+		            single_payload: payload,
+		            series_payload: null,
+		            price_unit_cents: payload.is_no_charge ? null : visibleSessionPriceCents,
+		            is_no_charge: !!payload.is_no_charge,
+		            repeat_mode: "single",
+	            repeat_cadence: null,
+	            repeat_months: null,
+	            occurrences: [occurrence],
+	            summary: {
+	              total: 1,
+	              available: occurrence.status === "AVAILABLE" ? 1 : 0,
+	              info: occurrence.status === "INFO" ? 1 : 0,
+	              warn: occurrence.status === "WARN_CONFIRM" ? 1 : 0,
+	              blocked: occurrence.status === "BLOCK" ? 1 : 0,
+	            },
+	            selected_indexes: selectedIndexes,
+	            confirm_warning_indexes:
+	              occurrence.status === "WARN_CONFIRM" ? selectedIndexes : [],
+	            force_override_indexes: [],
+	            override_reason: "",
+	            editing_index: null,
+	            edit_date: "",
+	            edit_time: "",
+	            edit_error: "",
+	            is_editing_occurrence: false,
+	          });
+	        } catch (error) {
+	          const message =
+	            error?.response?.data?.error ||
+	            "Não foi possível validar disponibilidade.";
+	          toast.error(message);
+	        } finally {
+	          releaseSubmitState();
+	        }
+	        return;
+	      }
+
+	      let confirmScheduleWarning = false;
       const forceOverride = false;
       const overrideReason = null;
 	      const shouldValidateAvailability = !editingId || editingScheduleWasChanged;
@@ -4342,16 +4759,17 @@ export default function Agendamentos() {
         releaseSubmitState();
       }
     },
-    [
-	      closeDrawer,
-	      allowBrokenTimeScheduling,
-	      allowWeekendScheduling,
-      editingId,
+	    [
+		      closeDrawer,
+		      allowBrokenTimeScheduling,
+		      allowWeekendScheduling,
+	      buildSingleReviewOccurrence,
+	      editingId,
       editingIntent,
-      filteredSessions,
-	      form,
-		      formLocalSpecialSummary,
-		      isSaving,
+	      filteredSessions,
+		      form,
+			      formLocalSpecialSummary,
+			      isSaving,
 		      isSchedulingReplacement,
 	      loadPendingSessions,
       loadOperationalAlerts,
@@ -4359,16 +4777,21 @@ export default function Agendamentos() {
       reloadVisibleSessions,
       repeatEnabled,
       repeatMode,
+      repeatCadence,
       repeatCount,
-      repeatWeeks,
-	      repeatWeekdays,
-	      resetForm,
-			      selectedMonthKey,
-			      selectedReplacementBillingMode,
-			      showReplacementCycleWarning,
+	      repeatMonths,
+	      repeatWeeks,
+		      repeatWeekdays,
+		      resetForm,
+      sessionPriceCents,
+				      selectedMonthKey,
+				      selectedReplacementBillingMode,
+				      showReplacementCycleWarning,
+      shouldSendPriceOverride,
 	      submitLockRef,
-    ],
-  );
+      visibleSessionPriceCents,
+	    ],
+	  );
 
   const monthDays = useMemo(() => getMonthDays(selectedDate), [selectedDate]);
 
@@ -4486,12 +4909,12 @@ export default function Agendamentos() {
   }, [form.starts_at]);
 
   const monthlyValiditySummary = useMemo(() => {
-    const monthlyValidity = buildMonthlyValidityRange(form.starts_at);
+    const monthlyValidity = buildMonthlyValidityRange(form.starts_at, repeatMonths);
     if (!monthlyValidity.start || !monthlyValidity.end) {
       return "Defina data e horario acima.";
     }
     return `${formatDate(monthlyValidity.start)} ate ${formatDate(monthlyValidity.end)}`;
-  }, [form.starts_at]);
+  }, [form.starts_at, repeatMonths]);
 
   const recurrenceSelectedSet = useMemo(
     () => new Set(recurrencePreview?.selected_indexes || []),
@@ -4505,6 +4928,17 @@ export default function Agendamentos() {
         recurrenceSelectedSet.has(occurrence.index)),
     );
   }, [recurrencePreview, recurrenceSelectedSet]);
+
+	  const recurrencePreviewPriceSummary = useMemo(() => {
+    if (recurrencePreview?.is_no_charge) return null;
+	    const priceCents = Number(recurrencePreview?.price_unit_cents || 0);
+    if (!Number.isFinite(priceCents) || priceCents <= 0) return null;
+    const selectedCount = recurrenceSelectedOccurrences.length;
+    return {
+      unit: formatCurrencyCents(priceCents),
+      total: formatCurrencyCents(priceCents * selectedCount),
+    };
+	  }, [recurrencePreview, recurrenceSelectedOccurrences.length]);
 
   const recurrenceSequenceMap = useMemo(() => {
     const map = new Map();
@@ -4521,6 +4955,32 @@ export default function Agendamentos() {
         recurrenceSelectedSet.has(occurrence.index) && occurrence.status === "BLOCK",
     ).length;
   }, [recurrencePreview, recurrenceSelectedSet]);
+
+	  const recurrencePreviewSummaryLabel = useMemo(() => {
+	    if (!recurrencePreview) return "";
+	    if (recurrencePreview.review_type === "single") {
+	      return "Agendamento único";
+	    }
+	    const cadenceLabel =
+      recurrencePreview.repeat_cadence === "alternate"
+        ? "Semana sim, semana não"
+        : "Toda semana";
+    if (recurrencePreview.repeat_mode === "month") {
+      const months = Math.min(12, Math.max(1, Number(recurrencePreview.repeat_months) || 1));
+      return [
+        cadenceLabel,
+        recurrencePreview.repeat_cadence === "alternate" ? "primeira semana ativa" : null,
+        `${months} ${months === 1 ? "mês" : "meses"}`,
+      ].filter(Boolean).join(" · ");
+    }
+    return [
+      cadenceLabel,
+      recurrencePreview.repeat_cadence === "alternate" ? "primeira semana ativa" : null,
+      `${recurrenceSelectedOccurrences.length} ${
+        recurrenceSelectedOccurrences.length === 1 ? "sessão" : "sessões"
+      }`,
+    ].filter(Boolean).join(" · ");
+  }, [recurrencePreview, recurrenceSelectedOccurrences.length]);
 
   const selectedDaySpecialTitle = useMemo(() => {
     if (!selectedDaySpecialSummary) return "";
@@ -4727,7 +5187,7 @@ export default function Agendamentos() {
     drawerSubtitle = editingBillingSummary || "";
   }
 
-  let submitButtonLabel = "Criar agendamento";
+	  let submitButtonLabel = "Revisar agendamento";
   if (isSaving) {
     submitButtonLabel = "Processando...";
 	  } else if (editingId) {
@@ -6006,21 +6466,27 @@ export default function Agendamentos() {
 	                          name="service_id"
 	                          value={form.service_id}
 	                          $selected={!!form.service_id}
-	                          onChange={(event) => {
-	                            const selectedId = event.target.value;
-	                            const service = serviceOptions.find(
-	                              (item) => String(item.id) === selectedId,
-	                            );
-                            setForm((prev) => ({
-                              ...prev,
-                              service_id: selectedId,
-                              service_type: service?.code || "",
-                              patient_credit_id: "",
-                              session_replacement_credit_id: "",
-                              cycle_reschedule_exception_justified: false,
-                              cycle_reschedule_exception_reason: "",
-                            }));
-                          }}
+		                          onChange={(event) => {
+		                            const selectedId = event.target.value;
+		                            const service = serviceOptions.find(
+		                              (item) => String(item.id) === selectedId,
+		                            );
+                                const suggestedPriceCents = getSuggestedSessionPriceCents(
+                                  form.patient_id,
+                                  selectedId,
+                                );
+	                            setForm((prev) => ({
+	                              ...prev,
+	                              service_id: selectedId,
+	                              service_type: service?.code || "",
+                                session_price: centsToCurrencyInput(suggestedPriceCents),
+                                session_price_manually_changed: false,
+	                              patient_credit_id: "",
+	                              session_replacement_credit_id: "",
+	                              cycle_reschedule_exception_justified: false,
+	                              cycle_reschedule_exception_reason: "",
+	                            }));
+	                          }}
 	                        >
 	                          <option value="" disabled hidden>
 	                            Selecionar
@@ -6066,30 +6532,7 @@ export default function Agendamentos() {
                       </SelectionFieldShell>
                     </Field>
                   )}
-				                  {!editingId && (
-		                    <Field className="span-2">
-	                      Status
-                      <select
-                        name="status"
-                        value={form.status}
-                        onChange={handleFormChange}
-                      >
-                        {statusOptions.length === 0 && (
-                          SESSION_STATUS_OPTIONS.map((status) => (
-                            <option key={status.value} value={status.value}>
-                              {status.label}
-                            </option>
-                          ))
-                        )}
-                        {statusOptions.map((status) => (
-                          <option key={status.code} value={status.code}>
-                            {status.label || status.code}
-                          </option>
-                        ))}
-	                      </select>
-	                    </Field>
-	                  )}
-			                  {editingId && form.status === "scheduled" && (
+				                  {editingId && form.status === "scheduled" && (
 		                    <>
 		                      <Field>
 		                        Data *
@@ -6277,39 +6720,31 @@ export default function Agendamentos() {
                     </ScheduleContextCard>
                   )}
 	                  {!editingId && !isSchedulingReplacement && (
-                    <RepeatCard className="span-2">
-                      <RepeatHeader>
-                        <div>
-                          <strong>Repetição</strong>
-                        </div>
-                        <RepeatToggle>
-                          <input
-                            type="checkbox"
-                            checked={repeatEnabled}
-                            onChange={(event) => {
-                              const { checked } = event.target;
-                              setRepeatEnabled(checked);
-                              if (
-                                checked &&
-                                repeatWeekdays.length === 0 &&
-                                form.starts_at
-                              ) {
-                                const start = new Date(form.starts_at);
-                                if (!Number.isNaN(start.getTime())) {
-                                  const weekday = toSelectableWeekday(start, allowWeekendScheduling);
-                                  if (weekday) setRepeatWeekdays([weekday]);
-                                }
-                              }
-                            }}
-                          />
-                          <span>{repeatEnabled ? "Ativo" : "Inativo"}</span>
-                        </RepeatToggle>
-                      </RepeatHeader>
+	                    <RepeatCard className="span-2">
+	                      <RepeatHeader>
+	                        <strong>Mais sessões</strong>
+	                        {repeatEnabled ? (
+	                          <RepeatActionButton
+	                            type="button"
+	                            onClick={handleRemoveMoreSessions}
+	                          >
+	                            Remover
+	                          </RepeatActionButton>
+	                        ) : (
+	                          <RepeatActionButton
+	                            type="button"
+	                            onClick={handleAddMoreSessions}
+	                          >
+	                            + Adicionar
+	                          </RepeatActionButton>
+	                        )}
+	                      </RepeatHeader>
                       {repeatEnabled && (
                         <RepeatBody>
                           <RepeatRow>
                             <RepeatField className="full">
-                              <RepeatModes>
+                                <RepeatLabel>Definir por</RepeatLabel>
+	                              <RepeatModes>
                                 <RepeatModeButton
                                   type="button"
                                   $active={repeatMode === "count"}
@@ -6329,7 +6764,7 @@ export default function Agendamentos() {
                                   $active={repeatMode === "month"}
                                   onClick={() => setRepeatMode("month")}
                                 >
-                                  Por mes
+	                                  Por meses
                                 </RepeatModeButton>
                                 {canUsePlanRepeatMode && (
                                   <RepeatModeButton
@@ -6341,9 +6776,30 @@ export default function Agendamentos() {
                                   </RepeatModeButton>
                                 )}
                               </RepeatModes>
-                            </RepeatField>
-                          </RepeatRow>
-                          <RepeatRow>
+	                            </RepeatField>
+	                          </RepeatRow>
+                            <RepeatRow>
+                              <RepeatField className="full">
+                                <RepeatLabel>Repetir</RepeatLabel>
+                                <RepeatModes>
+                                  <RepeatModeButton
+                                    type="button"
+                                    $active={repeatCadence === "weekly"}
+                                    onClick={() => setRepeatCadence("weekly")}
+                                  >
+                                    Toda semana
+                                  </RepeatModeButton>
+                                  <RepeatModeButton
+                                    type="button"
+                                    $active={repeatCadence === "alternate"}
+                                    onClick={() => setRepeatCadence("alternate")}
+                                  >
+                                    Semana sim, semana não
+                                  </RepeatModeButton>
+                                </RepeatModes>
+                              </RepeatField>
+                            </RepeatRow>
+	                          <RepeatRow>
                             {repeatMode === "count" && (
                               <RepeatField className="full">
                                 <RepeatLabel>Quantas sessões?</RepeatLabel>
@@ -6361,12 +6817,26 @@ export default function Agendamentos() {
                                 </RepeatInline>
                               </RepeatField>
                             )}
-                            {repeatMode === "month" && (
-                              <RepeatField className="full">
-                                <RepeatLabel>Vigência mensal</RepeatLabel>
-                                <RepeatReadonlyValue>
-                                  {monthlyValiditySummary}
-                                </RepeatReadonlyValue>
+	                            {repeatMode === "month" && (
+	                              <RepeatField className="full">
+                                  <RepeatLabel>Quantos meses?</RepeatLabel>
+                                  <RepeatInline>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max="12"
+                                      value={repeatMonths}
+                                      onChange={(event) =>
+                                        setRepeatMonths(event.target.value)
+                                      }
+                                      placeholder="Ex.: 2"
+                                    />
+                                    <span>meses</span>
+                                  </RepeatInline>
+	                                <RepeatLabel>Período gerado</RepeatLabel>
+	                                <RepeatReadonlyValue>
+	                                  {monthlyValiditySummary}
+	                                </RepeatReadonlyValue>
                                 <small>
                                   Atualizado automaticamente com base na data de início.
                                 </small>
@@ -6418,9 +6888,72 @@ export default function Agendamentos() {
                           </RepeatRow>
                         </RepeatBody>
                       )}
-                    </RepeatCard>
-                  )}
-                  <Field className="span-2">
+		                    </RepeatCard>
+		                  )}
+	                  {!editingId && !isSchedulingReplacement && (
+	                    <ValueCard className="span-2">
+	                      <ValueHeader>
+	                        <strong>Valor</strong>
+	                        {!form.is_no_charge && selectedServicePriceCents && (
+	                          <span>Padrão: {formatCurrencyCents(selectedServicePriceCents)}</span>
+	                        )}
+	                      </ValueHeader>
+		                      {form.is_no_charge ? (
+		                        <NoChargeOption>
+		                          <input
+		                            type="checkbox"
+		                            name="is_no_charge"
+		                            checked={!!form.is_no_charge}
+		                            onChange={handleFormChange}
+		                          />
+		                          <span>Sem cobrança</span>
+		                        </NoChargeOption>
+		                      ) : (
+		                        <>
+		                          <ValueGrid $singleColumn={!formPriceTotalLabel}>
+		                            <ValueField $disabled={shouldDisableSessionPriceInput}>
+		                              <ValueFieldHeader>
+		                                <span>{valueFieldLabel}</span>
+		                                {!selectedServicePriceCents && form.service_id && (
+		                                  <small>Sem preço padrão</small>
+		                                )}
+		                              </ValueFieldHeader>
+		                              <CurrencyInputShell $disabled={shouldDisableSessionPriceInput}>
+		                                <CurrencyPrefix>R$</CurrencyPrefix>
+		                                <input
+		                                  name="session_price"
+		                                  value={form.service_id ? form.session_price : ""}
+		                                  onChange={handleSessionPriceChange}
+		                                  onBlur={handleSessionPriceBlur}
+		                                  inputMode="decimal"
+		                                  placeholder={form.service_id ? "" : "Selecione um atendimento"}
+		                                  disabled={shouldDisableSessionPriceInput}
+		                                />
+		                              </CurrencyInputShell>
+		                            </ValueField>
+		                            {formPriceTotalLabel && (
+		                              <ValueTotal>
+		                                <span>
+		                                  {repeatMode === "count" ? "Total previsto" : "Total"}
+		                                </span>
+		                                <strong>{formPriceTotalLabel}</strong>
+		                              </ValueTotal>
+		                            )}
+		                          </ValueGrid>
+		                          <NoChargeOption>
+		                            <input
+		                              type="checkbox"
+		                              name="is_no_charge"
+		                              checked={!!form.is_no_charge}
+		                              onChange={handleFormChange}
+		                            />
+		                            <span>Sem cobrança</span>
+		                          </NoChargeOption>
+		                        </>
+		                      )}
+	                    </ValueCard>
+	                  )}
+	                  <Field className="span-2">
                     {notesFieldLabel}
                     <textarea
                       name="notes"
@@ -6486,35 +7019,51 @@ export default function Agendamentos() {
             )}
           </DrawerBody>
         </AppDrawer>
-        {isDrawerOpen && <DrawerBackdrop onClick={closeDrawer} />}
-        {recurrencePreview?.open && (
-          <ModalOverlay>
-            <RecurrencePreviewCard>
-              <ModalHeader>
-	                <h3>Revisar sessões</h3>
-                <IconButton type="button" onClick={closeRecurrencePreview}>
-                  <FaTimes />
-                </IconButton>
-              </ModalHeader>
-              <RecurrencePreviewBody>
-	                <RecurrenceSummaryGrid>
-	                  <RecurrenceSummaryItem>
-		                    <small>Sessões selecionadas</small>
-	                    <strong>{recurrenceSelectedOccurrences.length}</strong>
-	                  </RecurrenceSummaryItem>
-                  <RecurrenceSummaryItem $variant="warn">
-                    <small>Alertas</small>
-                    <strong>{recurrencePreview?.summary?.warn || 0}</strong>
-                  </RecurrenceSummaryItem>
-                  <RecurrenceSummaryItem $variant="block">
-                    <small>Bloqueadas</small>
-                    <strong>{recurrencePreview?.summary?.blocked || 0}</strong>
-                  </RecurrenceSummaryItem>
-                </RecurrenceSummaryGrid>
+        {isDrawerOpen && <DrawerBackdrop onClick={requestDrawerDiscard} />}
+        <UnsavedChangesDialog
+          open={Boolean(discardDrawerClose)}
+          onKeepEditing={keepDrawerEditing}
+          onDiscard={discardDrawerChanges}
+        />
+	        {recurrencePreview?.open && (
+	          <ModalOverlay>
+	            <RecurrencePreviewCard>
+	              <ModalHeader>
+		                <h3>Revisar agendamento</h3>
+	                <IconButton type="button" onClick={closeRecurrencePreview}>
+	                  <FaTimes />
+	                </IconButton>
+	              </ModalHeader>
+	              <RecurrencePreviewBody>
+		                <RecurrenceReviewSummary>
+		                  <small>Resumo do agendamento</small>
+		                  <strong>
+		                    {recurrenceSelectedOccurrences.length}{" "}
+		                    {recurrenceSelectedOccurrences.length === 1 ? "sessão selecionada" : "sessões selecionadas"}
+		                  </strong>
+		                  {recurrencePreviewPriceSummary && (
+		                    <span>
+		                      {recurrencePreviewPriceSummary.unit} por sessão
+		                      {" · "}
+		                      Total: {recurrencePreviewPriceSummary.total}
+		                    </span>
+		                  )}
+			                  {recurrencePreview?.is_no_charge && (
+			                    <span>Sem cobrança</span>
+			                  )}
+			                  {recurrencePreviewSummaryLabel && (
+			                    <span>{recurrencePreviewSummaryLabel}</span>
+			                  )}
+		                </RecurrenceReviewSummary>
+		                <RecurrenceSummaryPills>
+		                  <span>Selecionadas {recurrenceSelectedOccurrences.length}</span>
+		                  <span>Alertas {recurrencePreview?.summary?.warn || 0}</span>
+		                  <span>Bloqueadas {recurrencePreview?.summary?.blocked || 0}</span>
+		                </RecurrenceSummaryPills>
 
-		                <RecurrenceSectionDivider>
-		                  <span>Sessões da recorrência</span>
-		                </RecurrenceSectionDivider>
+					                <RecurrenceSectionDivider>
+				                  <span>Agendamentos para confirmar</span>
+				                </RecurrenceSectionDivider>
 
                 <RecurrenceList>
 	                  {recurrencePreview.occurrences.map((occurrence) => {
@@ -6637,10 +7186,6 @@ export default function Agendamentos() {
                                 ))}
                               </RecurrenceEventList>
                             )}
-                          {!occurrence.can_override_block &&
-                            occurrence.status === "BLOCK" && (
-                              <small>Sem permissao para override nesta ocorrencia.</small>
-                            )}
                         </RecurrenceRowInfo>
                       </RecurrenceRow>
                     );
@@ -6678,14 +7223,15 @@ export default function Agendamentos() {
                 <PrimaryButton
                   type="button"
 	                  onClick={handleConfirmRecurrenceCreation}
-	                  disabled={
-	                    recurrencePreview.is_submitting ||
-	                    recurrencePreview.is_editing_occurrence ||
-	                    !!recurrencePreview.editing_index
-	                  }
+		                  disabled={
+		                    recurrencePreview.is_submitting ||
+		                    recurrencePreview.is_editing_occurrence ||
+		                    !!recurrencePreview.editing_index ||
+		                    recurrenceSelectedOccurrences.length === 0
+		                  }
 	                >
-                  {recurrencePreview.is_submitting ? "Salvando..." : "Confirmar"}
-                </PrimaryButton>
+	                  {recurrencePreview.is_submitting ? "Salvando..." : "Confirmar agendamento"}
+	                </PrimaryButton>
               </ModalActions>
             </RecurrencePreviewCard>
           </ModalOverlay>
@@ -9926,6 +10472,49 @@ const RecurrencePreviewBody = styled.div`
   min-height: 0;
 `;
 
+const RecurrenceReviewSummary = styled.div`
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  border-radius: 10px;
+  background: #f8faf5;
+  padding: 12px 14px;
+  display: grid;
+  gap: 4px;
+
+  small {
+    color: #6a795c;
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  strong {
+    color: #1b1b1b;
+    font-size: 1.02rem;
+  }
+
+  span {
+    color: #4f5f45;
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+`;
+
+const RecurrenceSummaryPills = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  span {
+    border: 1px solid rgba(106, 121, 92, 0.18);
+    border-radius: 999px;
+    background: #fff;
+    color: #42523a;
+    font-size: 0.8rem;
+    font-weight: 800;
+    padding: 5px 9px;
+  }
+`;
+
 const RecurrenceSummaryGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -10880,11 +11469,142 @@ const ReplacementSelectionHint = styled.small`
   line-height: 1.4;
 `;
 
+const ValueCard = styled.div`
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+  display: grid;
+  gap: 10px;
+`;
+
+const ValueHeader = styled.div`
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+
+  strong {
+    color: #1b1b1b;
+    font-size: 0.95rem;
+  }
+
+  span {
+    color: #6a795c;
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+`;
+
+const ValueGrid = styled.div`
+  display: grid;
+  grid-template-columns: ${({ $singleColumn }) =>
+    ($singleColumn ? "1fr" : "minmax(180px, 1fr) minmax(120px, auto)")};
+  gap: 12px;
+  align-items: end;
+
+  @media (max-width: 540px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const NoChargeOption = styled.label`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: #1b1b1b;
+  font-size: 0.86rem;
+  font-weight: 700;
+
+  input {
+    width: 16px;
+    height: 16px;
+    accent-color: #6a795c;
+  }
+`;
+
+const ValueField = styled.label`
+  display: grid;
+  gap: 6px;
+  opacity: ${({ $disabled }) => ($disabled ? 0.58 : 1)};
+
+  span {
+    color: #1b1b1b;
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+`;
+
+const ValueFieldHeader = styled.span`
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+
+  small {
+    color: #6a795c;
+    font-size: 0.76rem;
+    font-weight: 700;
+  }
+`;
+
+const CurrencyInputShell = styled.div`
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  border: 1px solid rgba(106, 121, 92, 0.2);
+  border-radius: 10px;
+  background: ${({ $disabled }) => ($disabled ? "#f7f8f5" : "#fff")};
+  overflow: hidden;
+
+  input {
+    border: 0;
+    min-width: 0;
+    padding: 10px 12px 10px 6px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #1b1b1b;
+    outline: none;
+
+    &:disabled {
+      background: #f7f8f5;
+      cursor: not-allowed;
+    }
+  }
+`;
+
+const CurrencyPrefix = styled.span`
+  padding-left: 12px;
+  color: #6a795c;
+  font-size: 0.9rem;
+  font-weight: 800;
+`;
+
+const ValueTotal = styled.div`
+  border-radius: 10px;
+  background: #f8faf5;
+  padding: 9px 11px;
+  display: grid;
+  gap: 3px;
+
+  span {
+    color: #6a795c;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  strong {
+    color: #1b1b1b;
+    font-size: 0.95rem;
+  }
+`;
+
 const RepeatCard = styled.div`
-  border: 1px solid rgba(106, 121, 92, 0.18);
-  border-radius: 14px;
-  padding: 14px;
-  background: #f9faf6;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -10901,24 +11621,27 @@ const RepeatHeader = styled.div`
     font-size: 0.95rem;
     color: #1b1b1b;
   }
-
-  span {
-    color: #6a795c;
-    font-size: 0.85rem;
-  }
 `;
 
-const RepeatToggle = styled.label`
+const RepeatActionButton = styled.button`
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  color: #6a795c;
+  justify-content: center;
+  border: 1px solid rgba(106, 121, 92, 0.24);
+  border-radius: 999px;
+  background: #fff;
+  color: #516046;
+  padding: 6px 10px;
+  min-height: 30px;
+  font-size: 0.84rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 
-  input {
-    width: 18px;
-    height: 18px;
-    accent-color: #6a795c;
+  &:hover {
+    background: #f8faf5;
+    border-color: rgba(106, 121, 92, 0.38);
+    color: #2f3a26;
   }
 `;
 
@@ -11022,13 +11745,20 @@ const WeekdayGrid = styled.div`
 `;
 
 const WeekdayButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
+  min-height: 32px;
+  box-sizing: border-box;
   border: 1px solid rgba(106, 121, 92, 0.25);
   background: ${(props) => (props.$active ? "#6a795c" : "#fff")};
   color: ${(props) => (props.$active ? "#fff" : "#6a795c")};
   padding: 6px 10px;
   border-radius: 999px;
   font-weight: 600;
+  line-height: 1;
+  text-align: center;
   cursor: pointer;
   transition: transform 120ms ease, box-shadow 120ms ease;
 

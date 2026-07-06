@@ -31,6 +31,7 @@ export default function ClinicExpenseModal({
     SecondaryButton,
     PrimaryButton,
     Backdrop,
+    backdropHasInput,
     MutedText,
   } = ui;
   const isEditing = Boolean(editingClinicExpenseId);
@@ -196,7 +197,7 @@ export default function ClinicExpenseModal({
           </ModalActions>
         </ModalCard>
       </ModalOverlay>
-      <Backdrop onClick={closeClinicExpenseModal} />
+      <Backdrop onClick={closeClinicExpenseModal} $hasInput={backdropHasInput} />
     </>
   );
 }

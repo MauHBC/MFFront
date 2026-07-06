@@ -26,6 +26,7 @@ export default function ClinicExpenseCategoryModal({
     SecondaryButton,
     PrimaryButton,
     Backdrop,
+    backdropHasInput,
   } = ui;
 
   return (
@@ -63,7 +64,7 @@ export default function ClinicExpenseCategoryModal({
           </ModalActions>
         </ModalCard>
       </ModalOverlay>
-      <Backdrop onClick={onClose} />
+      <Backdrop onClick={onClose} $hasInput={backdropHasInput} />
     </>
   );
 }
