@@ -176,6 +176,25 @@ describe("calculateFinancialOverview", () => {
     expect(overview.revenues.pending).toBe(50000);
   });
 
+  it("ignora mensalidade marcada como sem cobranca", () => {
+    const overview = calculateFinancialOverview({
+      month: "2026-06",
+      billingCycles: [
+        {
+          id: 1,
+          cycle_start: "2026-06-01",
+          amount_cents: 0,
+          financial_entry_id: null,
+          is_no_charge: true,
+        },
+      ],
+    });
+
+    expect(overview.revenues).toEqual({ expected: 0, received: 0, pending: 0 });
+    expect(overview.summary.receivable).toBe(0);
+    expect(overview.hasMovement).toBe(false);
+  });
+
   it("soma apenas a ocorrencia de despesa recorrente do mes selecionado via summary recebido", () => {
     const june = calculateFinancialOverview({
       month: "2026-06",

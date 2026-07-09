@@ -934,6 +934,54 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(screen.getByText("Pilates")).toBeInTheDocument();
   });
 
+  it("mostra mensalidade sem cobranca como informativa no detalhe do paciente", async () => {
+    listBillingCycles.mockResolvedValueOnce({
+      data: [
+        {
+          id: 991,
+          clinic_id: 1,
+          patient_plan_id: 41,
+          patient_id: 30,
+          service_plan_id: 102,
+          cycle_start: "2026-06-01",
+          cycle_end: "2026-06-30",
+          amount_cents: 0,
+          paid_amount_cents: 0,
+          open_amount_cents: 0,
+          status: "active",
+          is_no_charge: true,
+          financial_entry_id: null,
+          Patient: { id: 30, full_name: "Maria Silva" },
+          ServicePlan: { id: 102, name: "FUNCIONAL 2X NA SEMANA" },
+          FinancialEntry: null,
+        },
+      ],
+    });
+
+    renderFinanceiro();
+    await revealFinancialValues();
+
+    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mensalidades" }));
+    await screen.findByText("Maria Silva");
+
+    const groupedPatientCell = screen.getByText("Maria Silva");
+    const groupedRow = groupedPatientCell.closest("tr");
+    expect(groupedRow).toBeTruthy();
+    expect(within(groupedRow).getAllByText("Sem cobrança")).toHaveLength(2);
+    expect(within(groupedRow).queryByText("R$ 0,00")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    const planCell = await screen.findByText("FUNCIONAL 2X NA SEMANA");
+    const row = planCell.closest("tr");
+    expect(row).toBeTruthy();
+    expect(within(row).getByText("Sem cobrança")).toBeInTheDocument();
+    expect(within(row).queryByText("R$ 0,00")).not.toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Ver sessões" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Registrar recebimento" })).not.toBeInTheDocument();
+  });
+
   it("nao mostra mensalidade sem sessao no detalhe por sessao", async () => {
     getFinancialRevenuePatientDetail.mockResolvedValueOnce({
       data: {

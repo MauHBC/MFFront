@@ -1,18 +1,21 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useHistory } from "react-router-dom";
 import styled from "styled-components";
-import { FaSearch, FaPhoneAlt, FaUser, FaList, FaThLarge } from "react-icons/fa";
+import {
+  FaLink,
+  FaSearch,
+  FaPhoneAlt,
+  FaUser,
+  FaUserPlus,
+  FaList,
+  FaThLarge,
+} from "react-icons/fa";
 import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
 import DataLoadingState from "../../components/DataLoadingState";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
-import { LinkGhostButton } from "../../components/AppButton";
-import {
-  ModuleHeader,
-  ModuleTitle,
-  ModuleSubtitle,
-} from "../../components/AppModuleShell";
+import { ModuleHeader, ModuleTitle } from "../../components/AppModuleShell";
 import { getPatientDisplayName, getPatientSearchText } from "../../utils/patientSearch";
 
 const PATIENTS_PER_PAGE = 10;
@@ -46,6 +49,9 @@ export default function PatientsSearch() {
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState("list");
   const [currentPage, setCurrentPage] = useState(1);
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteExpiresAt, setInviteExpiresAt] = useState("");
+  const [isInviteLoading, setIsInviteLoading] = useState(false);
 
   useEffect(() => {
     async function loadPatients() {
@@ -104,6 +110,39 @@ export default function PatientsSearch() {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
 
+  const handleGenerateInvite = useCallback(async () => {
+    setIsInviteLoading(true);
+    try {
+      const response = await axios.post("/patient-invites", {
+        expires_in_days: 7,
+      });
+      const code = response?.data?.code;
+      const inviteUrl =
+        response?.data?.invite_url ||
+        (code ? `${window.location.origin}/cadastro/paciente/${code}` : "");
+      setInviteLink(inviteUrl);
+      setInviteExpiresAt(response?.data?.expires_at || "");
+      toast.success("Link gerado.");
+    } catch (error) {
+      const message =
+        error?.response?.data?.error || "Não foi possível gerar o link.";
+      toast.error(message);
+    } finally {
+      setIsInviteLoading(false);
+    }
+  }, []);
+
+  const handleCopyInvite = useCallback(async () => {
+    if (!inviteLink) return;
+
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      toast.success("Link copiado.");
+    } catch (error) {
+      toast.error("Não foi possível copiar o link.");
+    }
+  }, [inviteLink]);
+
   return (
     <PageWrapper $paddingTop="90px" $paddingBottom="60px">
       <PageContent
@@ -117,14 +156,41 @@ export default function PatientsSearch() {
         $mobilePaddingBottom="0"
       >
         <Header>
-          <div>
-            <HeaderTitle>Consultar paciente</HeaderTitle>
-            <HeaderSubtitle>
-              Busque pacientes cadastrados pelo nome, email ou telefone.
-            </HeaderSubtitle>
-          </div>
-          <LinkGhostButton to="/pacientes">Voltar</LinkGhostButton>
+          <HeaderTitle>Consultar paciente</HeaderTitle>
+          <HeaderActions>
+            <PrimaryActionLink to="/pacientes/novo">
+              <FaUserPlus />
+              Novo paciente
+            </PrimaryActionLink>
+            <HeaderSecondaryAction
+              type="button"
+              onClick={handleGenerateInvite}
+              disabled={isInviteLoading}
+            >
+              <FaLink />
+              {isInviteLoading ? "Gerando..." : "Gerar link"}
+            </HeaderSecondaryAction>
+          </HeaderActions>
         </Header>
+
+        {inviteLink && (
+          <InvitePanel>
+            <InviteInfo>
+              <strong>Link de cadastro gerado</strong>
+              {inviteExpiresAt && (
+                <span>
+                  Expira em {new Date(inviteExpiresAt).toLocaleDateString("pt-BR")}
+                </span>
+              )}
+            </InviteInfo>
+            <LinkBox>
+              <LinkInput value={inviteLink} readOnly />
+              <SecondaryAction type="button" onClick={handleCopyInvite}>
+                Copiar
+              </SecondaryAction>
+            </LinkBox>
+          </InvitePanel>
+        )}
 
         <Controls>
           <SearchBar>
@@ -142,6 +208,7 @@ export default function PatientsSearch() {
               type="button"
               onClick={() => setViewMode("list")}
               $active={viewMode === "list"}
+              $buttonSize="list"
             >
               <FaList />
               Layout lista
@@ -150,6 +217,7 @@ export default function PatientsSearch() {
               type="button"
               onClick={() => setViewMode("grid")}
               $active={viewMode === "grid"}
+              $buttonSize="grid"
             >
               <FaThLarge />
               Layout grade
@@ -298,11 +366,137 @@ const Header = styled(ModuleHeader)`
 `;
 
 const HeaderTitle = styled(ModuleTitle)`
-  margin-bottom: 6px;
+  margin-bottom: 0;
 `;
 
-const HeaderSubtitle = styled(ModuleSubtitle)`
-  margin-top: 0;
+const HeaderActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+`;
+
+const PrimaryActionLink = styled(Link)`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 136px;
+  height: 42px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.3);
+  background: #6a795c;
+  color: #fff;
+  text-decoration: none;
+  font-size: 0.92rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 0.18s ease, box-shadow 0.18s ease;
+
+  &:hover,
+  &:focus-visible {
+    color: #fff;
+    text-decoration: none;
+    background: #59694d;
+    box-shadow: 0 0 0 3px rgba(106, 121, 92, 0.2);
+  }
+`;
+
+const SecondaryAction = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.3);
+  background: #fff;
+  color: #516046;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.18s ease, box-shadow 0.18s ease;
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    background: #f5f7f1;
+    box-shadow: 0 0 0 3px rgba(106, 121, 92, 0.14);
+  }
+
+  &:disabled {
+    opacity: 0.62;
+    cursor: not-allowed;
+  }
+`;
+
+const HeaderSecondaryAction = styled(SecondaryAction)`
+  box-sizing: border-box;
+  width: 146px;
+  height: 42px;
+  min-height: 42px;
+  padding: 0 14px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  white-space: nowrap;
+`;
+
+const InvitePanel = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: -8px 0 20px;
+  padding: 14px;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  border-radius: 12px;
+  background: #fff;
+
+  @media (max-width: 760px) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+`;
+
+const InviteInfo = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  strong {
+    color: #1b1b1b;
+    font-size: 0.95rem;
+  }
+
+  span {
+    color: #6a795c;
+    font-size: 0.86rem;
+  }
+`;
+
+const LinkBox = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: min(100%, 420px);
+
+  @media (max-width: 620px) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+`;
+
+const LinkInput = styled.input`
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  border-radius: 10px;
+  border: 1px solid rgba(106, 121, 92, 0.2);
+  padding: 0 12px;
+  font-size: 0.94rem;
+  color: #1b1b1b;
+  background: #f9faf7;
 `;
 
 const Controls = styled.div`
@@ -350,7 +544,10 @@ const ViewButton = styled.button`
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 14px;
+  box-sizing: border-box;
+  width: ${(props) => (props.$buttonSize === "grid" ? "146px" : "136px")};
+  height: 42px;
+  padding: 0 10px;
   border-radius: 10px;
   border: 1px solid rgba(106, 121, 92, 0.3);
   background: ${(props) => (props.$active ? "#6a795c" : "#fff")};

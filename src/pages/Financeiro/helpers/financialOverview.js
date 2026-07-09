@@ -43,6 +43,16 @@ const readMapValue = (mapLike, key) => {
 };
 
 export const resolveOverviewBillingCycleFinancial = (cycle, entryFinancialMap, entryMap) => {
+  if (cycle?.is_no_charge === true) {
+    return {
+      entry: null,
+      amount: 0,
+      paid: 0,
+      open: 0,
+      status: "no_charge",
+    };
+  }
+
   const entry = cycle?.FinancialEntry || cycle?.financial_entry || (
     cycle?.financial_entry_id ? readMapValue(entryMap, cycle.financial_entry_id) : null
   );
@@ -126,6 +136,7 @@ export const calculateFinancialOverview = ({
   billingCycles.forEach((cycle) => {
     if (!isDateOnlyWithinOverviewRange(cycle?.cycle_start, range)) return;
     if (cycle?.status === "canceled") return;
+    if (cycle?.is_no_charge === true) return;
 
     const financial = resolveOverviewBillingCycleFinancial(cycle, entryFinancialMap, entryMap);
     if (financial.status === "canceled") return;

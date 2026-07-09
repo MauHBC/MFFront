@@ -1515,6 +1515,7 @@ export default function Financeiro() {
     if (status === "overdue") return "Vencido";
     if (status === "missing") return "Sem lançamento";
     if (status === "covered_by_plan") return "Coberto pelo plano";
+    if (status === "no_charge") return "Sem cobrança";
     return "Pendente";
   }, []);
 
@@ -4933,6 +4934,16 @@ export default function Financeiro() {
   );
 
   const resolveBillingCycleFinancial = useCallback((cycle) => {
+    if (cycle?.is_no_charge === true) {
+      return {
+        entry: null,
+        amount: 0,
+        paid: 0,
+        open: 0,
+        status: "no_charge",
+      };
+    }
+
     const entry = cycle?.FinancialEntry || (cycle?.financial_entry_id
       ? entryMap.get(cycle.financial_entry_id)
       : null);
@@ -5005,10 +5016,14 @@ export default function Financeiro() {
         amountCents: 0,
         paidCents: 0,
         openCents: 0,
+        noChargeCycles: 0,
       };
 
       current.cycles += 1;
-      if (financial.status !== "canceled") {
+      if (financial.status === "no_charge") {
+        current.noChargeCycles += 1;
+      }
+      if (financial.status !== "canceled" && financial.status !== "no_charge") {
         current.amountCents += financial.amount;
         current.paidCents += financial.paid;
         current.openCents += financial.open;
@@ -5046,7 +5061,7 @@ export default function Financeiro() {
       : groupedSummary?.patientName || (fallbackCycle?.Patient ? getPatientDisplayName(fallbackCycle.Patient) : "Paciente");
     const selectedTotals = selectedBillingCyclesPatientRows.reduce((acc, cycle) => {
       const financial = resolveBillingCycleFinancial(cycle);
-      if (financial.status === "canceled") return acc;
+      if (financial.status === "canceled" || financial.status === "no_charge") return acc;
       return {
         amountCents: acc.amountCents + financial.amount,
         paidCents: acc.paidCents + financial.paid,
@@ -5274,6 +5289,7 @@ export default function Financeiro() {
       })
       .filter(Boolean);
     const totalOpenCents = entriesToReceive.reduce((sum, item) => sum + Number(item.openCents || 0), 0);
+    if (totalOpenCents <= 0 || entriesToReceive.length === 0) return;
 
     openScopedPatientPaymentModal(
       selectedBillingCyclesPatient || {
@@ -5311,7 +5327,7 @@ export default function Financeiro() {
         activePlanIds.add(cycle.patient_plan_id);
       }
       const financial = resolveBillingCycleFinancial(cycle);
-      if (financial.status === "canceled") return;
+      if (financial.status === "canceled" || financial.status === "no_charge") return;
       data.expectedCents += financial.amount;
       data.paidCents += financial.paid;
       data.pendingCents += financial.open;
@@ -6255,7 +6271,7 @@ export default function Financeiro() {
                   <th>Categoria</th>
                   <th>Paciente</th>
                   <th>Valor</th>
-	                    <th>Situação</th>
+	                  <th>Status</th>
                   <th>Ações</th>
                 </tr>
               </thead>
@@ -6604,7 +6620,7 @@ export default function Financeiro() {
               </AttendanceGhostAction>
             </AttendanceHeaderActions>
           </AttendancePatientDetailTopline>
-          <AttendancePatientStats>
+	          <AttendancePatientStats>
             <AttendancePatientStat>
               <span>A receber</span>
               <strong>{formatCurrency(attendanceDetailPatientSummary.openCents)}</strong>
@@ -7068,13 +7084,15 @@ export default function Financeiro() {
               </AttendanceHeadingTitle>
             </div>
             <AttendanceHeaderActions>
-              <AttendancePrimaryAction
-                type="button"
-                onClick={openBillingCyclesScopedPaymentModal}
-              >
-                <FaPlus />
-                Registrar recebimento
-              </AttendancePrimaryAction>
+              {selectedBillingCyclesPatientSummary.openCents > 0 && (
+                <AttendancePrimaryAction
+                  type="button"
+                  onClick={openBillingCyclesScopedPaymentModal}
+                >
+                  <FaPlus />
+                  Registrar recebimento
+                </AttendancePrimaryAction>
+              )}
               <AttendanceGhostAction type="button" onClick={handleCloseBillingCyclesPatient}>
                 Voltar
               </AttendanceGhostAction>
@@ -7092,7 +7110,7 @@ export default function Financeiro() {
           </AttendancePatientStats>
           <BillingCyclesInnerTableCard>
             <AttendanceTableScroll>
-              <BillingCyclesTable $detail>
+              <BillingCyclesTable $detail $billingPatientDetail>
                 <thead>
                   <tr>
                     <th>Plano</th>
@@ -7100,7 +7118,7 @@ export default function Financeiro() {
                     <th>Valor</th>
                     <th>Recebido</th>
                     <th>A receber</th>
-                    <th>Status</th>
+                    <th>Situação</th>
                     <th>Ação</th>
                   </tr>
                 </thead>
@@ -7110,33 +7128,46 @@ export default function Financeiro() {
                     const planName = cycle.ServicePlan?.name || "-";
                     const periodStart = formatDateOnlyBR(cycle.cycle_start);
                     const periodEnd = formatDateOnlyBR(cycle.cycle_end);
+                    const isNoCharge = financial.status === "no_charge";
 
                     return (
-                      <PatientSummaryRow key={cycle.id} $hasOpen={financial.open > 0}>
+                      <PatientSummaryRow key={cycle.id} $hasOpen={!isNoCharge && financial.open > 0}>
                         <td>
-                          <AttendanceOriginBadge>{planName}</AttendanceOriginBadge>
+                          <BillingCyclePlanName title={planName}>{planName}</BillingCyclePlanName>
                         </td>
                         <td>
                           <AttendancePrimaryText>
                             {periodStart}{cycle.cycle_end ? ` - ${periodEnd}` : ""}
                           </AttendancePrimaryText>
                         </td>
-                        <td>
-                          <AttendanceMoneyText>{formatCurrency(financial.amount)}</AttendanceMoneyText>
-                        </td>
-                        <td>
-                          <AttendanceMoneyText>{formatCurrency(financial.paid)}</AttendanceMoneyText>
-                        </td>
-                        <td>
-                          <AttendanceOpenAmountValue $hasOpen={financial.open > 0}>
-                            {formatCurrency(financial.open)}
-                          </AttendanceOpenAmountValue>
-                        </td>
-                        <td>
-                          <AttendanceStatusBadge $status={financial.status}>
-                            {formatFinancialStatus(financial.status)}
-                          </AttendanceStatusBadge>
-                        </td>
+                        {isNoCharge ? (
+                          <BillingCycleNoChargeCell colSpan={4}>
+                            <AttendanceStatusBadge $status="no_charge">
+                              Sem cobrança
+                            </AttendanceStatusBadge>
+                          </BillingCycleNoChargeCell>
+                        ) : (
+                          <>
+                            <td>
+                              <AttendanceMoneyText>
+                                {formatCurrency(financial.amount)}
+                              </AttendanceMoneyText>
+                            </td>
+                            <td>
+                              <AttendanceMoneyText>{formatCurrency(financial.paid)}</AttendanceMoneyText>
+                            </td>
+                            <td>
+                              <AttendanceOpenAmountValue $hasOpen={financial.open > 0}>
+                                {formatCurrency(financial.open)}
+                              </AttendanceOpenAmountValue>
+                            </td>
+                            <td>
+                              <AttendanceStatusBadge $status={financial.status}>
+                                {formatFinancialStatus(financial.status)}
+                              </AttendanceStatusBadge>
+                            </td>
+                          </>
+                        )}
                         <td>
                           <AttendanceRowActions>
                             <AttendanceSmallAction
@@ -7184,7 +7215,9 @@ export default function Financeiro() {
               </thead>
               <tbody>
                 {billingCyclesByPatient.map((row) => {
-                  const status = resolveGroupedFinancialStatus(row.amountCents, row.paidCents, row.openCents);
+                  const status = row.amountCents <= 0 && row.noChargeCycles > 0
+                    ? "no_charge"
+                    : resolveGroupedFinancialStatus(row.amountCents, row.paidCents, row.openCents);
 
                   return (
                     <PatientSummaryRow key={row.key} $hasOpen={row.openCents > 0}>
@@ -7192,19 +7225,23 @@ export default function Financeiro() {
                         <AttendancePrimaryText>{row.patientName}</AttendancePrimaryText>
                       </td>
                       <td>
-                        <AttendancePrimaryText>
+                        <BillingCycleCountText>
                           {row.cycles} mensalidade{row.cycles === 1 ? "" : "s"}
-                        </AttendancePrimaryText>
+                        </BillingCycleCountText>
                       </td>
                       <td>
-                        <AttendanceMoneyText>{formatCurrency(row.amountCents)}</AttendanceMoneyText>
+                        <AttendanceMoneyText>
+                          {status === "no_charge" ? "Sem cobrança" : formatCurrency(row.amountCents)}
+                        </AttendanceMoneyText>
                       </td>
                       <td>
-                        <AttendanceMoneyText>{formatCurrency(row.paidCents)}</AttendanceMoneyText>
+                        <AttendanceMoneyText>
+                          {status === "no_charge" ? "-" : formatCurrency(row.paidCents)}
+                        </AttendanceMoneyText>
                       </td>
                       <td>
                         <AttendanceOpenAmountValue $hasOpen={row.openCents > 0}>
-                          {formatCurrency(row.openCents)}
+                          {status === "no_charge" ? "-" : formatCurrency(row.openCents)}
                         </AttendanceOpenAmountValue>
                       </td>
                       <td>
@@ -7342,6 +7379,7 @@ export default function Financeiro() {
                 <option value="partial">Parcial</option>
                 <option value="paid">Pago</option>
                 <option value="overdue">Vencido</option>
+                <option value="no_charge">Sem cobrança</option>
                 <option value="canceled">Cancelado</option>
               </AttendanceFilterSelect>
             </AttendanceFilterField>
@@ -10711,6 +10749,67 @@ const BillingCyclesTable = styled(AttendanceOverviewTable)`
   td:last-child > div {
     justify-content: center;
   }
+
+  ${(props) => (props.$billingPatientDetail ? `
+    min-width: 0;
+
+    th,
+    td {
+      padding: 14px 10px;
+    }
+
+    th:first-child,
+    td:first-child {
+      width: 28%;
+    }
+
+    th:nth-child(2),
+    td:nth-child(2) {
+      width: 18%;
+    }
+
+    th:nth-child(3),
+    td:nth-child(3) {
+      width: 12%;
+    }
+
+    th:nth-child(4),
+    td:nth-child(4),
+    th:nth-child(5),
+    td:nth-child(5) {
+      width: 11%;
+      white-space: nowrap;
+    }
+
+    th:nth-child(6),
+    td:nth-child(6) {
+      width: 12%;
+      white-space: nowrap;
+    }
+
+    th:nth-child(7),
+    td:nth-child(7) {
+      width: 8%;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    td:last-child > div {
+      justify-content: flex-end;
+    }
+
+    @media (max-width: 760px) {
+      min-width: 720px;
+    }
+  ` : "")}
+
+  @media (max-width: 900px) and (min-width: 761px) {
+    min-width: ${(props) => {
+    if (props.$billingPatientDetail) return "0";
+    if (props.$detail) return "760px";
+    return "900px";
+  }};
+  }
 `;
 
 const BillingCyclesDetailContent = styled.div`
@@ -10732,6 +10831,28 @@ const AttendancePrimaryText = styled.span`
   font-size: ${ATTENDANCE_UI.font.size.md};
   line-height: ${ATTENDANCE_UI.font.lineHeight.md};
   font-weight: ${ATTENDANCE_UI.font.weight.medium};
+`;
+
+const BillingCyclePlanName = styled(AttendancePrimaryText)`
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: ${ATTENDANCE_UI.colors.textPrimary};
+  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  overflow-wrap: anywhere;
+`;
+
+const BillingCycleCountText = styled(AttendancePrimaryText)`
+  white-space: nowrap;
+`;
+
+const BillingCycleNoChargeCell = styled.td`
+  && {
+    color: ${ATTENDANCE_UI.colors.textSecondary};
+    text-align: left;
+  }
 `;
 
 const AttendanceSecondaryText = styled.span`
@@ -10816,21 +10937,6 @@ const AttendanceStatusBadge = styled.span`
     if (props.$status === "covered_by_plan") return ATTENDANCE_UI.colors.textSecondary;
     return ATTENDANCE_UI.colors.neutralText;
   }};
-`;
-
-const AttendanceOriginBadge = styled.span`
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 4px 10px;
-  border-radius: ${ATTENDANCE_UI.radius.pill};
-  background: ${ATTENDANCE_UI.colors.neutralSoft};
-  color: ${ATTENDANCE_UI.colors.textSecondary};
-  font-size: ${ATTENDANCE_UI.font.size.xs};
-  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
-  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 `;
 
 const AttendanceRowActions = styled(RowActions)`

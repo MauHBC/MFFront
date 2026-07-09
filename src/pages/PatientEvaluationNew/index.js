@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useHistory, useParams } from "react-router-dom";
+import { useHistory, useLocation, useParams } from "react-router-dom";
 import styled from "styled-components";
 import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
 import DataLoadingState from "../../components/DataLoadingState";
+import { listPatientClinicalCases } from "../../services/patientClinicalCases";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { LinkGhostButton, PrimaryButton } from "../../components/AppButton";
 import {
@@ -143,9 +144,16 @@ const buildFieldClassName = (block, { isConclusion = false } = {}) => {
 export default function PatientEvaluationNew() {
   const { id: patientId } = useParams();
   const history = useHistory();
+  const location = useLocation();
+  const queryParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const requestedPhase = queryParams.get("phase") === "reassessment"
+    ? "reassessment"
+    : null;
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [templates, setTemplates] = useState([]);
+  const [clinicalCases, setClinicalCases] = useState([]);
+  const [selectedClinicalCaseId, setSelectedClinicalCaseId] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [definition, setDefinition] = useState(null);
   const [activeSectionId, setActiveSectionId] = useState(null);
@@ -173,6 +181,34 @@ export default function PatientEvaluationNew() {
 
     loadTemplates();
   }, []);
+
+  useEffect(() => {
+    async function loadClinicalCases() {
+      if (!patientId) return;
+      try {
+        const response = await listPatientClinicalCases({ patient_id: patientId });
+        const activeCases = Array.isArray(response.data)
+          ? response.data.filter((item) => item.status === "active")
+          : [];
+        setClinicalCases(activeCases);
+
+	        const requestedCaseId = queryParams.get("case");
+        if (
+          requestedCaseId &&
+          activeCases.some((item) => String(item.id) === String(requestedCaseId))
+        ) {
+          setSelectedClinicalCaseId(String(requestedCaseId));
+        }
+      } catch (error) {
+        toast.error(
+          error?.response?.data?.error ||
+            "Não foi possível carregar os casos clínicos.",
+        );
+      }
+    }
+
+    loadClinicalCases();
+	  }, [patientId, queryParams]);
 
   useEffect(() => {
     async function loadDefinition() {
@@ -224,6 +260,13 @@ export default function PatientEvaluationNew() {
       orderedSections[0]
     );
   }, [activeSectionId, orderedSections]);
+  const selectedClinicalCaseTitle = useMemo(() => {
+    if (!selectedClinicalCaseId) return "";
+    const clinicalCase = clinicalCases.find(
+      (item) => String(item.id) === String(selectedClinicalCaseId),
+    );
+    return clinicalCase?.title || "";
+  }, [clinicalCases, selectedClinicalCaseId]);
 
   const isActiveConclusionSection = Boolean(
     activeSection &&
@@ -509,7 +552,7 @@ export default function PatientEvaluationNew() {
     return payloads;
   }, [answers, definition, orderedSections]);
 
-  const handleSubmit = useCallback(
+	  const handleSubmit = useCallback(
     async (event) => {
       event.preventDefault();
       if (!selectedTemplate?.id) {
@@ -521,12 +564,16 @@ export default function PatientEvaluationNew() {
       setIsSaving(true);
       try {
         const summary = resolveSummary(definition, answers);
-        const evaluationResponse = await axios.post("/evaluations", {
-          patient_id: Number(patientId),
-          status: "done",
-          summary_text: summary.summary_text,
-          plan_text: summary.plan_text,
-        });
+	        const evaluationResponse = await axios.post("/evaluations", {
+	          patient_id: Number(patientId),
+	          clinical_case_id: selectedClinicalCaseId
+	            ? Number(selectedClinicalCaseId)
+	            : null,
+	          evaluation_phase: requestedPhase,
+	          status: "done",
+	          summary_text: summary.summary_text,
+	          plan_text: summary.plan_text,
+	        });
         const evaluationId = evaluationResponse.data?.id;
         const instanceResponse = await axios.post("/form-instances", {
           evaluation_id: evaluationId,
@@ -557,15 +604,22 @@ export default function PatientEvaluationNew() {
     [
       answers,
       buildAnswersPayload,
-      definition,
-      history,
-      patientId,
-      selectedTemplate,
-      validateRequired,
+	      definition,
+	      history,
+	      patientId,
+	      requestedPhase,
+	      selectedTemplate,
+	      selectedClinicalCaseId,
+	      validateRequired,
     ],
-  );
+	  );
 
-  return (
+  const headerTitle = useMemo(() => {
+    const baseTitle = requestedPhase ? "Reavaliação" : "Novo registro";
+    return selectedTemplate ? `${baseTitle} - ${selectedTemplate.title}` : baseTitle;
+  }, [requestedPhase, selectedTemplate]);
+
+	  return (
     <PageWrapper $paddingTop="90px" $paddingBottom="60px">
       <PageContent
         $maxWidth="1220px"
@@ -578,12 +632,8 @@ export default function PatientEvaluationNew() {
         $mobilePaddingBottom="0"
       >
         <Header>
-          <div>
-            <HeaderTitle>
-              {selectedTemplate
-                ? `Novo registro - ${selectedTemplate.title}`
-                : "Novo registro"}
-            </HeaderTitle>
+	          <div>
+	            <HeaderTitle>{headerTitle}</HeaderTitle>
             {!selectedTemplate && (
               <HeaderSubtitle>Selecione um formulario e preencha.</HeaderSubtitle>
             )}
@@ -592,22 +642,29 @@ export default function PatientEvaluationNew() {
 
         {selectedTemplate && definition && (
           <HeaderActions>
-            <CancelButton
-              to={`/pacientes/${patientId}`}
-              aria-disabled={isSaving}
-              onClick={(event) => {
-                if (isSaving) event.preventDefault();
-              }}
-            >
-              Cancelar
-            </CancelButton>
-            <SubmitButton
-              type="submit"
-              form={evaluationFormId}
-              disabled={isSaving}
-            >
-              {isSaving ? <ButtonSpinner /> : "Finalizar"}
-            </SubmitButton>
+            {selectedClinicalCaseId && (
+              <CaseContextTitle>
+                Caso clínico - {selectedClinicalCaseTitle || "Caso selecionado"}
+              </CaseContextTitle>
+            )}
+            <ActionButtonGroup>
+              <CancelButton
+                to={`/pacientes/${patientId}`}
+                aria-disabled={isSaving}
+                onClick={(event) => {
+                  if (isSaving) event.preventDefault();
+                }}
+              >
+                Cancelar
+              </CancelButton>
+              <SubmitButton
+                type="submit"
+                form={evaluationFormId}
+                disabled={isSaving}
+              >
+                {isSaving ? <ButtonSpinner /> : "Finalizar"}
+              </SubmitButton>
+            </ActionButtonGroup>
           </HeaderActions>
         )}
 
@@ -740,13 +797,35 @@ const HeaderSubtitle = styled(ModuleSubtitle)`
 
 const HeaderActions = styled.div`
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
   margin-bottom: 16px;
 
   @media (max-width: 720px) {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+`;
+
+const CaseContextTitle = styled.h2`
+  margin: 0;
+  color: #1b1b1b;
+  font-size: 1rem;
+  line-height: 1.25;
+`;
+
+const ActionButtonGroup = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-left: auto;
+
+  @media (max-width: 720px) {
     justify-content: flex-start;
+    margin-left: 0;
   }
 `;
 
@@ -833,6 +912,7 @@ const SectionMenuButton = styled.button`
   }
 
   span {
+    color: #1b1b1b;
     font-weight: 800;
   }
 
@@ -1024,16 +1104,25 @@ const InfoBox = styled.div`
 `;
 
 const CancelButton = styled(LinkGhostButton)`
-  min-height: 38px;
-  padding: 9px 16px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 14px;
   border-radius: 8px;
-  font-size: 0.95rem;
+  background: #6a795c;
+  border-color: #6a795c;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
   white-space: nowrap;
-  transition: background 0.15s, color 0.15s, opacity 0.15s;
 
   &:hover {
-    background: rgba(106, 121, 92, 0.06);
-    color: #6a795c;
+    background: #59684e;
+    border-color: #59684e;
+    color: #fff;
     text-decoration: none;
   }
 
@@ -1046,8 +1135,14 @@ const CancelButton = styled(LinkGhostButton)`
 
 const SubmitButton = styled(PrimaryButton)`
   min-width: 96px;
-  min-height: 38px;
+  min-height: 42px;
+  padding: 8px 14px;
+  gap: 7px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
   justify-content: center;
+  white-space: nowrap;
 `;
 
 const ButtonSpinner = styled.span`

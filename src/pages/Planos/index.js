@@ -723,6 +723,7 @@ const getPatientPlanSummary = (pp) => {
     serviceName: serviceName && serviceName !== planName ? serviceName : "",
     frequency,
     price: formatPrice(plan?.price_cents),
+    isNoCharge: pp?.is_no_charge === true,
     startsAt: formatDateBR(pp?.starts_at),
     dueDay: pp?.anchor_day ? `Dia ${pp.anchor_day}` : "-",
   };
@@ -748,6 +749,7 @@ const EMPTY_PP = {
   anchor_day: "",
   starts_at: "",
   notes: "",
+  is_no_charge: false,
   professional_user_id: "",
   weekdays: [],
   included_cycle_weeks: [...DEFAULT_INCLUDED_CYCLE_WEEKS],
@@ -765,6 +767,7 @@ const buildPpEditFormFromPlan = (pp) => ({
   anchor_day: String(pp?.anchor_day || ""),
   starts_at: pp?.starts_at ? String(pp.starts_at).slice(0, 10) : "",
   notes: pp?.notes || "",
+  is_no_charge: pp?.is_no_charge === true,
   professional_user_id: String(getPrimaryPlanSeries(pp)?.professional_user_id || ""),
   weekdays: normalizeWeekdays(getPrimaryPlanSeries(pp)?.weekdays),
   included_cycle_weeks: getPlanIncludedCycleWeeks(pp),
@@ -1446,8 +1449,8 @@ export default function Planos() {
   // ---- Patient Plan handlers ----
 
   const handlePpChange = useCallback((e) => {
-    const { name, value } = e.target;
-    setPpForm((prev) => ({ ...prev, [name]: value }));
+    const { name, type, checked, value } = e.target;
+    setPpForm((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   }, []);
 
   const openPpCreate = useCallback(() => {
@@ -1463,7 +1466,7 @@ export default function Planos() {
   }, [history]);
 
   const handlePpDetailEditChange = useCallback((e) => {
-    const { name, value } = e.target;
+    const { name, type, checked, value } = e.target;
     setPpDetailEditForm((prev) => {
       if (name === "service_plan_id") {
         const selectedPlan = [
@@ -1478,7 +1481,7 @@ export default function Planos() {
           weekdays: limit ? weekdays.slice(0, limit) : weekdays,
         };
       }
-      return { ...prev, [name]: value };
+      return { ...prev, [name]: type === "checkbox" ? checked : value };
     });
   }, [activeServicePlans, ppDetailPlan]);
 
@@ -1540,11 +1543,12 @@ export default function Planos() {
     }
     setIsSaving(true);
     try {
-      const payload = {
-        patient_id: Number(ppDetailPlan.patient_id),
-        anchor_day: anchor,
-        notes: ppDetailEditForm.notes.trim() || null,
-      };
+        const payload = {
+          patient_id: Number(ppDetailPlan.patient_id),
+          anchor_day: anchor,
+          notes: ppDetailEditForm.notes.trim() || null,
+          is_no_charge: ppDetailEditForm.is_no_charge === true,
+        };
       if (canEditStartsAt) {
         payload.starts_at = ppDetailEditForm.starts_at;
       }
@@ -1613,6 +1617,7 @@ export default function Planos() {
           anchor_day: anchor,
           starts_at: ppForm.starts_at,
           notes: ppForm.notes.trim() || null,
+          is_no_charge: ppForm.is_no_charge === true,
         };
         if (ppEditingId) {
           await updatePatientPlan(ppEditingId, payload);
@@ -2661,8 +2666,13 @@ export default function Planos() {
     || ppAdminHeader?.billing_status_label
     || null;
   const ppDetailBillingIsOverdue = ppDetailBillingStatus === "overdue";
+  const ppDetailIsNoCharge = ppDetailPlan?.is_no_charge === true
+    || ppAdminPlanData?.is_no_charge === true
+    || ppDetailBillingStatus === "no_charge";
   let ppDetailBillingChipLabel = ppDetailBillingStatusLabel || "Financeiro";
-  if (ppDetailBillingIsOverdue) {
+  if (ppDetailIsNoCharge) {
+    ppDetailBillingChipLabel = "Sem cobrança";
+  } else if (ppDetailBillingIsOverdue) {
     ppDetailBillingChipLabel = "Mensalidade vencida";
   } else if (ppDetailBillingStatus === "paid") {
     ppDetailBillingChipLabel = "Financeiro em dia";
@@ -2700,8 +2710,8 @@ export default function Planos() {
       note: "Sem recorrência ativa no momento.",
     });
   }
-  const ppDetailPlanValue = ppAdminPlanData?.amount_cents != null
-    ? formatPrice(ppAdminPlanData.amount_cents)
+  const ppDetailPlanValue = ppAdminPlanData?.price_cents != null
+    ? formatPrice(ppAdminPlanData.price_cents)
     : ppDetailSummary?.price || "-";
   const ppDetailPlanStartsAt = ppAdminPlanData?.starts_at
     ? formatDateBR(ppAdminPlanData.starts_at)
@@ -2757,6 +2767,20 @@ export default function Planos() {
         <PlanSummaryItem>
           <PlanSummaryLabel>Frequência</PlanSummaryLabel>
           <PlanSummaryValue><strong>{ppDetailEditingFrequency}</strong></PlanSummaryValue>
+        </PlanSummaryItem>
+        <PlanSummaryItem>
+          <PlanSummaryLabel>Financeiro</PlanSummaryLabel>
+          <PlanSummaryValue>
+            <PauseCheckboxLabel>
+              <input
+                type="checkbox"
+                name="is_no_charge"
+                checked={ppDetailEditForm.is_no_charge === true}
+                onChange={handlePpDetailEditChange}
+              />
+              Plano sem cobrança
+            </PauseCheckboxLabel>
+          </PlanSummaryValue>
         </PlanSummaryItem>
         <PlanSummaryItem>
           <PlanSummaryLabel>Data de início</PlanSummaryLabel>
@@ -2825,6 +2849,12 @@ export default function Planos() {
             <span>Valor</span>
             <strong>{ppDetailPlanValue}</strong>
           </PlanInfoRow>
+          {ppDetailIsNoCharge && (
+            <PlanInfoRow>
+              <span>Cobrança</span>
+              <PlanInfoValue $tone="active">Sem cobrança</PlanInfoValue>
+            </PlanInfoRow>
+          )}
           {ppDetailPlanNotes && (
             <PlanInfoRow>
               <span>Observações</span>
@@ -2867,7 +2897,7 @@ export default function Planos() {
                 <FaDollarSign />
               </IconShortcutButton>
             </PlanInfoLabel>
-            <PlanInfoValue $tone={ppDetailBillingStatus === "paid" ? "active" : "canceled"}>
+            <PlanInfoValue $tone={ppDetailBillingStatus === "paid" || ppDetailIsNoCharge ? "active" : "canceled"}>
               {simplifyBillingStatusLabel(ppDetailBillingChipLabel)}
             </PlanInfoValue>
           </PlanInfoRow>
@@ -3709,6 +3739,19 @@ export default function Planos() {
               </select>
             </Field>
             <Field>
+              Financeiro
+              <PauseCheckboxLabel>
+                <input
+                  type="checkbox"
+                  name="is_no_charge"
+                  checked={ppForm.is_no_charge === true}
+                  onChange={handlePpChange}
+                />
+                Plano sem cobrança
+              </PauseCheckboxLabel>
+              <FieldHint>Quando marcado, os próximos ciclos não geram mensalidade financeira.</FieldHint>
+            </Field>
+            <Field>
               Dia de vencimento *
               <select
                 name="anchor_day"
@@ -4324,7 +4367,12 @@ export default function Planos() {
                             <StatusPill $tone={agendaInfo.tone}>{agendaInfo.label}</StatusPill>
                           </TD>
                           <TD>
-                            <StatusPill $tone={si.tone}>{si.label}</StatusPill>
+                            <RowStatusStack>
+                              <StatusPill $tone={si.tone}>{si.label}</StatusPill>
+                              {pp.is_no_charge === true && (
+                                <StatusPill $tone="neutral">Sem cobrança</StatusPill>
+                              )}
+                            </RowStatusStack>
                           </TD>
                           <ActionTD>
                             <RowActionButton type="button" onClick={() => openPpDetails(pp)}>
@@ -4616,6 +4664,13 @@ const RowActions = styled.div`
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+`;
+
+const RowStatusStack = styled.div`
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 `;
 
 const DrawerSectionTitle = styled.h3`

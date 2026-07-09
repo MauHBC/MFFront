@@ -14,7 +14,6 @@ import PatientSelfSignup from "../pages/PatientSelfSignup";
 
 // Páginas protegidas (requer autenticação)
 import Register from "../pages/Register";
-import PatientsMenu from "../pages/Patients";
 import PatientsNew from "../pages/PatientsNew";
 import PatientsSearch from "../pages/PatientsSearch";
 import PatientDetails from "../pages/PatientDetails";
@@ -50,7 +49,7 @@ export default function Routes() {
 
         {/* Rotas protegidas */}
         <MyRoute exact path="/register/" component={Register} isClosed />
-        <MyRoute exact path="/pacientes" component={PatientsMenu} isClosed />
+        <MyRoute exact path="/pacientes" component={PatientsSearch} isClosed />
         <MyRoute exact path="/pacientes/novo" component={PatientsNew} isClosed />
         <MyRoute exact path="/pacientes/consultar" component={PatientsSearch} isClosed />
         <MyRoute exact path="/pacientes/:id" component={PatientDetails} isClosed />

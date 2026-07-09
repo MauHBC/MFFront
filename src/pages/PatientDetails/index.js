@@ -1,11 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useHistory, useParams } from "react-router-dom";
 import styled, { css } from "styled-components";
 import { toast } from "react-toastify";
-import { FaInfoCircle, FaListAlt, FaPhoneAlt, FaPlus, FaTimes, FaUserAlt } from "react-icons/fa";
+import {
+  FaInfoCircle,
+  FaListAlt,
+  FaPen,
+  FaPhoneAlt,
+  FaPlus,
+  FaTimes,
+  FaUserAlt,
+} from "react-icons/fa";
 
 import DataLoadingState from "../../components/DataLoadingState";
 import axios from "../../services/axios";
+import {
+  createPatientClinicalCase,
+  listPatientClinicalCases,
+  updatePatientClinicalCase,
+  updatePatientClinicalCaseStatus,
+} from "../../services/patientClinicalCases";
 import {
   createPatientClinicalReference,
   listPatientClinicalReferences,
@@ -41,6 +55,70 @@ const TABS = {
   historico: "historico",
   dados: "dados",
 };
+
+const PATIENT_DETAILS_TAB_STORAGE_PREFIX = "patient-details-active-tab:";
+const PATIENT_DETAILS_CASE_STORAGE_PREFIX = "patient-details-active-case:";
+
+function isValidPatientDetailsTab(tab) {
+  return Object.values(TABS).includes(tab);
+}
+
+function getPatientDetailsTabStorageKey(patientId) {
+  return `${PATIENT_DETAILS_TAB_STORAGE_PREFIX}${patientId}`;
+}
+
+function getStoredPatientDetailsTab(patientId) {
+  if (!patientId) return TABS.resumo;
+
+  try {
+    const storedTab = window.sessionStorage.getItem(
+      getPatientDetailsTabStorageKey(patientId),
+    );
+    return isValidPatientDetailsTab(storedTab) ? storedTab : TABS.resumo;
+  } catch (error) {
+    return TABS.resumo;
+  }
+}
+
+function storePatientDetailsTab(patientId, tab) {
+  if (!patientId || !isValidPatientDetailsTab(tab)) return;
+
+  try {
+    window.sessionStorage.setItem(getPatientDetailsTabStorageKey(patientId), tab);
+  } catch (error) {
+    // Ignore storage failures; the screen should keep working normally.
+  }
+}
+
+function getPatientDetailsCaseStorageKey(patientId) {
+  return `${PATIENT_DETAILS_CASE_STORAGE_PREFIX}${patientId}`;
+}
+
+function getStoredPatientDetailsCase(patientId) {
+  if (!patientId) return "all";
+
+  try {
+    const storedCase = window.sessionStorage.getItem(
+      getPatientDetailsCaseStorageKey(patientId),
+    );
+    return storedCase || "all";
+  } catch (error) {
+    return "all";
+  }
+}
+
+function storePatientDetailsCase(patientId, clinicalCaseId) {
+  if (!patientId) return;
+
+  try {
+    window.sessionStorage.setItem(
+      getPatientDetailsCaseStorageKey(patientId),
+      clinicalCaseId || "all",
+    );
+  } catch (error) {
+    // Ignore storage failures; the screen should keep working normally.
+  }
+}
 
 const EDIT_SECTIONS = {
   personal: "personal",
@@ -146,6 +224,70 @@ const PRONTUARIO_SECTIONS = {
   references: "references",
 };
 
+const PAIN_SCALE_OPTIONS = ["", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
+
+const CLINICAL_CASE_STATUSES = [
+  { value: "active", label: "Ativo" },
+  { value: "resolved", label: "Resolvido" },
+  { value: "archived", label: "Arquivado" },
+];
+
+const CLINICAL_CASE_STATUS_LABELS = CLINICAL_CASE_STATUSES.reduce(
+  (labels, option) => ({
+    ...labels,
+    [option.value]: option.label,
+  }),
+  {},
+);
+
+const buildClinicalCaseForm = (clinicalCase = null) => ({
+  title: clinicalCase?.title || "",
+  chief_complaint: clinicalCase?.chief_complaint || "",
+  status: clinicalCase?.status || "active",
+  started_on: clinicalCase?.started_on || "",
+  diagnosis_hypothesis: clinicalCase?.diagnosis_hypothesis || "",
+  current_plan: clinicalCase?.current_plan || "",
+  suggested_frequency: clinicalCase?.suggested_frequency || "",
+  attention_points: clinicalCase?.attention_points || "",
+});
+
+const todayDateInput = () => new Date().toISOString().slice(0, 10);
+
+function dateInputFromValue(value) {
+  if (!value) return todayDateInput();
+  const normalizedValue = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalizedValue)) return normalizedValue;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return todayDateInput();
+  return date.toISOString().slice(0, 10);
+}
+
+const buildQuickEvolutionForm = (clinicalCaseId = "") => ({
+  evolution_date: todayDateInput(),
+  clinical_case_id: clinicalCaseId,
+  evolution_text: "",
+  conduct_text: "",
+  pain_scale: "",
+  pain_notes: "",
+});
+
+function getEvaluationPainScaleInputValue(evaluation) {
+  const painScale = evaluation?.pain_scale ?? evaluation?.painScale;
+  if (painScale === null || painScale === undefined || painScale === "") return "";
+  return String(painScale);
+}
+
+const buildQuickEvolutionFormFromEvaluation = (evaluation) => ({
+  evolution_date: dateInputFromValue(evaluation?.created_at || evaluation?.createdAt),
+  clinical_case_id: evaluation?.clinical_case_id
+    ? String(evaluation.clinical_case_id)
+    : "",
+  evolution_text: evaluation?.summary_text || evaluation?.summaryText || "",
+  conduct_text: evaluation?.plan_text || evaluation?.planText || "",
+  pain_scale: getEvaluationPainScaleInputValue(evaluation),
+  pain_notes: evaluation?.pain_notes || evaluation?.painNotes || "",
+});
+
 const buildClinicalReferenceForm = (reference = null) => ({
   title: reference?.title || "",
   reference_text: reference?.reference_text || "",
@@ -209,6 +351,17 @@ function getEvaluationTemplateTitle(evaluation) {
   return template?.title || null;
 }
 
+function getEvaluationClinicalCase(evaluation) {
+  return evaluation?.PatientClinicalCase || evaluation?.patient_clinical_case || null;
+}
+
+function getEvaluationTypeLabel(evaluation) {
+  if (evaluation?.record_type === "session") return "Evolução";
+  if (evaluation?.evaluation_phase === "reassessment") return "Reavaliação";
+  if (evaluation?.evaluation_phase === "initial") return "Avaliação inicial";
+  return getEvaluationTemplateTitle(evaluation) ? "Registro completo" : "Avaliação";
+}
+
 function buildAttentionOptionStyle(level) {
   const styles = resolveAttentionLevelStyles(level);
   return {
@@ -240,6 +393,24 @@ function cleanText(value) {
   if (value === null || value === undefined) return null;
   const normalized = String(value).trim();
   return normalized.length ? normalized : null;
+}
+
+function getEvaluationSummary(evaluation) {
+  return cleanText(evaluation?.summary_text || evaluation?.summaryText);
+}
+
+function getEvaluationConduct(evaluation) {
+  return cleanText(evaluation?.plan_text || evaluation?.planText);
+}
+
+function getEvaluationPainLabel(evaluation) {
+  const painScale = evaluation?.pain_scale ?? evaluation?.painScale;
+  const painNotes = cleanText(evaluation?.pain_notes || evaluation?.painNotes);
+  const hasPainScale = painScale !== null && painScale !== undefined && painScale !== "";
+  if (!hasPainScale && !painNotes) return null;
+  if (hasPainScale && painNotes) return `Dor ${painScale}/10 · ${painNotes}`;
+  if (hasPainScale) return `Dor ${painScale}/10`;
+  return painNotes;
 }
 
 function valueOrDash(value) {
@@ -580,13 +751,34 @@ function buildPatientForm(patient) {
 
 export default function PatientDetails() {
   const { id } = useParams();
-  const [activeTab, setActiveTab] = useState(TABS.resumo);
+  const history = useHistory();
+  const [activeTab, setActiveTab] = useState(() => getStoredPatientDetailsTab(id));
   const [activeProntuarioSection, setActiveProntuarioSection] = useState(
     PRONTUARIO_SECTIONS.records,
+  );
+  const [recordCaseFilter, setRecordCaseFilter] = useState(() =>
+    getStoredPatientDetailsCase(id),
   );
   const [isLoading, setIsLoading] = useState(false);
   const [patient, setPatient] = useState(null);
   const [evaluations, setEvaluations] = useState([]);
+  const [clinicalCases, setClinicalCases] = useState([]);
+  const [isCaseManagerOpen, setIsCaseManagerOpen] = useState(false);
+  const [clinicalCaseModal, setClinicalCaseModal] = useState(null);
+  const [clinicalCaseForm, setClinicalCaseForm] = useState(() =>
+    buildClinicalCaseForm(),
+  );
+  const [expandedCaseSummaryFields, setExpandedCaseSummaryFields] = useState({});
+  const [activeCaseDetailSection, setActiveCaseDetailSection] = useState("chief_complaint");
+  const [isSavingClinicalCase, setIsSavingClinicalCase] = useState(false);
+  const [isUpdatingClinicalCaseStatus, setIsUpdatingClinicalCaseStatus] =
+    useState(false);
+  const [quickEvolutionModal, setQuickEvolutionModal] = useState(false);
+  const [quickEvolutionEditTarget, setQuickEvolutionEditTarget] = useState(null);
+  const [quickEvolutionForm, setQuickEvolutionForm] = useState(() =>
+    buildQuickEvolutionForm(),
+  );
+  const [isSavingQuickEvolution, setIsSavingQuickEvolution] = useState(false);
   const [clinicalReferences, setClinicalReferences] = useState([]);
   const [selectedClinicalReference, setSelectedClinicalReference] = useState(null);
   const [clinicalReferenceDeleteTarget, setClinicalReferenceDeleteTarget] = useState(null);
@@ -615,6 +807,22 @@ export default function PatientDetails() {
   const [editForm, setEditForm] = useState(() => buildPatientForm(null));
 
   useEffect(() => {
+    setActiveTab(getStoredPatientDetailsTab(id));
+  }, [id]);
+
+  useEffect(() => {
+    storePatientDetailsTab(id, activeTab);
+  }, [activeTab, id]);
+
+  useEffect(() => {
+    setRecordCaseFilter(getStoredPatientDetailsCase(id));
+  }, [id]);
+
+  useEffect(() => {
+    storePatientDetailsCase(id, recordCaseFilter);
+  }, [id, recordCaseFilter]);
+
+  useEffect(() => {
     async function loadData() {
       setIsLoading(true);
       try {
@@ -624,6 +832,7 @@ export default function PatientDetails() {
         const [
           patientResponse,
           evalResponse,
+          clinicalCasesResponse,
           clinicalReferencesResponse,
           sessionsResponse,
           allSessionsResponse,
@@ -634,6 +843,7 @@ export default function PatientDetails() {
         ] = await Promise.all([
           axios.get(`/patients/${id}`),
           axios.get(`/evaluations?patient_id=${id}`),
+          listPatientClinicalCases({ patient_id: id }),
           listPatientClinicalReferences({ patient_id: id }),
           axios.get("/sessions", {
             params: {
@@ -650,6 +860,11 @@ export default function PatientDetails() {
         ]);
         setPatient(patientResponse.data);
         setEvaluations(Array.isArray(evalResponse.data) ? evalResponse.data : []);
+        setClinicalCases(
+          Array.isArray(clinicalCasesResponse.data)
+            ? clinicalCasesResponse.data
+            : [],
+        );
         setClinicalReferences(
           Array.isArray(clinicalReferencesResponse.data)
             ? clinicalReferencesResponse.data
@@ -700,6 +915,78 @@ export default function PatientDetails() {
   const latestEval = evaluations[0] || null;
   const summaryText = latestEval?.summary_text || latestEval?.summaryText || "";
   const planText = latestEval?.plan_text || latestEval?.planText || "";
+  const activeClinicalCases = useMemo(
+    () => clinicalCases.filter((item) => item.status === "active"),
+    [clinicalCases],
+  );
+  const inactiveClinicalCases = useMemo(
+    () => clinicalCases.filter((item) => item.status !== "active"),
+    [clinicalCases],
+  );
+  const filteredEvaluations = useMemo(() => {
+    if (recordCaseFilter === "all") return evaluations;
+    if (recordCaseFilter === "none") {
+      return evaluations.filter((evaluation) => !evaluation.clinical_case_id);
+    }
+    return evaluations.filter(
+      (evaluation) => Number(evaluation.clinical_case_id) === Number(recordCaseFilter),
+    );
+  }, [evaluations, recordCaseFilter]);
+  const selectedRecordCase = useMemo(() => {
+    if (recordCaseFilter === "all" || recordCaseFilter === "none") return null;
+    return clinicalCases.find(
+      (clinicalCase) => String(clinicalCase.id) === String(recordCaseFilter),
+    ) || null;
+  }, [clinicalCases, recordCaseFilter]);
+	  useEffect(() => {
+	    setExpandedCaseSummaryFields({});
+	    setActiveCaseDetailSection("chief_complaint");
+	  }, [selectedRecordCase?.id]);
+	  const selectedCaseDetailSections = useMemo(() => {
+	    if (!selectedRecordCase) return [];
+	    return [
+	      {
+	        key: "chief_complaint",
+	        label: "Queixa principal",
+	        title: "Resumo clínico / queixa principal",
+	        value: selectedRecordCase.chief_complaint,
+	        fallback: "Sem resumo clínico registrado.",
+	      },
+	      {
+	        key: "diagnosis_hypothesis",
+	        label: "Hipótese",
+	        title: "Hipótese / diagnóstico",
+	        value: selectedRecordCase.diagnosis_hypothesis,
+	        fallback: "Sem hipótese registrada.",
+	      },
+	      {
+	        key: "current_plan",
+	        label: "Plano",
+	        title: "Plano atual / conduta",
+	        value: selectedRecordCase.current_plan,
+	        fallback: "Sem plano atual registrado.",
+	      },
+	      {
+	        key: "suggested_frequency",
+	        label: "Frequência",
+	        title: "Frequência sugerida",
+	        value: selectedRecordCase.suggested_frequency,
+	        fallback: "Sem frequência sugerida registrada.",
+	      },
+	      {
+	        key: "attention_points",
+	        label: "Atenção",
+	        title: "Observações finais / pontos de atenção",
+	        value: selectedRecordCase.attention_points,
+	        fallback: "Sem observações finais registradas.",
+	      },
+	    ];
+	  }, [selectedRecordCase]);
+	  const activeCaseDetail = useMemo(() => (
+	    selectedCaseDetailSections.find((section) => section.key === activeCaseDetailSection)
+	      || selectedCaseDetailSections[0]
+	      || null
+	  ), [activeCaseDetailSection, selectedCaseDetailSections]);
   const lastRecordName = latestEval
     ? getEvaluationTemplateTitle(latestEval) || summaryText || planText || "Avaliação"
     : "Nenhum registro encontrado.";
@@ -865,6 +1152,210 @@ export default function PatientDetails() {
   const showHistorico = useCallback(() => setActiveTab(TABS.historico), []);
   const showDados = useCallback(() => setActiveTab(TABS.dados), []);
   const closePackageModal = useCallback(() => setSelectedPackage(null), []);
+
+  const reloadEvaluations = useCallback(async () => {
+    if (!id) return;
+    const response = await axios.get(`/evaluations?patient_id=${id}`);
+    setEvaluations(Array.isArray(response.data) ? response.data : []);
+  }, [id]);
+
+  const resolveDefaultCaseIdForRecord = useCallback(() => (
+    recordCaseFilter !== "all" && recordCaseFilter !== "none"
+      ? String(recordCaseFilter)
+      : ""
+  ), [recordCaseFilter]);
+
+  const openQuickEvolutionModal = useCallback(() => {
+    setQuickEvolutionEditTarget(null);
+    setQuickEvolutionForm(buildQuickEvolutionForm(resolveDefaultCaseIdForRecord()));
+    setQuickEvolutionModal(true);
+  }, [resolveDefaultCaseIdForRecord]);
+
+  const openQuickEvolutionEditModal = useCallback((evaluation) => {
+    if (!evaluation?.id || evaluation.record_type !== "session") return;
+    setQuickEvolutionEditTarget(evaluation);
+    setQuickEvolutionForm(buildQuickEvolutionFormFromEvaluation(evaluation));
+    setQuickEvolutionModal(true);
+  }, []);
+
+  const openCaseEvaluationForm = useCallback(() => {
+    if (!selectedRecordCase?.id) return;
+    history.push(`/pacientes/${id}/avaliacoes/nova?case=${selectedRecordCase.id}`);
+  }, [history, id, selectedRecordCase]);
+
+  const closeQuickEvolutionModal = useCallback(() => {
+    if (isSavingQuickEvolution) return;
+    setQuickEvolutionModal(false);
+    setQuickEvolutionEditTarget(null);
+    setQuickEvolutionForm(buildQuickEvolutionForm());
+  }, [isSavingQuickEvolution]);
+
+  const handleQuickEvolutionFieldChange = useCallback((event) => {
+    const { name, value } = event.target;
+    setQuickEvolutionForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  }, []);
+
+  const handleQuickEvolutionPainScaleChange = useCallback((value) => {
+    setQuickEvolutionForm((prev) => ({
+      ...prev,
+      pain_scale: value,
+    }));
+  }, []);
+
+  const handleSaveQuickEvolution = useCallback(async () => {
+    const evolutionText = cleanText(quickEvolutionForm.evolution_text);
+    if (!evolutionText || evolutionText.length < 2) {
+      toast.error("Informe o texto da evolução.");
+      return;
+    }
+
+    setIsSavingQuickEvolution(true);
+    try {
+      const payload = {
+        patient_id: id,
+        evolution_date: quickEvolutionForm.evolution_date,
+        clinical_case_id: quickEvolutionForm.clinical_case_id
+          ? Number(quickEvolutionForm.clinical_case_id)
+          : null,
+        evolution_text: evolutionText,
+        conduct_text: cleanText(quickEvolutionForm.conduct_text),
+        pain_scale: quickEvolutionForm.pain_scale
+          ? Number(quickEvolutionForm.pain_scale)
+          : null,
+        pain_notes: cleanText(quickEvolutionForm.pain_notes),
+      };
+
+      if (quickEvolutionEditTarget?.id) {
+        await axios.put(`/evaluations/${quickEvolutionEditTarget.id}`, {
+          clinical_case_id: payload.clinical_case_id,
+          summary_text: payload.evolution_text,
+          plan_text: payload.conduct_text,
+          pain_scale: payload.pain_scale,
+          pain_notes: payload.pain_notes,
+          created_at: payload.evolution_date,
+        });
+        toast.success("Evolução atualizada.");
+      } else {
+        await axios.post("/evaluations/quick-evolution", payload);
+        toast.success("Evolução registrada.");
+      }
+      setQuickEvolutionModal(false);
+      setQuickEvolutionEditTarget(null);
+      setQuickEvolutionForm(buildQuickEvolutionForm());
+      await reloadEvaluations();
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.error ||
+          "Não foi possível registrar a evolução.",
+      );
+    } finally {
+      setIsSavingQuickEvolution(false);
+    }
+  }, [id, quickEvolutionEditTarget, quickEvolutionForm, reloadEvaluations]);
+
+  const reloadClinicalCases = useCallback(async () => {
+    if (!id) return;
+    const response = await listPatientClinicalCases({ patient_id: id });
+    setClinicalCases(Array.isArray(response.data) ? response.data : []);
+  }, [id]);
+
+  const openClinicalCaseCreateModal = useCallback(() => {
+    setClinicalCaseForm(buildClinicalCaseForm());
+    setClinicalCaseModal({ mode: "create", item: null });
+  }, []);
+
+  const openClinicalCaseEditModal = useCallback((clinicalCase) => {
+    setClinicalCaseForm(buildClinicalCaseForm(clinicalCase));
+    setClinicalCaseModal({ mode: "edit", item: clinicalCase });
+  }, []);
+
+  const closeClinicalCaseModal = useCallback(() => {
+    if (isSavingClinicalCase) return;
+    setClinicalCaseModal(null);
+    setClinicalCaseForm(buildClinicalCaseForm());
+  }, [isSavingClinicalCase]);
+
+	  const handleClinicalCaseFieldChange = useCallback((event) => {
+	    const { name, value } = event.target;
+	    setClinicalCaseForm((prev) => ({
+	      ...prev,
+	      [name]: value,
+	    }));
+	  }, []);
+
+	  const toggleCaseSummaryField = useCallback((field) => {
+	    setExpandedCaseSummaryFields((prev) => ({
+	      ...prev,
+	      [field]: !prev[field],
+	    }));
+	  }, []);
+
+  const handleSaveClinicalCase = useCallback(async () => {
+    const title = cleanText(clinicalCaseForm.title);
+
+    if (!title || title.length < 2) {
+      toast.error("Informe o nome do caso clinico.");
+      return;
+    }
+
+    const payload = {
+      patient_id: id,
+      title,
+      chief_complaint: cleanText(clinicalCaseForm.chief_complaint),
+      status: clinicalCaseForm.status,
+      started_on: cleanText(clinicalCaseForm.started_on),
+	      diagnosis_hypothesis: cleanText(clinicalCaseForm.diagnosis_hypothesis),
+	      current_plan: cleanText(clinicalCaseForm.current_plan),
+	      suggested_frequency: cleanText(clinicalCaseForm.suggested_frequency),
+	      attention_points: cleanText(clinicalCaseForm.attention_points),
+	    };
+
+    setIsSavingClinicalCase(true);
+    try {
+      if (clinicalCaseModal?.mode === "edit" && clinicalCaseModal?.item?.id) {
+        await updatePatientClinicalCase(clinicalCaseModal.item.id, payload);
+        toast.success("Caso clinico atualizado.");
+      } else {
+        await createPatientClinicalCase(payload);
+        toast.success("Caso clinico criado.");
+      }
+      setClinicalCaseModal(null);
+      setClinicalCaseForm(buildClinicalCaseForm());
+      await reloadClinicalCases();
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.error ||
+          "Nao foi possivel salvar o caso clinico.",
+      );
+    } finally {
+      setIsSavingClinicalCase(false);
+    }
+  }, [
+    clinicalCaseForm,
+    clinicalCaseModal,
+    id,
+    reloadClinicalCases,
+  ]);
+
+  const handleClinicalCaseStatusChange = useCallback(async (clinicalCase, status) => {
+    if (!clinicalCase?.id || clinicalCase.status === status) return;
+    setIsUpdatingClinicalCaseStatus(true);
+    try {
+      await updatePatientClinicalCaseStatus(clinicalCase.id, status);
+      toast.success("Status do caso atualizado.");
+      await reloadClinicalCases();
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.error ||
+          "Nao foi possivel atualizar o status do caso.",
+      );
+    } finally {
+      setIsUpdatingClinicalCaseStatus(false);
+    }
+  }, [reloadClinicalCases]);
 
   const reloadClinicalReferences = useCallback(async () => {
     if (!id) return;
@@ -1285,7 +1776,7 @@ export default function PatientDetails() {
     }
   }, [editForm, editingSection, id, patient]);
 
-  const renderSectionActions = useCallback(
+	  const renderSectionActions = useCallback(
     (section) => {
       const isCurrentSection = editingSection === section;
       const disableEdit = Boolean(editingSection) || isSavingSection;
@@ -1331,9 +1822,122 @@ export default function PatientDetails() {
       isSavingSection,
       startEditingSection,
     ],
-  );
+	  );
 
-  return (
+	  const renderClinicalTimeline = useCallback(
+    (items, { showCaseLabel = true } = {}) => {
+      if (!items.length) {
+        return <EmptyState>Nenhum registro clínico encontrado.</EmptyState>;
+      }
+
+      return (
+        <TimelineList>
+          {items.map((evaluation) => {
+            const typeLabel = getEvaluationTypeLabel(evaluation);
+            const templateTitle = getEvaluationTemplateTitle(evaluation);
+            const summary = getEvaluationSummary(evaluation);
+            const conduct = getEvaluationConduct(evaluation);
+            const painLabel = getEvaluationPainLabel(evaluation);
+            const title = templateTitle || summary || typeLabel;
+            const createdAt = formatDate(
+              evaluation.created_at || evaluation.createdAt,
+            );
+            const clinicalCase = getEvaluationClinicalCase(evaluation);
+            const isSession = evaluation.record_type === "session";
+
+            return (
+              <TimelineItem
+                key={evaluation.id || `${createdAt}-${title}`}
+                $compact={isSession}
+              >
+	                <TimelineMarker $type={evaluation.record_type} />
+	                <TimelineCard $compact={isSession}>
+	                  {isSession ? (
+	                    <TimelineCardContent>
+	                      <TimelineCardHeader>
+	                        <TimelineCardMeta>
+	                          <TimelineDate>{createdAt}</TimelineDate>
+	                          <RecordTypePill $type={evaluation.record_type}>
+	                            {typeLabel}
+	                          </RecordTypePill>
+	                          {showCaseLabel && (
+	                            <CaseLinkLabel>
+	                              {clinicalCase?.title || "Não organizados"}
+	                            </CaseLinkLabel>
+	                          )}
+	                        </TimelineCardMeta>
+	                      </TimelineCardHeader>
+	                      {summary && (
+	                        <TimelineClinicalLine>
+	                          <strong>Evolução</strong>
+	                          <span>{summary}</span>
+	                        </TimelineClinicalLine>
+	                      )}
+	                      {conduct && (
+	                        <TimelineClinicalLine>
+	                          <strong>Conduta</strong>
+	                          <span>{conduct}</span>
+	                        </TimelineClinicalLine>
+	                      )}
+	                      {painLabel && (
+	                        <TimelinePainLine>{painLabel}</TimelinePainLine>
+	                      )}
+	                    </TimelineCardContent>
+	                  ) : (
+	                    <TimelineCardLink to={`/pacientes/${id}/avaliacoes/${evaluation.id}`}>
+	                    <TimelineCardHeader>
+	                      <TimelineCardMeta>
+	                        <TimelineDate>{createdAt}</TimelineDate>
+                        <RecordTypePill $type={evaluation.record_type}>
+                          {typeLabel}
+                        </RecordTypePill>
+                        {showCaseLabel && (
+                          <CaseLinkLabel>
+                            {clinicalCase?.title || "Não organizados"}
+                          </CaseLinkLabel>
+                        )}
+                      </TimelineCardMeta>
+                    </TimelineCardHeader>
+                    <TimelineCardTitle>{title}</TimelineCardTitle>
+                    {summary && summary !== title && (
+                      <TimelineText>{summary}</TimelineText>
+                    )}
+                    {conduct && (
+                      <TimelineClinicalLine>
+                        <strong>Conduta</strong>
+                        <span>{conduct}</span>
+                      </TimelineClinicalLine>
+                    )}
+	                    {painLabel && (
+	                      <TimelinePainLine>{painLabel}</TimelinePainLine>
+	                    )}
+	                    </TimelineCardLink>
+	                  )}
+	                  {isSession && (
+	                    <TimelineCardActions>
+	                      <TimelineEditButton
+	                        type="button"
+	                        onClick={() => openQuickEvolutionEditModal(evaluation)}
+	                      >
+	                        Editar
+	                      </TimelineEditButton>
+	                    </TimelineCardActions>
+	                  )}
+	                </TimelineCard>
+              </TimelineItem>
+            );
+          })}
+        </TimelineList>
+      );
+    },
+	    [id, openQuickEvolutionEditModal],
+	  );
+
+  const quickEvolutionSaveLabel = quickEvolutionEditTarget
+    ? "Salvar alterações"
+    : "Salvar evolução";
+
+		  return (
     <PageWrapper $paddingTop="90px" $paddingBottom="60px">
       <PageContent
         $maxWidth="1220px"
@@ -1695,7 +2299,7 @@ export default function PatientDetails() {
                 aria-selected={activeProntuarioSection === PRONTUARIO_SECTIONS.records}
                 onClick={() => setActiveProntuarioSection(PRONTUARIO_SECTIONS.records)}
               >
-                Registros clínicos
+                Casos clínicos
               </ProntuarioSubTabButton>
               <ProntuarioSubTabButton
                 type="button"
@@ -1708,56 +2312,181 @@ export default function PatientDetails() {
               </ProntuarioSubTabButton>
             </ProntuarioSubTabs>
 
-            {activeProntuarioSection === PRONTUARIO_SECTIONS.records && (
-              <>
-                <ProntuarioSectionHeader>
-                  <div>
-                    <ProntuarioSectionTitle>Registros clínicos</ProntuarioSectionTitle>
-                    <ProntuarioSectionDescription>
-                      Evoluções e avaliações do paciente.
-                    </ProntuarioSectionDescription>
-                  </div>
-                  {patient && (
-                    <AddLink to={`/pacientes/${id}/avaliacoes/nova`}>
-                      <FaPlus />
-                      Novo registro
-                    </AddLink>
-                  )}
-                </ProntuarioSectionHeader>
-                {evaluations.length === 0 && (
-                  <EmptyState>Nenhuma avaliação encontrada.</EmptyState>
-                )}
-                {evaluations.map((evaluation) => {
-                  const title =
-                    getEvaluationTemplateTitle(evaluation) ||
-                    evaluation.summary_text ||
-                    evaluation.summaryText ||
-                    "Avaliação";
-                  const note =
-                    evaluation.plan_text ||
-                    evaluation.planText ||
-                    evaluation.summary_text ||
-                    evaluation.summaryText ||
-                    "Sem observações.";
-                  const createdAt = formatDate(
-                    evaluation.created_at || evaluation.createdAt,
-                  );
+	            {activeProntuarioSection === PRONTUARIO_SECTIONS.records && (
+	              <>
+	                <ProntuarioSectionHeader>
+	                  <div>
+		                    <ProntuarioSectionTitle>
+		                      {selectedRecordCase ? selectedRecordCase.title : "Casos clínicos"}
+		                    </ProntuarioSectionTitle>
+		                  </div>
+	                  {patient && (
+		                    <TimelineActions>
+		                      {selectedRecordCase ? (
+		                        <>
+		                          <CardButton
+		                            type="button"
+		                            onClick={() => setRecordCaseFilter("all")}
+		                          >
+		                            Voltar aos casos
+		                          </CardButton>
+		                          <SubtleCardButton
+		                            type="button"
+		                            onClick={() => openClinicalCaseEditModal(selectedRecordCase)}
+		                          >
+		                            <FaPen /> Editar caso
+		                          </SubtleCardButton>
+		                        </>
+		                      ) : (
+	                        <ProntuarioActionButton
+	                          type="button"
+	                          onClick={openClinicalCaseCreateModal}
+	                        >
+	                          <FaPlus /> Caso clínico
+	                        </ProntuarioActionButton>
+	                      )}
+	                    </TimelineActions>
+	                  )}
+	                </ProntuarioSectionHeader>
+	                {!selectedRecordCase && (
+	                  <>
+	                    {clinicalCases.length === 0 && (
+	                      <ClinicalCasesEmptyState>
+	                        <strong>Nenhum caso clínico cadastrado.</strong>
+	                        <span>
+	                          Crie uma linha de cuidado para organizar avaliações,
+	                          evoluções e registros completos do paciente.
+	                        </span>
+	                      </ClinicalCasesEmptyState>
+	                    )}
 
-                  return (
-                    <HistoryCardLink
-                      key={evaluation.id || `${createdAt}-${title}`}
-                      to={`/pacientes/${id}/avaliacoes/${evaluation.id}`}
-                    >
-                      <HistoryHeader>
-                        <span>{createdAt}</span>
-                        <h3>{title}</h3>
-                      </HistoryHeader>
-                      <p>{note}</p>
-                    </HistoryCardLink>
-                  );
-                })}
-              </>
-            )}
+		                    {activeClinicalCases.length > 0 && (
+		                      <CaseOverviewGrid>
+		                        {activeClinicalCases.map((clinicalCase) => (
+			                            <CaseOverviewCard
+			                              key={clinicalCase.id}
+			                              type="button"
+			                              onClick={() => setRecordCaseFilter(String(clinicalCase.id))}
+			                            >
+	                              <CaseOverviewHeader>
+	                                <div>
+	                                  <CaseOverviewTitle>{clinicalCase.title}</CaseOverviewTitle>
+	                                  <ClinicalCaseMeta>
+	                                    Início: {formatDate(clinicalCase.started_on)}
+	                                  </ClinicalCaseMeta>
+	                                </div>
+	                                <ClinicalCaseStatusPill $status={clinicalCase.status}>
+	                                  {CLINICAL_CASE_STATUS_LABELS[clinicalCase.status] || "Ativo"}
+	                                </ClinicalCaseStatusPill>
+	                              </CaseOverviewHeader>
+	                              <ClinicalCaseDescription>
+	                                {clinicalCase.chief_complaint ||
+	                                  "Sem queixa principal registrada."}
+	                              </ClinicalCaseDescription>
+			                            </CaseOverviewCard>
+		                        ))}
+		                      </CaseOverviewGrid>
+		                    )}
+
+	                    {inactiveClinicalCases.length > 0 && (
+	                      <SecondaryClinicalSection>
+	                        <ClinicalCaseGroupTitle>Resolvidos e arquivados</ClinicalCaseGroupTitle>
+	                        <CaseOverviewGrid>
+	                          {inactiveClinicalCases.map((clinicalCase) => (
+		                            <CaseOverviewCard
+		                              key={clinicalCase.id}
+		                              type="button"
+		                              $muted
+		                              onClick={() => setRecordCaseFilter(String(clinicalCase.id))}
+		                            >
+	                              <CaseOverviewHeader>
+	                                <div>
+	                                  <CaseOverviewTitle>{clinicalCase.title}</CaseOverviewTitle>
+	                                  <ClinicalCaseMeta>
+	                                    Início: {formatDate(clinicalCase.started_on)}
+	                                  </ClinicalCaseMeta>
+	                                </div>
+	                                <ClinicalCaseStatusPill $status={clinicalCase.status}>
+	                                  {CLINICAL_CASE_STATUS_LABELS[clinicalCase.status] ||
+	                                    "Arquivado"}
+	                                </ClinicalCaseStatusPill>
+	                              </CaseOverviewHeader>
+	                              <ClinicalCaseDescription>
+	                                {clinicalCase.chief_complaint ||
+	                                  "Sem queixa principal registrada."}
+	                              </ClinicalCaseDescription>
+		                            </CaseOverviewCard>
+	                          ))}
+	                        </CaseOverviewGrid>
+	                      </SecondaryClinicalSection>
+	                    )}
+
+		                  </>
+	                )}
+
+			                {selectedRecordCase && (
+			                  <>
+				                    <CaseDetailsPanel>
+				                      <CaseDetailsShell>
+				                        <CaseDetailsNav aria-label="Seções da base clínica">
+				                          {selectedCaseDetailSections.map((section) => (
+				                            <CaseDetailsNavButton
+				                              key={section.key}
+				                              type="button"
+				                              $active={activeCaseDetail?.key === section.key}
+				                              onClick={() => setActiveCaseDetailSection(section.key)}
+				                            >
+				                              <strong>{section.label}</strong>
+				                            </CaseDetailsNavButton>
+				                          ))}
+				                        </CaseDetailsNav>
+				                        {activeCaseDetail && (
+				                          <CaseDetailsContent>
+				                            <CaseDetailsContentTitle>
+				                              {activeCaseDetail.title}
+				                            </CaseDetailsContentTitle>
+				                            <CaseDetailsContentText
+				                              $expanded={Boolean(expandedCaseSummaryFields[activeCaseDetail.key])}
+				                            >
+				                              {activeCaseDetail.value || activeCaseDetail.fallback}
+				                            </CaseDetailsContentText>
+				                            {activeCaseDetail.value && activeCaseDetail.value.length > 700 && (
+				                              <CaseExpandButton
+				                                type="button"
+				                                onClick={() => toggleCaseSummaryField(activeCaseDetail.key)}
+				                              >
+				                                {expandedCaseSummaryFields[activeCaseDetail.key]
+				                                  ? "Ver menos"
+				                                  : "Ver mais"}
+				                              </CaseExpandButton>
+				                            )}
+				                          </CaseDetailsContent>
+				                        )}
+				                      </CaseDetailsShell>
+				                    </CaseDetailsPanel>
+
+				                    <CaseActionButtonGroup>
+				                      <CasePrimaryActionButton
+				                        type="button"
+				                        $primary
+				                        onClick={openQuickEvolutionModal}
+				                      >
+				                        <FaPlus /> Evolução
+				                      </CasePrimaryActionButton>
+				                      <CasePrimaryActionButton
+				                        type="button"
+				                        $primary
+				                        onClick={openCaseEvaluationForm}
+				                      >
+				                        <FaPlus /> Avaliação
+				                      </CasePrimaryActionButton>
+				                    </CaseActionButtonGroup>
+
+				                    {renderClinicalTimeline(filteredEvaluations, { showCaseLabel: false })}
+		                  </>
+		                )}
+	              </>
+	            )}
 
             {activeProntuarioSection === PRONTUARIO_SECTIONS.references && (
               <>
@@ -2518,7 +3247,426 @@ export default function PatientDetails() {
             </InfoCard>
           </Section>
         )}
-	        {selectedClinicalReference && (
+        {quickEvolutionModal && (
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+	                <div>
+		                  <ModalTitle>Evolução</ModalTitle>
+	                </div>
+                <IconButton
+                  type="button"
+                  onClick={closeQuickEvolutionModal}
+                  aria-label="Fechar"
+                  disabled={isSavingQuickEvolution}
+                >
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                <QuickEvolutionForm>
+		                  <QuickEvolutionTopGrid>
+		                    <CaseContextHeader>
+		                      <CaseContextLabel>Caso clínico</CaseContextLabel>
+		                      <CaseContextTitle>
+		                        {selectedRecordCase?.title || "Caso clínico"}
+		                      </CaseContextTitle>
+		                    </CaseContextHeader>
+	                    <QuickEvolutionField>
+                      <FieldLabel>Data</FieldLabel>
+                      <InlineInput
+                        type="date"
+                        name="evolution_date"
+                        value={quickEvolutionForm.evolution_date}
+                        onChange={handleQuickEvolutionFieldChange}
+                      />
+                    </QuickEvolutionField>
+                  </QuickEvolutionTopGrid>
+
+                  <QuickEvolutionField $primary>
+                    <FieldLabel>Evolução</FieldLabel>
+                    <InlineTextarea
+                      name="evolution_text"
+                      value={quickEvolutionForm.evolution_text}
+                      onChange={handleQuickEvolutionFieldChange}
+                      rows={5}
+                      placeholder="Ex.: paciente evoluiu com menos dor ao agachar..."
+                    />
+                  </QuickEvolutionField>
+
+                  <QuickEvolutionField>
+                    <FieldLabel>Conduta realizada</FieldLabel>
+                    <CompactTextarea
+                      name="conduct_text"
+                      value={quickEvolutionForm.conduct_text}
+                      onChange={handleQuickEvolutionFieldChange}
+                      rows={3}
+                      placeholder="Ex.: mobilidade, fortalecimento, orientação de carga..."
+                    />
+                  </QuickEvolutionField>
+
+	                  <PainFieldGroup>
+	                    <PainScaleField>
+	                      <FieldLabel>Dor</FieldLabel>
+	                      <PainScaleOptions role="group" aria-label="Escala de dor">
+	                        {PAIN_SCALE_OPTIONS.map((value) => (
+	                          <PainScaleButton
+	                            key={value || "empty"}
+	                            type="button"
+	                            $selected={quickEvolutionForm.pain_scale === value}
+	                            $wide={value === ""}
+	                            onClick={() => handleQuickEvolutionPainScaleChange(value)}
+	                          >
+	                            {value === "" ? "Não informar" : value}
+	                          </PainScaleButton>
+	                        ))}
+	                      </PainScaleOptions>
+	                    </PainScaleField>
+	                    <QuickEvolutionField>
+	                      <FieldLabel>Observação sobre a dor</FieldLabel>
+	                      <CompactTextarea
+	                        name="pain_notes"
+	                        value={quickEvolutionForm.pain_notes}
+	                        onChange={handleQuickEvolutionFieldChange}
+	                        rows={2}
+	                        placeholder="Ex.: dor ao agachar, palpação, treino, repouso..."
+	                      />
+	                    </QuickEvolutionField>
+                  </PainFieldGroup>
+                </QuickEvolutionForm>
+              </ModalBody>
+              <ModalFooter>
+                <CardButton
+                  type="button"
+                  onClick={closeQuickEvolutionModal}
+                  disabled={isSavingQuickEvolution}
+                >
+                  Cancelar
+                </CardButton>
+                <CardButton
+                  type="button"
+                  $primary
+                  onClick={handleSaveQuickEvolution}
+                  disabled={isSavingQuickEvolution}
+                >
+		                  {isSavingQuickEvolution ? "Salvando..." : quickEvolutionSaveLabel}
+                </CardButton>
+              </ModalFooter>
+            </ModalCard>
+          </ModalOverlay>
+        )}
+        {isCaseManagerOpen && (
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <div>
+	                  <ModalTitle>Gerenciar linhas de cuidado</ModalTitle>
+                  <ModalSubtitle>
+                    <span>Linhas de cuidado usadas como contexto da linha do tempo.</span>
+                  </ModalSubtitle>
+                </div>
+                <IconButton
+                  type="button"
+                  onClick={() => setIsCaseManagerOpen(false)}
+                  aria-label="Fechar"
+                >
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                <CaseManagerHeader>
+	                  <span>Crie linhas como Lombar, Joelho direito ou Ombro esquerdo.</span>
+                  <SubtleCardButton
+                    type="button"
+                    onClick={openClinicalCaseCreateModal}
+                  >
+                    <FaPlus /> Novo caso
+                  </SubtleCardButton>
+                </CaseManagerHeader>
+
+                {clinicalCases.length === 0 && (
+                  <ClinicalCasesEmptyState>
+	                    <strong>Nenhuma linha de cuidado cadastrada.</strong>
+	                    <span>
+	                      As linhas ajudam a acompanhar o prontuário por queixa ou objetivo clínico.
+	                    </span>
+                  </ClinicalCasesEmptyState>
+                )}
+
+                {activeClinicalCases.length > 0 && (
+                  <ClinicalCaseGroup>
+                    <ClinicalCaseGroupTitle>Ativos</ClinicalCaseGroupTitle>
+                    <ClinicalCaseGrid>
+                      {activeClinicalCases.map((clinicalCase) => (
+                        <ClinicalCaseCard key={clinicalCase.id}>
+                          <ClinicalCaseCardHeader>
+                            <div>
+                              <ClinicalCaseTitle>{clinicalCase.title}</ClinicalCaseTitle>
+                              <ClinicalCaseMeta>
+                                Início: {formatDate(clinicalCase.started_on)}
+                              </ClinicalCaseMeta>
+                            </div>
+                            <ClinicalCaseStatusPill $status={clinicalCase.status}>
+                              {CLINICAL_CASE_STATUS_LABELS[clinicalCase.status] || "Ativo"}
+                            </ClinicalCaseStatusPill>
+                          </ClinicalCaseCardHeader>
+                          <ClinicalCaseDescription>
+                            {clinicalCase.chief_complaint ||
+                              "Sem queixa principal registrada."}
+                          </ClinicalCaseDescription>
+                          {(clinicalCase.diagnosis_hypothesis ||
+                            clinicalCase.current_plan ||
+                            clinicalCase.attention_points) && (
+                            <ClinicalCaseDetails>
+                              {clinicalCase.diagnosis_hypothesis && (
+                                <span>Hipótese: {clinicalCase.diagnosis_hypothesis}</span>
+                              )}
+                              {clinicalCase.current_plan && (
+                                <span>Plano: {clinicalCase.current_plan}</span>
+                              )}
+                              {clinicalCase.attention_points && (
+                                <span>Atenção: {clinicalCase.attention_points}</span>
+                              )}
+                            </ClinicalCaseDetails>
+                          )}
+                          <ClinicalCaseActions>
+                            <SubtleCardButton
+                              type="button"
+                              onClick={() => openClinicalCaseEditModal(clinicalCase)}
+                            >
+                              Editar
+                            </SubtleCardButton>
+                            <CaseStatusSelect
+                              value={clinicalCase.status}
+                              onChange={(event) =>
+                                handleClinicalCaseStatusChange(
+                                  clinicalCase,
+                                  event.target.value,
+                                )
+                              }
+                              disabled={isUpdatingClinicalCaseStatus}
+                              aria-label={`Status do caso ${clinicalCase.title}`}
+                            >
+                              {CLINICAL_CASE_STATUSES.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </CaseStatusSelect>
+                          </ClinicalCaseActions>
+                        </ClinicalCaseCard>
+                      ))}
+                    </ClinicalCaseGrid>
+                  </ClinicalCaseGroup>
+                )}
+
+                {inactiveClinicalCases.length > 0 && (
+                  <ClinicalCaseGroup>
+                    <ClinicalCaseGroupTitle>Resolvidos e arquivados</ClinicalCaseGroupTitle>
+                    <ClinicalCaseGrid>
+                      {inactiveClinicalCases.map((clinicalCase) => (
+                        <ClinicalCaseCard key={clinicalCase.id} $muted>
+                          <ClinicalCaseCardHeader>
+                            <div>
+                              <ClinicalCaseTitle>{clinicalCase.title}</ClinicalCaseTitle>
+                              <ClinicalCaseMeta>
+                                Início: {formatDate(clinicalCase.started_on)}
+                              </ClinicalCaseMeta>
+                            </div>
+                            <ClinicalCaseStatusPill $status={clinicalCase.status}>
+                              {CLINICAL_CASE_STATUS_LABELS[clinicalCase.status] ||
+                                "Arquivado"}
+                            </ClinicalCaseStatusPill>
+                          </ClinicalCaseCardHeader>
+                          <ClinicalCaseDescription>
+                            {clinicalCase.chief_complaint ||
+                              "Sem queixa principal registrada."}
+                          </ClinicalCaseDescription>
+                          <ClinicalCaseActions>
+                            <SubtleCardButton
+                              type="button"
+                              onClick={() => openClinicalCaseEditModal(clinicalCase)}
+                            >
+                              Editar
+                            </SubtleCardButton>
+                            <SubtleCardButton
+                              type="button"
+                              onClick={() =>
+                                handleClinicalCaseStatusChange(clinicalCase, "active")
+                              }
+                              disabled={isUpdatingClinicalCaseStatus}
+                            >
+                              Reativar
+                            </SubtleCardButton>
+                          </ClinicalCaseActions>
+                        </ClinicalCaseCard>
+                      ))}
+                    </ClinicalCaseGrid>
+                  </ClinicalCaseGroup>
+                )}
+              </ModalBody>
+            </ModalCard>
+          </ModalOverlay>
+        )}
+        {clinicalCaseModal && (
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <div>
+                  <ModalTitle>
+                    {clinicalCaseModal.mode === "edit"
+                      ? "Editar caso clínico"
+                      : "Novo caso clínico"}
+                  </ModalTitle>
+                  <ModalSubtitle>
+                    <span>Uma linha de cuidado do paciente, como Lombar ou Joelho direito.</span>
+                  </ModalSubtitle>
+                </div>
+                <IconButton
+                  type="button"
+                  onClick={closeClinicalCaseModal}
+                  aria-label="Fechar"
+                  disabled={isSavingClinicalCase}
+                >
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+	              <ModalBody>
+	                <ClinicalCaseFormSections>
+	                  <ClinicalCaseFormBlock>
+	                    <ClinicalCaseFormBlockTitle>Identificação</ClinicalCaseFormBlockTitle>
+	                    <DataList>
+	                      <DataRow>
+	                        <DataLabel>Nome do caso</DataLabel>
+	                        <DataValue>
+	                          <InlineInput
+	                            name="title"
+	                            value={clinicalCaseForm.title}
+	                            onChange={handleClinicalCaseFieldChange}
+	                            placeholder="Ex.: Lombar, Joelho direito, Quadril / iliopsoas"
+	                          />
+	                        </DataValue>
+	                      </DataRow>
+	                      <DataRow>
+	                        <DataLabel>Data de início</DataLabel>
+	                        <DataValue>
+	                          <InlineInput
+	                            type="date"
+	                            name="started_on"
+	                            value={clinicalCaseForm.started_on}
+	                            onChange={handleClinicalCaseFieldChange}
+	                          />
+	                        </DataValue>
+	                      </DataRow>
+	                      <DataRow>
+	                        <DataLabel>Status</DataLabel>
+	                        <DataValue>
+	                          <InlineSelect
+	                            name="status"
+	                            value={clinicalCaseForm.status}
+	                            onChange={handleClinicalCaseFieldChange}
+	                          >
+	                            {CLINICAL_CASE_STATUSES.map((option) => (
+	                              <option key={option.value} value={option.value}>
+	                                {option.label}
+	                              </option>
+	                            ))}
+	                          </InlineSelect>
+	                        </DataValue>
+	                      </DataRow>
+	                    </DataList>
+	                  </ClinicalCaseFormBlock>
+
+	                  <ClinicalCaseFormBlock>
+	                    <ClinicalCaseFormBlockTitle>Contexto clínico</ClinicalCaseFormBlockTitle>
+	                    <DataList>
+	                      <DataRow>
+	                        <DataLabel>Resumo clínico / Queixa principal</DataLabel>
+	                        <DataValue>
+	                          <InlineTextarea
+	                            name="chief_complaint"
+	                            value={clinicalCaseForm.chief_complaint}
+	                            onChange={handleClinicalCaseFieldChange}
+	                            rows={3}
+	                            placeholder="Descreva o contexto principal desta linha de cuidado"
+	                          />
+	                        </DataValue>
+	                      </DataRow>
+	                      <DataRow>
+	                        <DataLabel>Hipótese(s) / Diagnóstico</DataLabel>
+	                        <DataValue>
+	                          <InlineTextarea
+	                            name="diagnosis_hypothesis"
+	                            value={clinicalCaseForm.diagnosis_hypothesis}
+	                            onChange={handleClinicalCaseFieldChange}
+	                            rows={3}
+	                          />
+	                        </DataValue>
+	                      </DataRow>
+	                    </DataList>
+	                  </ClinicalCaseFormBlock>
+
+	                  <ClinicalCaseFormBlock>
+	                    <ClinicalCaseFormBlockTitle>Plano</ClinicalCaseFormBlockTitle>
+	                    <DataList>
+	                      <DataRow>
+	                        <DataLabel>Plano atual / Conduta</DataLabel>
+	                        <DataValue>
+	                          <InlineTextarea
+	                            name="current_plan"
+	                            value={clinicalCaseForm.current_plan}
+	                            onChange={handleClinicalCaseFieldChange}
+	                            rows={3}
+	                          />
+	                        </DataValue>
+	                      </DataRow>
+	                      <DataRow>
+	                        <DataLabel>Frequência sugerida</DataLabel>
+	                        <DataValue>
+	                          <InlineInput
+	                            name="suggested_frequency"
+	                            value={clinicalCaseForm.suggested_frequency}
+	                            onChange={handleClinicalCaseFieldChange}
+	                            placeholder="Ex.: 2x por semana por 4 semanas"
+	                          />
+	                        </DataValue>
+	                      </DataRow>
+	                      <DataRow>
+	                        <DataLabel>Observações finais / Pontos de atenção</DataLabel>
+	                        <DataValue>
+	                          <InlineTextarea
+	                            name="attention_points"
+	                            value={clinicalCaseForm.attention_points}
+	                            onChange={handleClinicalCaseFieldChange}
+	                            rows={3}
+	                          />
+	                        </DataValue>
+	                      </DataRow>
+	                    </DataList>
+	                  </ClinicalCaseFormBlock>
+	                </ClinicalCaseFormSections>
+	              </ModalBody>
+              <ModalFooter>
+                <CardButton
+                  type="button"
+                  onClick={closeClinicalCaseModal}
+                  disabled={isSavingClinicalCase}
+                >
+                  Cancelar
+                </CardButton>
+                <CardButton
+                  type="button"
+                  $primary
+                  onClick={handleSaveClinicalCase}
+                  disabled={isSavingClinicalCase}
+                >
+                  {isSavingClinicalCase ? "Salvando..." : "Salvar"}
+                </CardButton>
+              </ModalFooter>
+            </ModalCard>
+          </ModalOverlay>
+        )}
+        {selectedClinicalReference && (
 	          <ModalOverlay>
 	            <ModalCard>
               <ModalHeader>
@@ -2958,18 +4106,15 @@ const prontuarioActionButtonStyles = css`
   }
 `;
 
-const AddLink = styled(SharedPrimaryButton).attrs({ as: Link })`
-  ${prontuarioActionButtonStyles}
-  text-decoration: none;
-
-  &:hover {
-    color: #fff;
-    text-decoration: none;
-  }
-`;
-
 const ProntuarioActionButton = styled(SharedPrimaryButton)`
   ${prontuarioActionButtonStyles}
+`;
+
+const TimelineActions = styled.div`
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
 `;
 
 const ProntuarioSubTabs = styled.div`
@@ -3423,6 +4568,138 @@ const ExternalProfessionalLink = styled.a`
   }
 `;
 
+const ClinicalCasesEmptyState = styled.div`
+  border: 1px dashed rgba(106, 121, 92, 0.28);
+  border-radius: 12px;
+  background: #fcfdf8;
+  padding: 18px;
+  color: #6a795c;
+  display: grid;
+  gap: 6px;
+
+  strong {
+    color: #2d3629;
+  }
+
+  span {
+    line-height: 1.45;
+  }
+`;
+
+const ClinicalCaseGroup = styled.div`
+  display: grid;
+  gap: 10px;
+`;
+
+const ClinicalCaseGroupTitle = styled.h3`
+  margin: 0;
+  color: #2d3629;
+  font-size: 0.95rem;
+`;
+
+const ClinicalCaseGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+`;
+
+const ClinicalCaseCard = styled.article`
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  border-radius: 12px;
+  background: ${(props) => (props.$muted ? "#f8f9f4" : "#fff")};
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
+`;
+
+const ClinicalCaseCardHeader = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+`;
+
+const ClinicalCaseTitle = styled.h3`
+  margin: 0;
+  color: #1b1b1b;
+  font-size: 1rem;
+  line-height: 1.25;
+`;
+
+const ClinicalCaseMeta = styled.span`
+  display: block;
+  margin-top: 4px;
+  color: #6a795c;
+  font-size: 0.78rem;
+  font-weight: 700;
+`;
+
+const ClinicalCaseStatusPill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: ${(props) => {
+    if (props.$status === "resolved") return "#4f7c42";
+    if (props.$status === "archived") return "#6a6f63";
+    return "#8a5a00";
+  }};
+  background: ${(props) => {
+    if (props.$status === "resolved") return "rgba(79, 124, 66, 0.1)";
+    if (props.$status === "archived") return "rgba(106, 111, 99, 0.1)";
+    return "rgba(165, 106, 0, 0.1)";
+  }};
+  border: 1px solid
+    ${(props) => {
+    if (props.$status === "resolved") return "rgba(79, 124, 66, 0.22)";
+    if (props.$status === "archived") return "rgba(106, 111, 99, 0.22)";
+    return "rgba(165, 106, 0, 0.22)";
+  }};
+  font-size: 0.76rem;
+  font-weight: 800;
+`;
+
+const ClinicalCaseDescription = styled.p`
+  margin: 0;
+  color: #55644c;
+  line-height: 1.45;
+`;
+
+const ClinicalCaseDetails = styled.div`
+  display: grid;
+  gap: 6px;
+  color: #6a795c;
+  font-size: 0.86rem;
+  line-height: 1.4;
+`;
+
+const ClinicalCaseActions = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+`;
+
+const CaseManagerHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  color: #6a795c;
+  font-size: 0.9rem;
+  line-height: 1.4;
+
+  @media (max-width: 640px) {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+`;
+
 const ClinicalReferenceList = styled.div`
   display: grid;
   gap: 10px;
@@ -3530,6 +4807,16 @@ const CardButton = styled.button`
     opacity: 0.55;
     cursor: not-allowed;
   }
+`;
+
+const SubtleCardButton = styled(CardButton)`
+  min-height: 34px;
+  padding: 7px 10px;
+  border-color: rgba(106, 121, 92, 0.18);
+  background: #fff;
+  color: #55644c;
+  font-size: 0.84rem;
+  font-weight: 800;
 `;
 
 const ReferenceDeleteButton = styled(CardButton)`
@@ -3683,6 +4970,134 @@ const InlineTextarea = styled.textarea`
   resize: vertical;
 `;
 
+const CompactTextarea = styled(InlineTextarea)`
+  min-height: 84px;
+`;
+
+const QuickEvolutionForm = styled.div`
+  display: grid;
+  gap: 14px;
+`;
+
+const ClinicalCaseFormSections = styled.div`
+  display: grid;
+  gap: 16px;
+`;
+
+const ClinicalCaseFormBlock = styled.section`
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid rgba(106, 121, 92, 0.12);
+  padding-top: 14px;
+
+  &:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+`;
+
+const ClinicalCaseFormBlockTitle = styled.h3`
+  margin: 0;
+  color: #2d3629;
+  font-size: 0.95rem;
+`;
+
+const QuickEvolutionTopGrid = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(170px, 0.6fr);
+  gap: 12px;
+
+  @media (max-width: 680px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const QuickEvolutionField = styled.label`
+  display: grid;
+  gap: 6px;
+
+  ${(props) =>
+    props.$primary
+      ? `
+        textarea {
+          min-height: 132px;
+          font-size: 1rem;
+          line-height: 1.5;
+        }
+      `
+      : ""}
+`;
+
+const FieldLabel = styled.span`
+  color: #2d3629;
+  font-size: 0.86rem;
+  font-weight: 900;
+`;
+
+const CaseContextHeader = styled.div`
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-height: 42px;
+`;
+
+const CaseContextLabel = styled.span`
+  color: #6a795c;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+`;
+
+const CaseContextTitle = styled.h3`
+  margin: 0;
+  color: #2d3629;
+  font-size: 1.05rem;
+  font-weight: 900;
+  line-height: 1.2;
+`;
+
+const PainFieldGroup = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  border-radius: 12px;
+  background: #f8f9f4;
+  padding: 12px;
+  border: 1px solid rgba(106, 121, 92, 0.1);
+
+  textarea {
+    min-height: 62px;
+  }
+`;
+
+const PainScaleField = styled(QuickEvolutionField)`
+  gap: 8px;
+`;
+
+const PainScaleOptions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+`;
+
+const PainScaleButton = styled.button`
+  min-height: 34px;
+  min-width: ${(props) => (props.$wide ? "104px" : "36px")};
+  border-radius: 999px;
+  border: 1px solid
+    ${(props) => (props.$selected ? "rgba(15, 91, 72, 0.78)" : "rgba(106, 121, 92, 0.18)")};
+  background: ${(props) => (props.$selected ? "#6a795c" : "#fff")};
+  color: ${(props) => (props.$selected ? "#fff" : "#2d3629")};
+  padding: 0 11px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    border-color: rgba(15, 91, 72, 0.5);
+  }
+`;
+
 const CheckboxOption = styled.label`
   display: flex;
   align-items: center;
@@ -3709,40 +5124,388 @@ const TreatmentGoalOtherInput = styled.input`
   margin-top: 10px;
 `;
 
-const HistoryCardLink = styled(Link)`
-  background: #fff;
-  border-radius: 16px;
-  border: 1px solid rgba(106, 121, 92, 0.18);
-  padding: 16px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
-  text-decoration: none;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+const CaseOverviewGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+`;
 
-  p {
-    color: #6a795c;
-    margin-top: 8px;
-  }
+const CaseOverviewCard = styled.button`
+  width: 100%;
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  border-radius: 12px;
+  background: ${(props) => (props.$muted ? "#f8f9f4" : "#fff")};
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.045);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 
   &:hover {
+    border-color: rgba(106, 121, 92, 0.3);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.06);
     transform: translateY(-1px);
-    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.08);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: rgba(15, 91, 72, 0.65);
+    box-shadow: 0 0 0 3px rgba(15, 91, 72, 0.12);
   }
 `;
 
-const HistoryHeader = styled.div`
+const CaseOverviewHeader = styled.div`
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+`;
 
-  span {
-    font-size: 0.85rem;
-    color: #6a795c;
+const CaseOverviewTitle = styled.h3`
+  margin: 0;
+  color: #1b1b1b;
+  font-size: 1rem;
+  line-height: 1.25;
+`;
+
+const SecondaryClinicalSection = styled.div`
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid rgba(106, 121, 92, 0.12);
+  padding-top: 14px;
+`;
+
+const CaseActionButtonGroup = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+
+  @media (max-width: 640px) {
+    align-items: stretch;
+    flex-direction: column;
   }
+`;
 
-  h3 {
-    margin: 0;
+const casePrimaryActionStyles = css`
+  min-height: 42px;
+  padding: 8px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+
+  svg {
+    width: 0.95em;
+    height: 0.95em;
+    flex-shrink: 0;
+  }
+`;
+
+const CasePrimaryActionButton = styled(CardButton)`
+  ${casePrimaryActionStyles}
+`;
+
+const CaseDetailsPanel = styled.section`
+  display: grid;
+  gap: 10px;
+`;
+
+const CaseDetailsShell = styled.div`
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+
+  @media (max-width: 760px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const CaseDetailsNav = styled.nav`
+  display: grid;
+  gap: 8px;
+`;
+
+const CaseDetailsNavButton = styled.button`
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  text-align: left;
+  border-radius: 9px;
+  border: 1px solid
+    ${(props) => (props.$active ? "rgba(106, 121, 92, 0.55)" : "rgba(106, 121, 92, 0.12)")};
+  background: ${(props) => (props.$active ? "#f8faf3" : "#fff")};
+  color: #2d3629;
+  padding: 10px 12px;
+  cursor: pointer;
+  box-shadow: ${(props) =>
+    props.$active ? "0 6px 16px rgba(0, 0, 0, 0.06)" : "0 3px 10px rgba(0, 0, 0, 0.025)"};
+
+  strong {
     color: #1b1b1b;
+    font-size: 0.9rem;
+    font-weight: 800;
+    line-height: 1.2;
   }
+`;
+
+const CaseDetailsContent = styled.article`
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  border: 1px solid rgba(106, 121, 92, 0.12);
+  border-radius: 10px;
+  background: #fff;
+  padding: 16px 18px;
+  min-height: calc((48px * 5) + (8px * 4));
+`;
+
+const CaseDetailsContentTitle = styled.h3`
+  margin: 0;
+  color: #1b1b1b;
+  font-size: 1.15rem;
+  line-height: 1.25;
+`;
+
+const CaseDetailsContentText = styled.p`
+  margin: 0;
+  color: #2d3629;
+  font-size: 0.96rem;
+  line-height: 1.55;
+  ${(props) =>
+    props.$expanded
+      ? ""
+      : `
+        display: -webkit-box;
+        -webkit-line-clamp: 9;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      `}
+`;
+
+const CaseExpandButton = styled.button`
+  width: fit-content;
+  border: 0;
+  background: transparent;
+  color: #6a795c;
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 1px 0 0;
+  cursor: pointer;
+
+  &:hover {
+    color: #0f5b48;
+    text-decoration: underline;
+  }
+`;
+
+const CaseLinkLabel = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  background: #fff;
+  color: #55644c;
+  padding: 4px 9px;
+  font-size: 0.78rem;
+  font-weight: 800;
+`;
+
+const RecordTypePill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid
+    ${(props) => (props.$type === "session" ? "rgba(79, 124, 66, 0.22)" : "rgba(106, 121, 92, 0.18)")};
+  background: ${(props) => (props.$type === "session" ? "rgba(79, 124, 66, 0.1)" : "rgba(106, 121, 92, 0.08)")};
+  color: ${(props) => (props.$type === "session" ? "#4f7c42" : "#55644c")};
+  padding: 4px 9px;
+  font-size: 0.76rem;
+  font-weight: 900;
+`;
+
+const TimelineList = styled.div`
+  position: relative;
+  display: grid;
+  gap: 10px;
+  padding-left: 18px;
+
+  &::before {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    border-radius: 999px;
+    background: rgba(106, 121, 92, 0.14);
+  }
+`;
+
+const TimelineItem = styled.article`
+  position: relative;
+  display: grid;
+  gap: 0;
+`;
+
+const TimelineMarker = styled.span`
+  position: absolute;
+  left: -18px;
+  top: 18px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  background: ${(props) => (props.$type === "session" ? "#4f7c42" : "#6a795c")};
+  box-shadow: 0 0 0 2px rgba(106, 121, 92, 0.16);
+`;
+
+const TimelineCard = styled.div`
+  position: relative;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid
+    ${(props) =>
+    props.$compact ? "rgba(106, 121, 92, 0.14)" : "rgba(106, 121, 92, 0.2)"};
+  padding: ${(props) => (props.$compact ? "10px 12px" : "13px")};
+	  box-shadow: ${(props) =>
+	    props.$compact
+	      ? "0 4px 14px rgba(0, 0, 0, 0.035)"
+	      : "0 8px 20px rgba(0, 0, 0, 0.05)"};
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+
+  &:hover {
+    border-color: rgba(106, 121, 92, 0.3);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.06);
+    transform: translateY(-1px);
+  }
+`;
+
+const TimelineCardLink = styled(Link)`
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  padding-right: 38px;
+
+  &:focus {
+    outline: none;
+  }
+
+  &:focus-visible {
+    border-radius: 10px;
+    box-shadow: 0 0 0 3px rgba(106, 121, 92, 0.14);
+  }
+`;
+
+const TimelineCardContent = styled.div`
+  display: block;
+  padding-right: 92px;
+
+  @media (max-width: 640px) {
+    padding-right: 0;
+    padding-top: 38px;
+  }
+`;
+
+const TimelineCardHeader = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+
+  @media (max-width: 640px) {
+    flex-direction: column;
+  }
+`;
+
+const TimelineCardMeta = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+`;
+
+const TimelineDate = styled.span`
+  color: #2d3629;
+  font-size: 0.82rem;
+  font-weight: 900;
+`;
+
+const TimelineCardActions = styled.div`
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+`;
+
+const TimelineEditButton = styled(SubtleCardButton)`
+  min-height: 34px;
+  padding: 7px 12px;
+`;
+
+const TimelineCardTitle = styled.h3`
+  margin: 6px 0 0;
+  color: #1b1b1b;
+  font-size: 0.94rem;
+  line-height: 1.32;
+`;
+
+const TimelineText = styled.p`
+  margin: 5px 0 0;
+  color: #55644c;
+  font-size: 0.9rem;
+  line-height: 1.38;
+`;
+
+const TimelineClinicalLine = styled.div`
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+  color: #55644c;
+  line-height: 1.38;
+
+  strong {
+    color: #2d3629;
+    font-size: 0.78rem;
+  }
+`;
+
+const TimelinePainLine = styled.div`
+  width: fit-content;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: rgba(165, 106, 0, 0.08);
+  color: #7a5000;
+  padding: 5px 9px;
+  font-size: 0.8rem;
+  font-weight: 800;
+`;
+
+const CaseStatusSelect = styled(InlineSelect)`
+  width: auto;
+  min-width: 128px;
+  min-height: 34px;
+  padding: 0 30px 0 10px;
+  font-size: 0.82rem;
+  font-weight: 800;
 `;
 
 const ModalOverlay = styled.div`
