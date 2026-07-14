@@ -2080,10 +2080,6 @@ export default function Planos() {
         toast.error("Informe a data da primeira sessão.");
         return;
       }
-      if (schedForm.date < todayDateOnly()) {
-        toast.error("A primeira sessão deve ser hoje ou uma data futura.");
-        return;
-      }
       if (isWeekendDateOnly(schedForm.date)) {
         toast.error("Escolha um dia util para a primeira sessão.");
         return;
@@ -3967,7 +3963,6 @@ export default function Planos() {
               <input
                 name="date"
                 type="date"
-                min={todayDateOnly()}
                 value={schedForm.date}
                 onChange={handleSchedChange}
               />
