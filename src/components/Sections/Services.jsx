@@ -1,280 +1,251 @@
 import React from "react";
+import PropTypes from "prop-types";
 import styled from "styled-components";
-import ServiceBox from "../Elements/ServiceBox";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
+import { normalizePublicLandingConfig } from "../../utils/publicLanding";
 
-const defaultServices = {
-  title: "Recursos principais",
-  items: [
-    {
-      icon: "physio",
-      title: "Agenda",
-      subtitle: "Organização dos atendimentos",
-    },
-    {
-      icon: "pilates",
-      title: "Pacientes",
-      subtitle: "Cadastro e histórico clínico",
-    },
-    {
-      icon: "functional",
-      title: "Financeiro",
-      subtitle: "Receitas e recebimentos",
-    },
-  ],
+const getServicesVariant = (servicesCount) => {
+  if (servicesCount === 1) return "single";
+  if (servicesCount === 2) return "pair";
+  return "grid";
 };
 
-const defaultAbout = {
-  title: "Sobre o sistema",
-  paragraphs: [
-    "Plataforma para centralizar a operação de clínicas em um ambiente seguro, com dados separados por clínica e fluxos essenciais para a rotina administrativa.",
-    "Antes do login, a experiência permanece neutra. Após autenticação, o sistema carrega a identidade visual da clínica vinculada ao usuário.",
-  ],
-  cards: [
-    "Isolamento por clínica",
-    "Contexto carregado após login",
-    "Base preparada para white label",
-  ],
+function ServiceVisual({ service, variant }) {
+  return (
+    <ServiceVisualWrap $variant={variant}>
+      {service.imageSrc ? (
+        <img src={service.imageSrc} alt={service.imageAlt || service.title} />
+      ) : (
+        <ServiceVisualFallback aria-hidden="true" data-testid="service-visual-fallback" />
+      )}
+    </ServiceVisualWrap>
+  );
+}
+
+ServiceVisual.propTypes = {
+  service: PropTypes.shape({
+    imageAlt: PropTypes.string,
+    imageSrc: PropTypes.string,
+    title: PropTypes.string.isRequired,
+  }).isRequired,
+  variant: PropTypes.oneOf(["single", "pair", "grid"]).isRequired,
 };
 
 export default function Services() {
-  const { publicClinic } = usePublicClinicContext();
-  const publicProfile = publicClinic.public_profile;
-  const servicesTitle = publicProfile?.services_title || defaultServices.title;
-  const services = publicProfile?.services || defaultServices.items;
-  const aboutTitle = publicProfile?.about_title || defaultAbout.title;
-  const aboutText = publicProfile?.about_text || defaultAbout.paragraphs;
-  const aboutImage = publicProfile?.about_image_url || null;
-  const aboutImages = publicProfile?.about_image_urls || null;
-  let aboutVisual = (
-    <AddRightInner>
-      {defaultAbout.cards.map((card) => (
-        <InfoCard key={card}>{card}</InfoCard>
-      ))}
-    </AddRightInner>
-  );
+  const { publicClinic, displayName } = usePublicClinicContext();
+  const config = normalizePublicLandingConfig({ publicClinic, displayName });
+  const { services } = config;
 
-  if (aboutImages && aboutImages.length >= 4) {
-    aboutVisual = (
-      <AddRightInner>
-        <div className="flexNullCenter">
-          <AddImgWrapp1 className="flexCenter">
-            <img src={aboutImages[0]} alt={`${aboutTitle} 1`} />
-          </AddImgWrapp1>
-          <AddImgWrapp2>
-            <img src={aboutImages[1]} alt={`${aboutTitle} 2`} />
-          </AddImgWrapp2>
-        </div>
-        <div className="flexNullCenter">
-          <AddImgWrapp3>
-            <img src={aboutImages[2]} alt={`${aboutTitle} 3`} />
-          </AddImgWrapp3>
-          <AddImgWrapp4>
-            <img src={aboutImages[3]} alt={`${aboutTitle} 4`} />
-          </AddImgWrapp4>
-        </div>
-      </AddRightInner>
-    );
-  }
+  if (!config.hasServices) return null;
 
-  if (aboutImage) {
-    aboutVisual = (
-      <AboutImagePanel>
-        <img src={aboutImage} alt={aboutTitle} />
-      </AboutImagePanel>
-    );
-  }
+  const variant = getServicesVariant(services.length);
 
   return (
-    <Wrapper id="services">
-      <div className="whiteBg" style={{ padding: "60px 0" }}>
-        <div className="container">
-          <HeaderInfo>
-            <h1 className="font40 extraBold">{servicesTitle}</h1>
-          </HeaderInfo>
-          <ServiceBoxRow className="flex">
-            {services.map((service) => (
-              <ServiceBoxWrapper key={service.title} $count={services.length}>
-                <ServiceBox
-                  icon={service.icon}
-                  title={service.title}
-                  subtitle={service.subtitle}
-                />
-              </ServiceBoxWrapper>
-            ))}
-          </ServiceBoxRow>
-        </div>
-        <div className="lightBg">
-          <div className="container">
-            <Advertising className="flexSpaceCenter">
-              <AddLeft>
-                <h2 className="font40 extraBold">{aboutTitle}</h2>
-                {aboutText.map((paragraph) => (
-                  <p
-                    key={paragraph}
-                    className="font13"
-                    style={{ textAlign: "justify", marginBottom: "12px" }}
-                  >
-                    {paragraph}
-                  </p>
-                ))}
-              </AddLeft>
-              <AddRight>{aboutVisual}</AddRight>
-            </Advertising>
-          </div>
-        </div>
-      </div>
+    <Wrapper id="services" aria-labelledby="public-services-title">
+      <Inner>
+        <SectionHeader>
+          {config.servicesLabel && <Eyebrow>{config.servicesLabel}</Eyebrow>}
+          <h2 id="public-services-title">{config.servicesTitle}</h2>
+        </SectionHeader>
+        <ServicesGrid $variant={variant}>
+          {services.map((service, index) => (
+            <ServiceCard key={service.id} $variant={variant}>
+              <ServiceVisual service={service} variant={variant} />
+              <ServiceIndex>{String(index + 1).padStart(2, "0")}</ServiceIndex>
+              <ServiceContent>
+                <h3>{service.title}</h3>
+                {service.description && <p>{service.description}</p>}
+              </ServiceContent>
+            </ServiceCard>
+          ))}
+        </ServicesGrid>
+      </Inner>
     </Wrapper>
   );
 }
 
 const Wrapper = styled.section`
-  width: 100%;
-`;
-const ServiceBoxRow = styled.div`
-  gap: 5%;
-  flex-wrap: wrap;
-  @media (max-width: 860px) {
-    flex-direction: column;
-  }
-`;
-const ServiceBoxWrapper = styled.div`
-  width: ${(props) => (props.$count === 1 ? "320px" : "20%")};
-  max-width: 100%;
-  padding: 80px 0;
-  @media (max-width: 860px) {
-    width: 100%;
-    text-align: center;
-    padding: 40px 0;
-  }
-`;
-const HeaderInfo = styled.div`
-  @media (max-width: 860px) {
-    text-align: center;
-  }
-`;
-const Advertising = styled.div`
-  margin: 80px 0;
-  padding: 100px 0;
   position: relative;
-  @media (max-width: 1160px) {
-    padding: 100px 0 40px 0;
-  }
-  @media (max-width: 860px) {
-    flex-direction: column;
-    padding: 0 0 30px 0;
-    margin: 80px 0 0px 0;
-  }
-`;
-const AddLeft = styled.div`
-  width: 50%;
-  p {
-    max-width: 475px;
-  }
-  @media (max-width: 860px) {
-    width: 80%;
-    order: 2;
-    text-align: center;
-    h2 {
-      line-height: 3rem;
-      margin: 15px 0;
-    }
-    p {
-      margin: 0 auto;
-    }
-  }
-`;
-const AddRight = styled.div`
-  width: 50%;
-  position: absolute;
-  top: -70px;
-  right: 0;
-  @media (max-width: 860px) {
-    width: 80%;
-    position: relative;
-    order: 1;
-    top: -40px;
-  }
-`;
-const AddRightInner = styled.div`
   width: 100%;
-  display: grid;
-  gap: 14px;
+  scroll-margin-top: 104px;
+  padding: clamp(72px, 9vw, 124px) 0;
+  background:
+    linear-gradient(180deg, #fbfbf8 0%, #f4f7f2 100%);
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    height: 1px;
+    background: rgba(106, 121, 92, 0.16);
+  }
 `;
-const AboutImagePanel = styled.div`
-  width: min(520px, 100%);
-  min-height: 420px;
-  margin-left: auto;
+
+const Inner = styled.div`
+  width: min(1220px, calc(100% - 48px));
+  margin: 0 auto;
+
+  @media (max-width: 760px) {
+    width: min(720px, calc(100% - 32px));
+  }
+`;
+
+const SectionHeader = styled.div`
+  max-width: 680px;
+  margin-bottom: clamp(24px, 4vw, 42px);
+
+  h2 {
+    margin: 0;
+    color: #151d17;
+    font-size: clamp(2rem, 4vw, 3.45rem);
+    line-height: 1.06;
+    font-weight: 800;
+  }
+`;
+
+const Eyebrow = styled.span`
+  display: block;
+  margin-bottom: 8px;
+  color: color-mix(in srgb, var(--public-secondary-color, #3d5230) 88%, #111 12%);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+`;
+
+const ServicesGrid = styled.div`
+  display: grid;
+  gap: 18px;
+  grid-template-columns: ${({ $variant }) => {
+    if ($variant === "single") return "minmax(0, 760px)";
+    if ($variant === "pair") return "repeat(2, minmax(0, 1fr))";
+    return "repeat(auto-fit, minmax(250px, 1fr))";
+  }};
+  justify-content: ${({ $variant }) => ($variant === "single" ? "start" : "stretch")};
+
+  @media (max-width: 760px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const ServiceCard = styled.article`
+  position: relative;
+  min-height: 100%;
   border-radius: 8px;
-  background: #fff;
-  border: 1px solid rgba(6, 67, 51, 0.12);
-  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(106, 121, 92, 0.16);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.72));
+  box-shadow: 0 18px 50px rgba(22, 33, 28, 0.08);
   display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  @media (max-width: 760px) {
+    min-height: 0;
+  }
+`;
+
+const ServiceVisualWrap = styled.div`
+  position: relative;
+  height: ${({ $variant }) => ($variant === "single" ? "214px" : "176px")};
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0) 48%),
+    linear-gradient(150deg, var(--public-primary-color, #6a795c), var(--public-secondary-color, #3d5230));
+
+  img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+
+  @media (max-width: 760px) {
+    height: ${({ $variant }) => ($variant === "single" ? "178px" : "154px")};
+  }
+`;
+
+const ServiceVisualFallback = styled.div`
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.06) 48%, rgba(255, 255, 255, 0.18)),
+    linear-gradient(90deg, color-mix(in srgb, var(--public-primary-color, #6a795c) 26%, #fff 74%), transparent 58%),
+    linear-gradient(150deg, color-mix(in srgb, var(--public-secondary-color, #3d5230) 18%, #fff 82%), color-mix(in srgb, var(--public-accent-color, #a2b190) 34%, #fff 66%));
+
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.44);
+    opacity: 0.72;
+  }
+
+  &::before {
+    transform: skewX(-14deg) translateX(-16%);
+    background:
+      linear-gradient(90deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0));
+  }
+
+  &::after {
+    inset: 34px 24px 22px auto;
+    width: 38%;
+    transform: skewX(-14deg);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.04));
+  }
+`;
+
+const ServiceContent = styled.div`
+  flex: 1;
+  min-height: 188px;
+  padding: 38px clamp(22px, 2.6vw, 30px) clamp(22px, 2.6vw, 30px);
+  display: flex;
+  flex-direction: column;
+
+  h3 {
+    margin: 0;
+    color: #18211d;
+    font-size: clamp(1.25rem, 1.8vw, 1.78rem);
+    line-height: 1.12;
+    font-weight: 800;
+  }
+
+  p {
+    max-width: 560px;
+    margin: 12px 0 0;
+    color: #455046;
+    font-size: 0.96rem;
+    line-height: 1.56;
+    font-weight: 600;
+  }
+
+  @media (max-width: 760px) {
+    min-height: auto;
+    padding: 34px 22px 24px;
+  }
+`;
+
+const ServiceIndex = styled.span`
+  position: absolute;
+  top: ${({ $variant }) => ($variant === "single" ? "193px" : "155px")};
+  left: clamp(22px, 2.6vw, 30px);
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  background: var(--public-primary-color, #6a795c);
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(22, 33, 28, 0.16);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 40px;
-
-  img {
-    width: 100%;
-    max-height: 360px;
-    object-fit: contain;
-  }
-
-  @media (max-width: 860px) {
-    min-height: 300px;
-    margin: 0 auto;
-    padding: 28px;
-  }
-`;
-const InfoCard = styled.div`
-  min-height: 82px;
-  border-radius: 8px;
-  background: #fff;
-  border: 1px solid rgba(106, 121, 92, 0.16);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
-  display: flex;
-  align-items: center;
-  padding: 0 24px;
-  color: var(--public-secondary-color, #3d5230);
+  font-size: 0.82rem;
   font-weight: 800;
-`;
-const AddImgWrapp1 = styled.div`
-  width: 48%;
-  margin: 0 6% 10px 6%;
-  img {
-    width: 100%;
-    height: auto;
-    border-radius: 1rem;
-    box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
-  }
-`;
-const AddImgWrapp2 = styled.div`
-  width: 30%;
-  margin: 0 5% 10px 5%;
-  img {
-    width: 100%;
-    height: auto;
-    border-radius: 1rem;
-    box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
-  }
-`;
-const AddImgWrapp3 = styled.div`
-  width: 20%;
-  margin-left: 40%;
-  img {
-    width: 100%;
-    height: auto;
-    border-radius: 1rem;
-    box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
-  }
-`;
-const AddImgWrapp4 = styled.div`
-  width: 30%;
-  margin: 0 5% auto;
-  img {
-    width: 100%;
-    height: auto;
-    border-radius: 1rem;
-    box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);
+  z-index: 1;
+
+  @media (max-width: 760px) {
+    top: ${({ $variant }) => ($variant === "single" ? "157px" : "133px")};
+    left: 22px;
   }
 `;

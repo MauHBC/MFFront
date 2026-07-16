@@ -16,6 +16,7 @@ const DEFAULT_PUBLIC_CONTEXT = {
   has_public_tenant: false,
   public_name: productIdentity.name,
   logo_url: null,
+  header_logo_url: null,
   logo_header_url: null,
   favicon_url: null,
   primary_color: "#6a795c",
@@ -45,8 +46,29 @@ function normalizePublicProfile(profile) {
   const services = Array.isArray(profile.services)
     ? profile.services
     : profile.services_json;
+  const differentials = Array.isArray(profile.differentials)
+    ? profile.differentials
+    : profile.differentials_json;
+  const contactSocialLinks = Array.isArray(profile.contact_social_links)
+    ? profile.contact_social_links
+    : profile.contact_social_links_json;
+  const publicUnits = Array.isArray(profile.public_units)
+    ? profile.public_units
+    : profile.public_units_json;
+  const legalLinks = Array.isArray(profile.legal_links)
+    ? profile.legal_links
+    : profile.legal_links_json;
   const aboutImageUrls = Array.isArray(profile.about_image_urls)
     ? profile.about_image_urls
+    : null;
+  const aboutImageAltTexts = Array.isArray(profile.about_image_alt_texts)
+    ? profile.about_image_alt_texts
+    : null;
+  const heroImageUrls = Array.isArray(profile.hero_image_urls)
+    ? profile.hero_image_urls
+    : null;
+  const heroImageAltTexts = Array.isArray(profile.hero_image_alt_texts)
+    ? profile.hero_image_alt_texts
     : null;
   const aboutText = Array.isArray(profile.about_text)
     ? profile.about_text
@@ -58,8 +80,17 @@ function normalizePublicProfile(profile) {
   return {
     ...profile,
     services: Array.isArray(services) ? services : profile.services,
+    differentials: Array.isArray(differentials) ? differentials : profile.differentials,
+    contact_social_links: Array.isArray(contactSocialLinks)
+      ? contactSocialLinks
+      : profile.contact_social_links,
+    public_units: Array.isArray(publicUnits) ? publicUnits : profile.public_units,
+    legal_links: Array.isArray(legalLinks) ? legalLinks : profile.legal_links,
     about_text: aboutText.length > 0 ? aboutText : profile.about_text,
     about_image_urls: aboutImageUrls,
+    about_image_alt_texts: aboutImageAltTexts,
+    hero_image_urls: heroImageUrls,
+    hero_image_alt_texts: heroImageAltTexts,
     contact_instagram_label:
       profile.contact_instagram_label || (profile.contact_instagram ? "Instagram" : null),
   };
@@ -86,6 +117,7 @@ function normalizeContext(data) {
       data?.public_name ||
       DEFAULT_PUBLIC_CONTEXT.public_name,
     logo_url: brandingProfile?.logo_url || data?.logo_url || null,
+    header_logo_url: data?.header_logo_url || null,
     logo_header_url: brandingProfile?.logo_header_url || data?.logo_header_url || null,
     favicon_url: brandingProfile?.favicon_url || data?.favicon_url || null,
     primary_color:
