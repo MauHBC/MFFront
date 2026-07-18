@@ -94,11 +94,12 @@ export default function SidebarModuleTemplate() {
     }
   }, [isMobile]);
 
-  const openSidebar  = useCallback(() => setIsSidebarOpen(true),  []);
   const closeSidebar = useCallback(() => setIsSidebarOpen(false), []);
 
   // Ícone do botão de colapso
-  const sidebarToggleIcon  = isMobile || isSidebarOpen ? <FaTimes /> : (isSidebarCollapsed ? <FaBars /> : <FaTimes />);
+  const sidebarToggleIcon = isMobile || isSidebarOpen || !isSidebarCollapsed
+    ? <FaTimes />
+    : <FaBars />;
   const sidebarToggleLabel = isSidebarCollapsed ? "Expandir menu" : "Recolher menu";
 
   // Handlers do drawer

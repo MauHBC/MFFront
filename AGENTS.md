@@ -1,27 +1,35 @@
-# Instrucoes para agentes no MFFrontend
+# MFFrontend
 
-## Regras de negocio
+Aplicação React das clínicas. É um repositório independente; a pasta habitual
+usa `main`. Não inclui MFBackend, MFPlatformAdmin, MFMobile ou infraestrutura.
 
-O frontend nao e a fonte oficial das regras de negocio. Antes de mexer em
-Agenda, Financeiro, Planos, Reposicao, Cancelamento/Falta, Pacotes ou
-Remarcacao, consulte:
+## Estrutura e comandos
 
-```text
-../MFBackend/docs/regras-negocio/
-```
+- `src/pages`: fluxos; `src/components`: UI compartilhada; `src/services`: API.
+- `src/store`: estado; `src/templates`: shells; `docs`: padrões e referências.
+- Instalar: `npm install`
+- Desenvolvimento local: `npm start` em `http://localhost:3000`
+- Testes: `npm test -- --watchAll=false --runInBand`
+- Lint: `npx eslint src`
+- Mojibake/build: `npm run check:mojibake` e `npm run build`
 
-Se o backend nao estiver disponivel no workspace, peca os documentos antes de
-alterar qualquer regra de negocio.
+## Regras obrigatórias
 
-## Diretrizes
+- O frontend não é fonte de verdade de regras operacionais ou financeiras.
+  Consulte `../MFBackend/docs/regras-negocio/`; esses documentos prevalecem.
+- Preserve o tenant autenticado e nunca permita troca de `clinic_id` pela UI.
+- Em produção use `/api` same-origin. Não misture autenticação operacional com
+  a autenticação do MFPlatformAdmin.
+- Produção, deploy, dados reais, domínios e infraestrutura exigem autorização
+  explícita. Nunca altere produção por inferência.
+- Não use worktrees sem necessidade explícita. A validação visual é feita pelo
+  usuário; valide internamente testes, lint, build, mojibake e `git diff --check`.
+- Mudança de comportamento exige documentação correspondente na mesma tarefa.
 
-- O frontend deve respeitar as regras do backend.
-- Nao crie regra financeira apenas no frontend.
-- UX pode simplificar texto e fluxo, mas nao pode mudar status, cobranca, saldo,
-  credito, reposicao ou uso de plano sem regra documentada.
-- Componentes e padroes visuais devem seguir
-  `docs/frontend-module-architecture.md` quando aplicavel.
-- Nao faca deploy ou push sem autorizacao explicita.
+## Mapa da documentação
 
-Ao final de tarefas, informe o que mudou, validacoes executadas, riscos e
-pendencias.
+- [AGENTS.md](AGENTS.md): instruções práticas deste repositório.
+- [docs/frontend-module-architecture.md](docs/frontend-module-architecture.md):
+  fonte oficial dos shells, componentes e padrões de módulos.
+- [docs/regras-negocio.md](docs/regras-negocio.md): ponte para as regras oficiais
+  mantidas no MFBackend; não duplica regras.

@@ -13,6 +13,7 @@
 
 import React, { useState, useCallback } from "react";
 import { FaPlus, FaTimes } from "react-icons/fa";
+import styled from "styled-components";
 
 // Shell 1 — layout de página
 import { PageWrapper, PageContent } from "../components/AppLayout";
@@ -59,8 +60,6 @@ import {
   DrawerBody,
   DrawerFooter,
 } from "../components/AppDrawer";
-
-import styled from "styled-components";
 
 // ---------------------------------------------------------------------------
 // Styled-components locais — apenas o que não existe nos compartilhados.
