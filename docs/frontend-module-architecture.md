@@ -464,3 +464,10 @@ Antes de entregar qualquer novo módulo ou tela administrativa:
 - [ ] Qualquer componente local tem justificativa real documentada no código (comentário inline)?
 - [ ] O build compila sem warnings?
 - [ ] Nenhum `styled-component` foi criado localmente como cópia de um componente compartilhado existente?
+# Prévia editorial da landing
+
+A landing pública continua usando seus componentes reais e o contexto público.
+Quando a URL raiz contém `landing_preview` e `clinic_id`, o contexto é carregado
+do endpoint temporário de prévia. O token não publica conteúdo, expira no
+backend e a página usa `noindex`. Não crie uma segunda implementação visual da
+landing no MFPlatformAdmin.

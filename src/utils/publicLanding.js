@@ -423,7 +423,9 @@ function getContact(profile) {
 
 function getFooter(profile, config) {
   const legalLinks = normalizeNamedLinks(profile?.legal_links || profile?.legal_links_json);
-  const navigation = [
+  const configuredFooter = profile?.footer || profile?.footer_json || {};
+  const configuredNavigation = normalizeNamedLinks(configuredFooter.navigation);
+  const navigation = configuredNavigation.length > 0 ? configuredNavigation : [
     { label: "Início", href: "#home", visible: true },
     { label: "Serviços", href: "#services", visible: config.hasServices },
     { label: "Sobre", href: "#about", visible: config.hasAbout },
@@ -433,6 +435,7 @@ function getFooter(profile, config) {
   return {
     navigation,
     legalLinks,
+    content: cleanText(configuredFooter.content),
   };
 }
 

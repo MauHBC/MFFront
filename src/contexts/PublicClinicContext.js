@@ -177,7 +177,15 @@ export function PublicClinicProvider({ children }) {
       setError(null);
 
       try {
-        const response = await axios.get("/public/clinic-context");
+        const params = new URLSearchParams(location.hash.replace(/^#/, ""));
+        const previewToken = params.get("landing_preview");
+        const previewClinicId = params.get("clinic_id");
+        const endpoint = previewToken && previewClinicId
+          ? `/public/landing-preview/${encodeURIComponent(previewClinicId)}`
+          : "/public/clinic-context";
+        const response = await axios.get(endpoint, previewToken ? {
+          headers: { "X-Landing-Preview-Token": previewToken },
+        } : undefined);
         if (!active) return;
 
         const nextContext = normalizeContext(response.data);
@@ -206,7 +214,7 @@ export function PublicClinicProvider({ children }) {
     return () => {
       active = false;
     };
-  }, [shouldLoadPublicContext]);
+  }, [location.hash, shouldLoadPublicContext]);
 
   const value = useMemo(() => ({
     publicClinic,

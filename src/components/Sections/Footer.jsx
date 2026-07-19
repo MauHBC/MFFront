@@ -59,6 +59,7 @@ export default function Footer() {
           )}
           <div>
             <h1>{config.displayName}</h1>
+            {config.footer.content && <p>{config.footer.content}</p>}
             <p>{currentYear} © {config.displayName}</p>
           </div>
         </Brand>

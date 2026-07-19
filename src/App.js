@@ -87,6 +87,9 @@ function AppHelmet() {
   return (
     <Helmet>
       <title>{title}</title>
+      {new URLSearchParams(location.hash.replace(/^#/, "")).get("landing_preview") && (
+        <meta name="robots" content="noindex,nofollow,noarchive" />
+      )}
       <meta name="description" content={productIdentity.description} />
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin />
