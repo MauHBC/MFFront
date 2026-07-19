@@ -135,7 +135,7 @@ export function setupAxiosInterceptors({ store, persistor, history }) {
         !isLoginRequest(requestUrl) &&
         (!!api.defaults.headers.Authorization ||
           authMessage === "Login required" ||
-          authMessage === "Token esperado ou invalido");
+          authMessage === "Token esperado ou inválido");
 
       if (!shouldHandleUnauthorized) {
         return Promise.reject(error);
