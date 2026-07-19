@@ -1,4 +1,30 @@
-# Arquitetura de Módulos Frontend — Padrão Oficial
+# Arquitetura do MFFrontend
+
+Este documento é a fonte oficial para a landing pública, seus contextos e os
+padrões dos módulos autenticados.
+
+## Landing pública multi-tenant
+
+- O backend resolve o tenant pelo `Host` e entrega
+  `/api/public/clinic-context`; o frontend não escolhe clínica por `clinic_id`.
+- A landing normal lê somente `clinic_public_profiles`. Rascunhos não participam
+  desse endpoint.
+- Uma URL com `landing_preview` e `clinic_id` no fragmento usa o endpoint
+  temporário de prévia. O token é somente leitura, expira e ativa `noindex`; a
+  prévia não altera o perfil publicado.
+- O perfil publicado no banco prevalece. `src/config/clinicPublicProfiles.js`
+  é compatibilidade transitória e apenas completa campos ausentes.
+- Hero, Serviços, Sobre/diferenciais, Contato/unidades e Rodapé são condicionais:
+  campos vazios não devem criar blocos ou espaços vazios.
+- Assets legados `/assets/...` e mídias opacas `/api/public/media/...` devem
+  coexistir. Não copie nem remova assets de clientes por inferência.
+- `PublicClinicContext` atende a landing; `ClinicContext` atende a aplicação
+  autenticada. O domínio público não substitui o tenant da sessão.
+- Em produção, a API é `/api` same-origin e o bundle não contém localhost. Em
+  desenvolvimento, o frontend usa `http://localhost:3000` e o backend local
+  normalmente usa `http://localhost:3006`.
+
+## Módulos autenticados — padrão oficial
 
 > Documento de referência para criação e manutenção de módulos administrativos no frontend.
 > Reflete o padrão consolidado nas microetapas 1–17 (Planos, Agendamentos, Financeiro).
@@ -464,7 +490,7 @@ Antes de entregar qualquer novo módulo ou tela administrativa:
 - [ ] Qualquer componente local tem justificativa real documentada no código (comentário inline)?
 - [ ] O build compila sem warnings?
 - [ ] Nenhum `styled-component` foi criado localmente como cópia de um componente compartilhado existente?
-# Prévia editorial da landing
+## Prévia editorial da landing
 
 A landing pública continua usando seus componentes reais e o contexto público.
 Quando a URL raiz contém `landing_preview` e `clinic_id`, o contexto é carregado

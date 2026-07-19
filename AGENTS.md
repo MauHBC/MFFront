@@ -1,35 +1,40 @@
 # MFFrontend
 
-Aplicação React das clínicas. É um repositório independente; a pasta habitual
-usa `main`. Não inclui MFBackend, MFPlatformAdmin, MFMobile ou infraestrutura.
+Aplicação React das clínicas, com landing pública e módulos autenticados. É um
+repositório Git independente de MFBackend e MFPlatformAdmin; a pasta habitual
+usa `main`.
 
-## Estrutura e comandos
+## Comandos
 
-- `src/pages`: fluxos; `src/components`: UI compartilhada; `src/services`: API.
-- `src/store`: estado; `src/templates`: shells; `docs`: padrões e referências.
 - Instalar: `npm install`
-- Desenvolvimento local: `npm start` em `http://localhost:3000`
+- Desenvolvimento: `npm start` em `http://localhost:3000`
 - Testes: `npm test -- --watchAll=false --runInBand`
 - Lint: `npx eslint src`
-- Mojibake/build: `npm run check:mojibake` e `npm run build`
+- Mojibake e build: `npm run check:mojibake` e `npm run build`
 
 ## Regras obrigatórias
 
-- O frontend não é fonte de verdade de regras operacionais ou financeiras.
-  Consulte `../MFBackend/docs/regras-negocio/`; esses documentos prevalecem.
-- Preserve o tenant autenticado e nunca permita troca de `clinic_id` pela UI.
-- Em produção use `/api` same-origin. Não misture autenticação operacional com
-  a autenticação do MFPlatformAdmin.
-- Produção, deploy, dados reais, domínios e infraestrutura exigem autorização
-  explícita. Nunca altere produção por inferência.
-- Não use worktrees sem necessidade explícita. A validação visual é feita pelo
-  usuário; valide internamente testes, lint, build, mojibake e `git diff --check`.
-- Mudança de comportamento exige documentação correspondente na mesma tarefa.
+- O tenant público é resolvido pelo domínio no backend; não aceite `clinic_id`
+  do navegador para escolher clínica.
+- A landing normal lê somente o perfil publicado. Prévia temporária usa token,
+  é `noindex` e não publica conteúdo.
+- Dados do banco prevalecem; fallbacks estáticos apenas completam campos
+  ausentes. Preserve assets e contratos legados até migração autorizada.
+- Renderize seções editoriais somente quando houver conteúdo aplicável.
+- Mídias novas usam URLs opacas; assets legados `/assets/...` continuam
+  compatíveis.
+- Landing pública e módulos autenticados usam contextos separados. O domínio
+  público nunca troca o tenant da sessão autenticada.
+- Produção usa `/api` same-origin e o bundle não pode conter URLs localhost.
+- Regras operacionais pertencem ao Backend; não as implemente apenas na UI.
+- Produção, deploy, domínios, dados reais e infraestrutura exigem autorização.
+  Não use worktrees sem necessidade explícita.
+- Mudança de comportamento exige documentação. Concluído requer testes, lint,
+  build, mojibake e `git diff --check`, conforme o escopo.
 
-## Mapa da documentação
+## Documentos canônicos
 
-- [AGENTS.md](AGENTS.md): instruções práticas deste repositório.
-- [docs/frontend-module-architecture.md](docs/frontend-module-architecture.md):
-  fonte oficial dos shells, componentes e padrões de módulos.
-- [docs/regras-negocio.md](docs/regras-negocio.md): ponte para as regras oficiais
-  mantidas no MFBackend; não duplica regras.
+- [frontend-module-architecture.md](docs/frontend-module-architecture.md):
+  landing, contextos e padrões dos módulos.
+- [regras-negocio.md](docs/regras-negocio.md): ponte para as regras oficiais do
+  MFBackend.
