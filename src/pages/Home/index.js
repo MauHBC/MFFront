@@ -22,12 +22,12 @@ export default function HomePage() {
     <>
       <TopNavbar />
       <Header />
+      <Contact />
       <Services />
       <About />
       {/* <Projects /> */}
       {/* <Blog /> */}
       {/* <Pricing /> */}
-      <Contact />
       <Footer />
     </>
   );

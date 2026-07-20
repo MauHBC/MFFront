@@ -14,8 +14,16 @@ padrões dos módulos autenticados.
   prévia não altera o perfil publicado.
 - O perfil publicado no banco prevalece. `src/config/clinicPublicProfiles.js`
   é compatibilidade transitória e apenas completa campos ausentes.
-- Hero, Serviços, Sobre/diferenciais, Contato/unidades e Rodapé são condicionais:
+- Banner, Estrutura/unidades/contato, Serviços, Sobre/diferenciais e Rodapé são condicionais:
   campos vazios não devem criar blocos ou espaços vazios.
+- O contrato normalizado expõe separadamente `bannerImage`, a galeria `images`,
+  `heroPresentation` e `secondaryAction`. A composição mantém o cabeçalho no
+  fluxo, usa `bannerImage` em um banner estático e apresenta `images` na seção
+  integrada de Estrutura/unidades/contato imediatamente abaixo. Perfis antigos
+  usam a primeira imagem disponível como banner e recebem defaults visuais
+  seguros.
+- Uma coleção `hero_image_urls` explicitamente vazia não reaproveita a imagem
+  legada na galeria inferior; o fallback legado continua válido para o banner.
 - Assets legados `/assets/...` e mídias opacas `/api/public/media/...` devem
   coexistir. Não copie nem remova assets de clientes por inferência.
 - `PublicClinicContext` atende a landing; `ClinicContext` atende a aplicação
@@ -23,6 +31,28 @@ padrões dos módulos autenticados.
 - Em produção, a API é `/api` same-origin e o bundle não contém localhost. Em
   desenvolvimento, o frontend usa `http://localhost:3000` e o backend local
   normalmente usa `http://localhost:3006`.
+
+### Serviços da landing e serviços operacionais
+
+Serviços da landing são conteúdo editorial público independente do catálogo
+operacional. Seus cards possuem título, descrição, imagem, ordem e visibilidade,
+são administrados pelo Motria e participam de rascunho, prévia, publicação,
+histórico e restauração. Não devem buscar, alterar, derivar ou sincronizar
+automaticamente preço, duração, agenda, profissionais, planos, pacientes ou
+financeiro. Preserve `services_json` e estruturas legadas por retrocompatibilidade;
+para código novo, prefira `landingServices`, `publicServiceCards`,
+`LandingServicesSection` ou `LandingServiceItem`.
+
+Serviços operacionais pertencem à aplicação autenticada e podem envolver preço,
+duração, agenda, profissionais, planos e financeiro. Eles não são fonte
+automática da landing. O isolamento por `clinic_id` permanece obrigatório nos
+dois contextos, sem misturar `PublicClinicContext` e `ClinicContext`.
+
+As suítes específicas da landing são a validação principal das mudanças
+editoriais. A suíte global do MFFrontend pode ser usada como validação adicional;
+falhas externas devem ser registradas como externas, sem sugerir dependência da
+landing. A execução de um teste operacional não significa que a landing dependa
+daquele módulo.
 
 ## Módulos autenticados — padrão oficial
 

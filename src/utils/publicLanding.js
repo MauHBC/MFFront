@@ -427,9 +427,9 @@ function getFooter(profile, config) {
   const configuredNavigation = normalizeNamedLinks(configuredFooter.navigation);
   const navigation = configuredNavigation.length > 0 ? configuredNavigation : [
     { label: "Início", href: "#home", visible: true },
+    { label: "Estrutura", href: "#contact", visible: config.hasContact },
     { label: "Serviços", href: "#services", visible: config.hasServices },
     { label: "Sobre", href: "#about", visible: config.hasAbout },
-    { label: "Contato", href: "#contact", visible: config.hasContact },
   ].filter((item) => item.visible);
 
   return {
@@ -442,10 +442,11 @@ function getFooter(profile, config) {
 function getHeroImages(profile, displayName) {
   const safeProfile = profile || {};
   const configuredImages = normalizeStringArray(safeProfile.hero_image_urls);
+  const hasExplicitGallery = Array.isArray(safeProfile.hero_image_urls);
   const legacyHeroImage = cleanText(safeProfile.hero_image_url);
   const legacyAboutImages = normalizeStringArray(safeProfile.about_image_urls);
   const urls = uniqueList(
-    configuredImages.length > 0
+    hasExplicitGallery
       ? configuredImages
       : [legacyHeroImage || null, ...(!legacyHeroImage ? legacyAboutImages : [])],
   );
@@ -460,6 +461,70 @@ function getHeroImages(profile, displayName) {
   }));
 }
 
+const DEFAULT_HERO_PRESENTATION = {
+  overlayColorSource: "neutral-dark",
+  overlayStrength: "medium",
+  textTone: "light",
+  imagePosition: "center",
+};
+
+function getHeroPresentation(profile) {
+  const source = profile?.hero_presentation || profile?.hero_presentation_json || {};
+  const allowed = (value, values, fallback) => (
+    values.includes(cleanText(value)) ? cleanText(value) : fallback
+  );
+  const secondary = source?.secondary_action || {};
+  const secondaryUrl = normalizeSafeExternalOrPath(secondary.url);
+  const secondaryAction = normalizeBoolean(secondary.visible, false)
+    && cleanText(secondary.label)
+    && cleanText(secondary.type)
+    && secondaryUrl
+    ? {
+      label: cleanText(secondary.label),
+      type: cleanText(secondary.type),
+      href: secondaryUrl,
+      isExternal: /^https?:\/\//i.test(secondaryUrl),
+    }
+    : null;
+
+  return {
+    overlayColorSource: allowed(
+      source.overlay_color_source,
+      ["neutral-dark", "primary", "secondary"],
+      DEFAULT_HERO_PRESENTATION.overlayColorSource,
+    ),
+    overlayStrength: allowed(
+      source.overlay_strength,
+      ["light", "medium", "strong"],
+      DEFAULT_HERO_PRESENTATION.overlayStrength,
+    ),
+    textTone: allowed(
+      source.text_tone,
+      ["light", "dark"],
+      DEFAULT_HERO_PRESENTATION.textTone,
+    ),
+    imagePosition: allowed(
+      source.image_position,
+      ["left", "center", "right"],
+      DEFAULT_HERO_PRESENTATION.imagePosition,
+    ),
+    secondaryAction,
+  };
+}
+
+function getBannerImage(profile, displayName, galleryImages) {
+  const src = cleanText(profile?.hero_image_url) || galleryImages[0]?.src || null;
+  if (!src) return null;
+  const galleryMatch = galleryImages.find((image) => image.src === src);
+  return {
+    src,
+    alt:
+      cleanText(profile?.hero_image_alt_text)
+      || galleryMatch?.alt
+      || `${displayName || productIdentity.name} - foto de destaque`,
+  };
+}
+
 export function normalizePublicLandingConfig({ publicClinic, displayName }) {
   const profile = publicClinic?.public_profile || {};
   const services = normalizePublicServices(profile);
@@ -471,12 +536,14 @@ export function normalizePublicLandingConfig({ publicClinic, displayName }) {
   const about = getAbout(profile, resolvedDisplayName);
   const differentials = normalizePublicDifferentials(profile);
   const contact = getContact(profile);
-  const hasContact = contact.hasContent;
+  const galleryImages = getHeroImages(profile, resolvedDisplayName);
+  const hasContact = contact.hasContent || galleryImages.length > 0;
   const partialConfig = {
     hasServices: services.length > 0,
     hasAbout: about.hasContent || differentials.length > 0,
     hasContact,
   };
+  const presentation = getHeroPresentation(profile);
 
   const config = {
     displayName: resolvedDisplayName,
@@ -490,7 +557,10 @@ export function normalizePublicLandingConfig({ publicClinic, displayName }) {
     quote: cleanText(profile.hero_quote),
     quoteAuthor: cleanText(profile.hero_quote_author),
     action: getAction(profile),
-    images: getHeroImages(profile, resolvedDisplayName),
+    images: galleryImages,
+    bannerImage: getBannerImage(profile, resolvedDisplayName, galleryImages),
+    heroPresentation: presentation,
+    secondaryAction: presentation.secondaryAction,
     services,
     hasServices: services.length > 0,
     servicesLabel: cleanText(profile.services_label),

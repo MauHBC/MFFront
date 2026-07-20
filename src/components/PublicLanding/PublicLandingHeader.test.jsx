@@ -38,4 +38,11 @@ describe("PublicLandingHeader", () => {
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.getByText("CL")).toHaveAttribute("aria-hidden", "true");
   });
+
+  it("links the integrated structure section to its preserved contact id", () => {
+    renderHeader({ hasContact: true });
+
+    expect(screen.getByRole("link", { name: "Estrutura" }))
+      .toHaveAttribute("href", "#contact");
+  });
 });

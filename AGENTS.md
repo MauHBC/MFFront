@@ -25,6 +25,14 @@ usa `main`.
   compatíveis.
 - Landing pública e módulos autenticados usam contextos separados. O domínio
   público nunca troca o tenant da sessão autenticada.
+- Serviços da landing são cards editoriais públicos independentes dos serviços
+  operacionais. Não derive nem sincronize título, descrição, imagem, ordem ou
+  visibilidade com preço, duração, agenda, profissionais, planos, pacientes ou
+  financeiro. Preserve contratos legados e prefira nomes novos explícitos como
+  `landingServices`, `publicServiceCards` e `LandingServicesSection`.
+- Serviços operacionais pertencem ao sistema autenticado. Ambos os contextos
+  continuam isolados por `clinic_id`, sem usar o domínio público para trocar o
+  tenant autenticado.
 - Produção usa `/api` same-origin e o bundle não pode conter URLs localhost.
 - Regras operacionais pertencem ao Backend; não as implemente apenas na UI.
 - Produção, deploy, domínios, dados reais e infraestrutura exigem autorização.
@@ -38,3 +46,8 @@ usa `main`.
   landing, contextos e padrões dos módulos.
 - [regras-negocio.md](docs/regras-negocio.md): ponte para as regras oficiais do
   MFBackend.
+
+As suítes específicas da landing são a validação principal das mudanças
+editoriais. A suíte global é adicional: falhas externas devem ser identificadas
+como externas, e executar testes operacionais não cria dependência da landing
+com esses módulos.

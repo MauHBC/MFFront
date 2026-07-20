@@ -1,78 +1,148 @@
+/* eslint-disable no-use-before-define */
 import React from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import { Link as ScrollLink } from "react-scroll";
 import { FaArrowRight, FaWhatsapp } from "react-icons/fa";
-import PublicHeroCarousel from "./PublicHeroCarousel";
 
-export default function PublicHero({ config }) {
-  const isAnchorAction = config.action.href.startsWith("#");
-  const actionContent = (
+const OVERLAY_OPACITY = {
+  light: 42,
+  medium: 58,
+  strong: 72,
+};
+
+const OVERLAY_SOURCES = {
+  "neutral-dark": "#18211d",
+  primary: "var(--public-primary-color, #6a795c)",
+  secondary: "var(--public-secondary-color, #3d5230)",
+};
+
+function ActionContent({ action }) {
+  return (
     <>
-      {config.action.type === "whatsapp" ? <FaWhatsapp /> : <FaArrowRight />}
-      <span>{config.action.label}</span>
+      {action.type === "whatsapp" ? <FaWhatsapp /> : <FaArrowRight />}
+      <span>{action.label}</span>
     </>
   );
+}
+
+ActionContent.propTypes = {
+  action: PropTypes.shape({
+    label: PropTypes.string.isRequired,
+    type: PropTypes.string.isRequired,
+  }).isRequired,
+};
+
+function HeroAction({ action, secondary = false }) {
+  const content = <ActionContent action={action} />;
+  if (action.href.startsWith("#")) {
+    const target = action.href.replace("#", "");
+    return secondary ? (
+      <SecondaryScrollAction to={target} smooth offset={-88}>{content}</SecondaryScrollAction>
+    ) : (
+      <PrimaryScrollAction to={target} smooth offset={-88}>{content}</PrimaryScrollAction>
+    );
+  }
 
   return (
-    <Hero id="home">
+    secondary ? (
+      <SecondaryAction
+        href={action.href}
+        target={action.isExternal ? "_blank" : undefined}
+        rel={action.isExternal ? "noreferrer" : undefined}
+      >
+        {content}
+      </SecondaryAction>
+    ) : (
+      <PrimaryAction
+        href={action.href}
+        target={action.isExternal ? "_blank" : undefined}
+        rel={action.isExternal ? "noreferrer" : undefined}
+      >
+        {content}
+      </PrimaryAction>
+    )
+  );
+}
+
+HeroAction.propTypes = {
+  action: PropTypes.shape({
+    href: PropTypes.string.isRequired,
+    isExternal: PropTypes.bool.isRequired,
+    label: PropTypes.string.isRequired,
+    type: PropTypes.string.isRequired,
+  }).isRequired,
+  secondary: PropTypes.bool,
+};
+
+HeroAction.defaultProps = {
+  secondary: false,
+};
+
+export default function PublicHero({ config }) {
+  const presentation = config.heroPresentation;
+  const overlaySource =
+    OVERLAY_SOURCES[presentation.overlayColorSource] || OVERLAY_SOURCES["neutral-dark"];
+  const overlayOpacity =
+    OVERLAY_OPACITY[presentation.overlayStrength] || OVERLAY_OPACITY.medium;
+
+  return (
+    <Hero
+      id="home"
+      $hasImage={Boolean(config.bannerImage)}
+      $overlaySource={overlaySource}
+      $overlayOpacity={overlayOpacity}
+      $textTone={presentation.textTone}
+    >
+      {config.bannerImage && (
+        <BannerImage
+          src={config.bannerImage.src}
+          alt={config.bannerImage.alt}
+          $position={presentation.imagePosition}
+        />
+      )}
       <HeroInner>
-        <CopyColumn>
-          <Eyebrow>{config.eyebrow}</Eyebrow>
-          <Title>{config.title}</Title>
-          <Subtitle>{config.subtitle}</Subtitle>
+        <Copy>
+          <Eyebrow $textTone={presentation.textTone}>{config.eyebrow}</Eyebrow>
+          <Title $textTone={presentation.textTone}>{config.title}</Title>
+          <Subtitle $textTone={presentation.textTone}>{config.subtitle}</Subtitle>
           <Actions>
-            {isAnchorAction ? (
-              <PrimaryScrollAction to={config.action.href.replace("#", "")} smooth offset={-88}>
-                {actionContent}
-              </PrimaryScrollAction>
-            ) : (
-              <PrimaryAction
-                href={config.action.href}
-                target={config.action.isExternal ? "_blank" : undefined}
-                rel={config.action.isExternal ? "noreferrer" : undefined}
-              >
-                {actionContent}
-              </PrimaryAction>
-            )}
-            {config.hasServices && (
-              <SecondaryScrollAction to="services" smooth offset={-88}>
-                Conhecer serviços
-              </SecondaryScrollAction>
+            <HeroAction action={config.action} />
+            {config.secondaryAction && (
+              <HeroAction action={config.secondaryAction} secondary />
             )}
           </Actions>
-          {config.quote && (
-            <QuoteBlock>
-              <p>{config.quote}</p>
-              {config.quoteAuthor && <span>{config.quoteAuthor}</span>}
-            </QuoteBlock>
-          )}
-        </CopyColumn>
-        <MediaColumn>
-          <PublicHeroCarousel images={config.images} displayName={config.displayName} />
-        </MediaColumn>
+        </Copy>
       </HeroInner>
+      <NextSectionHint aria-hidden="true" $textTone={presentation.textTone}>
+        <span />
+      </NextSectionHint>
     </Hero>
   );
 }
 
+const actionShape = PropTypes.shape({
+  href: PropTypes.string.isRequired,
+  isExternal: PropTypes.bool.isRequired,
+  label: PropTypes.string.isRequired,
+  type: PropTypes.string.isRequired,
+});
+
 PublicHero.propTypes = {
   config: PropTypes.shape({
-    action: PropTypes.shape({
-      href: PropTypes.string.isRequired,
-      isExternal: PropTypes.bool.isRequired,
-      label: PropTypes.string.isRequired,
-      type: PropTypes.string.isRequired,
-    }).isRequired,
-    displayName: PropTypes.string.isRequired,
-    eyebrow: PropTypes.string.isRequired,
-    images: PropTypes.arrayOf(PropTypes.shape({
+    action: actionShape.isRequired,
+    bannerImage: PropTypes.shape({
       alt: PropTypes.string.isRequired,
       src: PropTypes.string.isRequired,
-    })).isRequired,
-    hasServices: PropTypes.bool.isRequired,
-    quote: PropTypes.string,
-    quoteAuthor: PropTypes.string,
+    }),
+    eyebrow: PropTypes.string.isRequired,
+    heroPresentation: PropTypes.shape({
+      imagePosition: PropTypes.oneOf(["left", "center", "right"]).isRequired,
+      overlayColorSource: PropTypes.oneOf(["neutral-dark", "primary", "secondary"]).isRequired,
+      overlayStrength: PropTypes.oneOf(["light", "medium", "strong"]).isRequired,
+      textTone: PropTypes.oneOf(["light", "dark"]).isRequired,
+    }).isRequired,
+    secondaryAction: actionShape,
     subtitle: PropTypes.string.isRequired,
     title: PropTypes.string.isRequired,
   }).isRequired,
@@ -80,54 +150,80 @@ PublicHero.propTypes = {
 
 const Hero = styled.section`
   position: relative;
-  min-height: 100vh;
-  padding: 128px 0 74px;
-  background:
-    linear-gradient(90deg, rgba(247, 248, 244, 0.98), rgba(255, 255, 255, 0.78) 48%, rgba(255, 255, 255, 0.54)),
-    radial-gradient(circle at 12% 18%, rgba(106, 121, 92, 0.12), transparent 30%),
-    #fbfbf8;
+  min-height: clamp(520px, 72svh, 760px);
+  padding: clamp(72px, 10vw, 126px) 0 clamp(82px, 10vw, 118px);
+  background: ${({ $hasImage }) => ($hasImage
+    ? "#18211d"
+    : "linear-gradient(135deg, var(--public-primary-color, #6a795c), var(--public-secondary-color, #3d5230))")};
+  display: flex;
+  align-items: center;
   overflow: hidden;
+  isolation: isolate;
+  scroll-margin-top: 104px;
 
-  &::after {
+  &::before {
     content: "";
     position: absolute;
-    inset: auto 0 0;
-    height: 1px;
-    background: rgba(106, 121, 92, 0.14);
+    inset: 0;
+    z-index: -1;
+    background: ${({ $hasImage, $overlaySource, $overlayOpacity, $textTone }) => {
+      if (!$hasImage) {
+        return $textTone === "dark"
+          ? "linear-gradient(90deg, rgba(255,255,255,.86), rgba(255,255,255,.66))"
+          : "linear-gradient(90deg, rgba(0,0,0,.46), rgba(0,0,0,.22))";
+      }
+      if ($textTone === "dark") {
+        return `linear-gradient(90deg, rgba(255,255,255,.92) 0%, rgba(255,255,255,.78) 48%, rgba(255,255,255,.58) 100%), linear-gradient(${$overlaySource}, ${$overlaySource})`;
+      }
+      return `linear-gradient(90deg, color-mix(in srgb, ${$overlaySource} ${$overlayOpacity}%, #000 ${100 - $overlayOpacity}%) 0%, rgba(0,0,0,.5) 52%, rgba(0,0,0,.34) 100%)`;
+    }};
+    opacity: ${({ $textTone }) => ($textTone === "dark" ? 0.94 : 1)};
   }
 
-  @media (max-width: 900px) {
-    min-height: auto;
-    padding: 96px 0 42px;
+  @media (max-width: 760px) {
+    min-height: 500px;
+    padding: 66px 0 76px;
   }
+`;
+
+const BannerImage = styled.img`
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: ${({ $position }) => `${$position} center`};
 `;
 
 const HeroInner = styled.div`
   width: min(1220px, calc(100% - 48px));
   margin: 0 auto;
-  display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(420px, 1.08fr);
-  align-items: center;
-  gap: clamp(28px, 5vw, 72px);
 
-  @media (max-width: 960px) {
+  @media (max-width: 760px) {
     width: min(720px, calc(100% - 32px));
-    grid-template-columns: 1fr;
-    gap: 24px;
   }
 `;
 
-const CopyColumn = styled.div`
-  position: relative;
-  z-index: 2;
+const Copy = styled.div`
+  max-width: min(720px, 76%);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+
+  @media (max-width: 900px) {
+    max-width: 88%;
+  }
+
+  @media (max-width: 620px) {
+    max-width: 100%;
+  }
 `;
 
 const Eyebrow = styled.span`
-  margin-bottom: 18px;
-  color: var(--public-secondary-color, #3d5230);
+  margin-bottom: 16px;
+  color: ${({ $textTone }) => ($textTone === "dark" ? "#243028" : "rgba(255,255,255,.9)")};
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -135,32 +231,32 @@ const Eyebrow = styled.span`
 `;
 
 const Title = styled.h1`
-  max-width: 640px;
   margin: 0;
-  color: #151d17;
-  font-size: clamp(2.5rem, 5.2vw, 4.95rem);
-  line-height: 1.02;
+  color: ${({ $textTone }) => ($textTone === "dark" ? "#111914" : "#fff")};
+  font-size: clamp(2.5rem, 5.2vw, 5rem);
+  line-height: 1.01;
   font-weight: 800;
+  text-wrap: balance;
+  text-shadow: ${({ $textTone }) => ($textTone === "dark" ? "none" : "0 2px 24px rgba(0,0,0,.26)")};
 
   @media (max-width: 760px) {
-    max-width: 100%;
-    font-size: clamp(2.15rem, 10vw, 3.05rem);
+    font-size: clamp(2.12rem, 10vw, 3.2rem);
     line-height: 1.04;
   }
 `;
 
 const Subtitle = styled.p`
-  max-width: 590px;
+  max-width: 660px;
   margin: 22px 0 0;
-  color: #455046;
-  font-size: clamp(1.02rem, 1.6vw, 1.22rem);
-  line-height: 1.7;
-  font-weight: 600;
+  color: ${({ $textTone }) => ($textTone === "dark" ? "#344139" : "rgba(255,255,255,.92)")};
+  font-size: clamp(1rem, 1.6vw, 1.24rem);
+  line-height: 1.65;
+  font-weight: 650;
+  text-shadow: ${({ $textTone }) => ($textTone === "dark" ? "none" : "0 1px 16px rgba(0,0,0,.24)")};
 
   @media (max-width: 760px) {
     margin-top: 16px;
-    font-size: 1rem;
-    line-height: 1.5;
+    line-height: 1.52;
   }
 `;
 
@@ -170,96 +266,95 @@ const Actions = styled.div`
   gap: 12px;
   margin-top: 28px;
 
-  @media (max-width: 760px) {
-    margin-top: 20px;
+  @media (max-width: 520px) {
+    width: 100%;
+    display: grid;
   }
 `;
 
 const actionStyles = `
   min-height: 48px;
+  padding: 0 22px;
+  border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
-  border-radius: 999px;
-  padding: 0 20px;
   font-weight: 800;
   text-decoration: none;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 3px solid var(--public-accent-color, #a2b190);
+    outline-offset: 3px;
+  }
 `;
 
-const PrimaryAction = styled.a`
+const primaryStyles = `
   ${actionStyles}
+  border: 1px solid var(--public-primary-color, #6a795c);
   background: var(--public-primary-color, #6a795c);
   color: #fff;
-  border: 1px solid var(--public-primary-color, #6a795c);
-  box-shadow: 0 12px 28px rgba(36, 49, 39, 0.16);
+  box-shadow: 0 14px 30px rgba(0,0,0,.2);
 
-  &:hover,
-  &:focus-visible {
+  &:hover {
+    border-color: var(--public-secondary-color, #3d5230);
     background: var(--public-secondary-color, #3d5230);
     color: #fff;
-    outline: none;
   }
 `;
 
-const PrimaryScrollAction = styled(ScrollLink)`
+const secondaryStyles = `
   ${actionStyles}
-  background: var(--public-primary-color, #6a795c);
+  border: 1px solid rgba(255,255,255,.68);
+  background: rgba(255,255,255,.14);
   color: #fff;
-  border: 1px solid var(--public-primary-color, #6a795c);
-  cursor: pointer;
-  box-shadow: 0 12px 28px rgba(36, 49, 39, 0.16);
+  backdrop-filter: blur(10px);
 
-  &:hover,
-  &:focus-visible {
-    background: var(--public-secondary-color, #3d5230);
-    color: #fff !important;
-    outline: none;
-  }
-
-  &:hover svg,
-  &:hover span,
-  &:focus-visible svg,
-  &:focus-visible span {
+  &:hover {
+    background: rgba(255,255,255,.24);
     color: #fff;
   }
 `;
 
-const SecondaryScrollAction = styled(ScrollLink)`
-  ${actionStyles}
-  background: rgba(255, 255, 255, 0.72);
-  color: #29342c;
-  border: 1px solid rgba(106, 121, 92, 0.2);
-  cursor: pointer;
-`;
+const PrimaryAction = styled.a`${primaryStyles}`;
+const PrimaryScrollAction = styled(ScrollLink)`${primaryStyles}`;
+const SecondaryAction = styled.a`${secondaryStyles}`;
+const SecondaryScrollAction = styled(ScrollLink)`${secondaryStyles}`;
 
-const QuoteBlock = styled.aside`
-  max-width: 520px;
-  margin-top: 38px;
-  padding-left: 18px;
-  border-left: 3px solid var(--public-accent-color, #a2b190);
-  color: #3a453c;
-
-  p {
-    margin: 0;
-    font-size: 0.96rem;
-    line-height: 1.55;
-    font-style: italic;
-  }
+const NextSectionHint = styled.div`
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  width: 26px;
+  height: 42px;
+  border: 1px solid ${({ $textTone }) => ($textTone === "dark" ? "rgba(20,30,24,.38)" : "rgba(255,255,255,.58)")};
+  border-radius: 999px;
+  transform: translateX(-50%);
 
   span {
-    display: block;
-    margin-top: 8px;
-    color: var(--public-secondary-color, #3d5230);
-    font-size: 0.84rem;
-    font-weight: 800;
+    position: absolute;
+    left: 50%;
+    top: 8px;
+    width: 4px;
+    height: 8px;
+    border-radius: 999px;
+    background: ${({ $textTone }) => ($textTone === "dark" ? "#243028" : "#fff")};
+    transform: translateX(-50%);
   }
 
-  @media (max-width: 760px) {
+  @media (max-height: 640px), (max-width: 520px) {
     display: none;
   }
-`;
 
-const MediaColumn = styled.div`
-  min-width: 0;
+  @media (prefers-reduced-motion: no-preference) {
+    span {
+      animation: public-banner-hint 1.8s ease-in-out infinite;
+    }
+  }
+
+  @keyframes public-banner-hint {
+    0%, 100% { transform: translate(-50%, 0); opacity: .55; }
+    50% { transform: translate(-50%, 12px); opacity: 1; }
+  }
 `;

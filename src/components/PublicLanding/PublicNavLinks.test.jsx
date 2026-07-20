@@ -15,14 +15,14 @@ describe("PublicNavLinks", () => {
     expect(screen.getByRole("link", { name: "Sobre" })).toHaveAttribute("href", "#about");
   });
 
-  it("shows Contact only when the public contact section exists", () => {
+  it("shows Structure only when the integrated public section exists", () => {
     const { rerender } = render(<PublicNavLinks showContact={false} showServices />);
 
-    expect(screen.queryByRole("link", { name: "Contato" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Estrutura" })).not.toBeInTheDocument();
 
     rerender(<PublicNavLinks showContact showServices />);
 
-    expect(screen.getByRole("link", { name: "Contato" })).toHaveAttribute("href", "#contact");
+    expect(screen.getByRole("link", { name: "Estrutura" })).toHaveAttribute("href", "#contact");
   });
 
   it("keeps the recommended public navigation order", () => {
@@ -30,9 +30,9 @@ describe("PublicNavLinks", () => {
 
     expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual([
       "Início",
+      "Estrutura",
       "Serviços",
       "Sobre",
-      "Contato",
     ]);
   });
 });

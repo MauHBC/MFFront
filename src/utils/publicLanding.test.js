@@ -82,12 +82,93 @@ describe("public landing normalization", () => {
       { src: "/one.jpg", alt: "Foto um" },
       { src: "/two.jpg", alt: "Foto dois" },
     ]);
+    expect(config.bannerImage).toEqual({
+      src: "/legacy.jpg",
+      alt: "Studio Movimento - foto de destaque",
+    });
     expect(config.action).toMatchObject({
       href: "/avaliacao",
       label: "Marcar avaliação",
       type: "link",
       isExternal: false,
     });
+  });
+
+  it("separates banner, gallery and controlled presentation", () => {
+    const config = normalizePublicLandingConfig({
+      displayName: "Clínica Teste",
+      publicClinic: {
+        public_profile: {
+          hero_image_url: "/banner.jpg",
+          hero_image_alt_text: "Banner exclusivo",
+          hero_image_urls: ["/gallery-one.jpg", "/gallery-two.jpg"],
+          hero_image_alt_texts: ["Galeria um", "Galeria dois"],
+          hero_presentation_json: {
+            overlay_color_source: "primary",
+            overlay_strength: "strong",
+            text_tone: "dark",
+            image_position: "right",
+            secondary_action: {
+              visible: true,
+              label: "Conhecer",
+              type: "link",
+              url: "/conhecer",
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.bannerImage).toEqual({ src: "/banner.jpg", alt: "Banner exclusivo" });
+    expect(config.images).toHaveLength(2);
+    expect(config.heroPresentation).toMatchObject({
+      overlayColorSource: "primary",
+      overlayStrength: "strong",
+      textTone: "dark",
+      imagePosition: "right",
+    });
+    expect(config.secondaryAction).toMatchObject({
+      label: "Conhecer",
+      href: "/conhecer",
+    });
+  });
+
+  it("applies legacy presentation defaults and hides incomplete secondary CTA", () => {
+    const config = normalizePublicLandingConfig({
+      displayName: "Clínica Antiga",
+      publicClinic: {
+        public_profile: {
+          hero_image_urls: ["/legacy.jpg"],
+          hero_presentation_json: {
+            secondary_action: { visible: true, label: "Incompleto" },
+          },
+        },
+      },
+    });
+
+    expect(config.bannerImage.src).toBe("/legacy.jpg");
+    expect(config.heroPresentation).toMatchObject({
+      overlayColorSource: "neutral-dark",
+      overlayStrength: "medium",
+      textTone: "light",
+      imagePosition: "center",
+    });
+    expect(config.secondaryAction).toBeNull();
+  });
+
+  it("keeps an explicitly empty gallery separate from the banner", () => {
+    const config = normalizePublicLandingConfig({
+      displayName: "Clínica Teste",
+      publicClinic: {
+        public_profile: {
+          hero_image_url: "/banner-only.jpg",
+          hero_image_urls: [],
+        },
+      },
+    });
+
+    expect(config.bannerImage.src).toBe("/banner-only.jpg");
+    expect(config.images).toEqual([]);
   });
 
   it("falls back without photos or a new action configuration", () => {
@@ -408,9 +489,9 @@ describe("public landing normalization", () => {
     ]);
     expect(config.footer.navigation.map((item) => item.label)).toEqual([
       "Início",
+      "Estrutura",
       "Serviços",
       "Sobre",
-      "Contato",
     ]);
   });
 

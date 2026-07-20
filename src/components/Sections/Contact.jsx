@@ -4,6 +4,8 @@ import PropTypes from "prop-types";
 import styled from "styled-components";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import { normalizePublicLandingConfig } from "../../utils/publicLanding";
+import PublicHeroCarousel from "../PublicLanding/PublicHeroCarousel";
+import { publicLandingSpacing } from "../PublicLanding/publicLandingLayout";
 
 function ExternalLink({
   children,
@@ -70,7 +72,7 @@ function UnitCard({ unit, index }) {
       {unit.hours && <p>{unit.hours}</p>}
       <UnitActions>
         {unit.phone && unit.phoneHref && (
-          <ExternalLink href={unit.phoneHref}>Telefone</ExternalLink>
+          <ExternalLink href={unit.phoneHref}>{unit.phone}</ExternalLink>
         )}
         {unit.mapHref && (
           <ExternalLink href={unit.mapHref} isExternal>
@@ -105,60 +107,75 @@ export default function Contact() {
   const { publicClinic, displayName } = usePublicClinicContext();
   const config = normalizePublicLandingConfig({ publicClinic, displayName });
   const { contact } = config;
+  const hasGallery = config.images.length > 0;
 
-  if (!config.hasContact) return null;
+  if (!config.hasContact && !hasGallery) return null;
 
   const unitsVariant = getUnitsVariant(contact.units.length);
   const hasHeading = Boolean(contact.label || contact.title || contact.text);
-  const hasIntroColumn = Boolean(hasHeading || contact.primaryAction);
   const visibleMethods = contact.sectionMethods || contact.methods;
   const hasContactMethods = visibleMethods.length > 0 || contact.socialLinks.length > 0;
+  const hasContactDetails = Boolean(contact.primaryAction || hasContactMethods);
 
   return (
-    <Wrapper id="contact" aria-label="Contato">
+    <Wrapper id="contact" aria-label="Estrutura, unidades e contato">
       <Inner>
-        <ContactPanel $singleColumn={!hasIntroColumn || !hasContactMethods}>
-          {hasIntroColumn && (
-            <Copy>
-              {contact.label && <Eyebrow>{contact.label}</Eyebrow>}
-              {contact.title && <h2>{contact.title}</h2>}
-              {contact.text && <p>{contact.text}</p>}
+        {hasHeading && (
+          <SectionIntro>
+            {contact.label && <Eyebrow>{contact.label}</Eyebrow>}
+            {contact.title && <h2>{contact.title}</h2>}
+            {contact.text && <p>{contact.text}</p>}
+          </SectionIntro>
+        )}
+
+        <StructureGrid $hasGallery={hasGallery} $hasDetails={hasContactDetails}>
+          {hasGallery && (
+            <Gallery aria-label="Galeria da estrutura">
+              <PublicHeroCarousel
+                images={config.images}
+                displayName={config.displayName}
+                variant="section"
+              />
+            </Gallery>
+          )}
+
+          {hasContactDetails && (
+            <ContactPanel>
               {contact.primaryAction && (
                 <PrimaryAction
                   href={contact.primaryAction.href}
                   isExternal={contact.primaryAction.isExternal}
-                  $spaced={hasHeading}
                 >
                   {contact.primaryAction.label}
                 </PrimaryAction>
               )}
-            </Copy>
-          )}
-          {hasContactMethods && (
-            <ContactActions>
-              {visibleMethods.length > 0 && (
-                <Methods aria-label="Canais de contato">
-                  {visibleMethods.map((method) => (
-                    <ContactMethod key={method.id} method={method} />
-                  ))}
-                </Methods>
+              {hasContactMethods && (
+                <ContactActions>
+                  {visibleMethods.length > 0 && (
+                    <Methods aria-label="Canais de contato">
+                      {visibleMethods.map((method) => (
+                        <ContactMethod key={method.id} method={method} />
+                      ))}
+                    </Methods>
+                  )}
+                  {contact.socialLinks.length > 0 && (
+                    <SocialLinks aria-label="Redes sociais">
+                      {contact.socialLinks.map((link) => (
+                        <ExternalLink
+                          key={link.id}
+                          href={link.href}
+                          isExternal={link.isExternal}
+                        >
+                          {link.label}
+                        </ExternalLink>
+                      ))}
+                    </SocialLinks>
+                  )}
+                </ContactActions>
               )}
-              {contact.socialLinks.length > 0 && (
-                <SocialLinks aria-label="Redes sociais">
-                  {contact.socialLinks.map((link) => (
-                    <ExternalLink
-                      key={link.id}
-                      href={link.href}
-                      isExternal={link.isExternal}
-                    >
-                      {link.label}
-                    </ExternalLink>
-                  ))}
-                </SocialLinks>
-              )}
-            </ContactActions>
+            </ContactPanel>
           )}
-        </ContactPanel>
+        </StructureGrid>
 
         {contact.units.length > 0 && (
           <UnitsBlock aria-label="Unidades públicas">
@@ -178,7 +195,7 @@ const Wrapper = styled.section`
   position: relative;
   width: 100%;
   scroll-margin-top: 104px;
-  padding: clamp(70px, 9vw, 118px) 0;
+  padding: ${publicLandingSpacing.sectionBlock} 0;
   background:
     linear-gradient(180deg, #fbfbf8 0%, #eef4eb 100%);
 `;
@@ -187,33 +204,19 @@ const Inner = styled.div`
   width: min(1220px, calc(100% - 48px));
   margin: 0 auto;
   display: grid;
-  gap: clamp(18px, 3vw, 30px);
+  gap: ${publicLandingSpacing.sectionGap};
 
   @media (max-width: 760px) {
     width: min(720px, calc(100% - 32px));
   }
 `;
 
-const ContactPanel = styled.div`
-  display: grid;
-  grid-template-columns: ${({ $singleColumn }) => ($singleColumn ? "minmax(0, 760px)" : "minmax(0, 0.9fr) minmax(320px, 0.72fr)")};
-  gap: clamp(24px, 4vw, 56px);
-  align-items: start;
-  padding-bottom: clamp(20px, 3.5vw, 34px);
-  border-bottom: 1px solid rgba(106, 121, 92, 0.18);
-
-  @media (max-width: 860px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const Copy = styled.div`
-  min-width: 0;
+const SectionIntro = styled.div`
+  max-width: 820px;
   display: grid;
   justify-items: start;
 
   h2 {
-    max-width: 760px;
     margin: 0;
     color: #151d17;
     font-size: clamp(2rem, 4.3vw, 3.85rem);
@@ -222,13 +225,41 @@ const Copy = styled.div`
   }
 
   p {
-    max-width: 660px;
+    max-width: 700px;
     margin: 18px 0 0;
     color: #465248;
     font-size: clamp(1rem, 1.35vw, 1.12rem);
     line-height: 1.7;
     font-weight: 600;
   }
+`;
+
+const StructureGrid = styled.div`
+  display: grid;
+  grid-template-columns: ${({ $hasGallery, $hasDetails }) => (
+    $hasGallery && $hasDetails
+      ? "minmax(0, 1.15fr) minmax(300px, .72fr)"
+      : "minmax(0, 860px)"
+  )};
+  gap: ${publicLandingSpacing.contentGap};
+  align-items: stretch;
+  padding-bottom: ${publicLandingSpacing.sectionGap};
+  border-bottom: 1px solid rgba(106, 121, 92, 0.18);
+
+  @media (max-width: 860px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const Gallery = styled.div`
+  min-width: 0;
+`;
+
+const ContactPanel = styled.div`
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 18px;
 `;
 
 const Eyebrow = styled.span`
@@ -248,7 +279,6 @@ const ContactActions = styled.div`
 `;
 
 const PrimaryAction = styled(ExternalLink)`
-  margin-top: ${({ $spaced }) => ($spaced ? "22px" : "0")};
   min-height: 48px;
   padding: 0 24px;
   border-radius: 999px;
@@ -269,6 +299,11 @@ const PrimaryAction = styled(ExternalLink)`
     background: var(--public-secondary-color, #3d5230);
     box-shadow: 0 16px 34px rgba(22, 33, 28, 0.18);
     transform: translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 3px solid var(--public-accent-color, #a2b190);
+    outline-offset: 3px;
   }
 `;
 
@@ -319,7 +354,7 @@ const SocialLinks = styled.nav`
   gap: 10px;
 
   a {
-    min-height: 38px;
+    min-height: 44px;
     padding: 0 14px;
     border: 1px solid rgba(106, 121, 92, 0.2);
     border-radius: 999px;
@@ -396,7 +431,7 @@ const UnitActions = styled.div`
   gap: 10px;
 
   a {
-    min-height: 38px;
+    min-height: 44px;
     padding: 0 14px;
     border-radius: 999px;
     border: 1px solid rgba(106, 121, 92, 0.2);
@@ -406,5 +441,10 @@ const UnitActions = styled.div`
     font-size: 0.88rem;
     font-weight: 800;
     text-decoration: none;
+
+    &:focus-visible {
+      outline: 3px solid var(--public-accent-color, #a2b190);
+      outline-offset: 2px;
+    }
   }
 `;

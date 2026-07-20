@@ -126,14 +126,13 @@ PublicLandingHeader.propTypes = {
 };
 
 const Header = styled.header`
-  position: fixed;
-  top: 16px;
-  left: 0;
-  right: 0;
+  position: relative;
   z-index: 1000;
+  padding: 16px 0;
+  background: #fbfbf8;
 
   @media (max-width: 760px) {
-    top: 10px;
+    padding: 10px 0;
   }
 `;
 

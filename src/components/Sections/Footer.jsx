@@ -4,6 +4,7 @@ import PropTypes from "prop-types";
 import styled from "styled-components";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import { normalizePublicLandingConfig } from "../../utils/publicLanding";
+import { publicLandingSpacing } from "../PublicLanding/publicLandingLayout";
 
 function FooterLink({ children, href, isExternal = false }) {
   return (
@@ -124,7 +125,7 @@ export default function Footer() {
 
 const Wrapper = styled.footer`
   width: 100%;
-  padding: clamp(34px, 6vw, 58px) 0;
+  padding: ${publicLandingSpacing.footerBlock} 0;
   background: #151d17;
   color: #f7f8f5;
 `;

@@ -3,6 +3,7 @@ import PropTypes from "prop-types";
 import styled from "styled-components";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import { normalizePublicLandingConfig } from "../../utils/publicLanding";
+import { publicLandingSpacing } from "../PublicLanding/publicLandingLayout";
 
 const getDifferentialsVariant = (count) => {
   if (count === 1) return "single";
@@ -105,7 +106,7 @@ const Wrapper = styled.section`
   position: relative;
   width: 100%;
   scroll-margin-top: 104px;
-  padding: clamp(72px, 9vw, 120px) 0;
+  padding: ${publicLandingSpacing.sectionBlock} 0;
   background:
     linear-gradient(180deg, #f4f7f2 0%, #fbfbf8 100%);
 `;
@@ -114,7 +115,9 @@ const Inner = styled.div`
   width: min(1220px, calc(100% - 48px));
   margin: 0 auto;
   display: grid;
-  gap: ${({ $hasInstitutionalContent }) => ($hasInstitutionalContent ? "clamp(38px, 6vw, 72px)" : "0")};
+  gap: ${({ $hasInstitutionalContent }) => (
+    $hasInstitutionalContent ? publicLandingSpacing.contentGap : "0"
+  )};
 
   @media (max-width: 760px) {
     width: min(720px, calc(100% - 32px));

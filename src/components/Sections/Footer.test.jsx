@@ -34,7 +34,7 @@ describe("Footer", () => {
     const navigation = screen.getByRole("heading", { name: "Navegação" }).parentElement;
     const links = within(navigation).getAllByRole("link").map((link) => link.textContent);
 
-    expect(links).toEqual(["Início", "Serviços", "Contato"]);
+    expect(links).toEqual(["Início", "Estrutura", "Serviços"]);
     expect(screen.queryByRole("link", { name: "Sobre" })).not.toBeInTheDocument();
   });
 

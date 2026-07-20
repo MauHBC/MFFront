@@ -31,6 +31,30 @@ describe("Contact", () => {
     expect(container.querySelector("#contact")).not.toBeInTheDocument();
   });
 
+  it("renders a gallery-only structure section without invented editorial copy", () => {
+    renderContact({
+      hero_image_urls: ["/estrutura-1.jpg", "/estrutura-2.jpg"],
+      hero_image_alts: ["Recepção", "Sala de atendimento"],
+    });
+
+    expect(screen.getByRole("region", { name: "Fotos de Clínica Modelo Local" }))
+      .toBeInTheDocument();
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Canais de contato")).not.toBeInTheDocument();
+  });
+
+  it("does not reuse the legacy banner when the lower gallery is explicitly empty", () => {
+    renderContact({
+      hero_image_url: "/banner-legado.jpg",
+      hero_image_urls: [],
+      contact_email: "contato@clinica.test",
+    });
+
+    expect(screen.queryByLabelText("Galeria da estrutura")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /contato@clinica.test/i }))
+      .toBeInTheDocument();
+  });
+
   it("renders only the configured CTA when no methods are available", () => {
     renderContact({
       primary_action_label: "Enviar mensagem",

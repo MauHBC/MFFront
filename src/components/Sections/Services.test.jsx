@@ -1,7 +1,7 @@
 /* eslint-env jest */
 import React from "react";
 import "@testing-library/jest-dom";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import Services from "./Services";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
@@ -85,5 +85,23 @@ describe("Services", () => {
     expect(fallback).toHaveAttribute("aria-hidden", "true");
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.getByText("Movimento orientado")).toBeInTheDocument();
+  });
+
+  it("replaces a service image that fails to load with the decorative fallback", () => {
+    renderServices([
+      {
+        title: "Terapia manual",
+        image_url: "/assets/invalid/service.png",
+        image_alt: "Profissional realizando terapia manual",
+      },
+    ]);
+
+    const image = screen.getByAltText("Profissional realizando terapia manual");
+    fireEvent.error(image);
+
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByTestId("service-visual-fallback"))
+      .toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByText("Terapia manual")).toBeInTheDocument();
   });
 });

@@ -4,9 +4,9 @@ import PropTypes from "prop-types";
 
 const PUBLIC_NAV_ITEMS = [
   { label: "Início", target: "home" },
+  { label: "Estrutura", target: "contact", requiresContact: true },
   { label: "Serviços", target: "services", requiresServices: true },
   { label: "Sobre", target: "about", requiresAbout: true },
-  { label: "Contato", target: "contact", requiresContact: true },
 ];
 
 export default function PublicNavLinks({

@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import { normalizePublicLandingConfig } from "../../utils/publicLanding";
+import { publicLandingSpacing } from "../PublicLanding/publicLandingLayout";
 
 const getServicesVariant = (servicesCount) => {
   if (servicesCount === 1) return "single";
@@ -11,10 +12,17 @@ const getServicesVariant = (servicesCount) => {
 };
 
 function ServiceVisual({ service, variant }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const showImage = Boolean(service.imageSrc) && !imageFailed;
+
   return (
     <ServiceVisualWrap $variant={variant}>
-      {service.imageSrc ? (
-        <img src={service.imageSrc} alt={service.imageAlt || service.title} />
+      {showImage ? (
+        <img
+          src={service.imageSrc}
+          alt={service.imageAlt || service.title}
+          onError={() => setImageFailed(true)}
+        />
       ) : (
         <ServiceVisualFallback aria-hidden="true" data-testid="service-visual-fallback" />
       )}
@@ -68,7 +76,7 @@ const Wrapper = styled.section`
   position: relative;
   width: 100%;
   scroll-margin-top: 104px;
-  padding: clamp(72px, 9vw, 124px) 0;
+  padding: ${publicLandingSpacing.sectionBlock} 0;
   background:
     linear-gradient(180deg, #fbfbf8 0%, #f4f7f2 100%);
 
@@ -92,7 +100,7 @@ const Inner = styled.div`
 
 const SectionHeader = styled.div`
   max-width: 680px;
-  margin-bottom: clamp(24px, 4vw, 42px);
+  margin-bottom: ${publicLandingSpacing.sectionGap};
 
   h2 {
     margin: 0;

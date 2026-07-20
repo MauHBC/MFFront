@@ -2,6 +2,7 @@
 import React from "react";
 import "@testing-library/jest-dom";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -18,6 +19,11 @@ const multipleImages = [
 ];
 
 describe("PublicHeroCarousel", () => {
+  afterEach(() => {
+    jest.useRealTimers();
+    delete window.matchMedia;
+  });
+
   it("renders one photo without carousel controls", () => {
     render(<PublicHeroCarousel images={singleImage} displayName="Clínica" />);
 
@@ -63,10 +69,53 @@ describe("PublicHeroCarousel", () => {
     expect(screen.getByLabelText("Mostrar foto 2")).toHaveAttribute("aria-current", "true");
   });
 
-  it("renders a safe fallback without photos", () => {
-    render(<PublicHeroCarousel images={[]} displayName="Clínica Sem Foto" />);
+  it("does not reserve space without photos", () => {
+    const { container } = render(
+      <PublicHeroCarousel images={[]} displayName="Clínica Sem Foto" />,
+    );
 
-    expect(screen.getByLabelText("Resumo de Clínica Sem Foto")).toBeInTheDocument();
-    expect(screen.getByText("Experiência integrada")).toBeInTheDocument();
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("pauses on pointer interaction and resumes after it ends", () => {
+    jest.useFakeTimers();
+    render(<PublicHeroCarousel images={multipleImages} displayName="Clínica" />);
+
+    const carousel = screen.getByRole("region", { name: "Fotos de Clínica" });
+    fireEvent.mouseEnter(carousel);
+    act(() => jest.advanceTimersByTime(5200));
+    expect(screen.getByLabelText("Mostrar foto 1")).toHaveAttribute("aria-current", "true");
+
+    fireEvent.mouseLeave(carousel);
+    act(() => jest.advanceTimersByTime(5200));
+    expect(screen.getByLabelText("Mostrar foto 2")).toHaveAttribute("aria-current", "true");
+  });
+
+  it("pauses while focus is inside and resumes after focus leaves", () => {
+    jest.useFakeTimers();
+    render(<PublicHeroCarousel images={multipleImages} displayName="Clínica" />);
+
+    const nextButton = screen.getByLabelText("Próxima foto");
+    fireEvent.focus(nextButton);
+    act(() => jest.advanceTimersByTime(5200));
+    expect(screen.getByLabelText("Mostrar foto 1")).toHaveAttribute("aria-current", "true");
+
+    fireEvent.blur(nextButton, { relatedTarget: document.body });
+    act(() => jest.advanceTimersByTime(5200));
+    expect(screen.getByLabelText("Mostrar foto 2")).toHaveAttribute("aria-current", "true");
+  });
+
+  it("does not auto-rotate when reduced motion is preferred", () => {
+    jest.useFakeTimers();
+    window.matchMedia = jest.fn().mockReturnValue({
+      matches: true,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+    });
+
+    render(<PublicHeroCarousel images={multipleImages} displayName="Clínica" />);
+    act(() => jest.advanceTimersByTime(10400));
+
+    expect(screen.getByLabelText("Mostrar foto 1")).toHaveAttribute("aria-current", "true");
   });
 });

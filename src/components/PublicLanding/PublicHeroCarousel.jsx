@@ -36,12 +36,17 @@ function usePrefersReducedMotion() {
   return prefersReducedMotion;
 }
 
-export default function PublicHeroCarousel({ images, displayName }) {
+export default function PublicHeroCarousel({
+  images,
+  displayName,
+  variant = "hero",
+}) {
   const safeImages = useMemo(() => (Array.isArray(images) ? images : []), [images]);
   const hasImages = safeImages.length > 0;
   const hasMultipleImages = safeImages.length > 1;
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
+  const [isUserPaused, setIsUserPaused] = useState(false);
+  const [isInteractionPaused, setIsInteractionPaused] = useState(false);
   const touchStartX = useRef(null);
   const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -52,7 +57,7 @@ export default function PublicHeroCarousel({ images, displayName }) {
       const normalized = ((nextIndex % imageCount) + imageCount) % imageCount;
       return normalized === currentIndex ? currentIndex : normalized;
     });
-    if (pause) setIsPaused(true);
+    if (pause) setIsUserPaused(true);
   }, [hasMultipleImages, safeImages.length]);
 
   const goNext = useCallback((options) => {
@@ -64,12 +69,23 @@ export default function PublicHeroCarousel({ images, displayName }) {
   }, [activeIndex, goTo]);
 
   useEffect(() => {
-    if (!hasMultipleImages || isPaused || prefersReducedMotion) return undefined;
+    if (
+      !hasMultipleImages
+      || isUserPaused
+      || isInteractionPaused
+      || prefersReducedMotion
+    ) return undefined;
     const intervalId = window.setInterval(() => {
       setActiveIndex((currentIndex) => (currentIndex + 1) % safeImages.length);
     }, AUTO_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
-  }, [hasMultipleImages, isPaused, prefersReducedMotion, safeImages.length]);
+  }, [
+    hasMultipleImages,
+    isInteractionPaused,
+    isUserPaused,
+    prefersReducedMotion,
+    safeImages.length,
+  ]);
 
   const handleKeyDown = (event) => {
     if (!hasMultipleImages) return;
@@ -97,19 +113,7 @@ export default function PublicHeroCarousel({ images, displayName }) {
     if (delta < 0) goNext();
   };
 
-  if (!hasImages) {
-    return (
-      <FallbackPanel aria-label={`Resumo de ${displayName}`}>
-        <FallbackLabel>Experiência integrada</FallbackLabel>
-        <FallbackTitle>{displayName}</FallbackTitle>
-        <FallbackList>
-          <span>Atendimento personalizado</span>
-          <span>Equipe especializada</span>
-          <span>Movimento com segurança</span>
-        </FallbackList>
-      </FallbackPanel>
-    );
-  }
+  if (!hasImages) return null;
 
   return (
     <Frame
@@ -117,9 +121,18 @@ export default function PublicHeroCarousel({ images, displayName }) {
       aria-roledescription={hasMultipleImages ? "carrossel" : undefined}
       aria-label={`Fotos de ${displayName}`}
       tabIndex={hasMultipleImages ? 0 : undefined}
+      $variant={variant}
       onKeyDown={handleKeyDown}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
+      onMouseEnter={() => setIsInteractionPaused(true)}
+      onMouseLeave={() => setIsInteractionPaused(false)}
+      onFocusCapture={() => setIsInteractionPaused(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setIsInteractionPaused(false);
+        }
+      }}
     >
       <Slides $count={safeImages.length} $activeIndex={activeIndex}>
         {safeImages.map((image, index) => (
@@ -163,10 +176,12 @@ export default function PublicHeroCarousel({ images, displayName }) {
             </Indicators>
             <PauseButton
               type="button"
-              aria-label={isPaused ? "Retomar troca automática" : "Pausar troca automática"}
-              onClick={() => setIsPaused((current) => !current)}
+              aria-label={
+                isUserPaused ? "Retomar troca automática" : "Pausar troca automática"
+              }
+              onClick={() => setIsUserPaused((current) => !current)}
             >
-              {isPaused ? <FaPlay /> : <FaPause />}
+              {isUserPaused ? <FaPlay /> : <FaPause />}
             </PauseButton>
           </CarouselFooter>
         </>
@@ -181,11 +196,20 @@ PublicHeroCarousel.propTypes = {
     src: PropTypes.string.isRequired,
     alt: PropTypes.string.isRequired,
   })).isRequired,
+  variant: PropTypes.oneOf(["hero", "section"]),
+};
+
+PublicHeroCarousel.defaultProps = {
+  variant: "hero",
 };
 
 const Frame = styled.div`
   position: relative;
-  min-height: clamp(420px, 58vw, 680px);
+  min-height: ${({ $variant }) => (
+    $variant === "section"
+      ? "clamp(300px, 32vw, 420px)"
+      : "clamp(420px, 58vw, 680px)"
+  )};
   overflow: hidden;
   border-radius: 8px;
   background: #edf0ea;
@@ -197,8 +221,14 @@ const Frame = styled.div`
     outline-offset: 4px;
   }
 
-  @media (max-width: 760px) {
-    min-height: 300px;
+  @media (max-width: 860px) {
+    min-height: ${({ $variant }) => (
+    $variant === "section" ? "clamp(260px, 48vw, 360px)" : "300px"
+  )};
+  }
+
+  @media (max-width: 560px) {
+    min-height: ${({ $variant }) => ($variant === "section" ? "240px" : "300px")};
   }
 `;
 
@@ -243,8 +273,8 @@ const ArrowButton = styled.button`
   top: 50%;
   ${({ $side }) => ($side === "left" ? "left: 18px;" : "right: 18px;")}
   z-index: 2;
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.56);
   background: rgba(255, 255, 255, 0.76);
@@ -259,7 +289,11 @@ const ArrowButton = styled.button`
   &:hover,
   &:focus-visible {
     background: #fff;
-    outline: none;
+  }
+
+  &:focus-visible {
+    outline: 3px solid var(--public-accent-color, #a2b190);
+    outline-offset: 2px;
   }
 `;
 
@@ -272,31 +306,54 @@ const CarouselFooter = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 `;
 
 const Indicators = styled.div`
   display: inline-flex;
-  gap: 8px;
-  padding: 8px;
+  gap: 2px;
+  padding: 2px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(12px);
 `;
 
 const Indicator = styled.button`
-  width: ${({ $active }) => ($active ? "26px" : "9px")};
-  height: 9px;
+  position: relative;
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 999px;
-  background: ${({ $active }) => ($active ? "var(--public-primary-color, #6a795c)" : "rgba(27, 27, 27, 0.32)")};
+  background: transparent;
   cursor: pointer;
-  transition: width 180ms ease, background 180ms ease;
+
+  &::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: ${({ $active }) => ($active ? "26px" : "9px")};
+    height: 9px;
+    border-radius: 999px;
+    background: ${({ $active }) => (
+      $active
+        ? "var(--public-primary-color, #6a795c)"
+        : "rgba(27, 27, 27, 0.32)"
+    )};
+    transform: translate(-50%, -50%);
+    transition: width 180ms ease, background 180ms ease;
+  }
+
+  &:focus-visible {
+    outline: 3px solid var(--public-accent-color, #a2b190);
+    outline-offset: 1px;
+  }
 `;
 
 const PauseButton = styled.button`
-  width: 38px;
-  height: 38px;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.56);
   background: rgba(255, 255, 255, 0.82);
@@ -306,52 +363,9 @@ const PauseButton = styled.button`
   justify-content: center;
   cursor: pointer;
   backdrop-filter: blur(12px);
-`;
 
-const FallbackPanel = styled.div`
-  min-height: clamp(420px, 58vw, 680px);
-  border-radius: 8px;
-  padding: clamp(28px, 5vw, 64px);
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.68)),
-    linear-gradient(135deg, rgba(106, 121, 92, 0.18), rgba(162, 177, 144, 0.08));
-  border: 1px solid rgba(106, 121, 92, 0.18);
-  box-shadow: 0 24px 70px rgba(22, 33, 28, 0.1);
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 18px;
-
-  @media (max-width: 760px) {
-    min-height: 300px;
-  }
-`;
-
-const FallbackLabel = styled.span`
-  color: var(--public-secondary-color, #3d5230);
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-`;
-
-const FallbackTitle = styled.strong`
-  color: #18211d;
-  font-size: clamp(2rem, 5vw, 4.4rem);
-  line-height: 0.98;
-`;
-
-const FallbackList = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-
-  span {
-    padding: 9px 12px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.7);
-    color: #394437;
-    font-weight: 700;
-    font-size: 0.84rem;
+  &:focus-visible {
+    outline: 3px solid var(--public-accent-color, #a2b190);
+    outline-offset: 2px;
   }
 `;
