@@ -1,3 +1,4 @@
+/* eslint-disable react/require-default-props */
 import React from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
@@ -67,15 +68,15 @@ Differentials.propTypes = {
   })).isRequired,
 };
 
-export default function About() {
+export default function About({ showAbout = true, showDifferentials = true }) {
   const { publicClinic, displayName } = usePublicClinicContext();
   const config = normalizePublicLandingConfig({ publicClinic, displayName });
   const { about, differentials } = config;
 
-  if (!config.hasAbout) return null;
-
-  const hasInstitutionalContent = about.hasContent;
-  const hasImages = about.images.length > 0;
+  const visibleDifferentials = showDifferentials ? differentials : [];
+  const hasInstitutionalContent = showAbout && about.hasContent;
+  if (!hasInstitutionalContent && visibleDifferentials.length === 0) return null;
+  const hasImages = hasInstitutionalContent && about.images.length > 0;
 
   return (
     <Wrapper id="about" aria-label="Sobre a clínica">
@@ -96,11 +97,16 @@ export default function About() {
             <AboutImages images={about.images} />
           </Institutional>
         )}
-        <Differentials items={differentials} />
+        <Differentials items={visibleDifferentials} />
       </Inner>
     </Wrapper>
   );
 }
+
+About.propTypes = {
+  showAbout: PropTypes.bool,
+  showDifferentials: PropTypes.bool,
+};
 
 const Wrapper = styled.section`
   position: relative;

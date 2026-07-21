@@ -9,7 +9,7 @@ jest.mock("../../contexts/PublicClinicContext", () => ({
   usePublicClinicContext: jest.fn(),
 }));
 
-const renderAbout = (publicProfile) => {
+const renderAbout = (publicProfile, props = {}) => {
   usePublicClinicContext.mockReturnValue({
     displayName: "Clínica Modelo Local",
     publicClinic: {
@@ -17,7 +17,12 @@ const renderAbout = (publicProfile) => {
     },
   });
 
-  return render(<About />);
+  return render(
+    <About
+      showAbout={props.showAbout}
+      showDifferentials={props.showDifferentials}
+    />,
+  );
 };
 
 describe("About", () => {
@@ -74,5 +79,18 @@ describe("About", () => {
     expect(screen.getByText("Diferenciais públicos")).toBeInTheDocument();
     expect(screen.getByText("Primeiro diferencial")).toBeInTheDocument();
     expect(screen.getByText("Descrição curta.")).toBeInTheDocument();
+  });
+
+  it("keeps About and Differentials independently configurable", () => {
+    const profile = {
+      about_title: "Institucional",
+      differentials: [{ title: "Diferencial", order: 1 }],
+    };
+    const { rerender } = renderAbout(profile, { showAbout: false });
+    expect(screen.queryByText("Institucional")).not.toBeInTheDocument();
+    expect(screen.getByText("Diferencial")).toBeInTheDocument();
+    rerender(<About showDifferentials={false} />);
+    expect(screen.getByText("Institucional")).toBeInTheDocument();
+    expect(screen.queryByText("Diferencial")).not.toBeInTheDocument();
   });
 });

@@ -1,4 +1,5 @@
 import productIdentity from "../config/productIdentity";
+import { getPublicLandingModuleState } from "../components/PublicLanding/publicLandingModules";
 
 const DEFAULT_CTA_LABEL = "Falar pelo WhatsApp";
 const DEFAULT_GENERIC_CTA_LABEL = "Entrar em contato";
@@ -538,7 +539,12 @@ export function normalizePublicLandingConfig({ publicClinic, displayName }) {
   const contact = getContact(profile);
   const galleryImages = getHeroImages(profile, resolvedDisplayName);
   const hasContact = contact.hasContent || galleryImages.length > 0;
-  const partialConfig = {
+  const moduleState = getPublicLandingModuleState(publicClinic);
+  const partialConfig = moduleState.document ? {
+    hasServices: moduleState.hasServices,
+    hasAbout: moduleState.hasAbout,
+    hasContact: moduleState.hasContact,
+  } : {
     hasServices: services.length > 0,
     hasAbout: about.hasContent || differentials.length > 0,
     hasContact,
@@ -562,7 +568,7 @@ export function normalizePublicLandingConfig({ publicClinic, displayName }) {
     heroPresentation: presentation,
     secondaryAction: presentation.secondaryAction,
     services,
-    hasServices: services.length > 0,
+    hasServices: partialConfig.hasServices,
     servicesLabel: cleanText(profile.services_label),
     servicesTitle: cleanText(profile.services_title) || "Serviços",
     about,

@@ -1,18 +1,12 @@
 import React from "react";
 import TopNavbar from "../../components/Nav/TopNavbar";
-import Header from "../../components/Sections/Header";
-import Services from "../../components/Sections/Services";
-import About from "../../components/Sections/About";
-// import Projects from "../../components/Sections/Projects";
-// import Blog from "../../components/Sections/Blog";
-// import Pricing from "../../components/Sections/Pricing";
-import Contact from "../../components/Sections/Contact";
-import Footer from "../../components/Sections/Footer";
 import TenantLoading from "../../components/TenantLoading";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
+import PublicLandingModuleRenderer from "../../components/PublicLanding/PublicLandingModuleRenderer";
+import { getRenderableLandingModules } from "../../components/PublicLanding/publicLandingModules";
 
 export default function HomePage() {
-  const { loaded, loading } = usePublicClinicContext();
+  const { loaded, loading, publicClinic } = usePublicClinicContext();
 
   if (loading || !loaded) {
     return <TenantLoading />;
@@ -21,14 +15,7 @@ export default function HomePage() {
   return (
     <>
       <TopNavbar />
-      <Header />
-      <Contact />
-      <Services />
-      <About />
-      {/* <Projects /> */}
-      {/* <Blog /> */}
-      {/* <Pricing /> */}
-      <Footer />
+      <PublicLandingModuleRenderer modules={getRenderableLandingModules(publicClinic)} />
     </>
   );
 }

@@ -103,19 +103,19 @@ const getUnitsVariant = (count) => {
   return "grid";
 };
 
-export default function Contact() {
+export default function Contact({ showContact = true, showGallery = true }) {
   const { publicClinic, displayName } = usePublicClinicContext();
   const config = normalizePublicLandingConfig({ publicClinic, displayName });
   const { contact } = config;
-  const hasGallery = config.images.length > 0;
+  const hasGallery = showGallery && config.images.length > 0;
 
-  if (!config.hasContact && !hasGallery) return null;
+  if ((!showContact || !config.hasContact) && !hasGallery) return null;
 
   const unitsVariant = getUnitsVariant(contact.units.length);
-  const hasHeading = Boolean(contact.label || contact.title || contact.text);
+  const hasHeading = showContact && Boolean(contact.label || contact.title || contact.text);
   const visibleMethods = contact.sectionMethods || contact.methods;
   const hasContactMethods = visibleMethods.length > 0 || contact.socialLinks.length > 0;
-  const hasContactDetails = Boolean(contact.primaryAction || hasContactMethods);
+  const hasContactDetails = showContact && Boolean(contact.primaryAction || hasContactMethods);
 
   return (
     <Wrapper id="contact" aria-label="Estrutura, unidades e contato">
@@ -177,7 +177,7 @@ export default function Contact() {
           )}
         </StructureGrid>
 
-        {contact.units.length > 0 && (
+        {showContact && contact.units.length > 0 && (
           <UnitsBlock aria-label="Unidades públicas">
             <UnitsGrid $variant={unitsVariant}>
               {contact.units.map((unit, index) => (
@@ -190,6 +190,11 @@ export default function Contact() {
     </Wrapper>
   );
 }
+
+Contact.propTypes = {
+  showContact: PropTypes.bool,
+  showGallery: PropTypes.bool,
+};
 
 const Wrapper = styled.section`
   position: relative;

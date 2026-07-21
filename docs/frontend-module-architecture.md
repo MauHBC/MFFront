@@ -32,6 +32,28 @@ padrões dos módulos autenticados.
   desenvolvimento, o frontend usa `http://localhost:3000` e o backend local
   normalmente usa `http://localhost:3006`.
 
+### Registro modular da landing
+
+O documento `public_profile.landing_sections` com `schema_version: 1`, já
+normalizado pelo Backend, é o contrato oficial de composição. O registro em
+`src/components/PublicLanding/publicLandingModules.js` reconhece somente o
+catálogo fechado e preserva a ordem fixa: Hero, Gallery, What is, Landing
+Services, Differentials, Audience, Conversion, About, Approach, Professionals,
+Testimonials, Contact e Footer. Chaves desconhecidas não criam componentes.
+
+Hero e Footer são estruturais. Os demais módulos precisam estar habilitados e
+ter conteúdo efetivamente visível. Seções vazias ou desabilitadas não reservam
+espaço nem entram na navegação. O navegador não reconstrói o documento legado;
+campos legados projetados pelo Backend continuam alimentando os componentes
+visuais existentes durante a transição.
+
+Nesta etapa, os componentes compostos aprovados continuam compartilhados por
+Gallery/Contact e About/Differentials, com visibilidade independente para cada
+parte. `what_is`, `audience`, `conversion`, `approach`, `professionals` e
+`testimonials` são reconhecidos, mas não renderizados até que seus componentes
+visuais sejam aprovados. Não existe feature flag, ordenação livre ou segundo
+renderizador permanente.
+
 ### Serviços da landing e serviços operacionais
 
 Serviços da landing são conteúdo editorial público independente do catálogo

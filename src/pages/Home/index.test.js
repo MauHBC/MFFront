@@ -16,7 +16,32 @@ jest.mock("../../components/Sections/About", () => () => <div>Sobre</div>);
 jest.mock("../../components/Sections/Footer", () => () => <div>Footer</div>);
 
 it("renders the approved public section order", () => {
-  usePublicClinicContext.mockReturnValue({ loaded: true, loading: false });
+  usePublicClinicContext.mockReturnValue({
+    loaded: true,
+    loading: false,
+    publicClinic: {
+      public_profile: {
+        landing_sections: {
+          schema_version: 1,
+          sections: {
+            hero: { content: {} },
+            gallery: { enabled: true, content: { items: [{ visible: true }] } },
+            what_is: { enabled: false, content: {} },
+            landing_services: { enabled: true, content: { items: [{ visible: true }] } },
+            differentials: { enabled: true, content: { items: [{ visible: true }] } },
+            audience: { enabled: false, content: {} },
+            conversion: { enabled: false, content: {} },
+            about: { enabled: true, content: { title: "Sobre" } },
+            approach: { enabled: false, content: { steps: [] } },
+            professionals: { enabled: false, content: { items: [] } },
+            testimonials: { enabled: false, content: { items: [] } },
+            contact: { enabled: true, content: { units: [{ name: "Unidade" }] } },
+            footer: { content: {} },
+          },
+        },
+      },
+    },
+  });
   const { container } = render(<HomePage />);
   const text = container.textContent;
 

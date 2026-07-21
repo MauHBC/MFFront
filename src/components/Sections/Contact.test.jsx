@@ -9,7 +9,7 @@ jest.mock("../../contexts/PublicClinicContext", () => ({
   usePublicClinicContext: jest.fn(),
 }));
 
-const renderContact = (profile) => {
+const renderContact = (profile, props = {}) => {
   usePublicClinicContext.mockReturnValue({
     displayName: "Clínica Modelo Local",
     publicClinic: {
@@ -17,7 +17,12 @@ const renderContact = (profile) => {
     },
   });
 
-  return render(<Contact />);
+  return render(
+    <Contact
+      showContact={props.showContact}
+      showGallery={props.showGallery}
+    />,
+  );
 };
 
 describe("Contact", () => {
@@ -53,6 +58,20 @@ describe("Contact", () => {
     expect(screen.queryByLabelText("Galeria da estrutura")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /contato@clinica.test/i }))
       .toBeInTheDocument();
+  });
+
+  it("keeps Gallery and Contact independently configurable", () => {
+    const profile = {
+      hero_image_urls: ["/estrutura.jpg"],
+      contact_email: "contato@clinica.test",
+      public_units: [{ name: "Unidade Centro" }],
+    };
+    const { rerender } = renderContact(profile, { showContact: false });
+    expect(screen.getByLabelText("Galeria da estrutura")).toBeInTheDocument();
+    expect(screen.queryByText("Unidade Centro")).not.toBeInTheDocument();
+    rerender(<Contact showGallery={false} />);
+    expect(screen.queryByLabelText("Galeria da estrutura")).not.toBeInTheDocument();
+    expect(screen.getByText("Unidade Centro")).toBeInTheDocument();
   });
 
   it("renders only the configured CTA when no methods are available", () => {

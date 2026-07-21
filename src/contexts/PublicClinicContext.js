@@ -73,6 +73,7 @@ function normalizePublicProfile(profile) {
   const heroPresentation = profile.hero_presentation
     || profile.hero_presentation_json
     || null;
+  const landingSections = profile.landing_sections || profile.landing_sections_json || null;
   const aboutText = Array.isArray(profile.about_text)
     ? profile.about_text
     : String(profile.about_text || "")
@@ -95,6 +96,7 @@ function normalizePublicProfile(profile) {
     hero_image_urls: heroImageUrls,
     hero_image_alt_texts: heroImageAltTexts,
     hero_presentation: heroPresentation,
+    landing_sections: landingSections,
     contact_instagram_label:
       profile.contact_instagram_label || (profile.contact_instagram ? "Instagram" : null),
   };
