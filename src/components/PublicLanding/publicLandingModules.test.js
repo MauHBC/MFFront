@@ -45,14 +45,14 @@ describe("public landing module registry", () => {
     expect(modules.map((item) => item.key)).toEqual(["hero", "footer"]);
   });
 
-  it("ignores unknown keys and modules without implemented components", () => {
+  it("renders known components and ignores unknown keys", () => {
     const clinic = documentFor({
       what_is: section(true, { title: "Conteudo futuro" }),
     }, {
       arbitrary: section(true, { title: "Nao renderizar" }),
     });
     expect(getRenderableLandingModules(clinic).map((item) => item.key))
-      .toEqual(["hero", "footer"]);
+      .toEqual(["hero", "what_is", "footer"]);
   });
 
   it("does not render disabled or empty modules and preserves their content", () => {
@@ -75,11 +75,12 @@ describe("public landing module registry", () => {
       const state = getPublicLandingModuleState(documentFor({
         gallery: section(true, { items }),
       }));
-      expect(state.hasContact).toBe(count > 0);
+      expect(state.hasGallery).toBe(count > 0);
+      expect(state.hasContact).toBe(false);
     });
   });
 
-  it("keeps composite sections single and in fixed registry order", () => {
+  it("keeps separated sections in fixed registry order", () => {
     const modules = getRenderableLandingModules(documentFor({
       gallery: section(true, { items: [{ url: "/gallery.jpg", visible: true }] }),
       landing_services: section(true, { items: [{ title: "Editorial", visible: true }] }),
@@ -88,12 +89,12 @@ describe("public landing module registry", () => {
       contact: section(true, { units: [{ name: "Unidade" }] }),
     }));
     expect(modules.map((item) => item.key)).toEqual([
-      "hero", "gallery", "landing_services", "differentials", "footer",
+      "hero", "gallery", "landing_services", "differentials", "about", "contact", "footer",
     ]);
-    expect(modules.find((item) => item.component === "galleryContact").visibleSections)
-      .toEqual(["gallery", "contact"]);
-    expect(modules.find((item) => item.component === "aboutDifferentials").visibleSections)
-      .toEqual(["differentials", "about"]);
+    expect(modules.find((item) => item.key === "gallery").component).toBe("gallery");
+    expect(modules.find((item) => item.key === "contact").component).toBe("contact");
+    expect(modules.find((item) => item.key === "differentials").component).toBe("differentials");
+    expect(modules.find((item) => item.key === "about").component).toBe("about");
   });
 
   it("derives navigation only from effectively rendered content", () => {

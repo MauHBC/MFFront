@@ -40,6 +40,7 @@ export default function PublicLandingHeader({ config }) {
             <PublicNavLinks
               showAbout={config.hasAbout}
               showContact={config.hasContact}
+              showGallery={config.hasGallery}
               showServices={config.hasServices}
             />
           </DesktopNav>
@@ -86,6 +87,7 @@ export default function PublicLandingHeader({ config }) {
               <PublicNavLinks
                 showAbout={config.hasAbout}
                 showContact={config.hasContact}
+                showGallery={config.hasGallery}
                 showServices={config.hasServices}
                 onNavigate={() => setMobileOpen(false)}
               />
@@ -120,6 +122,7 @@ PublicLandingHeader.propTypes = {
     displayName: PropTypes.string.isRequired,
     hasAbout: PropTypes.bool.isRequired,
     hasContact: PropTypes.bool.isRequired,
+    hasGallery: PropTypes.bool.isRequired,
     hasServices: PropTypes.bool.isRequired,
     logoSrc: PropTypes.string,
   }).isRequired,

@@ -4,6 +4,7 @@ import styled from "styled-components";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import { normalizePublicLandingConfig } from "../../utils/publicLanding";
 import { publicLandingSpacing } from "../PublicLanding/publicLandingLayout";
+import { LandingSection } from "../PublicLanding/publicLandingPrimitives";
 
 const getServicesVariant = (servicesCount) => {
   if (servicesCount === 1) return "single";
@@ -72,13 +73,7 @@ export default function Services() {
   );
 }
 
-const Wrapper = styled.section`
-  position: relative;
-  width: 100%;
-  scroll-margin-top: 104px;
-  padding: ${publicLandingSpacing.sectionBlock} 0;
-  background:
-    linear-gradient(180deg, #fbfbf8 0%, #f4f7f2 100%);
+const Wrapper = styled(LandingSection)`
 
   &::before {
     content: "";
@@ -104,7 +99,7 @@ const SectionHeader = styled.div`
 
   h2 {
     margin: 0;
-    color: #151d17;
+    color: var(--landing-section-text);
     font-size: clamp(2rem, 4vw, 3.45rem);
     line-height: 1.06;
     font-weight: 800;
@@ -141,8 +136,7 @@ const ServiceCard = styled.article`
   min-height: 100%;
   border-radius: 8px;
   border: 1px solid rgba(106, 121, 92, 0.16);
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.72));
+  background: var(--landing-section-surface);
   box-shadow: 0 18px 50px rgba(22, 33, 28, 0.08);
   display: flex;
   flex-direction: column;
@@ -214,7 +208,7 @@ const ServiceContent = styled.div`
 
   h3 {
     margin: 0;
-    color: #18211d;
+    color: var(--landing-section-text);
     font-size: clamp(1.25rem, 1.8vw, 1.78rem);
     line-height: 1.12;
     font-weight: 800;
@@ -223,7 +217,7 @@ const ServiceContent = styled.div`
   p {
     max-width: 560px;
     margin: 12px 0 0;
-    color: #455046;
+    color: var(--landing-section-muted);
     font-size: 0.96rem;
     line-height: 1.56;
     font-weight: 600;

@@ -538,16 +538,17 @@ export function normalizePublicLandingConfig({ publicClinic, displayName }) {
   const differentials = normalizePublicDifferentials(profile);
   const contact = getContact(profile);
   const galleryImages = getHeroImages(profile, resolvedDisplayName);
-  const hasContact = contact.hasContent || galleryImages.length > 0;
   const moduleState = getPublicLandingModuleState(publicClinic);
   const partialConfig = moduleState.document ? {
     hasServices: moduleState.hasServices,
     hasAbout: moduleState.hasAbout,
     hasContact: moduleState.hasContact,
+    hasGallery: moduleState.hasGallery,
   } : {
     hasServices: services.length > 0,
     hasAbout: about.hasContent || differentials.length > 0,
-    hasContact,
+    hasContact: contact.hasContent,
+    hasGallery: galleryImages.length > 0,
   };
   const presentation = getHeroPresentation(profile);
 
@@ -575,7 +576,8 @@ export function normalizePublicLandingConfig({ publicClinic, displayName }) {
     differentials,
     hasAbout: partialConfig.hasAbout,
     contact,
-    hasContact,
+    hasContact: partialConfig.hasContact,
+    hasGallery: partialConfig.hasGallery,
     colors: {
       primary: publicClinic?.primary_color || "#6a795c",
       secondary: publicClinic?.secondary_color || "#3d5230",

@@ -14,6 +14,7 @@ const baseConfig = {
   displayName: "Clínica Modelo",
   hasAbout: false,
   hasContact: false,
+  hasGallery: false,
   hasServices: false,
   logoSrc: null,
 };
@@ -39,10 +40,12 @@ describe("PublicLandingHeader", () => {
     expect(screen.getByText("CL")).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("links the integrated structure section to its preserved contact id", () => {
-    renderHeader({ hasContact: true });
+  it("links Structure and Contact to independent ids", () => {
+    renderHeader({ hasContact: true, hasGallery: true });
 
     expect(screen.getByRole("link", { name: "Estrutura" }))
+      .toHaveAttribute("href", "#gallery");
+    expect(screen.getByRole("link", { name: "Contato" }))
       .toHaveAttribute("href", "#contact");
   });
 });

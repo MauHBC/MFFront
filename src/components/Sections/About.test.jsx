@@ -1,96 +1,38 @@
 /* eslint-env jest */
 import React from "react";
 import "@testing-library/jest-dom";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import About from "./About";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 
-jest.mock("../../contexts/PublicClinicContext", () => ({
-  usePublicClinicContext: jest.fn(),
-}));
+jest.mock("../../contexts/PublicClinicContext", () => ({ usePublicClinicContext: jest.fn() }));
 
-const renderAbout = (publicProfile, props = {}) => {
-  usePublicClinicContext.mockReturnValue({
-    displayName: "Clínica Modelo Local",
-    publicClinic: {
-      public_profile: publicProfile,
-    },
-  });
+beforeEach(() => {
+  usePublicClinicContext.mockReturnValue({ displayName: "Clínica Modelo", publicClinic: { public_profile: {} } });
+});
 
-  return render(
-    <About
-      showAbout={props.showAbout}
-      showDifferentials={props.showDifferentials}
-    />,
-  );
-};
+it("renders institutional content and the structured origin without differentials", () => {
+  render(<About content={{
+    eyebrow: "Sobre",
+    title: "Institucional",
+    content: "Primeiro parágrafo.\nSegundo parágrafo.",
+    images: [],
+    origin: { enabled: true, content: { title: "Como surgiu", text: "Origem demonstrativa." } },
+  }} />);
+  expect(screen.getByRole("heading", { name: "Institucional" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Como surgiu" })).toBeInTheDocument();
+  expect(screen.queryByText("Diferenciais públicos")).not.toBeInTheDocument();
+});
 
-describe("About", () => {
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it("does not render without institutional content or differentials", () => {
-    const { container } = renderAbout({});
-
-    expect(container.querySelector("#about")).not.toBeInTheDocument();
-  });
-
-  it("renders institutional content without reserving image space", () => {
-    renderAbout({
-      about_label: "Sobre",
-      about_title: "Modelo institucional",
-      about_text: "Texto neutro de apresentação.",
-    });
-
-    expect(screen.getByText("Modelo institucional")).toBeInTheDocument();
-    expect(screen.getByText("Texto neutro de apresentação.")).toBeInTheDocument();
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
-  });
-
-  it("renders one institutional image with alt text", () => {
-    renderAbout({
-      about_title: "Modelo institucional",
-      about_image_urls: ["/one.jpg"],
-      about_image_alt_texts: ["Imagem principal neutra"],
-    });
-
-    expect(screen.getByAltText("Imagem principal neutra")).toHaveAttribute("src", "/one.jpg");
-  });
-
-  it("renders two institutional images with alt text", () => {
-    renderAbout({
-      about_title: "Modelo institucional",
-      about_image_urls: ["/one.jpg", "/two.jpg"],
-      about_image_alt_texts: ["Imagem principal neutra", "Imagem complementar neutra"],
-    });
-
-    expect(screen.getByAltText("Imagem principal neutra")).toHaveAttribute("src", "/one.jpg");
-    expect(screen.getByAltText("Imagem complementar neutra")).toHaveAttribute("src", "/two.jpg");
-  });
-
-  it("renders only public differentials when institutional content is absent", () => {
-    renderAbout({
-      differentials: [
-        { title: "Primeiro diferencial", description: "Descrição curta.", order: 1 },
-      ],
-    });
-
-    expect(screen.getByText("Diferenciais públicos")).toBeInTheDocument();
-    expect(screen.getByText("Primeiro diferencial")).toBeInTheDocument();
-    expect(screen.getByText("Descrição curta.")).toBeInTheDocument();
-  });
-
-  it("keeps About and Differentials independently configurable", () => {
-    const profile = {
-      about_title: "Institucional",
-      differentials: [{ title: "Diferencial", order: 1 }],
-    };
-    const { rerender } = renderAbout(profile, { showAbout: false });
-    expect(screen.queryByText("Institucional")).not.toBeInTheDocument();
-    expect(screen.getByText("Diferencial")).toBeInTheDocument();
-    rerender(<About showDifferentials={false} />);
-    expect(screen.getByText("Institucional")).toBeInTheDocument();
-    expect(screen.queryByText("Diferencial")).not.toBeInTheDocument();
-  });
+it("does not render disabled empty origin and handles invalid images", () => {
+  render(<About content={{
+    title: "Sobre",
+    content: null,
+    images: [{ url: "/invalid.jpg", alt_text: "Ambiente" }],
+    origin: { enabled: false, content: { title: "Oculto" } },
+  }} />);
+  const image = screen.getByRole("img", { name: "Ambiente" });
+  fireEvent.error(image);
+  expect(screen.queryByRole("img", { name: "Ambiente" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Oculto")).not.toBeInTheDocument();
 });

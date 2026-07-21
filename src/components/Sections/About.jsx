@@ -1,318 +1,118 @@
 /* eslint-disable react/require-default-props */
-import React from "react";
+import React, { useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import { normalizePublicLandingConfig } from "../../utils/publicLanding";
-import { publicLandingSpacing } from "../PublicLanding/publicLandingLayout";
+import {
+  LandingEyebrow,
+  LandingInner,
+  LandingIntro,
+  LandingSection,
+  LandingVariantSurface,
+  normalizeLandingBackgroundVariant,
+  paragraphsFrom,
+} from "../PublicLanding/publicLandingPrimitives";
 
-const getDifferentialsVariant = (count) => {
-  if (count === 1) return "single";
-  if (count === 2) return "pair";
-  return "list";
-};
-
-function AboutImages({ images }) {
-  if (images.length === 0) return null;
-
-  return (
-    <ImageComposition $count={images.length}>
-      <PrimaryImage src={images[0].src} alt={images[0].alt} />
-      {images[1] && (
-        <SecondaryImageWrap>
-          <img src={images[1].src} alt={images[1].alt} />
-        </SecondaryImageWrap>
-      )}
-    </ImageComposition>
-  );
+function SafeAboutImage({ image, className = undefined }) {
+  const [failed, setFailed] = useState(false);
+  if (!image?.src || failed) return <ImageFallback className={className} aria-hidden="true" />;
+  return <img className={className} src={image.src} alt={image.alt || ""} onError={() => setFailed(true)} />;
 }
 
-AboutImages.propTypes = {
-  images: PropTypes.arrayOf(PropTypes.shape({
-    alt: PropTypes.string.isRequired,
-    src: PropTypes.string.isRequired,
-  })).isRequired,
+SafeAboutImage.propTypes = {
+  className: PropTypes.string,
+  image: PropTypes.shape({ alt: PropTypes.string, src: PropTypes.string }),
 };
 
-function Differentials({ items }) {
-  if (items.length === 0) return null;
-
-  const variant = getDifferentialsVariant(items.length);
-
-  return (
-    <DifferentialsBlock $variant={variant} aria-labelledby="public-about-differentials-title">
-      <DifferentialsHeader>
-        <span aria-hidden="true" />
-        <h3 id="public-about-differentials-title">Diferenciais públicos</h3>
-      </DifferentialsHeader>
-      <DifferentialsList $variant={variant}>
-        {items.map((item, index) => (
-          <DifferentialItem key={item.id} $variant={variant}>
-            <DifferentialMarker aria-hidden="true">{String(index + 1).padStart(2, "0")}</DifferentialMarker>
-            <div>
-              <h4>{item.title}</h4>
-              {item.description && <p>{item.description}</p>}
-            </div>
-          </DifferentialItem>
-        ))}
-      </DifferentialsList>
-    </DifferentialsBlock>
-  );
-}
-
-Differentials.propTypes = {
-  items: PropTypes.arrayOf(PropTypes.shape({
-    description: PropTypes.string,
-    id: PropTypes.string.isRequired,
-    title: PropTypes.string.isRequired,
-  })).isRequired,
-};
-
-export default function About({ showAbout = true, showDifferentials = true }) {
+export default function About({ content }) {
   const { publicClinic, displayName } = usePublicClinicContext();
-  const config = normalizePublicLandingConfig({ publicClinic, displayName });
-  const { about, differentials } = config;
-
-  const visibleDifferentials = showDifferentials ? differentials : [];
-  const hasInstitutionalContent = showAbout && about.hasContent;
-  if (!hasInstitutionalContent && visibleDifferentials.length === 0) return null;
-  const hasImages = hasInstitutionalContent && about.images.length > 0;
+  const fallback = normalizePublicLandingConfig({ publicClinic, displayName }).about;
+  const paragraphs = content?.content !== undefined
+    ? paragraphsFrom(content.content)
+    : fallback.paragraphs;
+  const images = content?.images
+    ? content.images.map((image) => ({ src: image.url, alt: image.alt_text || "" }))
+    : fallback.images;
+  const eyebrow = content?.eyebrow ?? fallback.label;
+  const title = content?.title ?? fallback.title;
+  const origin = content?.origin;
+  const originVisible = Boolean(origin?.enabled && (
+    origin.content?.eyebrow || origin.content?.title || origin.content?.text || origin.content?.image
+  ));
+  if (!eyebrow && !title && paragraphs.length === 0 && images.length === 0 && !originVisible) return null;
 
   return (
-    <Wrapper id="about" aria-label="Sobre a clínica">
-      <Inner $hasInstitutionalContent={hasInstitutionalContent} $hasImages={hasImages}>
-        {hasInstitutionalContent && (
-          <Institutional $hasImages={hasImages}>
-            <Copy>
-              {about.label && <Eyebrow>{about.label}</Eyebrow>}
-              {about.title && <h2 id="public-about-title">{about.title}</h2>}
-              {about.paragraphs.length > 0 && (
-                <TextBlock>
-                  {about.paragraphs.map((paragraph) => (
-                    <p key={paragraph}>{paragraph}</p>
-                  ))}
-                </TextBlock>
-              )}
-            </Copy>
-            <AboutImages images={about.images} />
-          </Institutional>
+    <LandingSection id="about" aria-label="Sobre a clínica">
+      <LandingInner>
+        <Institutional $hasImages={images.length > 0}>
+          <LandingIntro $compact>
+            {eyebrow && <LandingEyebrow>{eyebrow}</LandingEyebrow>}
+            {title && <h2>{title}</h2>}
+            {paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+          </LandingIntro>
+          {images.length > 0 && (
+            <Images>
+              <SafeAboutImage image={images[0]} />
+              {images[1] && <SafeAboutImage image={images[1]} />}
+            </Images>
+          )}
+        </Institutional>
+        {originVisible && (
+          <Origin backgroundVariant={origin.background_variant}>
+            <LandingIntro $compact>
+              {origin.content.eyebrow && <LandingEyebrow>{origin.content.eyebrow}</LandingEyebrow>}
+              {origin.content.title && <h2>{origin.content.title}</h2>}
+              {paragraphsFrom(origin.content.text).map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+            </LandingIntro>
+            {origin.content.image && (
+              <SafeAboutImage image={{ src: origin.content.image.url, alt: origin.content.image.alt_text || "" }} />
+            )}
+          </Origin>
         )}
-        <Differentials items={visibleDifferentials} />
-      </Inner>
-    </Wrapper>
+      </LandingInner>
+    </LandingSection>
   );
 }
 
 About.propTypes = {
-  showAbout: PropTypes.bool,
-  showDifferentials: PropTypes.bool,
+  content: PropTypes.shape({
+    content: PropTypes.string,
+    eyebrow: PropTypes.string,
+    images: PropTypes.arrayOf(PropTypes.shape({ alt_text: PropTypes.string, url: PropTypes.string })),
+    origin: PropTypes.shape({
+      content: PropTypes.shape({
+        eyebrow: PropTypes.string,
+        image: PropTypes.shape({ alt_text: PropTypes.string, url: PropTypes.string }),
+        text: PropTypes.string,
+        title: PropTypes.string,
+      }),
+      enabled: PropTypes.bool,
+      background_variant: PropTypes.string,
+    }),
+    title: PropTypes.string,
+  }).isRequired,
 };
-
-const Wrapper = styled.section`
-  position: relative;
-  width: 100%;
-  scroll-margin-top: 104px;
-  padding: ${publicLandingSpacing.sectionBlock} 0;
-  background:
-    linear-gradient(180deg, #f4f7f2 0%, #fbfbf8 100%);
-`;
-
-const Inner = styled.div`
-  width: min(1220px, calc(100% - 48px));
-  margin: 0 auto;
-  display: grid;
-  gap: ${({ $hasInstitutionalContent }) => (
-    $hasInstitutionalContent ? publicLandingSpacing.contentGap : "0"
-  )};
-
-  @media (max-width: 760px) {
-    width: min(720px, calc(100% - 32px));
-  }
-`;
 
 const Institutional = styled.div`
   display: grid;
-  grid-template-columns: ${({ $hasImages }) => ($hasImages ? "minmax(0, 0.88fr) minmax(360px, 0.72fr)" : "minmax(0, 820px)")};
+  grid-template-columns: ${({ $hasImages }) => ($hasImages ? "minmax(0, .9fr) minmax(320px, .72fr)" : "minmax(0, 820px)")};
+  gap: clamp(32px, 6vw, 76px);
   align-items: center;
-  gap: clamp(32px, 6vw, 78px);
-
-  @media (max-width: 920px) {
-    grid-template-columns: 1fr;
-  }
+  @media (max-width: 860px) { grid-template-columns: 1fr; }
 `;
-
-const Copy = styled.div`
-  min-width: 0;
-
-  h2 {
-    max-width: 760px;
-    margin: 0;
-    color: #151d17;
-    font-size: clamp(2rem, 4.4vw, 4rem);
-    line-height: 1.04;
-    font-weight: 800;
-  }
+const Images = styled.figure`
+  margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+  img { width: 100%; height: clamp(240px, 32vw, 390px); object-fit: cover; border-radius: 8px; }
+  img:only-child { grid-column: 1 / -1; }
 `;
-
-const Eyebrow = styled.span`
-  display: inline-flex;
-  margin-bottom: 14px;
-  color: color-mix(in srgb, var(--public-secondary-color, #3d5230) 88%, #111 12%);
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-`;
-
-const TextBlock = styled.div`
-  max-width: 720px;
-  margin-top: 22px;
-  display: grid;
-  gap: 14px;
-
-  p {
-    margin: 0;
-    color: #455046;
-    font-size: clamp(1rem, 1.35vw, 1.12rem);
-    line-height: 1.72;
-    font-weight: 600;
-  }
-`;
-
-const ImageComposition = styled.figure`
-  position: relative;
-  min-height: ${({ $count }) => ($count > 1 ? "438px" : "390px")};
-  margin: 0;
-
-  @media (max-width: 920px) {
-    min-height: ${({ $count }) => ($count > 1 ? "390px" : "300px")};
-  }
-
-  @media (max-width: 560px) {
-    min-height: ${({ $count }) => ($count > 1 ? "330px" : "240px")};
-  }
-`;
-
-const PrimaryImage = styled.img`
-  width: 86%;
-  height: 390px;
-  display: block;
+const ImageFallback = styled.div`min-height: 240px; border-radius: 8px; background: linear-gradient(145deg, #e8eee5, #d7e1d2);`;
+const Origin = styled(LandingVariantSurface)`
+  margin-top: clamp(32px, 5vw, 56px);
+  padding: clamp(28px, 4vw, 44px);
+  border-top: ${({ backgroundVariant }) => (normalizeLandingBackgroundVariant(backgroundVariant) === "default" ? "1px solid rgba(106,121,92,.2)" : "0")};
   border-radius: 8px;
-  object-fit: cover;
-  box-shadow: 0 22px 54px rgba(22, 33, 28, 0.14);
-
-  @media (max-width: 920px) {
-    width: 100%;
-    height: 300px;
-  }
-
-  @media (max-width: 560px) {
-    height: 240px;
-  }
-`;
-
-const SecondaryImageWrap = styled.div`
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 46%;
-  min-width: 180px;
-  height: 210px;
-  border: 8px solid #fbfbf8;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 16px 42px rgba(22, 33, 28, 0.12);
-
-  img {
-    width: 100%;
-    height: 100%;
-    display: block;
-    object-fit: cover;
-  }
-
-  @media (max-width: 560px) {
-    width: 52%;
-    min-width: 150px;
-    height: 160px;
-    border-width: 6px;
-  }
-`;
-
-const DifferentialsBlock = styled.div`
-  display: grid;
-  gap: 20px;
-`;
-
-const DifferentialsHeader = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 14px;
-
-  span {
-    width: 44px;
-    height: 1px;
-    background: var(--public-primary-color, #6a795c);
-  }
-
-  h3 {
-    margin: 0;
-    color: #253027;
-    font-size: 0.92rem;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-`;
-
-const DifferentialsList = styled.div`
-  display: grid;
-  grid-template-columns: ${({ $variant }) => {
-    if ($variant === "single") return "minmax(0, 760px)";
-    if ($variant === "pair") return "repeat(2, minmax(0, 1fr))";
-    return "repeat(auto-fit, minmax(250px, 1fr))";
-  }};
-  gap: 18px;
-
-  @media (max-width: 760px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const DifferentialItem = styled.article`
-  min-height: ${({ $variant }) => ($variant === "single" ? "132px" : "156px")};
-  padding: clamp(22px, 3vw, 32px);
-  border-top: 1px solid rgba(106, 121, 92, 0.22);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.16));
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 18px;
-
-  h4 {
-    margin: 0;
-    color: #18211d;
-    font-size: clamp(1.18rem, 1.6vw, 1.52rem);
-    line-height: 1.16;
-    font-weight: 800;
-  }
-
-  p {
-    margin: 10px 0 0;
-    color: #4b574d;
-    font-size: 0.96rem;
-    line-height: 1.55;
-    font-weight: 600;
-  }
-
-  @media (max-width: 560px) {
-    min-height: 0;
-    padding: 20px 0;
-  }
-`;
-
-const DifferentialMarker = styled.span`
-  color: var(--public-primary-color, #6a795c);
-  font-size: 0.82rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  display: grid; grid-template-columns: minmax(0, 760px) minmax(0, 320px); gap: clamp(28px, 5vw, 60px); align-items: center;
+  > img, > div:last-child { width: 100%; max-height: 320px; object-fit: cover; border-radius: 8px; }
+  @media (max-width: 760px) { grid-template-columns: 1fr; }
 `;

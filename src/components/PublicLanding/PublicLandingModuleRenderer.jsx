@@ -5,12 +5,31 @@ import Services from "../Sections/Services";
 import About from "../Sections/About";
 import Contact from "../Sections/Contact";
 import Footer from "../Sections/Footer";
+import Gallery from "../Sections/Gallery";
+import Differentials from "../Sections/Differentials";
+import {
+  Approach,
+  Audience,
+  Conversion,
+  Professionals,
+  Testimonials,
+  WhatIs,
+} from "../Sections/ModularSections";
+import { LandingBackgroundVariantProvider } from "./publicLandingPrimitives";
 
 const COMPONENTS = Object.freeze({
   hero: Header,
-  galleryContact: Contact,
+  gallery: Gallery,
+  whatIs: WhatIs,
   landingServices: Services,
-  aboutDifferentials: About,
+  differentials: Differentials,
+  audience: Audience,
+  conversion: Conversion,
+  about: About,
+  approach: Approach,
+  professionals: Professionals,
+  testimonials: Testimonials,
+  contact: Contact,
   footer: Footer,
 });
 
@@ -18,33 +37,20 @@ export default function PublicLandingModuleRenderer({ modules }) {
   return modules.map((module) => {
     const Component = COMPONENTS[module.component];
     if (!Component) return null;
-    if (module.component === "galleryContact") {
-      return (
-        <Component
-          key={module.component}
-          showContact={module.visibleSections.includes("contact")}
-          showGallery={module.visibleSections.includes("gallery")}
-        />
-      );
-    }
-    if (module.component === "aboutDifferentials") {
-      return (
-        <Component
-          key={module.component}
-          showAbout={module.visibleSections.includes("about")}
-          showDifferentials={module.visibleSections.includes("differentials")}
-        />
-      );
-    }
-    return <Component key={module.component} />;
+    return (
+      <LandingBackgroundVariantProvider key={module.key} variant={module.backgroundVariant}>
+        <Component content={module.content} />
+      </LandingBackgroundVariantProvider>
+    );
   });
 }
 
 PublicLandingModuleRenderer.propTypes = {
   modules: PropTypes.arrayOf(PropTypes.shape({
     component: PropTypes.string,
+    backgroundVariant: PropTypes.string,
+    content: PropTypes.shape({}).isRequired,
     key: PropTypes.string.isRequired,
     visible: PropTypes.bool.isRequired,
-    visibleSections: PropTypes.arrayOf(PropTypes.string).isRequired,
   })).isRequired,
 };

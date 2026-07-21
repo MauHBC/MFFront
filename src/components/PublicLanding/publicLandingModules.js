@@ -16,11 +16,17 @@ export const PUBLIC_LANDING_MODULE_KEYS = Object.freeze([
 
 const IMPLEMENTED_COMPONENTS = Object.freeze({
   hero: "hero",
-  gallery: "galleryContact",
+  gallery: "gallery",
+  what_is: "whatIs",
   landing_services: "landingServices",
-  differentials: "aboutDifferentials",
-  about: "aboutDifferentials",
-  contact: "galleryContact",
+  differentials: "differentials",
+  audience: "audience",
+  conversion: "conversion",
+  about: "about",
+  approach: "approach",
+  professionals: "professionals",
+  testimonials: "testimonials",
+  contact: "contact",
   footer: "footer",
 });
 
@@ -34,7 +40,10 @@ const hasContent = (key, content = {}) => {
     return visibleItems(content.items);
   }
   if (key === "approach") return visibleItems(content.steps);
-  if (key === "professionals" || key === "testimonials") return visibleItems(content.items);
+  if (key === "professionals" || key === "testimonials") {
+    return Array.isArray(content.items)
+      && content.items.some((item) => item?.visible !== false && item?.editorial_authorized === true);
+  }
   if (key === "conversion") {
     return hasText(content.title) || hasText(content.text) || Boolean(content.action);
   }
@@ -73,7 +82,9 @@ export const getPublicLandingModuleState = (publicClinic) => {
     const structural = key === "hero" || key === "footer";
     const visible = structural || Boolean(section?.enabled && hasContent(key, section.content));
     return {
+      backgroundVariant: section?.background_variant || "default",
       component: IMPLEMENTED_COMPONENTS[key] || null,
+      content: section?.content || {},
       key,
       visible,
     };
@@ -81,27 +92,14 @@ export const getPublicLandingModuleState = (publicClinic) => {
   return {
     document,
     modules,
-    hasAbout: modules.some((item) => ["about", "differentials"].includes(item.key) && item.visible),
-    hasContact: modules.some((item) => ["gallery", "contact"].includes(item.key) && item.visible),
+    hasAbout: modules.some((item) => item.key === "about" && item.visible),
+    hasContact: modules.some((item) => item.key === "contact" && item.visible),
+    hasGallery: modules.some((item) => item.key === "gallery" && item.visible),
     hasServices: modules.some((item) => item.key === "landing_services" && item.visible),
   };
 };
 
 export const getRenderableLandingModules = (publicClinic) => {
   const { modules } = getPublicLandingModuleState(publicClinic);
-  const renderedComponents = new Set();
-  return modules.filter((module) => {
-    if (!module.visible || !module.component || renderedComponents.has(module.component)) return false;
-    const compositeVisible = modules.some(
-      (candidate) => candidate.component === module.component && candidate.visible,
-    );
-    if (!compositeVisible) return false;
-    renderedComponents.add(module.component);
-    return true;
-  }).map((module) => ({
-    ...module,
-    visibleSections: modules
-      .filter((candidate) => candidate.component === module.component && candidate.visible)
-      .map((candidate) => candidate.key),
-  }));
+  return modules.filter((module) => module.visible && module.component);
 };

@@ -4,9 +4,10 @@ import PropTypes from "prop-types";
 
 const PUBLIC_NAV_ITEMS = [
   { label: "Início", target: "home" },
-  { label: "Estrutura", target: "contact", requiresContact: true },
+  { label: "Estrutura", target: "gallery", requiresGallery: true },
   { label: "Serviços", target: "services", requiresServices: true },
   { label: "Sobre", target: "about", requiresAbout: true },
+  { label: "Contato", target: "contact", requiresContact: true },
 ];
 
 export default function PublicNavLinks({
@@ -14,6 +15,7 @@ export default function PublicNavLinks({
   onNavigate = undefined,
   showAbout = false,
   showContact = false,
+  showGallery = false,
   showServices = true,
 }) {
   const handleNavigate = (target) => (event) => {
@@ -43,6 +45,7 @@ export default function PublicNavLinks({
         .filter((item) => !item.requiresServices || showServices)
         .filter((item) => !item.requiresAbout || showAbout)
         .filter((item) => !item.requiresContact || showContact)
+        .filter((item) => !item.requiresGallery || showGallery)
         .map((item) => (
           <li key={item.target}>
             <a href={`#${item.target}`} onClick={handleNavigate(item.target)}>
@@ -59,5 +62,6 @@ PublicNavLinks.propTypes = {
   onNavigate: PropTypes.func,
   showAbout: PropTypes.bool,
   showContact: PropTypes.bool,
+  showGallery: PropTypes.bool,
   showServices: PropTypes.bool,
 };

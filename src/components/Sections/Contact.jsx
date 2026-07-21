@@ -4,8 +4,8 @@ import PropTypes from "prop-types";
 import styled from "styled-components";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import { normalizePublicLandingConfig } from "../../utils/publicLanding";
-import PublicHeroCarousel from "../PublicLanding/PublicHeroCarousel";
 import { publicLandingSpacing } from "../PublicLanding/publicLandingLayout";
+import { LandingSection } from "../PublicLanding/publicLandingPrimitives";
 
 function ExternalLink({
   children,
@@ -103,22 +103,20 @@ const getUnitsVariant = (count) => {
   return "grid";
 };
 
-export default function Contact({ showContact = true, showGallery = true }) {
+export default function Contact() {
   const { publicClinic, displayName } = usePublicClinicContext();
   const config = normalizePublicLandingConfig({ publicClinic, displayName });
   const { contact } = config;
-  const hasGallery = showGallery && config.images.length > 0;
-
-  if ((!showContact || !config.hasContact) && !hasGallery) return null;
+  if (!config.contact.hasContent) return null;
 
   const unitsVariant = getUnitsVariant(contact.units.length);
-  const hasHeading = showContact && Boolean(contact.label || contact.title || contact.text);
+  const hasHeading = Boolean(contact.label || contact.title || contact.text);
   const visibleMethods = contact.sectionMethods || contact.methods;
   const hasContactMethods = visibleMethods.length > 0 || contact.socialLinks.length > 0;
-  const hasContactDetails = showContact && Boolean(contact.primaryAction || hasContactMethods);
+  const hasContactDetails = Boolean(contact.primaryAction || hasContactMethods);
 
   return (
-    <Wrapper id="contact" aria-label="Estrutura, unidades e contato">
+    <Wrapper id="contact" aria-label="Contato e unidades">
       <Inner>
         {hasHeading && (
           <SectionIntro>
@@ -128,17 +126,7 @@ export default function Contact({ showContact = true, showGallery = true }) {
           </SectionIntro>
         )}
 
-        <StructureGrid $hasGallery={hasGallery} $hasDetails={hasContactDetails}>
-          {hasGallery && (
-            <Gallery aria-label="Galeria da estrutura">
-              <PublicHeroCarousel
-                images={config.images}
-                displayName={config.displayName}
-                variant="section"
-              />
-            </Gallery>
-          )}
-
+        <StructureGrid>
           {hasContactDetails && (
             <ContactPanel>
               {contact.primaryAction && (
@@ -177,7 +165,7 @@ export default function Contact({ showContact = true, showGallery = true }) {
           )}
         </StructureGrid>
 
-        {showContact && contact.units.length > 0 && (
+        {contact.units.length > 0 && (
           <UnitsBlock aria-label="Unidades públicas">
             <UnitsGrid $variant={unitsVariant}>
               {contact.units.map((unit, index) => (
@@ -191,19 +179,7 @@ export default function Contact({ showContact = true, showGallery = true }) {
   );
 }
 
-Contact.propTypes = {
-  showContact: PropTypes.bool,
-  showGallery: PropTypes.bool,
-};
-
-const Wrapper = styled.section`
-  position: relative;
-  width: 100%;
-  scroll-margin-top: 104px;
-  padding: ${publicLandingSpacing.sectionBlock} 0;
-  background:
-    linear-gradient(180deg, #fbfbf8 0%, #eef4eb 100%);
-`;
+const Wrapper = styled(LandingSection)``;
 
 const Inner = styled.div`
   width: min(1220px, calc(100% - 48px));
@@ -223,7 +199,7 @@ const SectionIntro = styled.div`
 
   h2 {
     margin: 0;
-    color: #151d17;
+    color: var(--landing-section-text);
     font-size: clamp(2rem, 4.3vw, 3.85rem);
     line-height: 1.05;
     font-weight: 800;
@@ -232,7 +208,7 @@ const SectionIntro = styled.div`
   p {
     max-width: 700px;
     margin: 18px 0 0;
-    color: #465248;
+    color: var(--landing-section-muted);
     font-size: clamp(1rem, 1.35vw, 1.12rem);
     line-height: 1.7;
     font-weight: 600;
@@ -241,11 +217,7 @@ const SectionIntro = styled.div`
 
 const StructureGrid = styled.div`
   display: grid;
-  grid-template-columns: ${({ $hasGallery, $hasDetails }) => (
-    $hasGallery && $hasDetails
-      ? "minmax(0, 1.15fr) minmax(300px, .72fr)"
-      : "minmax(0, 860px)"
-  )};
+  grid-template-columns: minmax(0, 860px);
   gap: ${publicLandingSpacing.contentGap};
   align-items: stretch;
   padding-bottom: ${publicLandingSpacing.sectionGap};
@@ -254,10 +226,6 @@ const StructureGrid = styled.div`
   @media (max-width: 860px) {
     grid-template-columns: 1fr;
   }
-`;
-
-const Gallery = styled.div`
-  min-width: 0;
 `;
 
 const ContactPanel = styled.div`
@@ -328,8 +296,8 @@ const MethodItem = styled.li`
     padding: 16px 18px;
     border: 1px solid rgba(106, 121, 92, 0.16);
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.62);
-    color: #1c271f;
+    background: var(--landing-section-surface);
+    color: var(--landing-section-text);
     display: grid;
     gap: 4px;
     text-decoration: none;
@@ -345,7 +313,7 @@ const MethodItem = styled.li`
   }
 
   strong {
-    color: #243028;
+    color: var(--landing-section-text);
     font-size: 1rem;
     line-height: 1.35;
     font-weight: 800;
@@ -363,8 +331,8 @@ const SocialLinks = styled.nav`
     padding: 0 14px;
     border: 1px solid rgba(106, 121, 92, 0.2);
     border-radius: 999px;
-    color: #263128;
-    background: rgba(255, 255, 255, 0.48);
+    color: var(--landing-section-text);
+    background: var(--landing-section-surface);
     display: inline-flex;
     align-items: center;
     font-size: 0.88rem;
@@ -396,15 +364,14 @@ const Unit = styled.article`
   padding: clamp(22px, 3vw, 30px);
   border-radius: 8px;
   border: 1px solid rgba(106, 121, 92, 0.16);
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.48));
+  background: var(--landing-section-surface);
   box-shadow: 0 18px 42px rgba(22, 33, 28, 0.07);
   display: flex;
   flex-direction: column;
 
   h3 {
     margin: 12px 0 0;
-    color: #18211d;
+    color: var(--landing-section-text);
     font-size: clamp(1.2rem, 1.7vw, 1.52rem);
     line-height: 1.14;
     font-weight: 800;
@@ -413,7 +380,7 @@ const Unit = styled.article`
   address,
   p {
     margin: 12px 0 0;
-    color: #485449;
+    color: var(--landing-section-muted);
     font-size: 0.96rem;
     line-height: 1.52;
     font-style: normal;

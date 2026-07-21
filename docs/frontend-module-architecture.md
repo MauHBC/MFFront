@@ -47,12 +47,26 @@ espaço nem entram na navegação. O navegador não reconstrói o documento lega
 campos legados projetados pelo Backend continuam alimentando os componentes
 visuais existentes durante a transição.
 
-Nesta etapa, os componentes compostos aprovados continuam compartilhados por
-Gallery/Contact e About/Differentials, com visibilidade independente para cada
-parte. `what_is`, `audience`, `conversion`, `approach`, `professionals` e
-`testimonials` são reconhecidos, mas não renderizados até que seus componentes
-visuais sejam aprovados. Não existe feature flag, ordenação livre ou segundo
-renderizador permanente.
+Cada chave possui um componente independente na ordem do catálogo. Gallery usa
+`#gallery` logo depois do Hero; Contact usa `#contact` no fim. About contém
+somente o conteúdo institucional, imagens e a subseção `origin` ("Como
+surgiu"), enquanto Differentials mantém seus próprios cards. `what_is`,
+`audience`, `conversion`, `approach`, `professionals` e `testimonials` usam os
+campos estruturados do contrato, sem HTML arbitrário. Profissionais e
+depoimentos são novamente filtrados no navegador por `visible` e
+`editorial_authorized`, além da projeção pública do Backend. Não existe feature
+flag, ordenação livre ou segundo renderizador permanente.
+
+A navegação principal continua reduzida a Início, Estrutura, Serviços, Sobre e
+Contato, cada item condicionado ao respectivo módulo efetivamente visível.
+
+Módulos editoriais recebem `background_variant` somente pelo catálogo fechado
+`default`, `neutral`, `brand_soft` e `brand_solid`. A primitiva pública central
+normaliza valores desconhecidos para `default`, deriva superfícies da identidade
+do tenant e escolhe texto claro ou escuro para `brand_solid`; a API nunca fornece
+cores, classes ou CSS livres. Hero, Conversion e Footer preservam suas
+composições especializadas. `about.content.origin.background_variant` controla
+apenas o bloco interno “Como surgiu”, sem criar outro módulo.
 
 ### Serviços da landing e serviços operacionais
 
