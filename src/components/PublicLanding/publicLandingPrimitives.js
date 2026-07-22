@@ -1,5 +1,5 @@
 /* eslint-disable react/require-default-props */
-import React, { createContext, useContext } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import { publicLandingSpacing } from "./publicLandingLayout";
@@ -70,6 +70,28 @@ const useVariantStyle = (requestedVariant) => {
   };
 };
 
+const useRevealOnScroll = () => {
+  const ref = useRef(null);
+  const [state, setState] = useState("visible");
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || typeof IntersectionObserver === "undefined") return undefined;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return undefined;
+    setState("pending");
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      setState("visible");
+      observer.disconnect();
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.08 });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  return { ref, "data-reveal-state": state };
+};
+
+
 export function LandingBackgroundVariantProvider({ children, variant }) {
   return <VariantContext.Provider value={normalizeLandingBackgroundVariant(variant)}>{children}</VariantContext.Provider>;
 }
@@ -84,10 +106,34 @@ const SectionRoot = styled.section`
   width: 100%;
   scroll-margin-top: 104px;
   padding: ${publicLandingSpacing.sectionBlock} 0;
+  &[data-reveal-state="pending"] {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  &[data-reveal-state="visible"] {
+    opacity: 1; transform: none; transition: opacity 420ms ease, transform 420ms ease;
+  }
   background: var(--landing-section-background);
   color: var(--landing-section-text);
 
   &:focus-within a:focus-visible,
+
+  &[data-reveal-state="pending"] article,
+  &[data-reveal-state="pending"] li {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  &[data-reveal-state="visible"] article,
+  &[data-reveal-state="visible"] li {
+    opacity: 1;
+    transform: none;
+    transition: opacity 360ms ease, transform 360ms ease;
+  }
+  &[data-reveal-state="visible"] article:nth-child(2),
+  &[data-reveal-state="visible"] li:nth-child(2) { transition-delay: 55ms; }
+  &[data-reveal-state="visible"] article:nth-child(3),
+  &[data-reveal-state="visible"] li:nth-child(3) { transition-delay: 110ms; }
+  @media (prefers-reduced-motion: reduce) { &, article, li { transition: none !important; transform: none !important; opacity: 1 !important; } }
   &:focus-within button:focus-visible {
     outline-color: var(--landing-section-accent);
   }
@@ -95,8 +141,9 @@ const SectionRoot = styled.section`
 
 export function LandingSection({ $backgroundVariant, style, ...props }) {
   const variant = useVariantStyle($backgroundVariant);
+  const reveal = useRevealOnScroll();
   return React.createElement(SectionRoot, {
-    ...props,
+    ...props, ...reveal,
     "data-background-variant": variant.variant,
     style: { ...variant.style, ...style },
   });

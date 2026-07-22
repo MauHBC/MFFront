@@ -34,7 +34,7 @@ describe("Footer", () => {
     const navigation = screen.getByRole("heading", { name: "Navegação" }).parentElement;
     const links = within(navigation).getAllByRole("link").map((link) => link.textContent);
 
-    expect(links).toEqual(["Início", "Estrutura", "Serviços"]);
+    expect(links).toEqual(["Início", "Serviços"]);
     expect(screen.queryByRole("link", { name: "Sobre" })).not.toBeInTheDocument();
   });
 
@@ -43,7 +43,8 @@ describe("Footer", () => {
 
     expect(screen.queryByRole("heading", { name: "Contato" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Links" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Entrar" })).toHaveAttribute("href", "/login");
+    expect(screen.getByRole("heading", { name: "Área da equipe" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Entrar no sistema" })).toHaveAttribute("href", "/login");
   });
 
   it("renders configured contact, social and legal links", () => {
@@ -60,10 +61,22 @@ describe("Footer", () => {
 
     expect(screen.getByRole("link", { name: "E-mail" }))
       .toHaveAttribute("href", "mailto:contato@clinica.test");
-    expect(screen.getByText("Rua Fictícia, 100")).toBeInTheDocument();
+    expect(screen.queryByText("Rua Fictícia, 100")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Instagram" }))
       .toHaveAttribute("href", "https://example.com/social");
     expect(screen.getByRole("link", { name: "Privacidade" }))
       .toHaveAttribute("href", "/privacidade");
   });
+
+  it("normalizes a configured Structure link and hides it without Gallery", () => {
+    const rendered = renderFooter({
+      hero_image_urls: ["/gallery.jpg"],
+      footer: { navigation: [{ label: "Estrutura", url: "#contact" }] },
+    });
+    expect(screen.getByRole("link", { name: "Estrutura" })).toHaveAttribute("href", "#gallery");
+    rendered.unmount();
+    renderFooter({ footer: { navigation: [{ label: "Estrutura", url: "#contact" }] } });
+    expect(screen.queryByRole("link", { name: "Estrutura" })).not.toBeInTheDocument();
+  });
+
 });

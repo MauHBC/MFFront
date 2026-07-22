@@ -569,3 +569,13 @@ Quando a URL raiz contém `landing_preview` e `clinic_id`, o contexto é carrega
 do endpoint temporário de prévia. O token não publica conteúdo, expira no
 backend e a página usa `noindex`. Não crie uma segunda implementação visual da
 landing no MFPlatformAdmin.
+
+## Contato, Unidades e acesso da equipe
+
+A landing renderiza Contato e Unidades como áreas visuais independentes do mesmo módulo. Cada área aplica seu campo `background_variant` interno com os mesmos tokens semânticos da landing; quando o campo não existe, herda o fundo do módulo. Áreas sem conteúdo não geram faixas vazias. Uma unidade não exibe índice; duas ou mais preservam a numeração.
+
+O endereço geral de Contato é omitido nessa área quando coincide com o endereço de uma unidade visível. O rodapé não repete o endereço completo quando não existem campos estruturados suficientes para um resumo confiável. O acesso administrativo não aparece no cabeçalho público e permanece no rodapé como "Área da equipe" / "Entrar no sistema", apontando para `/login`. O link "Estrutura" aponta para `#gallery` e só é oferecido quando a Galeria está visível.
+
+### Refinamentos visuais da landing
+
+O Hero usa altura limitada por viewport e largura, preserva `object-fit: cover` e aceita `title_line_2` como continuação editorial dentro do mesmo `h1`. Seções usam revelação progressiva nativa com fallback visível e respeito a `prefers-reduced-motion`. O carrossel inicia automaticamente apenas com múltiplas imagens, pausa em hover ou foco e não expõe controle de play/pausa. Biografias longas podem ser expandidas individualmente por botão semântico.

@@ -104,7 +104,10 @@ export default function PublicHero({ config }) {
       <HeroInner>
         <Copy>
           <Eyebrow $textTone={presentation.textTone}>{config.eyebrow}</Eyebrow>
-          <Title $textTone={presentation.textTone}>{config.title}</Title>
+          <Title $textTone={presentation.textTone}>
+            <span>{config.title}</span>
+            {config.titleLine2 && <span>{config.titleLine2}</span>}
+          </Title>
           <Subtitle $textTone={presentation.textTone}>{config.subtitle}</Subtitle>
           <Actions>
             <HeroAction action={config.action} />
@@ -114,9 +117,6 @@ export default function PublicHero({ config }) {
           </Actions>
         </Copy>
       </HeroInner>
-      <NextSectionHint aria-hidden="true" $textTone={presentation.textTone}>
-        <span />
-      </NextSectionHint>
     </Hero>
   );
 }
@@ -145,13 +145,14 @@ PublicHero.propTypes = {
     secondaryAction: actionShape,
     subtitle: PropTypes.string.isRequired,
     title: PropTypes.string.isRequired,
+    titleLine2: PropTypes.string.isRequired,
   }).isRequired,
 };
 
 const Hero = styled.section`
   position: relative;
-  min-height: clamp(520px, 72svh, 760px);
-  padding: clamp(72px, 10vw, 126px) 0 clamp(82px, 10vw, 118px);
+  min-height: clamp(500px, min(72svh, 54vw), 720px);
+  padding: clamp(64px, 8vh, 108px) 0;
   background: ${({ $hasImage }) => ($hasImage
     ? "#18211d"
     : "linear-gradient(135deg, var(--public-primary-color, #6a795c), var(--public-secondary-color, #3d5230))")};
@@ -181,8 +182,8 @@ const Hero = styled.section`
   }
 
   @media (max-width: 760px) {
-    min-height: 500px;
-    padding: 66px 0 76px;
+    min-height: clamp(480px, 72svh, 620px);
+    padding: 58px 0;
   }
 `;
 
@@ -237,6 +238,8 @@ const Title = styled.h1`
   line-height: 1.01;
   font-weight: 800;
   text-wrap: balance;
+  span { display: block; }
+
   text-shadow: ${({ $textTone }) => ($textTone === "dark" ? "none" : "0 2px 24px rgba(0,0,0,.26)")};
 
   @media (max-width: 760px) {
@@ -321,40 +324,3 @@ const PrimaryAction = styled.a`${primaryStyles}`;
 const PrimaryScrollAction = styled(ScrollLink)`${primaryStyles}`;
 const SecondaryAction = styled.a`${secondaryStyles}`;
 const SecondaryScrollAction = styled(ScrollLink)`${secondaryStyles}`;
-
-const NextSectionHint = styled.div`
-  position: absolute;
-  left: 50%;
-  bottom: 20px;
-  width: 26px;
-  height: 42px;
-  border: 1px solid ${({ $textTone }) => ($textTone === "dark" ? "rgba(20,30,24,.38)" : "rgba(255,255,255,.58)")};
-  border-radius: 999px;
-  transform: translateX(-50%);
-
-  span {
-    position: absolute;
-    left: 50%;
-    top: 8px;
-    width: 4px;
-    height: 8px;
-    border-radius: 999px;
-    background: ${({ $textTone }) => ($textTone === "dark" ? "#243028" : "#fff")};
-    transform: translateX(-50%);
-  }
-
-  @media (max-height: 640px), (max-width: 520px) {
-    display: none;
-  }
-
-  @media (prefers-reduced-motion: no-preference) {
-    span {
-      animation: public-banner-hint 1.8s ease-in-out infinite;
-    }
-  }
-
-  @keyframes public-banner-hint {
-    0%, 100% { transform: translate(-50%, 0); opacity: .55; }
-    50% { transform: translate(-50%, 12px); opacity: 1; }
-  }
-`;

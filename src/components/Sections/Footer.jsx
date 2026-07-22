@@ -45,8 +45,7 @@ export default function Footer() {
   const config = normalizePublicLandingConfig({ publicClinic, displayName });
   const currentYear = new Date().getFullYear();
   const contactLinks = config.contact.methods.filter((method) => method.href);
-  const address = config.contact.methods.find((method) => method.id === "address");
-  const hasContactColumn = contactLinks.length > 0 || address;
+  const hasContactColumn = contactLinks.length > 0;
   const hasSocialColumn = config.contact.socialLinks.length > 0 || config.footer.legalLinks.length > 0;
 
   return (
@@ -85,7 +84,6 @@ export default function Footer() {
                   </FooterLink>
                 </li>
               ))}
-              {address && <li><address>{address.value}</address></li>}
             </LinkList>
           </FooterColumn>
         )}
@@ -111,10 +109,10 @@ export default function Footer() {
           </FooterColumn>
         )}
 
-        <FooterColumn title="Acesso">
+        <FooterColumn title={"\u00c1rea da equipe"}>
           <LinkList>
             <li>
-              <FooterLink href="/login">Entrar</FooterLink>
+              <FooterLink href="/login">Entrar no sistema</FooterLink>
             </li>
           </LinkList>
         </FooterColumn>

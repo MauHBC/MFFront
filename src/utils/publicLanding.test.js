@@ -489,7 +489,6 @@ describe("public landing normalization", () => {
     ]);
     expect(config.footer.navigation.map((item) => item.label)).toEqual([
       "Início",
-      "Estrutura",
       "Serviços",
       "Sobre",
     ]);

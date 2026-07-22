@@ -32,23 +32,16 @@ describe("PublicHeroCarousel", () => {
     expect(screen.queryByLabelText("Pausar troca automática")).not.toBeInTheDocument();
   });
 
-  it("renders multiple photos with arrows, indicators and pause control", () => {
+  it("renders multiple photos with arrows and indicators, without a pause control", () => {
     render(<PublicHeroCarousel images={multipleImages} displayName="Clínica" />);
 
     expect(screen.getByLabelText("Próxima foto")).toBeInTheDocument();
     expect(screen.getByLabelText("Foto anterior")).toBeInTheDocument();
     expect(screen.getByLabelText("Mostrar foto 1")).toHaveAttribute("aria-current", "true");
     expect(screen.getByLabelText("Mostrar foto 2")).toHaveAttribute("aria-current", "false");
-    expect(screen.getByLabelText("Pausar troca automática")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Pausar troca automática")).not.toBeInTheDocument();
   });
 
-  it("toggles automatic rotation pause control", () => {
-    render(<PublicHeroCarousel images={multipleImages} displayName="Clínica" />);
-
-    fireEvent.click(screen.getByLabelText("Pausar troca automática"));
-
-    expect(screen.getByLabelText("Retomar troca automática")).toBeInTheDocument();
-  });
 
   it("allows keyboard navigation", () => {
     render(<PublicHeroCarousel images={multipleImages} displayName="Clínica" />);

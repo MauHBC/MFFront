@@ -7,12 +7,7 @@ import React, {
 } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
-import {
-  FaChevronLeft,
-  FaChevronRight,
-  FaPause,
-  FaPlay,
-} from "react-icons/fa";
+import { FaChevronLeft, FaChevronRight } from "react-icons/fa";
 
 const AUTO_INTERVAL_MS = 5200;
 const SWIPE_THRESHOLD = 42;
@@ -45,19 +40,17 @@ export default function PublicHeroCarousel({
   const hasImages = safeImages.length > 0;
   const hasMultipleImages = safeImages.length > 1;
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isUserPaused, setIsUserPaused] = useState(false);
   const [isInteractionPaused, setIsInteractionPaused] = useState(false);
   const touchStartX = useRef(null);
   const prefersReducedMotion = usePrefersReducedMotion();
 
-  const goTo = useCallback((nextIndex, { pause = true } = {}) => {
+  const goTo = useCallback((nextIndex) => {
     if (!hasMultipleImages) return;
     setActiveIndex((currentIndex) => {
       const imageCount = safeImages.length;
       const normalized = ((nextIndex % imageCount) + imageCount) % imageCount;
       return normalized === currentIndex ? currentIndex : normalized;
     });
-    if (pause) setIsUserPaused(true);
   }, [hasMultipleImages, safeImages.length]);
 
   const goNext = useCallback((options) => {
@@ -71,7 +64,6 @@ export default function PublicHeroCarousel({
   useEffect(() => {
     if (
       !hasMultipleImages
-      || isUserPaused
       || isInteractionPaused
       || prefersReducedMotion
     ) return undefined;
@@ -82,7 +74,6 @@ export default function PublicHeroCarousel({
   }, [
     hasMultipleImages,
     isInteractionPaused,
-    isUserPaused,
     prefersReducedMotion,
     safeImages.length,
   ]);
@@ -174,15 +165,6 @@ export default function PublicHeroCarousel({
                 />
               ))}
             </Indicators>
-            <PauseButton
-              type="button"
-              aria-label={
-                isUserPaused ? "Retomar troca automática" : "Pausar troca automática"
-              }
-              onClick={() => setIsUserPaused((current) => !current)}
-            >
-              {isUserPaused ? <FaPlay /> : <FaPause />}
-            </PauseButton>
           </CarouselFooter>
         </>
       )}
@@ -347,25 +329,5 @@ const Indicator = styled.button`
   &:focus-visible {
     outline: 3px solid var(--public-accent-color, #a2b190);
     outline-offset: 1px;
-  }
-`;
-
-const PauseButton = styled.button`
-  flex: 0 0 auto;
-  width: 44px;
-  height: 44px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.56);
-  background: rgba(255, 255, 255, 0.82);
-  color: #1b1b1b;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  backdrop-filter: blur(12px);
-
-  &:focus-visible {
-    outline: 3px solid var(--public-accent-color, #a2b190);
-    outline-offset: 2px;
   }
 `;

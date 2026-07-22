@@ -7,7 +7,15 @@ import PublicNavLinks from "./PublicNavLinks";
 
 export default function PublicLandingHeader({ config }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const closeButtonRef = useRef(null);
+
+  useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 18);
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   useEffect(() => {
     if (!mobileOpen) return undefined;
@@ -23,7 +31,7 @@ export default function PublicLandingHeader({ config }) {
 
   return (
     <>
-      <Header>
+      <Header $scrolled={scrolled}>
         <HeaderInner>
           <BrandLink to="/" aria-label={config.displayName}>
             {config.logoSrc ? (
@@ -53,7 +61,6 @@ export default function PublicLandingHeader({ config }) {
             >
               {cta.label}
             </HeaderCta>
-            <LoginLink to="/login">Entrar</LoginLink>
           </DesktopActions>
 
           <MobileMenuButton
@@ -101,9 +108,6 @@ export default function PublicLandingHeader({ config }) {
               >
                 {cta.label}
               </HeaderCta>
-              <LoginLink to="/login" onClick={() => setMobileOpen(false)}>
-                Entrar
-              </LoginLink>
             </MobileActions>
           </MobilePanel>
         </>
@@ -129,10 +133,13 @@ PublicLandingHeader.propTypes = {
 };
 
 const Header = styled.header`
-  position: relative;
+  position: sticky;
+  top: 0;
   z-index: 1000;
   padding: 16px 0;
-  background: #fbfbf8;
+  background: ${({ $scrolled }) => ($scrolled ? "rgba(251,251,248,.96)" : "#fbfbf8")};
+  box-shadow: ${({ $scrolled }) => ($scrolled ? "0 10px 32px rgba(20,29,23,.08)" : "none")};
+  transition: background 180ms ease, box-shadow 180ms ease;
 
   @media (max-width: 760px) {
     padding: 10px 0;
@@ -267,20 +274,6 @@ const HeaderCta = styled.a`
   }
 `;
 
-const LoginLink = styled(RouterLink)`
-  min-height: 42px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  padding: 0 14px;
-  border: 1px solid rgba(106, 121, 92, 0.2);
-  background: rgba(255, 255, 255, 0.74);
-  color: #2c362f;
-  font-size: 0.9rem;
-  font-weight: 800;
-  text-decoration: none;
-`;
 
 const MobileMenuButton = styled.button`
   width: 44px;
@@ -370,8 +363,7 @@ const MobileActions = styled.div`
   display: grid;
   gap: 10px;
 
-  ${HeaderCta},
-  ${LoginLink} {
+  ${HeaderCta} {
     width: 100%;
   }
 `;

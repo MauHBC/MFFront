@@ -1,7 +1,7 @@
 /* eslint-env jest */
 import React from "react";
 import "@testing-library/jest-dom";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import PublicLandingHeader from "./PublicLandingHeader";
 
@@ -47,5 +47,12 @@ describe("PublicLandingHeader", () => {
       .toHaveAttribute("href", "#gallery");
     expect(screen.getByRole("link", { name: "Contato" }))
       .toHaveAttribute("href", "#contact");
+  });
+
+  it("does not expose administrative login in desktop or mobile navigation", () => {
+    renderHeader();
+    expect(screen.queryByRole("link", { name: "Entrar" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Abrir menu"));
+    expect(screen.queryByRole("link", { name: "Entrar" })).not.toBeInTheDocument();
   });
 });

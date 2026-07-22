@@ -10,6 +10,12 @@ function cleanText(value) {
   const text = String(value || "").trim();
   return text || null;
 }
+function comparableText(value) {
+  return String(value || "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
 
 export function isSafeHref(value, { allowMailTo = false, allowTel = false } = {}) {
   const href = cleanText(value);
@@ -393,9 +399,13 @@ function normalizePublicUnits(profile) {
 function getContact(profile) {
   const primaryAction = getConfiguredAction(profile);
   const methods = normalizeContactMethods(profile);
-  const sectionMethods = methods.filter((method) => !isSameWhatsappAction(primaryAction, method));
   const socialLinks = normalizeSocialLinks(profile);
   const units = normalizePublicUnits(profile);
+  const unitAddresses = new Set(units.map((unit) => comparableText(unit.address)).filter(Boolean));
+  const sectionMethods = methods.filter((method) => (
+    !isSameWhatsappAction(primaryAction, method)
+    && (method.id !== "address" || !unitAddresses.has(comparableText(method.value)))
+  ));
   const label = cleanText(profile?.contact_label);
   const title = cleanText(profile?.contact_title);
   const text = cleanText(profile?.contact_text);
@@ -426,12 +436,20 @@ function getFooter(profile, config) {
   const legalLinks = normalizeNamedLinks(profile?.legal_links || profile?.legal_links_json);
   const configuredFooter = profile?.footer || profile?.footer_json || {};
   const configuredNavigation = normalizeNamedLinks(configuredFooter.navigation);
-  const navigation = configuredNavigation.length > 0 ? configuredNavigation : [
+  const fallbackNavigation = [
     { label: "Início", href: "#home", visible: true },
-    { label: "Estrutura", href: "#contact", visible: config.hasContact },
+    { label: "Estrutura", href: "#gallery", visible: config.hasGallery },
     { label: "Serviços", href: "#services", visible: config.hasServices },
     { label: "Sobre", href: "#about", visible: config.hasAbout },
   ].filter((item) => item.visible);
+  const navigation = configuredNavigation.length > 0
+    ? configuredNavigation
+      .filter((item) => comparableText(item.label) !== "estrutura" || config.hasGallery)
+      .map((item) => comparableText(item.label) === "estrutura"
+        ? { ...item, href: "#gallery", isExternal: false }
+        : item)
+    : fallbackNavigation;
+
 
   return {
     navigation,

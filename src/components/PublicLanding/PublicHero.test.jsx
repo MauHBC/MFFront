@@ -23,6 +23,7 @@ const baseConfig = {
     textTone: "light",
   },
   secondaryAction: null,
+  titleLine2: "",
   subtitle: "Texto de apoio",
   title: "Título principal",
 };
@@ -75,4 +76,10 @@ describe("PublicHero", () => {
     expect(screen.getByRole("link", { name: /Conhecer/i }))
       .toHaveAttribute("href", "/conhecer");
   });
-});
+
+  it("renders an optional editorial continuation inside the same heading", () => {
+    render(<PublicHero config={{ ...baseConfig, titleLine2: "Segunda linha" }} />);
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading).toHaveTextContent("Título principalSegunda linha");
+    expect(heading.querySelectorAll("span")).toHaveLength(2);
+  });});

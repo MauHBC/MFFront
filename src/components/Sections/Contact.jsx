@@ -62,10 +62,10 @@ ContactMethod.propTypes = {
   }).isRequired,
 };
 
-function UnitCard({ unit, index }) {
+function UnitCard({ unit, index, showIndex }) {
   return (
     <Unit>
-      <UnitIndex aria-hidden="true">{String(index + 1).padStart(2, "0")}</UnitIndex>
+      {showIndex && <UnitIndex aria-hidden="true">{String(index + 1).padStart(2, "0")}</UnitIndex>}
       {unit.name && <h3>{unit.name}</h3>}
       {unit.address && <address>{unit.address}</address>}
       {unit.reference && <p>{unit.reference}</p>}
@@ -86,6 +86,7 @@ function UnitCard({ unit, index }) {
 
 UnitCard.propTypes = {
   index: PropTypes.number.isRequired,
+  showIndex: PropTypes.bool.isRequired,
   unit: PropTypes.shape({
     address: PropTypes.string,
     hours: PropTypes.string,
@@ -103,7 +104,7 @@ const getUnitsVariant = (count) => {
   return "grid";
 };
 
-export default function Contact() {
+export default function Contact({ content = {} }) {
   const { publicClinic, displayName } = usePublicClinicContext();
   const config = normalizePublicLandingConfig({ publicClinic, displayName });
   const { contact } = config;
@@ -114,72 +115,54 @@ export default function Contact() {
   const visibleMethods = contact.sectionMethods || contact.methods;
   const hasContactMethods = visibleMethods.length > 0 || contact.socialLinks.length > 0;
   const hasContactDetails = Boolean(contact.primaryAction || hasContactMethods);
+  const hasContactArea = hasHeading || hasContactDetails;
+  const contactBackground = content.contact_background_variant;
+  const unitsBackground = content.units_background_variant;
 
-  return (
-    <Wrapper id="contact" aria-label="Contato e unidades">
+  return <>
+    {hasContactArea && <ContactArea id="contact" aria-label="Contato" $backgroundVariant={contactBackground}>
       <Inner>
-        {hasHeading && (
-          <SectionIntro>
-            {contact.label && <Eyebrow>{contact.label}</Eyebrow>}
-            {contact.title && <h2>{contact.title}</h2>}
-            {contact.text && <p>{contact.text}</p>}
-          </SectionIntro>
-        )}
-
-        <StructureGrid>
-          {hasContactDetails && (
-            <ContactPanel>
-              {contact.primaryAction && (
-                <PrimaryAction
-                  href={contact.primaryAction.href}
-                  isExternal={contact.primaryAction.isExternal}
-                >
-                  {contact.primaryAction.label}
-                </PrimaryAction>
-              )}
-              {hasContactMethods && (
-                <ContactActions>
-                  {visibleMethods.length > 0 && (
-                    <Methods aria-label="Canais de contato">
-                      {visibleMethods.map((method) => (
-                        <ContactMethod key={method.id} method={method} />
-                      ))}
-                    </Methods>
-                  )}
-                  {contact.socialLinks.length > 0 && (
-                    <SocialLinks aria-label="Redes sociais">
-                      {contact.socialLinks.map((link) => (
-                        <ExternalLink
-                          key={link.id}
-                          href={link.href}
-                          isExternal={link.isExternal}
-                        >
-                          {link.label}
-                        </ExternalLink>
-                      ))}
-                    </SocialLinks>
-                  )}
-                </ContactActions>
-              )}
-            </ContactPanel>
-          )}
-        </StructureGrid>
-
-        {contact.units.length > 0 && (
-          <UnitsBlock aria-label="Unidades públicas">
-            <UnitsGrid $variant={unitsVariant}>
-              {contact.units.map((unit, index) => (
-                <UnitCard key={unit.id} unit={unit} index={index} />
-              ))}
-            </UnitsGrid>
-          </UnitsBlock>
-        )}
+        {hasHeading && <SectionIntro>
+          {contact.label && <Eyebrow>{contact.label}</Eyebrow>}
+          {contact.title && <h2>{contact.title}</h2>}
+          {contact.text && <p>{contact.text}</p>}
+        </SectionIntro>}
+        {hasContactDetails && <StructureGrid>
+          <ContactPanel>
+            {contact.primaryAction && <PrimaryAction href={contact.primaryAction.href} isExternal={contact.primaryAction.isExternal}>{contact.primaryAction.label}</PrimaryAction>}
+            {hasContactMethods && <ContactActions>
+              {visibleMethods.length > 0 && <Methods aria-label="Canais de contato">
+                {visibleMethods.map((method) => <ContactMethod key={method.id} method={method} />)}
+              </Methods>}
+              {contact.socialLinks.length > 0 && <SocialLinks aria-label="Redes sociais">
+                {contact.socialLinks.map((link) => <ExternalLink key={link.id} href={link.href} isExternal={link.isExternal}>{link.label}</ExternalLink>)}
+              </SocialLinks>}
+            </ContactActions>}
+          </ContactPanel>
+        </StructureGrid>}
       </Inner>
-    </Wrapper>
-  );
+    </ContactArea>}
+    {contact.units.length > 0 && <UnitsArea id={hasContactArea ? "units" : "contact"} aria-label="Unidades" $backgroundVariant={unitsBackground}>
+      <Inner>
+        <UnitsBlock>
+          <UnitsGrid $variant={unitsVariant}>
+            {contact.units.map((unit, index) => <UnitCard key={unit.id} unit={unit} index={index} showIndex={contact.units.length > 1} />)}
+          </UnitsGrid>
+        </UnitsBlock>
+      </Inner>
+    </UnitsArea>}
+  </>;
 }
 
-const Wrapper = styled(LandingSection)``;
+Contact.propTypes = {
+  content: PropTypes.shape({
+    contact_background_variant: PropTypes.string,
+    units_background_variant: PropTypes.string,
+  }),
+};
+
+const ContactArea = LandingSection;
+const UnitsArea = LandingSection;
 
 const Inner = styled.div`
   width: min(1220px, calc(100% - 48px));
@@ -220,8 +203,6 @@ const StructureGrid = styled.div`
   grid-template-columns: minmax(0, 860px);
   gap: ${publicLandingSpacing.contentGap};
   align-items: stretch;
-  padding-bottom: ${publicLandingSpacing.sectionGap};
-  border-bottom: 1px solid rgba(106, 121, 92, 0.18);
 
   @media (max-width: 860px) {
     grid-template-columns: 1fr;

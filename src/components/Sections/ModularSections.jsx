@@ -1,5 +1,5 @@
 /* eslint-disable react/require-default-props, react/prop-types, react/no-array-index-key, no-param-reassign, no-nested-ternary */
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import {
@@ -34,6 +34,45 @@ SafeImage.propTypes = {
   fallbackLabel: PropTypes.string.isRequired,
   image: PropTypes.shape({ alt_text: PropTypes.string, url: PropTypes.string }),
 };
+function ExpandableBio({ children, personName }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const bioRef = useRef(null);
+
+  useEffect(() => {
+    const measure = () => {
+      const node = bioRef.current;
+      if (!node) return;
+      setOverflowing(node.scrollHeight > node.clientHeight + 1);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(bioRef.current);
+    return () => observer.disconnect();
+  }, [children, expanded]);
+
+  return (
+    <BioArea>
+      <BioText ref={bioRef} $expanded={expanded}>{children}</BioText>
+      {(overflowing || expanded) && (
+        <BioToggle type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+          {expanded ? "Ver menos" : "Ver mais"}
+          <span className="sr-only">{` sobre ${personName}`}</span>
+        </BioToggle>
+      )}
+    </BioArea>
+  );
+}
+
+ExpandableBio.propTypes = {
+  children: PropTypes.string.isRequired,
+  personName: PropTypes.string.isRequired,
+};
+
 
 export function WhatIsContent({ content }) {
   const paragraphs = paragraphsFrom(content.text);
@@ -152,7 +191,7 @@ export function Professionals({ content }) {
                 <h3>{item.name}</h3>
                 {item.role && <strong>{item.role}</strong>}
                 {item.registration && <span>{item.registration}</span>}
-                {item.bio && <p>{item.bio}</p>}
+                {item.bio && <ExpandableBio personName={item.name}>{item.bio}</ExpandableBio>}
               </CardCopy>
             </PersonCard>
           ))}
@@ -284,7 +323,29 @@ const CardCopy = styled.div`
   h3 { margin: 0; color: var(--landing-section-text, #18211d); font-size: clamp(1.2rem, 1.8vw, 1.42rem); line-height: 1.18; overflow-wrap: anywhere; }
   strong { color: var(--landing-section-accent, var(--public-secondary-color, #3d5230)); line-height: 1.35; }
   span { color: var(--landing-section-muted, #59645b); font-size: .9rem; overflow-wrap: anywhere; }
-  p { margin: 8px 0 0; color: var(--landing-section-muted, #4b574d); line-height: 1.55; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; }
+`;
+const BioArea = styled.div`margin-top: 8px;`;
+const BioText = styled.p`
+  margin: 0;
+  max-height: ${({ $expanded }) => ($expanded ? "none" : "7.75em")};
+  overflow: hidden;
+  color: var(--landing-section-muted, #4b574d);
+  line-height: 1.55;
+  white-space: pre-line;
+  transition: max-height 220ms ease;
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
+`;
+const BioToggle = styled.button`
+  margin: 10px 0 0;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--landing-section-accent, var(--public-secondary-color, #3d5230));
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  &:focus-visible { outline: 3px solid var(--landing-section-accent); outline-offset: 3px; }
 `;
 const TestimonialCard = styled.article`
   position: relative; padding: clamp(24px, 3.5vw, 34px); border: 1px solid color-mix(in srgb, var(--landing-section-text, #151d17) 16%, transparent); background: var(--landing-section-surface, rgba(255,255,255,.74));
