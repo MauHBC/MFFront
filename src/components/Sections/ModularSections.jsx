@@ -35,20 +35,26 @@ SafeImage.propTypes = {
   image: PropTypes.shape({ alt_text: PropTypes.string, url: PropTypes.string }),
 };
 
-export function WhatIs({ content }) {
+export function WhatIsContent({ content }) {
   const paragraphs = paragraphsFrom(content.text);
   if (!content.eyebrow && !content.title && paragraphs.length === 0 && !content.image) return null;
   return (
+    <Split $hasImage={Boolean(content.image)}>
+      <LandingIntro $compact>
+        {content.eyebrow && <LandingEyebrow>{content.eyebrow}</LandingEyebrow>}
+        {content.title && <h2 id="public-what-is-title">{content.title}</h2>}
+        {paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+      </LandingIntro>
+      {content.image && <EditorialImage image={content.image} fallbackLabel="Imagem indisponível" />}
+    </Split>
+  );
+}
+
+export function WhatIs({ content }) {
+  return (
     <LandingSection id="what-is" aria-label={content.title ? undefined : "O que é"} aria-labelledby={content.title ? "public-what-is-title" : undefined}>
       <LandingInner>
-        <Split $hasImage={Boolean(content.image)}>
-          <LandingIntro $compact>
-            {content.eyebrow && <LandingEyebrow>{content.eyebrow}</LandingEyebrow>}
-            {content.title && <h2 id="public-what-is-title">{content.title}</h2>}
-            {paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-          </LandingIntro>
-          {content.image && <EditorialImage image={content.image} fallbackLabel="Imagem indisponível" />}
-        </Split>
+        <WhatIsContent content={content} />
       </LandingInner>
     </LandingSection>
   );
@@ -183,7 +189,7 @@ export function Testimonials({ content }) {
   );
 }
 
-[WhatIs, Audience, Conversion, Approach, Professionals, Testimonials].forEach((Component) => {
+[WhatIsContent, WhatIs, Audience, Conversion, Approach, Professionals, Testimonials].forEach((Component) => {
   Component.propTypes = { content: contentType.isRequired };
 });
 

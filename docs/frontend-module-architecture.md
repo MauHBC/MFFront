@@ -57,6 +57,12 @@ depoimentos são novamente filtrados no navegador por `visible` e
 `editorial_authorized`, além da projeção pública do Backend. Não existe feature
 flag, ordenação livre ou segundo renderizador permanente.
 
+Gallery interpreta `content.layout` como `horizontal` por padrão. Em
+`vertical`, usa fotografias 4:5 e, quando `what_is` também estiver visível,
+compõe os dois módulos em uma única seção (Galeria primeiro no mobile), sem
+renderizar `what_is` novamente. Galeria sem imagem não reserva espaço e mantém
+`what_is` como seção independente.
+
 A navegação principal continua reduzida a Início, Estrutura, Serviços, Sobre e
 Contato, cada item condicionado ao respectivo módulo efetivamente visível.
 

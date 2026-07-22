@@ -34,12 +34,18 @@ const COMPONENTS = Object.freeze({
 });
 
 export default function PublicLandingModuleRenderer({ modules }) {
-  return modules.map((module) => {
+  return modules.map((module, index) => {
+    const pairedWhatIs = module.key === "gallery"
+      && module.content.layout === "vertical"
+      && modules[index + 1]?.key === "what_is"
+      ? modules[index + 1]
+      : null;
+    if (module.key === "what_is" && modules[index - 1]?.key === "gallery" && modules[index - 1]?.content.layout === "vertical") return null;
     const Component = COMPONENTS[module.component];
     if (!Component) return null;
     return (
       <LandingBackgroundVariantProvider key={module.key} variant={module.backgroundVariant}>
-        <Component content={module.content} />
+        <Component content={module.content} whatIsContent={pairedWhatIs?.content || null} />
       </LandingBackgroundVariantProvider>
     );
   });

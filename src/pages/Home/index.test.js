@@ -8,14 +8,14 @@ import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 jest.mock("../../contexts/PublicClinicContext", () => ({ usePublicClinicContext: jest.fn() }));
 jest.mock("../../components/Nav/TopNavbar", () => () => <div>Navigation</div>);
 jest.mock("../../components/Sections/Header", () => () => <div>Hero</div>);
-jest.mock("../../components/Sections/Gallery", () => () => <div>Gallery</div>);
+jest.mock("../../components/Sections/Gallery", () => ({ whatIsContent }) => <div>Gallery{whatIsContent?.title}</div>);
 jest.mock("../../components/Sections/Services", () => () => <div>Landing Services</div>);
 jest.mock("../../components/Sections/Differentials", () => () => <div>Differentials</div>);
 jest.mock("../../components/Sections/About", () => () => <div>About</div>);
 jest.mock("../../components/Sections/Contact", () => () => <div>Contact</div>);
 jest.mock("../../components/Sections/Footer", () => () => <div>Footer</div>);
 jest.mock("../../components/Sections/ModularSections", () => ({
-  WhatIs: () => <div>What Is</div>,
+  WhatIs: ({ content }) => <div>What Is{content?.title}</div>,
   Audience: () => <div>Audience</div>,
   Conversion: () => <div>Conversion</div>,
   Approach: () => <div>Approach</div>,
@@ -48,4 +48,18 @@ it("renders all thirteen modules in the fixed order", () => {
   expected.slice(0, -1).forEach((label, index) => {
     expect(text.indexOf(label)).toBeLessThan(text.indexOf(expected[index + 1]));
   });
+});
+
+it("combines vertical Gallery and What is without rendering the latter twice", () => {
+  usePublicClinicContext.mockReturnValue({ loaded: true, loading: false, publicClinic: {
+    public_profile: { landing_sections: { schema_version: 1, sections: {
+      hero: { content: {} },
+      gallery: { enabled: true, content: { layout: "vertical", items: [{ url: "/gallery.jpg", visible: true }] } },
+      what_is: { enabled: true, content: { title: "Conteúdo conjunto" } },
+      footer: { content: {} },
+    } } },
+  } });
+  const { container } = render(<HomePage />);
+  expect(container.textContent.match(/Conteúdo conjunto/g)).toHaveLength(1);
+  expect(container.textContent).not.toContain("What Is");
 });

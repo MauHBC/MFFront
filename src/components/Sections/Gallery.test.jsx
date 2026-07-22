@@ -31,3 +31,12 @@ it("does not expose hidden photographs", () => {
   expect(screen.getByRole("img", { name: "Visível" })).toBeInTheDocument();
   expect(screen.queryByRole("img", { name: "Oculta" })).not.toBeInTheDocument();
 });
+
+it("combines a vertical gallery with What is content only once", () => {
+  render(<Gallery content={{ layout: "vertical", items: [
+    { url: "/vertical.jpg", alt_text: "Foto vertical", visible: true },
+  ] }} whatIsContent={{ title: "O que é a clínica", text: "Conteúdo integrado." }} />);
+  expect(screen.getByRole("img", { name: "Foto vertical" })).toBeInTheDocument();
+  expect(screen.getAllByText("O que é a clínica")).toHaveLength(1);
+  expect(screen.getByText("Conteúdo integrado.")).toBeInTheDocument();
+});
