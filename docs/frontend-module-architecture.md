@@ -47,6 +47,14 @@ espaço nem entram na navegação. O navegador não reconstrói o documento lega
 campos legados projetados pelo Backend continuam alimentando os componentes
 visuais existentes durante a transição.
 
+No Hero, `heroPresentation.contactIcons` renderiza apenas links de ícone para
+Instagram e WhatsApp, visualmente secundários ao CTA principal. A visibilidade
+vem de `sections.hero.content.presentation.contact_icons`; os destinos continuam
+em `contact_instagram` e `contact_whatsapp` projetados pelo Backend. Um destino
+ausente nunca gera link vazio, o bloco não reserva espaço quando nenhum ícone é
+renderizado e documentos antigos mantêm Instagram visível quando já havia link
+publicado.
+
 Cada chave possui um componente independente na ordem do catálogo. Gallery usa
 `#gallery` logo depois do Hero; Contact usa `#contact` no fim. About contém
 somente o conteúdo institucional, imagens e a subseção `origin` ("Como

@@ -505,6 +505,27 @@ function getHeroPresentation(profile) {
       isExternal: /^https?:\/\//i.test(secondaryUrl),
     }
     : null;
+  const icons = source?.contact_icons || {};
+  const instagramHref = normalizeSafeExternalOrPath(profile?.contact_instagram);
+  const whatsappHref = buildWhatsappHref(profile?.contact_whatsapp);
+  const instagramVisible = icons.instagram?.visible === undefined
+    ? Boolean(instagramHref)
+    : normalizeBoolean(icons.instagram.visible, true);
+  const whatsappVisible = normalizeBoolean(icons.whatsapp?.visible, false);
+  const contactIcons = [
+    instagramVisible && instagramHref ? {
+      id: "instagram",
+      href: instagramHref,
+      label: "Abrir Instagram",
+      isExternal: /^https?:\/\//i.test(instagramHref),
+    } : null,
+    whatsappVisible && whatsappHref ? {
+      id: "whatsapp",
+      href: whatsappHref,
+      label: "Conversar pelo WhatsApp",
+      isExternal: true,
+    } : null,
+  ].filter(Boolean);
 
   return {
     overlayColorSource: allowed(
@@ -527,7 +548,8 @@ function getHeroPresentation(profile) {
       ["left", "center", "right"],
       DEFAULT_HERO_PRESENTATION.imagePosition,
     ),
-    secondaryAction,
+    contactIcons,
+    secondaryAction: secondaryAction?.label?.toLowerCase() === "instagram" ? null : secondaryAction,
   };
 }
 
@@ -585,6 +607,7 @@ export function normalizePublicLandingConfig({ publicClinic, displayName }) {
     images: galleryImages,
     bannerImage: getBannerImage(profile, resolvedDisplayName, galleryImages),
     heroPresentation: presentation,
+    contactIcons: presentation.contactIcons,
     secondaryAction: presentation.secondaryAction,
     services,
     hasServices: partialConfig.hasServices,

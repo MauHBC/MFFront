@@ -22,6 +22,7 @@ const baseConfig = {
     overlayStrength: "strong",
     textTone: "light",
   },
+  contactIcons: [],
   secondaryAction: null,
   titleLine2: "",
   subtitle: "Texto de apoio",
@@ -82,4 +83,32 @@ describe("PublicHero", () => {
     const heading = screen.getByRole("heading", { level: 1 });
     expect(heading).toHaveTextContent("Título principalSegunda linha");
     expect(heading.querySelectorAll("span")).toHaveLength(2);
-  });});
+  });
+
+  it("renders configured contact icons without textual Instagram button", () => {
+    render(<PublicHero config={{
+      ...baseConfig,
+      contactIcons: [
+        {
+          id: "instagram",
+          href: "https://www.instagram.com/clinica/",
+          label: "Abrir Instagram",
+          isExternal: true,
+        },
+        {
+          id: "whatsapp",
+          href: "https://wa.me/5527999990000",
+          label: "Conversar pelo WhatsApp",
+          isExternal: true,
+        },
+      ],
+      secondaryAction: null,
+    }} />);
+
+    expect(screen.getByRole("link", { name: "Abrir Instagram" }))
+      .toHaveAttribute("href", "https://www.instagram.com/clinica/");
+    expect(screen.getByRole("link", { name: "Conversar pelo WhatsApp" }))
+      .toHaveAttribute("href", "https://wa.me/5527999990000");
+    expect(screen.queryByRole("link", { name: "Instagram" })).not.toBeInTheDocument();
+  });
+});

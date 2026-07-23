@@ -618,4 +618,78 @@ describe("public landing normalization", () => {
     expect(config.contact.methods.map((method) => method.id)).toEqual(["whatsapp"]);
     expect(config.contact.sectionMethods).toEqual([]);
   });
+
+  it("normalizes Hero contact icons independently from the Contact section", () => {
+    const config = normalizePublicLandingConfig({
+      displayName: "Clínica Fictícia",
+      publicClinic: {
+        public_profile: {
+          contact_instagram: "https://instagram.com/clinica",
+          contact_whatsapp: "27 99999-0000",
+          hero_presentation_json: {
+            contact_icons: {
+              instagram: { visible: true },
+              whatsapp: { visible: true },
+            },
+          },
+          landing_sections_json: {
+            schema_version: 1,
+            sections: {
+              hero: { content: {} },
+              contact: { enabled: false, content: {} },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.contactIcons.map((item) => item.id)).toEqual(["instagram", "whatsapp"]);
+    expect(config.contactIcons[0]).toMatchObject({
+      href: "https://instagram.com/clinica",
+      label: "Abrir Instagram",
+    });
+    expect(config.hasContact).toBe(false);
+  });
+
+  it("hides Hero contact icons when disabled or missing destinations", () => {
+    const config = normalizePublicLandingConfig({
+      displayName: "Clínica Fictícia",
+      publicClinic: {
+        public_profile: {
+          contact_instagram: "",
+          contact_whatsapp: "",
+          hero_presentation_json: {
+            contact_icons: {
+              instagram: { visible: true },
+              whatsapp: { visible: true },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.contactIcons).toEqual([]);
+  });
+
+  it("keeps legacy Instagram visible but removes textual Instagram secondary CTA", () => {
+    const config = normalizePublicLandingConfig({
+      displayName: "Clínica Fictícia",
+      publicClinic: {
+        public_profile: {
+          contact_instagram: "https://instagram.com/clinica",
+          hero_presentation_json: {
+            secondary_action: {
+              visible: true,
+              label: "Instagram",
+              type: "link",
+              url: "https://instagram.com/clinica",
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.contactIcons.map((item) => item.id)).toEqual(["instagram"]);
+    expect(config.secondaryAction).toBeNull();
+  });
 });
