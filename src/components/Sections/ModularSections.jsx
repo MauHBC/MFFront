@@ -60,8 +60,8 @@ function ExpandableBio({ children, personName }) {
       <BioText ref={bioRef} $expanded={expanded}>{children}</BioText>
       {(overflowing || expanded) && (
         <BioToggle type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-          {expanded ? "Ver menos" : "Ver mais"}
-          <span className="sr-only">{` sobre ${personName}`}</span>
+          <span>{expanded ? "Ver menos" : "Ver mais"}</span>
+          <VisuallyHidden>{` sobre ${personName}`}</VisuallyHidden>
         </BioToggle>
       )}
     </BioArea>
@@ -327,14 +327,26 @@ const CardCopy = styled.div`
 const BioArea = styled.div`margin-top: 8px;`;
 const BioText = styled.p`
   margin: 0;
-  max-height: ${({ $expanded }) => ($expanded ? "none" : "7.75em")};
-  overflow: hidden;
   color: var(--landing-section-muted, #4b574d);
   line-height: 1.55;
   white-space: pre-line;
-  transition: max-height 220ms ease;
-
-  @media (prefers-reduced-motion: reduce) { transition: none; }
+  ${({ $expanded }) => ($expanded ? "" : `
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 5;
+  `)}
+`;
+const VisuallyHidden = styled.span`
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 `;
 const BioToggle = styled.button`
   margin: 10px 0 0;

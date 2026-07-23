@@ -43,6 +43,51 @@ it("filters unauthorized professionals and handles zero one and many authorized 
   });
 });
 
+it("truncates only long biographies and expands cards independently", () => {
+  const scrollHeight = jest.spyOn(HTMLElement.prototype, "scrollHeight", "get")
+    .mockImplementation(function getScrollHeight() {
+      return this.textContent.length > 80 ? 200 : 40;
+    });
+  const clientHeight = jest.spyOn(HTMLElement.prototype, "clientHeight", "get")
+    .mockReturnValue(100);
+  const originalResizeObserver = global.ResizeObserver;
+  global.ResizeObserver = function ResizeObserver() {
+    return { disconnect: jest.fn(), observe: jest.fn() };
+  };
+
+  try {
+    const longBio = "Biografia extensa para comprovar a truncagem com reticências. ".repeat(5);
+    render(<Professionals content={{ title: "Profissionais", items: [
+      {
+        name: "Perfil curto", bio: "Biografia curta.", visible: true, editorial_authorized: true,
+      },
+      {
+        name: "Perfil longo A", bio: longBio, visible: true, editorial_authorized: true,
+      },
+      {
+        name: "Perfil longo B", bio: longBio, visible: true, editorial_authorized: true,
+      },
+    ] }} />);
+
+    expect(screen.queryByRole("button", { name: "Ver mais sobre Perfil curto" }))
+      .not.toBeInTheDocument();
+    const firstToggle = screen.getByRole("button", { name: "Ver mais sobre Perfil longo A" });
+    const secondToggle = screen.getByRole("button", { name: "Ver mais sobre Perfil longo B" });
+    expect(firstToggle).toHaveAttribute("aria-expanded", "false");
+    expect(firstToggle.querySelector("span")).toHaveTextContent(/^Ver mais$/);
+
+    fireEvent.click(firstToggle);
+
+    expect(screen.getByRole("button", { name: "Ver menos sobre Perfil longo A" }))
+      .toHaveAttribute("aria-expanded", "true");
+    expect(secondToggle).toHaveAttribute("aria-expanded", "false");
+  } finally {
+    global.ResizeObserver = originalResizeObserver;
+    scrollHeight.mockRestore();
+    clientHeight.mockRestore();
+  }
+});
+
 it("filters unauthorized testimonials and renders zero one and many authorized items", () => {
   [0, 1, 3].forEach((count) => {
     const items = Array.from({ length: count }, (_, index) => ({ quote: `Relato ${index + 1}`, author: `Pessoa demonstrativa ${index + 1}`, visible: true, editorial_authorized: true }));

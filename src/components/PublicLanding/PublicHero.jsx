@@ -103,10 +103,12 @@ export default function PublicHero({ config }) {
       )}
       <HeroInner>
         <Copy>
-          <Eyebrow $textTone={presentation.textTone}>{config.eyebrow}</Eyebrow>
+          {config.eyebrow && (
+            <Eyebrow $textTone={presentation.textTone}>{config.eyebrow}</Eyebrow>
+          )}
           <Title $textTone={presentation.textTone}>
-            <span>{config.title}</span>
-            {config.titleLine2 && <span>{config.titleLine2}</span>}
+            <TitleLine>{config.title}</TitleLine>
+            {config.titleLine2 && <TitleLine>{config.titleLine2}</TitleLine>}
           </Title>
           <Subtitle $textTone={presentation.textTone}>{config.subtitle}</Subtitle>
           <Actions>
@@ -238,7 +240,6 @@ const Title = styled.h1`
   line-height: 1.01;
   font-weight: 800;
   text-wrap: balance;
-  span { display: block; }
 
   text-shadow: ${({ $textTone }) => ($textTone === "dark" ? "none" : "0 2px 24px rgba(0,0,0,.26)")};
 
@@ -246,6 +247,10 @@ const Title = styled.h1`
     font-size: clamp(2.12rem, 10vw, 3.2rem);
     line-height: 1.04;
   }
+`;
+
+const TitleLine = styled.span`
+  display: block;
 `;
 
 const Subtitle = styled.p`
