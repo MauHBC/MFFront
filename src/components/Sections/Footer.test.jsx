@@ -62,8 +62,8 @@ describe("Footer", () => {
     expect(screen.getByRole("link", { name: "E-mail" }))
       .toHaveAttribute("href", "mailto:contato@clinica.test");
     expect(screen.queryByText("Rua Fictícia, 100")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Instagram" }))
-      .toHaveAttribute("href", "https://example.com/social");
+    expect(screen.queryByRole("link", { name: "Instagram" }))
+      .not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Privacidade" }))
       .toHaveAttribute("href", "/privacidade");
   });

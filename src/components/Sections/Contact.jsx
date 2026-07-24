@@ -2,12 +2,14 @@
 import React from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
+import { FaInstagram, FaWhatsapp } from "react-icons/fa";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import { normalizePublicLandingConfig } from "../../utils/publicLanding";
 import { publicLandingSpacing } from "../PublicLanding/publicLandingLayout";
 import { LandingSection } from "../PublicLanding/publicLandingPrimitives";
 
 function ExternalLink({
+  ariaLabel = undefined,
   children,
   href,
   className = undefined,
@@ -15,6 +17,7 @@ function ExternalLink({
 }) {
   return (
     <a
+      aria-label={ariaLabel}
       className={className}
       href={href}
       rel={isExternal ? "noopener noreferrer" : undefined}
@@ -26,6 +29,7 @@ function ExternalLink({
 }
 
 ExternalLink.propTypes = {
+  ariaLabel: PropTypes.string,
   children: PropTypes.node.isRequired,
   className: PropTypes.string,
   href: PropTypes.string.isRequired,
@@ -113,7 +117,8 @@ export default function Contact({ content = {} }) {
   const unitsVariant = getUnitsVariant(contact.units.length);
   const hasHeading = Boolean(contact.label || contact.title || contact.text);
   const visibleMethods = contact.sectionMethods || contact.methods;
-  const hasContactMethods = visibleMethods.length > 0 || contact.socialLinks.length > 0;
+  const hasSocialChannels = contact.socialChannels.length > 0;
+  const hasContactMethods = visibleMethods.length > 0 || hasSocialChannels || contact.socialLinks.length > 0;
   const hasContactDetails = Boolean(contact.primaryAction || hasContactMethods);
   const hasContactArea = hasHeading || hasContactDetails;
   const contactBackground = content.contact_background_variant;
@@ -134,6 +139,20 @@ export default function Contact({ content = {} }) {
               {visibleMethods.length > 0 && <Methods aria-label="Canais de contato">
                 {visibleMethods.map((method) => <ContactMethod key={method.id} method={method} />)}
               </Methods>}
+              {hasSocialChannels && <SocialChannels aria-label="Instagram e WhatsApp">
+                {contact.socialChannels.map((channel) => (
+                  <SocialChannelLink
+                    key={channel.id}
+                    href={channel.href}
+                    isExternal={channel.isExternal}
+                    $channel={channel.id}
+                    ariaLabel={channel.label}
+                  >
+                    {channel.id === "instagram" ? <FaInstagram aria-hidden="true" /> : <FaWhatsapp aria-hidden="true" />}
+                    {channel.id === "whatsapp" && <span>WhatsApp</span>}
+                  </SocialChannelLink>
+                ))}
+              </SocialChannels>}
               {contact.socialLinks.length > 0 && <SocialLinks aria-label="Redes sociais">
                 {contact.socialLinks.map((link) => <ExternalLink key={link.id} href={link.href} isExternal={link.isExternal}>{link.label}</ExternalLink>)}
               </SocialLinks>}
@@ -319,6 +338,65 @@ const SocialLinks = styled.nav`
     font-size: 0.88rem;
     font-weight: 800;
     text-decoration: none;
+  }
+`;
+
+const SocialChannels = styled.nav`
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+`;
+
+const SocialChannelLink = styled(ExternalLink)`
+  min-height: 48px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font-weight: 800;
+  text-decoration: none;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+
+  ${({ $channel }) => ($channel === "instagram" ? `
+    width: 48px;
+    padding: 0;
+    color: #fff;
+    background:
+      radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285aeb 90%);
+    box-shadow: 0 12px 26px rgba(214, 36, 159, 0.24);
+  ` : `
+    padding: 0 18px;
+    color: #fff;
+    background: #25d366;
+    box-shadow: 0 12px 26px rgba(37, 211, 102, 0.22);
+  `)}
+
+  svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  &:hover,
+  &:focus-visible {
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 16px 32px rgba(22, 33, 28, 0.18);
+  }
+
+  &:focus-visible {
+    outline: 3px solid var(--public-accent-color, #a2b190);
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+
+    &:hover,
+    &:focus-visible {
+      transform: none;
+    }
   }
 `;
 

@@ -85,7 +85,7 @@ describe("PublicHero", () => {
     expect(heading.querySelectorAll("span")).toHaveLength(2);
   });
 
-  it("renders configured contact icons without textual Instagram button", () => {
+  it("never renders Instagram or WhatsApp in the Hero", () => {
     render(<PublicHero config={{
       ...baseConfig,
       contactIcons: [
@@ -105,10 +105,11 @@ describe("PublicHero", () => {
       secondaryAction: null,
     }} />);
 
-    expect(screen.getByRole("link", { name: "Abrir Instagram" }))
-      .toHaveAttribute("href", "https://www.instagram.com/clinica/");
-    expect(screen.getByRole("link", { name: "Conversar pelo WhatsApp" }))
-      .toHaveAttribute("href", "https://wa.me/5527999990000");
+    expect(screen.getByRole("link", { name: /Agendar/i })).toHaveAttribute("href", "/agendar");
+    expect(screen.queryByRole("link", { name: "Abrir Instagram" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Conversar pelo WhatsApp" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Instagram" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Contatos rápidos" }))
+      .not.toBeInTheDocument();
   });
 });

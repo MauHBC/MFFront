@@ -477,11 +477,11 @@ describe("public landing normalization", () => {
       isExternal: true,
     });
     expect(config.contact.methods.map((method) => method.id)).toEqual([
-      "whatsapp",
       "phone",
       "email",
       "address",
     ]);
+    expect(config.contact.socialChannels.map((channel) => channel.id)).toEqual(["whatsapp"]);
     expect(config.contact.sectionMethods.map((method) => method.id)).toEqual([
       "phone",
       "email",
@@ -567,7 +567,7 @@ describe("public landing normalization", () => {
     expect(config.footer.legalLinks).toEqual([]);
   });
 
-  it("deduplicates the section WhatsApp method when CTA has the same normalized destination", () => {
+  it("renders WhatsApp as a contact social channel when CTA has the same normalized destination", () => {
     const config = normalizePublicLandingConfig({
       displayName: "Clínica Fictícia",
       publicClinic: {
@@ -581,11 +581,12 @@ describe("public landing normalization", () => {
       },
     });
 
-    expect(config.contact.methods.map((method) => method.id)).toEqual(["whatsapp", "phone"]);
+    expect(config.contact.methods.map((method) => method.id)).toEqual(["phone"]);
     expect(config.contact.sectionMethods.map((method) => method.id)).toEqual(["phone"]);
+    expect(config.contact.socialChannels.map((channel) => channel.id)).toEqual(["whatsapp"]);
   });
 
-  it("keeps section WhatsApp when CTA has a different destination", () => {
+  it("keeps contact WhatsApp as a social channel when CTA has a different destination", () => {
     const config = normalizePublicLandingConfig({
       displayName: "Clínica Fictícia",
       publicClinic: {
@@ -599,7 +600,8 @@ describe("public landing normalization", () => {
     });
 
     expect(config.contact.primaryAction.href).toBe("/agendar");
-    expect(config.contact.sectionMethods.map((method) => method.id)).toEqual(["whatsapp"]);
+    expect(config.contact.sectionMethods).toEqual([]);
+    expect(config.contact.socialChannels.map((channel) => channel.id)).toEqual(["whatsapp"]);
   });
 
   it("deduplicates WhatsApp despite formatting differences in the same number", () => {
@@ -615,11 +617,12 @@ describe("public landing normalization", () => {
       },
     });
 
-    expect(config.contact.methods.map((method) => method.id)).toEqual(["whatsapp"]);
+    expect(config.contact.methods).toEqual([]);
     expect(config.contact.sectionMethods).toEqual([]);
+    expect(config.contact.socialChannels.map((channel) => channel.id)).toEqual(["whatsapp"]);
   });
 
-  it("normalizes Hero contact icons independently from the Contact section", () => {
+  it("does not expose Instagram or WhatsApp as Hero contact icons", () => {
     const config = normalizePublicLandingConfig({
       displayName: "Clínica Fictícia",
       publicClinic: {
@@ -643,15 +646,157 @@ describe("public landing normalization", () => {
       },
     });
 
-    expect(config.contactIcons.map((item) => item.id)).toEqual(["instagram", "whatsapp"]);
-    expect(config.contactIcons[0]).toMatchObject({
-      href: "https://instagram.com/clinica",
-      label: "Abrir Instagram",
-    });
+    expect(config.contactIcons).toEqual([]);
+    expect(config.contact.socialChannels.map((item) => item.id)).toEqual(["instagram", "whatsapp"]);
     expect(config.hasContact).toBe(false);
   });
 
-  it("hides Hero contact icons when disabled or missing destinations", () => {
+  it("uses Instagram from social links when the legacy Instagram column is empty", () => {
+    const config = normalizePublicLandingConfig({
+      displayName: "Clínica Fictícia",
+      publicClinic: {
+        public_profile: {
+          contact_whatsapp: "27 99999-0000",
+          contact_social_links: [
+            { label: "Instagram", url: "https://instagram.com/social", visible: true },
+          ],
+          hero_presentation_json: {
+            contact_icons: {
+              instagram: { visible: true },
+              whatsapp: { visible: true },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.contactIcons).toEqual([]);
+    expect(config.contact.socialLinks).toEqual([]);
+    expect(config.contact.socialChannels).toEqual([
+      {
+        id: "instagram",
+        href: "https://instagram.com/social",
+        label: "Abrir Instagram",
+        isExternal: true,
+      },
+      {
+        id: "whatsapp",
+        href: "https://wa.me/5527999990000",
+        label: "Conversar pelo WhatsApp",
+        isExternal: true,
+      },
+    ]);
+  });
+
+  it("treats the technical default icon object as legacy absence of explicit controls", () => {
+    const config = normalizePublicLandingConfig({
+      displayName: "Clínica Modelo",
+      publicClinic: {
+        public_profile: {
+          contact_whatsapp: "(27) 99999-0000",
+          contact_social_links: [
+            {
+              label: "Instagram demonstrativo",
+              url: "https://example.com/clinica-modelo-local",
+              visible: true,
+            },
+          ],
+          landing_sections_json: {
+            schema_version: 1,
+            sections: {
+              hero: {
+                content: {
+                  presentation: {
+                    contact_icons: {
+                      instagram: { visible: null },
+                      whatsapp: { visible: false },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.contactIcons).toEqual([]);
+    expect(config.contact.socialChannels.map((item) => item.id)).toEqual(["instagram", "whatsapp"]);
+    expect(config.contact.socialChannels[0].href).toBe("https://example.com/clinica-modelo-local");
+    expect(config.contact.socialChannels[1].href).toBe("https://wa.me/5527999990000");
+  });
+
+  it("supports the four Contact social channel visibility states", () => {
+    const build = (contactChannels) => normalizePublicLandingConfig({
+      displayName: "Clínica Fictícia",
+      publicClinic: {
+        public_profile: {
+          contact_instagram: "https://instagram.com/clinica",
+          contact_whatsapp: "27 99999-0000",
+          landing_sections_json: {
+            schema_version: 1,
+            sections: {
+              contact: {
+                enabled: true,
+                content: { contact_channels: contactChannels },
+              },
+            },
+          },
+        },
+      },
+    }).contact.socialChannels.map((item) => item.id);
+
+    expect(build({ instagram: { visible: true }, whatsapp: { visible: true } }))
+      .toEqual(["instagram", "whatsapp"]);
+    expect(build({ instagram: { visible: true }, whatsapp: { visible: false } }))
+      .toEqual(["instagram"]);
+    expect(build({ instagram: { visible: false }, whatsapp: { visible: true } }))
+      .toEqual(["whatsapp"]);
+    expect(build({ instagram: { visible: false }, whatsapp: { visible: false } }))
+      .toEqual([]);
+  });
+
+  it("keeps channel destinations independent and honors explicit Contact configuration", () => {
+    const config = normalizePublicLandingConfig({
+      displayName: "Clínica Fictícia",
+      publicClinic: {
+        public_profile: {
+          contact_instagram: "https://instagram.com/clinica",
+          contact_whatsapp: "https://wa.me/5527999990000",
+          hero_presentation_json: {
+            contact_icons: {
+              instagram: { visible: true },
+              whatsapp: { visible: false },
+            },
+          },
+          landing_sections_json: {
+            schema_version: 1,
+            sections: {
+              contact: {
+                enabled: true,
+                content: {
+                  contact_channels: {
+                    instagram: { visible: false, url: "https://instagram.com/contato" },
+                    whatsapp: { visible: true, url: "https://wa.me/5527999990000" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config.contactIcons).toEqual([]);
+    expect(config.contact.socialChannels).toEqual([{
+      id: "whatsapp",
+      href: "https://wa.me/5527999990000",
+      label: "Conversar pelo WhatsApp",
+      isExternal: true,
+    }]);
+  });
+
+  it("hides Contact social channels when disabled or missing destinations", () => {
     const config = normalizePublicLandingConfig({
       displayName: "Clínica Fictícia",
       publicClinic: {
@@ -669,6 +814,7 @@ describe("public landing normalization", () => {
     });
 
     expect(config.contactIcons).toEqual([]);
+    expect(config.contact.socialChannels).toEqual([]);
   });
 
   it("keeps legacy Instagram visible but removes textual Instagram secondary CTA", () => {
@@ -689,7 +835,29 @@ describe("public landing normalization", () => {
       },
     });
 
-    expect(config.contactIcons.map((item) => item.id)).toEqual(["instagram"]);
+    expect(config.contactIcons).toEqual([]);
+    expect(config.contact.socialChannels.map((item) => item.id)).toEqual(["instagram"]);
+    expect(config.secondaryAction).toBeNull();
+  });
+
+  it("removes textual Instagram secondary CTA regardless of capitalization or accents", () => {
+    const config = normalizePublicLandingConfig({
+      displayName: "Clínica Fictícia",
+      publicClinic: {
+        public_profile: {
+          contact_instagram: "https://instagram.com/clinica",
+          hero_presentation_json: {
+            secondary_action: {
+              visible: true,
+              label: "ÍnStAgRaM",
+              type: "link",
+              url: "https://instagram.com/clinica",
+            },
+          },
+        },
+      },
+    });
+
     expect(config.secondaryAction).toBeNull();
   });
 });

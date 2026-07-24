@@ -282,22 +282,12 @@ function getConfiguredAction(profile) {
 
 function normalizeContactMethods(profile) {
   const methods = [];
-  const whatsappHref = buildWhatsappHref(profile?.contact_whatsapp);
   const phone = cleanText(profile?.contact_phone);
   const phoneHref = normalizePhoneHref(phone);
   const email = cleanText(profile?.contact_email);
   const emailHref = normalizeEmailHref(email);
   const address = cleanText(profile?.contact_address);
 
-  if (whatsappHref) {
-    methods.push({
-      id: "whatsapp",
-      label: "WhatsApp",
-      value: "Enviar mensagem",
-      href: whatsappHref,
-      isExternal: true,
-    });
-  }
   if (phone && phoneHref) {
     methods.push({
       id: "phone",
@@ -349,6 +339,12 @@ function normalizeNamedLinks(items) {
     .sort((a, b) => a.order - b.order);
 }
 
+function isInstagramLink(item) {
+  return comparableText(item?.id) === "instagram"
+    || comparableText(item?.label) === "instagram"
+    || comparableText(item?.label).startsWith("instagram");
+}
+
 function normalizeSocialLinks(profile) {
   const configured = normalizeNamedLinks(profile?.contact_social_links || profile?.contact_social_links_json);
   const instagram = normalizeSafeExternalOrPath(profile?.contact_instagram);
@@ -366,6 +362,55 @@ function normalizeSocialLinks(profile) {
   ])
     .map((item) => (item ? JSON.parse(item) : null))
     .filter(Boolean);
+}
+
+function findSocialHref(profile, key) {
+  const normalizedKey = comparableText(key);
+  return normalizeSocialLinks(profile)
+    .find((item) => comparableText(item.id) === normalizedKey
+      || comparableText(item.label) === normalizedKey
+      || comparableText(item.label).startsWith(normalizedKey))?.href || null;
+}
+
+function normalizeContactChannels(profile) {
+  const modularContact = profile?.landing_sections?.sections?.contact?.content
+    || profile?.landing_sections_json?.sections?.contact?.content
+    || {};
+  const channels = modularContact.contact_channels || {};
+  const legacyHeroIcons = profile?.landing_sections?.sections?.hero?.content?.presentation?.contact_icons
+    || profile?.landing_sections_json?.sections?.hero?.content?.presentation?.contact_icons
+    || profile?.hero_presentation?.contact_icons
+    || profile?.hero_presentation_json?.contact_icons
+    || {};
+  const hasExplicitInstagram = Object.prototype.hasOwnProperty.call(channels, "instagram");
+  const hasExplicitWhatsapp = Object.prototype.hasOwnProperty.call(channels, "whatsapp");
+  const hasDefaultIconControls = legacyHeroIcons.instagram?.visible == null
+    && legacyHeroIcons.whatsapp?.visible === false;
+  const instagramHref = normalizeSafeExternalOrPath(channels.instagram?.url)
+    || normalizeSafeExternalOrPath(profile?.contact_instagram)
+    || findSocialHref(profile, "instagram");
+  const whatsappHref = buildWhatsappHref(channels.whatsapp?.url || profile?.contact_whatsapp);
+  const instagramVisible = hasExplicitInstagram
+    ? normalizeBoolean(channels.instagram?.visible, true)
+    : legacyHeroIcons.instagram?.visible !== false;
+  const whatsappVisible = hasExplicitWhatsapp
+    ? normalizeBoolean(channels.whatsapp?.visible, true)
+    : Boolean(whatsappHref) && (hasDefaultIconControls || legacyHeroIcons.whatsapp?.visible !== false);
+
+  return [
+    instagramVisible && instagramHref ? {
+      id: "instagram",
+      href: instagramHref,
+      label: "Abrir Instagram",
+      isExternal: /^https?:\/\//i.test(instagramHref),
+    } : null,
+    whatsappVisible && whatsappHref ? {
+      id: "whatsapp",
+      href: whatsappHref,
+      label: "Conversar pelo WhatsApp",
+      isExternal: true,
+    } : null,
+  ].filter(Boolean);
 }
 
 function normalizePublicUnits(profile) {
@@ -399,7 +444,8 @@ function normalizePublicUnits(profile) {
 function getContact(profile) {
   const primaryAction = getConfiguredAction(profile);
   const methods = normalizeContactMethods(profile);
-  const socialLinks = normalizeSocialLinks(profile);
+  const socialChannels = normalizeContactChannels(profile);
+  const socialLinks = normalizeSocialLinks(profile).filter((item) => !isInstagramLink(item));
   const units = normalizePublicUnits(profile);
   const unitAddresses = new Set(units.map((unit) => comparableText(unit.address)).filter(Boolean));
   const sectionMethods = methods.filter((method) => (
@@ -415,6 +461,7 @@ function getContact(profile) {
     text ||
     primaryAction ||
     methods.length > 0 ||
+    socialChannels.length > 0 ||
     socialLinks.length > 0 ||
     units.length > 0,
   );
@@ -426,6 +473,7 @@ function getContact(profile) {
     primaryAction,
     methods,
     sectionMethods,
+    socialChannels,
     socialLinks,
     units,
     hasContent,
@@ -488,7 +536,15 @@ const DEFAULT_HERO_PRESENTATION = {
 };
 
 function getHeroPresentation(profile) {
-  const source = profile?.hero_presentation || profile?.hero_presentation_json || {};
+  const modularHeroPresentation =
+    profile?.landing_sections?.sections?.hero?.content?.presentation
+    || profile?.landing_sections_json?.sections?.hero?.content?.presentation
+    || {};
+  const source = {
+    ...(profile?.hero_presentation_json || {}),
+    ...(profile?.hero_presentation || {}),
+    ...modularHeroPresentation,
+  };
   const allowed = (value, values, fallback) => (
     values.includes(cleanText(value)) ? cleanText(value) : fallback
   );
@@ -505,28 +561,6 @@ function getHeroPresentation(profile) {
       isExternal: /^https?:\/\//i.test(secondaryUrl),
     }
     : null;
-  const icons = source?.contact_icons || {};
-  const instagramHref = normalizeSafeExternalOrPath(profile?.contact_instagram);
-  const whatsappHref = buildWhatsappHref(profile?.contact_whatsapp);
-  const instagramVisible = icons.instagram?.visible === undefined
-    ? Boolean(instagramHref)
-    : normalizeBoolean(icons.instagram.visible, true);
-  const whatsappVisible = normalizeBoolean(icons.whatsapp?.visible, false);
-  const contactIcons = [
-    instagramVisible && instagramHref ? {
-      id: "instagram",
-      href: instagramHref,
-      label: "Abrir Instagram",
-      isExternal: /^https?:\/\//i.test(instagramHref),
-    } : null,
-    whatsappVisible && whatsappHref ? {
-      id: "whatsapp",
-      href: whatsappHref,
-      label: "Conversar pelo WhatsApp",
-      isExternal: true,
-    } : null,
-  ].filter(Boolean);
-
   return {
     overlayColorSource: allowed(
       source.overlay_color_source,
@@ -548,8 +582,7 @@ function getHeroPresentation(profile) {
       ["left", "center", "right"],
       DEFAULT_HERO_PRESENTATION.imagePosition,
     ),
-    contactIcons,
-    secondaryAction: secondaryAction?.label?.toLowerCase() === "instagram" ? null : secondaryAction,
+    secondaryAction: comparableText(secondaryAction?.label) === "instagram" ? null : secondaryAction,
   };
 }
 
@@ -607,7 +640,7 @@ export function normalizePublicLandingConfig({ publicClinic, displayName }) {
     images: galleryImages,
     bannerImage: getBannerImage(profile, resolvedDisplayName, galleryImages),
     heroPresentation: presentation,
-    contactIcons: presentation.contactIcons,
+    contactIcons: [],
     secondaryAction: presentation.secondaryAction,
     services,
     hasServices: partialConfig.hasServices,

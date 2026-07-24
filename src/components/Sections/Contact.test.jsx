@@ -58,3 +58,95 @@ it("handles units without map or hours and omits a completely empty module", () 
   const { container } = renderContact({ hero_image_urls: ["/estrutura.jpg"] });
   expect(container).toBeEmptyDOMElement();
 });
+
+it("renders configured Instagram and WhatsApp only in Contact", () => {
+  const { container } = renderContact({
+    contact_title: "Contato",
+    contact_whatsapp: "27999999999",
+    contact_social_links: [
+      { label: "Instagram", url: "https://instagram.com/clinica", visible: true },
+    ],
+    landing_sections_json: {
+      sections: {
+        contact: {
+          content: {
+            contact_channels: {
+              instagram: { visible: true, url: "https://instagram.com/clinica" },
+              whatsapp: { visible: true, url: "27999999999" },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  expect(screen.getByRole("link", { name: "Abrir Instagram" }))
+    .toHaveAttribute("href", "https://instagram.com/clinica");
+  expect(screen.getByRole("link", { name: "Conversar pelo WhatsApp" }))
+    .toHaveAttribute("href", "https://wa.me/5527999999999");
+  expect(screen.queryByRole("link", { name: "Instagram" })).not.toBeInTheDocument();
+  expect(screen.getByRole("navigation", { name: "Instagram e WhatsApp" }))
+    .toBeInTheDocument();
+  expect(container.querySelectorAll("nav[aria-label='Instagram e WhatsApp'] svg[aria-hidden='true']"))
+    .toHaveLength(2);
+});
+
+it("allows Instagram and WhatsApp to appear independently", () => {
+  const instagramOnly = renderContact({
+    contact_title: "Contato",
+    landing_sections_json: {
+      sections: {
+        contact: {
+          content: {
+            contact_channels: {
+              instagram: { visible: true, url: "https://instagram.com/clinica" },
+              whatsapp: { visible: false, url: "27999999999" },
+            },
+          },
+        },
+      },
+    },
+  });
+  expect(screen.getByRole("link", { name: "Abrir Instagram" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Conversar pelo WhatsApp" })).not.toBeInTheDocument();
+  instagramOnly.unmount();
+
+  renderContact({
+    contact_title: "Contato",
+    landing_sections_json: {
+      sections: {
+        contact: {
+          content: {
+            contact_channels: {
+              instagram: { visible: false, url: "https://instagram.com/clinica" },
+              whatsapp: { visible: true, url: "27999999999" },
+            },
+          },
+        },
+      },
+    },
+  });
+  expect(screen.queryByRole("link", { name: "Abrir Instagram" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Conversar pelo WhatsApp" })).toBeInTheDocument();
+});
+
+it("does not reserve a social channel container when both channels are hidden", () => {
+  renderContact({
+    contact_title: "Contato",
+    landing_sections_json: {
+      sections: {
+        contact: {
+          content: {
+            contact_channels: {
+              instagram: { visible: false, url: "https://instagram.com/clinica" },
+              whatsapp: { visible: false, url: "27999999999" },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  expect(screen.queryByRole("navigation", { name: "Instagram e WhatsApp" }))
+    .not.toBeInTheDocument();
+});

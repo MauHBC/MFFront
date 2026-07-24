@@ -3,9 +3,13 @@ import { toast } from "react-toastify";
 import * as authActions from "../store/modules/auth/actions";
 
 const configuredApiBaseUrl = process.env.REACT_APP_API_BASE_URL;
-const apiBaseURL = configuredApiBaseUrl?.trim()
-  ? configuredApiBaseUrl.trim().replace(/\/$/, "")
-  : "/api";
+export function resolveApiBaseURL(value = configuredApiBaseUrl) {
+  return value?.trim()
+    ? value.trim().replace(/\/$/, "")
+    : "/api";
+}
+
+export const apiBaseURL = resolveApiBaseURL();
 
 const api = axios.create({
   baseURL: apiBaseURL,

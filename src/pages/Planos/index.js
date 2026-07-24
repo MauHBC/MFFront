@@ -6,7 +6,6 @@ import {
   FaBars,
   FaCalendarAlt,
   FaChevronLeft,
-  FaDollarSign,
   FaInfoCircle,
   FaLayerGroup,
   FaPlus,
@@ -77,6 +76,10 @@ import {
   getPatientSearchText,
   normalizeSearchText,
 } from "../../utils/patientSearch";
+import {
+  buildPlanChangePreviewPresentation,
+  buildPlanCommercialDisplay,
+} from "../../utils/planChangePresentation";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -255,38 +258,6 @@ const subtractOneDayDateOnly = (value) => {
   const date = new Date(`${value}T12:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() - 1);
   return date.toISOString().slice(0, 10);
-};
-
-const addOneDayDateOnly = (value) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
-  const date = new Date(`${value}T12:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() + 1);
-  return date.toISOString().slice(0, 10);
-};
-
-const getNextCycleWindow = (plan, referenceDate) => {
-  const start = String(plan?.starts_at || "").slice(0, 10);
-  if (!isValidDateOnly(start)) return null;
-  const currentDate = new Date();
-  const fallbackReferenceDate = [
-    currentDate.getFullYear(),
-    String(currentDate.getMonth() + 1).padStart(2, "0"),
-    String(currentDate.getDate()).padStart(2, "0"),
-  ].join("-");
-  const effectiveReferenceDate = isValidDateOnly(referenceDate) ? referenceDate : fallbackReferenceDate;
-  let currentStart = start;
-  let nextStart = addOneMonthDateOnly(currentStart);
-  while (nextStart && nextStart <= effectiveReferenceDate) {
-    currentStart = nextStart;
-    nextStart = addOneMonthDateOnly(currentStart);
-  }
-  const currentEnd = subtractOneDayDateOnly(addOneMonthDateOnly(currentStart));
-  const nextCycleStart = addOneDayDateOnly(currentEnd);
-  return {
-    currentCycleStart: currentStart,
-    currentCycleEnd: currentEnd,
-    nextCycleStart,
-  };
 };
 
 const todayDateOnly = () => {
@@ -480,10 +451,6 @@ const formatCycleWeeksForPlanInfo = (label, weeks = null) => {
 
 const simplifyPlanStatusLabel = (label) => (
   String(label || "—").replace(/^plano\s+/i, "")
-);
-
-const simplifyBillingStatusLabel = (label) => (
-  String(label || "—").replace(/^mensalidade\s+/i, "")
 );
 
 const SESSION_STATUS_LABELS = {
@@ -842,6 +809,14 @@ const EMPTY_PLAN_CHANGE = {
   weekdays: [],
   time: "08:00",
   times_by_weekday: {},
+  pending_change_id: null,
+  expected_version: null,
+};
+
+const EMPTY_PLAN_CHANGE_PREVIEW = {
+  status: "idle",
+  data: null,
+  error: "",
 };
 
 const EMPTY_CANCEL = {
@@ -951,8 +926,12 @@ export default function Planos() {
   const [planChangeOpen, setPlanChangeOpen] = useState(false);
   const [discardDrawerClose, setDiscardDrawerClose] = useState(null);
   const [planChangeForm, setPlanChangeForm] = useState(EMPTY_PLAN_CHANGE);
+  const [planChangePreview, setPlanChangePreview] = useState(EMPTY_PLAN_CHANGE_PREVIEW);
   const [planChangeConfirmOpen, setPlanChangeConfirmOpen] = useState(false);
+  const [planChangeCancelOpen, setPlanChangeCancelOpen] = useState(false);
   const planChangeSubmittingRef = useRef(false);
+  const planChangePreviewRequestRef = useRef(0);
+  const planChangeCancelSubmittingRef = useRef(false);
   const [operationalPolicy, setOperationalPolicy] = useState(DEFAULT_OPERATIONAL_POLICY);
 
   // Schedule sessions drawer (open from PatientPlan row)
@@ -2173,19 +2152,39 @@ export default function Planos() {
 
   const openPlanChange = useCallback(() => {
     if (!ppDetailPlan) return;
+    const pendingChange = ppAdminSummary?.pending_plan_change || null;
+    const pendingSchedule = Array.isArray(pendingChange?.new_schedule)
+      ? pendingChange.new_schedule
+      : [];
     const firstOption = buildPlanChangeOptions(activeServicePlans, ppDetailPlan)[0];
+    let selectedPlanId = "";
+    if (pendingChange?.service_plan_id) selectedPlanId = String(pendingChange.service_plan_id);
+    else if (firstOption?.id) selectedPlanId = String(firstOption.id);
     setPlanChangeForm({
       ...EMPTY_PLAN_CHANGE,
-      service_plan_id: firstOption?.id ? String(firstOption.id) : "",
+      service_plan_id: selectedPlanId,
+      professional_user_id: pendingSchedule[0]?.professional_user_id
+        ? String(pendingSchedule[0].professional_user_id)
+        : "",
+      weekdays: pendingSchedule.map((item) => Number(item.weekday)),
+      times_by_weekday: pendingSchedule.reduce((accumulator, item) => ({
+        ...accumulator,
+        [String(item.weekday)]: item.time,
+      }), {}),
+      pending_change_id: pendingChange?.id || null,
+      expected_version: pendingChange?.version || null,
     });
     setPlanChangeConfirmOpen(false);
+    setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
     setPlanChangeOpen(true);
-  }, [activeServicePlans, ppDetailPlan]);
+  }, [activeServicePlans, ppAdminSummary, ppDetailPlan]);
 
   const closePlanChange = useCallback(() => {
     setPlanChangeOpen(false);
     setPlanChangeConfirmOpen(false);
     setPlanChangeForm(EMPTY_PLAN_CHANGE);
+    setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
+    planChangePreviewRequestRef.current += 1;
     planChangeSubmittingRef.current = false;
   }, []);
 
@@ -2196,7 +2195,62 @@ export default function Planos() {
       [name]: value,
       ...(name === "service_plan_id" ? { weekdays: [], times_by_weekday: {} } : {}),
     }));
+    if (name === "service_plan_id") {
+      setPlanChangeConfirmOpen(false);
+      setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
+    }
   }, []);
+
+  const loadPlanChangePreview = useCallback(async ({
+    servicePlanId,
+    pendingChangeId,
+    expectedVersion,
+  }) => {
+    if (!ppDetailPlan?.id || !servicePlanId) {
+      setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
+      return;
+    }
+    const requestId = planChangePreviewRequestRef.current + 1;
+    planChangePreviewRequestRef.current = requestId;
+    setPlanChangePreview({ status: "loading", data: null, error: "" });
+    try {
+      const response = await axios.post(
+        `/patient-plans/${ppDetailPlan.id}/change-plan-preview`,
+        {
+          service_plan_id: Number(servicePlanId),
+          ...(pendingChangeId ? {
+            pending_change_id: Number(pendingChangeId),
+            expected_version: Number(expectedVersion),
+          } : {}),
+        },
+      );
+      if (planChangePreviewRequestRef.current !== requestId) return;
+      setPlanChangePreview({ status: "success", data: response.data, error: "" });
+    } catch (err) {
+      if (planChangePreviewRequestRef.current !== requestId) return;
+      setPlanChangePreview({
+        status: "error",
+        data: null,
+        error: err?.response?.data?.error || "Não foi possível calcular a vigência. Tente novamente.",
+      });
+    }
+  }, [ppDetailPlan]);
+
+  useEffect(() => {
+    if (!planChangeOpen || !planChangeForm.service_plan_id) return undefined;
+    loadPlanChangePreview({
+      servicePlanId: planChangeForm.service_plan_id,
+      pendingChangeId: planChangeForm.pending_change_id,
+      expectedVersion: planChangeForm.expected_version,
+    });
+    return undefined;
+  }, [
+    loadPlanChangePreview,
+    planChangeForm.expected_version,
+    planChangeForm.pending_change_id,
+    planChangeForm.service_plan_id,
+    planChangeOpen,
+  ]);
 
   const togglePlanChangeWeekday = useCallback((day) => {
     setPlanChangeForm((prev) => {
@@ -2258,11 +2312,21 @@ export default function Planos() {
       toast.error("Informe os horarios.");
       return;
     }
+    if (planChangePreview.status !== "success" || !planChangePreview.data?.preview_token) {
+      toast.error(planChangePreview.error || "Aguarde o cálculo da vigência antes de continuar.");
+      return;
+    }
     setPlanChangeConfirmOpen(true);
-  }, [activeServicePlans, planChangeForm, ppDetailPlan]);
+  }, [activeServicePlans, planChangeForm, planChangePreview, ppDetailPlan]);
 
   const confirmPlanChange = useCallback(async () => {
-    if (!ppDetailPlan || isSaving || planChangeSubmittingRef.current) return;
+    if (
+      !ppDetailPlan
+      || isSaving
+      || planChangeSubmittingRef.current
+      || planChangePreview.status !== "success"
+      || !planChangePreview.data?.preview_token
+    ) return;
     const selectedPlan = buildPlanChangeOptions(activeServicePlans, ppDetailPlan).find((plan) => (
       String(plan.id) === String(planChangeForm.service_plan_id)
     ));
@@ -2278,16 +2342,32 @@ export default function Planos() {
       await axios.post(`/patient-plans/${ppDetailPlan.id}/change-plan`, {
         service_plan_id: Number(selectedPlan.id),
         professional_user_id: Number(planChangeForm.professional_user_id),
+        expected_effective_on: planChangePreview.data.effective_on,
+        preview_token: planChangePreview.data.preview_token,
+        ...(planChangeForm.pending_change_id ? {
+          pending_change_id: Number(planChangeForm.pending_change_id),
+          expected_version: Number(planChangeForm.expected_version),
+        } : {}),
         schedule: entries.map((entry) => ({
           weekday: entry.weekday,
           time: entry.time,
         })),
       });
-      toast.success("Plano alterado para o proximo ciclo.");
+      toast.success(planChangeForm.pending_change_id
+        ? "Troca futura substituída com sucesso."
+        : "Troca de plano programada para o próximo ciclo.");
       closePlanChange();
       await loadPatientPlans();
       await loadPatientPlanDetail(ppDetailPlan.id);
     } catch (err) {
+      if (err?.response?.data?.code === "PLAN_CHANGE_PREVIEW_STALE") {
+        setPlanChangeConfirmOpen(false);
+        await loadPlanChangePreview({
+          servicePlanId: planChangeForm.service_plan_id,
+          pendingChangeId: planChangeForm.pending_change_id,
+          expectedVersion: planChangeForm.expected_version,
+        });
+      }
       toast.error(err?.response?.data?.error || "Erro ao alterar plano.");
     } finally {
       planChangeSubmittingRef.current = false;
@@ -2299,8 +2379,56 @@ export default function Planos() {
     loadPatientPlanDetail,
     loadPatientPlans,
     planChangeForm,
+    planChangePreview,
     ppDetailPlan,
     activeServicePlans,
+    loadPlanChangePreview,
+  ]);
+
+  const openScheduledPlanChangeCancellation = useCallback(() => {
+    if (!ppAdminSummary?.pending_plan_change) return;
+    setPlanChangeCancelOpen(true);
+  }, [ppAdminSummary]);
+
+  const closeScheduledPlanChangeCancellation = useCallback(() => {
+    if (isSaving) return;
+    setPlanChangeCancelOpen(false);
+    planChangeCancelSubmittingRef.current = false;
+  }, [isSaving]);
+
+  const confirmScheduledPlanChangeCancellation = useCallback(async () => {
+    const pendingChange = ppAdminSummary?.pending_plan_change;
+    if (
+      !ppDetailPlan
+      || !pendingChange
+      || isSaving
+      || planChangeCancelSubmittingRef.current
+    ) return;
+
+    planChangeCancelSubmittingRef.current = true;
+    toast.dismiss();
+    setIsSaving(true);
+    try {
+      await axios.post(`/patient-plans/${ppDetailPlan.id}/change-plan/cancel`, {
+        pending_change_id: Number(pendingChange.id),
+        expected_version: Number(pendingChange.version),
+      });
+      toast.success("Troca agendada cancelada. O plano vigente foi mantido.");
+      setPlanChangeCancelOpen(false);
+      await loadPatientPlans();
+      await loadPatientPlanDetail(ppDetailPlan.id);
+    } catch (err) {
+      toast.error(err?.response?.data?.error || "Erro ao cancelar a troca agendada.");
+    } finally {
+      planChangeCancelSubmittingRef.current = false;
+      setIsSaving(false);
+    }
+  }, [
+    isSaving,
+    loadPatientPlanDetail,
+    loadPatientPlans,
+    ppAdminSummary,
+    ppDetailPlan,
   ]);
 
   // ---- Sidebar handlers ----
@@ -2474,9 +2602,13 @@ export default function Planos() {
   const ppDetailSummary = ppDetailPlan ? getPatientPlanSummary(ppDetailPlan) : null;
   const ppDetailStatus = ppDetailPlan ? getPatientPlanStatusInfo(ppDetailPlan) : null;
   const ppAdminHeader = ppAdminSummary?.header_summary || null;
-  const ppAdminBilling = ppAdminSummary?.billing_summary || null;
   const ppAdminPlanData = ppAdminSummary?.plan_data_summary || null;
   const ppPendingPlanChange = ppAdminSummary?.pending_plan_change || null;
+  const ppCommercialDisplay = buildPlanCommercialDisplay({
+    currentPlanName: ppAdminPlanData?.service_plan_name || ppDetailSummary?.planName,
+    pendingChange: ppPendingPlanChange,
+  });
+  const ppPendingPlanScheduleText = ppCommercialDisplay.pending_schedule_text;
   const ppDetailEditPermissions = ppDetailPlan?.edit_permissions || {};
   const ppDetailAgendaSummary = ppAdminSummary?.agenda_summary
     || getPatientPlanBackendAgendaSummary(ppDetailPlan);
@@ -2507,18 +2639,6 @@ export default function Planos() {
       params.set("patient_name", ppDetailNavigationPatientName);
     }
     history.push(`/agendamentos?${params.toString()}`);
-  }, [history, ppDetailNavigationPatientName, ppDetailPlan]);
-  const goToPatientFinancial = useCallback(() => {
-    if (!ppDetailPlan?.patient_id && !ppDetailNavigationPatientName) return;
-    const params = new URLSearchParams();
-    params.set("view", "mensalidades");
-    if (ppDetailPlan?.patient_id) {
-      params.set("patient_id", String(ppDetailPlan.patient_id));
-    }
-    if (ppDetailNavigationPatientName) {
-      params.set("patient_name", ppDetailNavigationPatientName);
-    }
-    history.push(`/financeiro?${params.toString()}`);
   }, [history, ppDetailNavigationPatientName, ppDetailPlan]);
   const ppDetailPlanOptions = useMemo(() => {
     const options = [...activeServicePlans];
@@ -2564,9 +2684,14 @@ export default function Planos() {
   const planChangeDayTimeEntries = getSchedDayTimeEntries(planChangeForm);
   const isPlanChangeWeekdayCountValid = !planChangeWeekdayLimit
     || planChangeForm.weekdays.length === planChangeWeekdayLimit;
+  const planChangePreviewPresentation = buildPlanChangePreviewPresentation({
+    status: planChangePreview.status,
+    preview: planChangePreview.data,
+    error: planChangePreview.error,
+  });
   const canContinuePlanChange = Boolean(planChangeForm.service_plan_id)
-    && isPlanChangeWeekdayCountValid;
-  const planChangeWindow = getNextCycleWindow(ppDetailPlan);
+    && isPlanChangeWeekdayCountValid
+    && planChangePreviewPresentation.ready;
   const isPpStatusActionBusy = Boolean(
     isSaving || ppPausePlan || ppPauseEditPlan || ppResumePlan || ppCancelPlan,
   );
@@ -2597,10 +2722,24 @@ export default function Planos() {
         <GhostButton type="button" onClick={startPpDetailEditing}>
           Editar dados
         </GhostButton>
-        {ppDetailPlan?.status === "active" && (
+        {ppDetailPlan?.status === "active" && ppCommercialDisplay.show_create_action && (
           <GhostButton type="button" onClick={openPlanChange}>
             Trocar plano
           </GhostButton>
+        )}
+        {ppDetailPlan?.status === "active" && ppCommercialDisplay.show_edit_action && (
+          <GhostButton type="button" onClick={openPlanChange} disabled={isPpStatusActionBusy}>
+            Editar troca agendada
+          </GhostButton>
+        )}
+        {ppDetailPlan?.status === "active" && ppCommercialDisplay.show_cancel_action && (
+          <DangerButton
+            type="button"
+            onClick={openScheduledPlanChangeCancellation}
+            disabled={isPpStatusActionBusy}
+          >
+            Cancelar troca agendada
+          </DangerButton>
         )}
       </>
     );
@@ -2655,24 +2794,6 @@ export default function Planos() {
   const ppDetailNextSessionText = ppDetailAgendaSummary?.next_session
     ? formatAgendaNextSession(ppDetailAgendaSummary.next_session)
     : "—";
-  const ppDetailBillingStatus = ppAdminBilling?.financial_status
-    || ppAdminHeader?.billing_status
-    || null;
-  const ppDetailBillingStatusLabel = ppAdminBilling?.financial_status_label
-    || ppAdminHeader?.billing_status_label
-    || null;
-  const ppDetailBillingIsOverdue = ppDetailBillingStatus === "overdue";
-  const ppDetailIsNoCharge = ppDetailPlan?.is_no_charge === true
-    || ppAdminPlanData?.is_no_charge === true
-    || ppDetailBillingStatus === "no_charge";
-  let ppDetailBillingChipLabel = ppDetailBillingStatusLabel || "Financeiro";
-  if (ppDetailIsNoCharge) {
-    ppDetailBillingChipLabel = "Sem cobrança";
-  } else if (ppDetailBillingIsOverdue) {
-    ppDetailBillingChipLabel = "Mensalidade vencida";
-  } else if (ppDetailBillingStatus === "paid") {
-    ppDetailBillingChipLabel = "Financeiro em dia";
-  }
   const ppDetailPlanFrequency = ppAdminPlanData?.frequency_label
     || ppDetailSummary?.frequency
     || "-";
@@ -2830,9 +2951,37 @@ export default function Planos() {
       <PlanAdminContentStack>
         <PlanInfoRows>
           <PlanInfoRow>
-            <span>Plano</span>
-            <strong>{ppAdminPlanData?.service_plan_name || ppDetailSummary?.planName || "—"}</strong>
+            <span>Plano atual</span>
+            <strong>{ppCommercialDisplay.current_plan_name}</strong>
           </PlanInfoRow>
+          {ppPendingPlanChange && (
+            <>
+              <PlanInfoRow>
+                <span>Troca agendada para</span>
+                <strong>{formatDateBR(ppPendingPlanChange.effective_on)}</strong>
+              </PlanInfoRow>
+              <PlanInfoRow>
+                <span>Configuração vigente</span>
+                <strong>
+                  {[
+                    ppCommercialDisplay.current_plan_name,
+                    ppAdminPlanData?.frequency_label,
+                    ppCommercialDisplay.current_schedule_text,
+                  ].filter(Boolean).join(" · ") || "—"}
+                </strong>
+              </PlanInfoRow>
+              <PlanInfoRow>
+                <span>Configuração futura</span>
+                <strong>
+                  {[
+                    ppPendingPlanChange.service_plan_name || "Novo plano",
+                    ppPendingPlanChange.new_configuration?.frequency_label,
+                    ppPendingPlanScheduleText,
+                  ].filter(Boolean).join(" · ") || "—"}
+                </strong>
+              </PlanInfoRow>
+            </>
+          )}
           <PlanInfoRow>
             <span>Início</span>
             <strong>{ppDetailPlanStartsAt}</strong>
@@ -2845,16 +2994,10 @@ export default function Planos() {
             <span>Valor</span>
             <strong>{ppDetailPlanValue}</strong>
           </PlanInfoRow>
-          {ppDetailIsNoCharge && (
-            <PlanInfoRow>
-              <span>Cobrança</span>
-              <PlanInfoValue $tone="active">Sem cobrança</PlanInfoValue>
-            </PlanInfoRow>
-          )}
           {ppDetailPlanNotes && (
             <PlanInfoRow>
               <span>Observações</span>
-              <strong>{ppDetailPlanNotes}</strong>
+              <PlanNotesValue>{ppDetailPlanNotes}</PlanNotesValue>
             </PlanInfoRow>
           )}
           <PlanInfoRow>
@@ -2878,23 +3021,6 @@ export default function Planos() {
             </PlanInfoLabel>
             <PlanInfoValue $tone={ppDetailAgendaHasActiveRecurrence ? "active" : "paused"}>
               {ppDetailAgendaShortStatusLabel}
-            </PlanInfoValue>
-          </PlanInfoRow>
-          <PlanInfoRow>
-            <PlanInfoLabel>
-              Financeiro
-              <IconShortcutButton
-                type="button"
-                onClick={goToPatientFinancial}
-                disabled={!ppDetailPlan?.patient_id && !ppDetailNavigationPatientName}
-                title="Abrir financeiro deste paciente"
-                aria-label="Abrir financeiro deste paciente"
-              >
-                <FaDollarSign />
-              </IconShortcutButton>
-            </PlanInfoLabel>
-            <PlanInfoValue $tone={ppDetailBillingStatus === "paid" || ppDetailIsNoCharge ? "active" : "canceled"}>
-              {simplifyBillingStatusLabel(ppDetailBillingChipLabel)}
             </PlanInfoValue>
           </PlanInfoRow>
         </PlanInfoRows>
@@ -3477,7 +3603,9 @@ export default function Planos() {
       {planChangeConfirmOpen && ppDetailPlan && planChangeSelectedPlan && (
         <PromptOverlay>
           <PromptCard>
-            <PromptTitle>Confirmar alteração</PromptTitle>
+            <PromptTitle>
+              {ppPendingPlanChange ? "Confirmar substituição da troca" : "Confirmar alteração"}
+            </PromptTitle>
             <ScheduleConfirmSummary>
               <ScheduleConfirmLine>
                 <span>Atual</span>
@@ -3488,8 +3616,8 @@ export default function Planos() {
                 <strong>{planChangeSelectedPlan.name}</strong>
               </ScheduleConfirmLine>
               <ScheduleConfirmLine>
-                <span>Início</span>
-                <strong>{formatDateBR(planChangeWindow?.nextCycleStart)}</strong>
+                <span>Início do novo plano</span>
+                <strong>{planChangePreviewPresentation.effective_label}</strong>
               </ScheduleConfirmLine>
               <ScheduleConfirmLine>
                 <span>Agenda</span>
@@ -3499,15 +3627,61 @@ export default function Planos() {
               </ScheduleConfirmLine>
             </ScheduleConfirmSummary>
             <PromptCopy>
-              Plano atual segue até {formatDateBR(planChangeWindow?.currentCycleEnd)}. Novo plano começa em {formatDateBR(planChangeWindow?.nextCycleStart)}.
+              {planChangePreviewPresentation.confirmation_text}
+              {ppPendingPlanChange ? " Esta confirmação substitui explicitamente a troca futura anterior." : ""}
             </PromptCopy>
             <PromptActions>
               <GhostButton type="button" onClick={() => setPlanChangeConfirmOpen(false)} disabled={isSaving}>
                 Voltar
               </GhostButton>
-              <PrimaryButton type="button" onClick={confirmPlanChange} disabled={isSaving}>
+              <PrimaryButton
+                type="button"
+                onClick={confirmPlanChange}
+                disabled={isSaving || !planChangePreviewPresentation.ready}
+              >
                 {isSaving ? "Alterando..." : "Confirmar alteração"}
               </PrimaryButton>
+            </PromptActions>
+          </PromptCard>
+        </PromptOverlay>
+      )}
+
+      {planChangeCancelOpen && ppDetailPlan && ppPendingPlanChange && (
+        <PromptOverlay>
+          <PromptCard>
+            <PromptTitle>Cancelar troca agendada?</PromptTitle>
+            <ScheduleConfirmSummary>
+              <ScheduleConfirmLine>
+                <span>Plano vigente</span>
+                <strong>{ppCommercialDisplay.current_plan_name}</strong>
+              </ScheduleConfirmLine>
+              <ScheduleConfirmLine>
+                <span>Troca futura</span>
+                <strong>{ppPendingPlanChange.service_plan_name || "Novo plano"}</strong>
+              </ScheduleConfirmLine>
+              <ScheduleConfirmLine>
+                <span>Agendada para</span>
+                <strong>{formatDateBR(ppPendingPlanChange.effective_on)}</strong>
+              </ScheduleConfirmLine>
+            </ScheduleConfirmSummary>
+            <PromptCopy>
+              O plano vigente continuará ativo. A configuração futura será desfeita e a Agenda e o Financeiro posteriores à data da troca serão restaurados para o plano vigente.
+            </PromptCopy>
+            <PromptActions>
+              <GhostButton
+                type="button"
+                onClick={closeScheduledPlanChangeCancellation}
+                disabled={isSaving}
+              >
+                Voltar
+              </GhostButton>
+              <DangerButton
+                type="button"
+                onClick={confirmScheduledPlanChangeCancellation}
+                disabled={isSaving}
+              >
+                {isSaving ? "Cancelando..." : "Cancelar troca agendada"}
+              </DangerButton>
             </PromptActions>
           </PromptCard>
         </PromptOverlay>
@@ -3801,7 +3975,7 @@ export default function Planos() {
       {/* ---- Change patient plan drawer ---- */}
       <AppDrawer $open={planChangeOpen}>
         <DrawerHeader>
-          <DrawerTitle>Trocar plano</DrawerTitle>
+          <DrawerTitle>{ppPendingPlanChange ? "Substituir troca futura" : "Trocar plano"}</DrawerTitle>
           <DrawerCloseBtn type="button" onClick={closePlanChange}>
             <FaTimes />
           </DrawerCloseBtn>
@@ -3847,11 +4021,9 @@ export default function Planos() {
                 ))}
               </select>
             </Field>
-            {planChangeWindow && (
-              <PlanChangeSmallSummary>
-                Atual até {formatDateBR(planChangeWindow.currentCycleEnd)} · Novo em {formatDateBR(planChangeWindow.nextCycleStart)}
-              </PlanChangeSmallSummary>
-            )}
+            <PlanChangeSmallSummary>
+              {planChangePreviewPresentation.status_text}
+            </PlanChangeSmallSummary>
             <Field as="div">
               Dias da semana *
               <WeekdayPicker>
@@ -4364,9 +4536,6 @@ export default function Planos() {
                           <TD>
                             <RowStatusStack>
                               <StatusPill $tone={si.tone}>{si.label}</StatusPill>
-                              {pp.is_no_charge === true && (
-                                <StatusPill $tone="neutral">Sem cobrança</StatusPill>
-                              )}
                             </RowStatusStack>
                           </TD>
                           <ActionTD>
@@ -4979,6 +5148,10 @@ const PlanInfoLabel = styled.span`
   display: inline-flex;
   gap: 7px;
   width: fit-content;
+`;
+
+const PlanNotesValue = styled.strong`
+  white-space: pre-line;
 `;
 
 const FieldLabelWithHelp = styled.span`

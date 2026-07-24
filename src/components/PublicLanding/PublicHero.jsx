@@ -3,7 +3,7 @@ import React from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import { Link as ScrollLink } from "react-scroll";
-import { FaArrowRight, FaInstagram, FaWhatsapp } from "react-icons/fa";
+import { FaArrowRight, FaWhatsapp } from "react-icons/fa";
 
 const OVERLAY_OPACITY = {
   light: 42,
@@ -77,7 +77,6 @@ HeroAction.propTypes = {
 
 export default function PublicHero({ config }) {
   const presentation = config.heroPresentation;
-  const contactIcons = Array.isArray(config.contactIcons) ? config.contactIcons : [];
   const overlaySource =
     OVERLAY_SOURCES[presentation.overlayColorSource] || OVERLAY_SOURCES["neutral-dark"];
   const overlayOpacity =
@@ -113,21 +112,6 @@ export default function PublicHero({ config }) {
             {config.secondaryAction && (
               <HeroAction action={config.secondaryAction} secondary />
             )}
-            {contactIcons.length > 0 && (
-              <ContactIcons aria-label="Contatos rápidos">
-                {contactIcons.map((item) => (
-                  <ContactIconLink
-                    key={item.id}
-                    href={item.href}
-                    target={item.isExternal ? "_blank" : undefined}
-                    rel={item.isExternal ? "noopener noreferrer" : undefined}
-                    aria-label={item.label}
-                  >
-                    {item.id === "instagram" ? <FaInstagram aria-hidden="true" /> : <FaWhatsapp aria-hidden="true" />}
-                  </ContactIconLink>
-                ))}
-              </ContactIcons>
-            )}
           </Actions>
         </Copy>
       </HeroInner>
@@ -151,23 +135,11 @@ PublicHero.propTypes = {
     }),
     eyebrow: PropTypes.string.isRequired,
     heroPresentation: PropTypes.shape({
-      contactIcons: PropTypes.arrayOf(PropTypes.shape({
-        href: PropTypes.string.isRequired,
-        id: PropTypes.oneOf(["instagram", "whatsapp"]).isRequired,
-        isExternal: PropTypes.bool.isRequired,
-        label: PropTypes.string.isRequired,
-      })),
       imagePosition: PropTypes.oneOf(["left", "center", "right"]).isRequired,
       overlayColorSource: PropTypes.oneOf(["neutral-dark", "primary", "secondary"]).isRequired,
       overlayStrength: PropTypes.oneOf(["light", "medium", "strong"]).isRequired,
       textTone: PropTypes.oneOf(["light", "dark"]).isRequired,
     }).isRequired,
-    contactIcons: PropTypes.arrayOf(PropTypes.shape({
-      href: PropTypes.string.isRequired,
-      id: PropTypes.oneOf(["instagram", "whatsapp"]).isRequired,
-      isExternal: PropTypes.bool.isRequired,
-      label: PropTypes.string.isRequired,
-    })),
     secondaryAction: actionShape,
     subtitle: PropTypes.string.isRequired,
     title: PropTypes.string.isRequired,
@@ -302,49 +274,6 @@ const Actions = styled.div`
   @media (max-width: 520px) {
     width: 100%;
     display: flex;
-  }
-`;
-
-const ContactIcons = styled.nav`
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-`;
-
-const ContactIconLink = styled.a`
-  width: 48px;
-  min-width: 48px;
-  height: 48px;
-  border: 1px solid rgba(255,255,255,.58);
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  background: rgba(255,255,255,.12);
-  backdrop-filter: blur(10px);
-  text-decoration: none;
-  box-shadow: 0 10px 24px rgba(0,0,0,.16);
-
-  svg {
-    width: 20px;
-    height: 20px;
-  }
-
-  &:hover {
-    background: rgba(255,255,255,.22);
-    transform: translateY(-1px);
-  }
-
-  &:focus-visible {
-    outline: 3px solid var(--public-accent-color, #a2b190);
-    outline-offset: 3px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    &:hover {
-      transform: none;
-    }
   }
 `;
 
