@@ -44,6 +44,12 @@ describe("PatientsSearch", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     axios.get.mockResolvedValue({ data: patients });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: jest.fn().mockResolvedValue(undefined),
+      },
+    });
   });
 
   it("carrega, pesquisa sem diferenciar acentos e preserva os links reais", async () => {
@@ -92,5 +98,82 @@ describe("PatientsSearch", () => {
       expect(toast.error).toHaveBeenCalledWith("Falha de teste ao carregar pacientes.");
     });
     expect(screen.getByText("Nenhum paciente encontrado.")).toBeInTheDocument();
+  });
+
+  it("gera o convite com o payload atual e exibe link, validade e sucesso", async () => {
+    axios.post.mockResolvedValue({
+      data: {
+        invite_url: "https://cadastro.test/convite-ativo",
+        expires_at: "2026-08-04T12:00:00.000Z",
+      },
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Gerar link" }));
+
+    expect(axios.post).toHaveBeenCalledWith("/patient-invites", {
+      expires_in_days: 7,
+    });
+    expect(await screen.findByDisplayValue("https://cadastro.test/convite-ativo"))
+      .toBeInTheDocument();
+    expect(screen.getByText("Expira em 04/08/2026")).toBeInTheDocument();
+    expect(toast.success).toHaveBeenCalledWith("Link gerado.");
+  });
+
+  it("mantém o envio único durante o carregamento", async () => {
+    let resolveInvite;
+    axios.post.mockImplementation(() => new Promise((resolve) => {
+      resolveInvite = resolve;
+    }));
+    renderPage();
+
+    const generateButton = await screen.findByRole("button", { name: "Gerar link" });
+    fireEvent.click(generateButton);
+
+    const loadingButton = await screen.findByRole("button", { name: "Gerando..." });
+    expect(loadingButton).toBeDisabled();
+    fireEvent.click(loadingButton);
+    expect(axios.post).toHaveBeenCalledTimes(1);
+
+    resolveInvite({ data: { invite_url: "https://cadastro.test/convite-unico" } });
+    expect(await screen.findByRole("button", { name: "Gerar link" })).toBeEnabled();
+  });
+
+  it("usa o código como fallback e copia o link gerado", async () => {
+    axios.post.mockResolvedValue({ data: { code: "codigo-convite" } });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Gerar link" }));
+    const expectedLink = `${window.location.origin}/cadastro/paciente/codigo-convite`;
+    expect(await screen.findByDisplayValue(expectedLink)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copiar" }));
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expectedLink);
+      expect(toast.success).toHaveBeenCalledWith("Link copiado.");
+    });
+  });
+
+  it("informa erros amigáveis ao gerar e copiar o convite", async () => {
+    axios.post.mockRejectedValueOnce({
+      response: { data: { error: "Convite indisponível para teste." } },
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Gerar link" }));
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("Convite indisponível para teste.");
+    });
+
+    axios.post.mockResolvedValueOnce({
+      data: { invite_url: "https://cadastro.test/convite-copia" },
+    });
+    navigator.clipboard.writeText.mockRejectedValueOnce(new Error("clipboard"));
+    fireEvent.click(screen.getByRole("button", { name: "Gerar link" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Copiar" }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("Não foi possível copiar o link.");
+    });
   });
 });
