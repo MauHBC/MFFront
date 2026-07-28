@@ -51,6 +51,7 @@ export default function FinancialOverviewSection({
     currentBalance,
     forecastBalance: (overview.revenues?.pending || 0) - pendingExpenses,
   };
+  const isAnnual = overviewPeriodMode === "year";
 
   return (
     <AttendanceSectionSurface>
@@ -78,7 +79,7 @@ export default function FinancialOverviewSection({
           </AttendanceTabGroup>
           <AttendancePeriodControls>
             <AttendancePeriodButton type="button" onClick={handleOverviewPreviousMonth}>
-              {"< Anterior"}
+              {isAnnual ? "< Ano anterior" : "< Anterior"}
             </AttendancePeriodButton>
             <AttendancePeriodChip>
               {overviewMonthLabel}
@@ -92,7 +93,7 @@ export default function FinancialOverviewSection({
               ) : null}
             </AttendancePeriodChip>
             <AttendancePeriodButton type="button" onClick={handleOverviewNextMonth}>
-              {"Próximo >"}
+              {isAnnual ? "Próximo ano >" : "Próximo >"}
             </AttendancePeriodButton>
           </AttendancePeriodControls>
         </AttendancePeriodBlockRight>
@@ -107,7 +108,9 @@ export default function FinancialOverviewSection({
         <>
           <AttendanceCard>
             <AttendanceCardHeader>
-              <AttendanceCardTitle>Resumo do mês</AttendanceCardTitle>
+              <AttendanceCardTitle>
+                {isAnnual ? "Resumo do ano" : "Resumo do mês"}
+              </AttendanceCardTitle>
             </AttendanceCardHeader>
             <OverviewSummaryGrid>
               <OverviewSummaryColumn $variant="current">
@@ -121,7 +124,9 @@ export default function FinancialOverviewSection({
                   <AttendanceMetricValue>{formatCurrency(summary.paidExpenses)}</AttendanceMetricValue>
                 </AttendanceMetricCard>
                 <AttendanceMetricCard $summaryFinal>
-                  <AttendanceMetricLabel>Resultado do mês atual</AttendanceMetricLabel>
+                  <AttendanceMetricLabel>
+                    {isAnnual ? "Resultado do ano atual" : "Resultado do mês atual"}
+                  </AttendanceMetricLabel>
                   <AttendanceMetricValue>{formatCurrency(summary.currentBalance)}</AttendanceMetricValue>
                 </AttendanceMetricCard>
               </OverviewSummaryColumn>
@@ -146,7 +151,11 @@ export default function FinancialOverviewSection({
 
           {!overview.hasMovement ? (
             <AttendanceEmptyState>
-              <p>Nenhuma movimentação encontrada para este mês.</p>
+              <p>
+                {isAnnual
+                  ? "Nenhuma movimentação encontrada para este ano."
+                  : "Nenhuma movimentação encontrada para este mês."}
+              </p>
             </AttendanceEmptyState>
           ) : null}
         </>

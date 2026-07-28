@@ -18,10 +18,18 @@ describe("financial service", () => {
   });
 
   it("chama o endpoint de resumo financeiro por mes", () => {
-    getFinancialOverview("2026-06");
+    getFinancialOverview("2026-06", "month");
 
     expect(api.get).toHaveBeenCalledWith("/financial-overview", {
       params: { month: "2026-06" },
+    });
+  });
+
+  it("chama o endpoint de resumo financeiro por ano sem enviar month", () => {
+    getFinancialOverview("2026", "year");
+
+    expect(api.get).toHaveBeenCalledWith("/financial-overview", {
+      params: { year: "2026" },
     });
   });
 

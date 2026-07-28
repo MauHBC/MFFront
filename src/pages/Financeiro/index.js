@@ -723,8 +723,8 @@ const createEmptyClinicExpensePayment = () => ({
   payment_notes: "",
 });
 
-const emptyFinancialOverview = (month = "") => ({
-  month,
+const emptyFinancialOverview = (period = "", periodMode = "month") => ({
+  ...(periodMode === "year" ? { year: period } : { month: period }),
   revenues: {
     expected: 0,
     received: 0,
@@ -751,7 +751,11 @@ const emptyFinancialOverview = (month = "") => ({
   hasMovement: false,
 });
 
-const normalizeFinancialOverview = (payload = {}, fallbackMonth = "") => {
+const normalizeFinancialOverview = (
+  payload = {},
+  fallbackPeriod = "",
+  periodMode = "month",
+) => {
   const received = Number(payload.received || 0);
   const receivable = Number(payload.receivable || 0);
   const paidExpenses = Number(payload.paidExpenses || 0);
@@ -760,7 +764,9 @@ const normalizeFinancialOverview = (payload = {}, fallbackMonth = "") => {
   const forecastBalance = Number(payload.pendingBalance || 0);
 
   return {
-    month: payload.month || fallbackMonth,
+    ...(periodMode === "year"
+      ? { year: payload.year || fallbackPeriod }
+      : { month: payload.month || fallbackPeriod }),
     revenues: {
       expected: received + receivable,
       received,
@@ -827,6 +833,7 @@ export default function Financeiro() {
   const [overviewSummary, setOverviewSummary] = useState(() =>
     emptyFinancialOverview(toMonthInputValue(new Date())),
   );
+  const overviewRequestRef = useRef(0);
   const [revenuesSummary, setRevenuesSummary] = useState(() =>
     emptyFinancialRevenuesSummary(toMonthInputValue(new Date())),
   );
@@ -1523,25 +1530,41 @@ export default function Financeiro() {
   ]);
 
   const loadOverviewData = useCallback(async () => {
+    const parsedPeriod = parseMonthInputValue(clinicExpensesMonth);
+    const overviewPeriod = overviewPeriodMode === "year"
+      ? String(parsedPeriod?.year || "")
+      : clinicExpensesMonth;
+    if (!overviewPeriod) return;
+
+    const requestId = overviewRequestRef.current + 1;
+    overviewRequestRef.current = requestId;
     try {
       setLoadingOverview(true);
       const [
         overviewResponse,
         clinicExpenseAlertsResponse,
       ] = await Promise.all([
-        getFinancialOverview(clinicExpensesMonth),
+        getFinancialOverview(overviewPeriod, overviewPeriodMode),
         getClinicExpenseAlerts(),
       ]);
 
-      setOverviewSummary(normalizeFinancialOverview(overviewResponse.data || {}, clinicExpensesMonth));
+      if (requestId !== overviewRequestRef.current) return;
+      setOverviewSummary(normalizeFinancialOverview(
+        overviewResponse.data || {},
+        overviewPeriod,
+        overviewPeriodMode,
+      ));
       setClinicExpenseAlertsCount(Number(clinicExpenseAlertsResponse.data?.dueSoonCount || 0));
     } catch (error) {
+      if (requestId !== overviewRequestRef.current) return;
       toast.error("Não foi possível carregar a visão geral financeira.");
-      setOverviewSummary(emptyFinancialOverview(clinicExpensesMonth));
+      setOverviewSummary(emptyFinancialOverview(overviewPeriod, overviewPeriodMode));
     } finally {
-      setLoadingOverview(false);
+      if (requestId === overviewRequestRef.current) {
+        setLoadingOverview(false);
+      }
     }
-  }, [clinicExpensesMonth]);
+  }, [clinicExpensesMonth, overviewPeriodMode]);
 
   const loadRevenuesSummary = useCallback(async () => {
     const summaryPeriod = attendancePeriodMode === "year"
@@ -2166,7 +2189,9 @@ export default function Financeiro() {
   }, []);
 
   const handleOverviewPeriodModeChange = useCallback((mode) => {
-    setOverviewPeriodMode(mode === "year" ? "year" : "month");
+    const nextMode = mode === "year" ? "year" : "month";
+    setLoadingOverview(true);
+    setOverviewPeriodMode(nextMode);
   }, []);
 
   const shiftOverviewPeriod = useCallback((direction) => {

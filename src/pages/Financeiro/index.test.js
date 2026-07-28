@@ -3,6 +3,7 @@ import "@testing-library/jest-dom";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
+import { toast } from "react-toastify";
 
 import Financeiro from "./index";
 import axios from "../../services/axios";
@@ -231,6 +232,149 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     });
     listBillingCycles.mockResolvedValue({ data: [] });
     applyScopedFinancialCredit.mockResolvedValue({ data: {} });
+  });
+
+  it("consulta visão geral mensal e anual com parâmetros exclusivos", async () => {
+    getFinancialOverview.mockImplementation((period, mode) => Promise.resolve({
+      data: mode === "year"
+        ? {
+          year: period,
+          received: 160000,
+          receivable: 140000,
+          paidExpenses: 25000,
+          pendingExpenses: 25000,
+          currentResult: 135000,
+          pendingBalance: 115000,
+        }
+        : {
+          month: period,
+          received: 10000,
+          receivable: 20000,
+          paidExpenses: 3000,
+          pendingExpenses: 4000,
+          currentResult: 7000,
+          pendingBalance: 16000,
+        },
+    }));
+    renderFinanceiro();
+    await revealFinancialValues();
+
+    await waitFor(() => {
+      expect(getFinancialOverview).toHaveBeenCalledWith("2026-06", "month");
+    });
+    expect(await screen.findByText("R$ 100,00")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+
+    expect(await screen.findByText("Carregando financeiro...")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(getFinancialOverview).toHaveBeenCalledWith("2026", "year");
+    });
+    expect(await screen.findByText("Resumo do ano")).toBeInTheDocument();
+    expect(screen.getByText("Resultado do ano atual")).toBeInTheDocument();
+    expect(screen.getByText("R$ 1.600,00")).toBeInTheDocument();
+    expect(screen.getByText("R$ 1.400,00")).toBeInTheDocument();
+    expect(screen.getAllByText("R$ 250,00")).toHaveLength(2);
+    expect(screen.getByText("R$ 1.350,00")).toBeInTheDocument();
+    expect(screen.getByText("R$ 1.150,00")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Mês" }));
+    await waitFor(() => {
+      expect(getFinancialOverview).toHaveBeenLastCalledWith("2026-06", "month");
+    });
+    expect(await screen.findByText("Resumo do mês")).toBeInTheDocument();
+  });
+
+  it("navega um mês no mensal e um ano no anual", async () => {
+    renderFinanceiro();
+
+    await waitFor(() => {
+      expect(getFinancialOverview).toHaveBeenCalledWith("2026-06", "month");
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Próximo >" }));
+    await waitFor(() => {
+      expect(getFinancialOverview).toHaveBeenCalledWith("2026-07", "month");
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+    await waitFor(() => {
+      expect(getFinancialOverview).toHaveBeenCalledWith("2026", "year");
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Próximo ano >" }));
+    await waitFor(() => {
+      expect(getFinancialOverview).toHaveBeenCalledWith("2027", "year");
+    });
+  });
+
+  it("ignora resposta atrasada de um modo anterior", async () => {
+    let resolveAnnual;
+    const annualRequest = new Promise((resolve) => {
+      resolveAnnual = resolve;
+    });
+    getFinancialOverview.mockImplementation((period, mode) => {
+      if (mode === "year") return annualRequest;
+      return Promise.resolve({
+        data: {
+          month: period,
+          received: 11000,
+          receivable: 0,
+          paidExpenses: 0,
+          pendingExpenses: 0,
+          currentResult: 11000,
+          pendingBalance: 0,
+        },
+      });
+    });
+    renderFinanceiro();
+    await revealFinancialValues();
+    expect(await screen.findAllByText("R$ 110,00")).toHaveLength(2);
+
+    await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+    await waitFor(() => {
+      expect(getFinancialOverview).toHaveBeenCalledWith("2026", "year");
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Mês" }));
+    await waitFor(() => {
+      expect(getFinancialOverview).toHaveBeenLastCalledWith("2026-06", "month");
+    });
+
+    resolveAnnual({
+      data: {
+        year: "2026",
+        received: 999000,
+        receivable: 0,
+        paidExpenses: 0,
+        pendingExpenses: 0,
+        currentResult: 999000,
+        pendingBalance: 0,
+      },
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText("R$ 110,00")).toHaveLength(2);
+      expect(screen.queryByText("R$ 9.990,00")).not.toBeInTheDocument();
+    });
+  });
+
+  it("mantém tratamento amigável quando a consulta anual falha", async () => {
+    getFinancialOverview.mockImplementation((period, mode) => (
+      mode === "year"
+        ? Promise.reject(new Error("annual failure"))
+        : Promise.resolve({ data: { month: period } })
+    ));
+    renderFinanceiro();
+    await waitFor(() => {
+      expect(getFinancialOverview).toHaveBeenCalledWith("2026-06", "month");
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith(
+        "Não foi possível carregar a visão geral financeira.",
+      );
+    });
+    expect(screen.getByText("Nenhuma movimentação encontrada para este ano."))
+      .toBeInTheDocument();
   });
 
   afterEach(() => {

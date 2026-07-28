@@ -39,8 +39,10 @@ export const updatePatientServiceAgreement = (id, payload) =>
 export const listFinancialEntries = (params) =>
   api.get('/financial-entries', { params });
 
-export const getFinancialOverview = (month) =>
-  api.get('/financial-overview', { params: { month } });
+export const getFinancialOverview = (period, periodMode = 'month') =>
+  api.get('/financial-overview', {
+    params: periodMode === 'year' ? { year: period } : { month: period },
+  });
 
 export const getFinancialRevenuesSummary = (period, periodMode = 'month') =>
   api.get('/financial-revenues-summary', {

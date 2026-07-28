@@ -57,15 +57,15 @@ const formatCurrency = (value) =>
     currency: "BRL",
   }).format(Number(value || 0) / 100);
 
-const renderOverview = (overview) =>
+const renderOverview = (overview, periodMode = "month") =>
   render(
     <FinancialOverviewSection
       ui={ui}
       loading={false}
       overview={overview}
       overviewMonth="2026-06"
-      overviewMonthLabel="junho de 2026"
-      overviewPeriodMode="month"
+      overviewMonthLabel={periodMode === "year" ? "2026" : "junho de 2026"}
+      overviewPeriodMode={periodMode}
       formatCurrency={formatCurrency}
       handleOverviewMonthChange={jest.fn()}
       handleOverviewPeriodModeChange={jest.fn()}
@@ -121,5 +121,26 @@ describe("FinancialOverviewSection", () => {
     expect(container.textContent).not.toContain("undefined");
     expect(container.textContent).not.toContain("20000");
     expect(container.textContent).not.toContain("30000");
+  });
+
+  it("usa títulos e estado vazio coerentes com a visão anual", () => {
+    renderOverview({
+      summary: {
+        received: 0,
+        receivable: 0,
+        paidExpenses: 0,
+        pendingExpenses: 0,
+        currentBalance: 0,
+        forecastBalance: 0,
+      },
+      hasMovement: false,
+    }, "year");
+
+    expect(screen.getByText("Resumo do ano")).toBeTruthy();
+    expect(screen.getByText("Resultado do ano atual")).toBeTruthy();
+    expect(screen.getByText("Nenhuma movimentação encontrada para este ano.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "< Ano anterior" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Próximo ano >" })).toBeTruthy();
+    expect(screen.queryByText("Resumo do mês")).toBeNull();
   });
 });
