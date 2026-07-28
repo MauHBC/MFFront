@@ -15,6 +15,14 @@ import {
   listFinancialEntries,
   listFinancialPayments,
 } from "../../services/financial";
+import AppShell from "../../components/AppShell";
+import {
+  colors,
+  layout,
+  radii,
+  shadows,
+  spacing,
+} from "../../styles/tokens";
 
 const PROFESSIONAL_GROUP_SLUG = "profissional";
 
@@ -314,7 +322,8 @@ export default function Dashboard() {
   const hasData = activeSessions.length > 0 || patients.length > 0 || operationalAlerts.length > 0 || financialSummary.receivedCents > 0 || financialSummary.receivableCents > 0;
 
   return (
-    <Page>
+    <AppShell pageTitle="Painel">
+      <Page>
       <Header>
         <div>
           <HeaderTitleRow>
@@ -497,7 +506,8 @@ export default function Dashboard() {
           </TwoColumn>
         </>
       )}
-    </Page>
+      </Page>
+    </AppShell>
   );
 }
 
@@ -522,13 +532,17 @@ MetricCard.propTypes = {
   value: PropTypes.node.isRequired,
 };
 
-const Page = styled.main`
-  min-height: 100vh;
-  padding: 112px 24px 52px;
+const Page = styled.div`
+  min-height: calc(100vh - ${layout.appHeaderHeight});
+  padding: ${spacing.xxl} ${spacing.xl} 52px;
   background:
     radial-gradient(circle at top left, rgba(227, 241, 236, 0.7), transparent 34%),
-    #f6f8fb;
-  color: #18211d;
+    ${colors.appBackground};
+  color: ${colors.textPrimary};
+
+  @media (max-width: ${layout.mobileBreakpoint}) {
+    padding: ${spacing.xl} ${spacing.lg} 40px;
+  }
 `;
 
 const Header = styled.header`
@@ -647,12 +661,13 @@ const StateBox = styled.div`
 
 const Section = styled.section`
   width: 100%;
+  min-width: 0;
   margin: 0;
-  background: #fff;
-  border: 1px solid rgba(37, 51, 44, 0.07);
-  border-radius: 16px;
+  background: ${colors.surface};
+  border: 1px solid ${colors.borderSubtle};
+  border-radius: ${radii.xl};
   padding: 20px;
-  box-shadow: 0 18px 38px rgba(24, 33, 29, 0.06);
+  box-shadow: ${shadows.subtle};
 `;
 
 const SectionTitle = styled.h2`
@@ -748,10 +763,10 @@ const Card = styled.div`
   gap: 16px;
   min-height: 116px;
   padding: 18px;
-  border: 1px solid rgba(37, 51, 44, 0.06);
-  border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 18px 38px rgba(24, 33, 29, 0.06);
+  border: 1px solid ${colors.borderSubtle};
+  border-radius: ${radii.xl};
+  background: ${colors.surface};
+  box-shadow: ${shadows.subtle};
   overflow: hidden;
 
   &::before {
@@ -923,6 +938,7 @@ const FinancialCard = styled.div`
 
 const ProfessionalsTable = styled.table`
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   overflow: hidden;
 

@@ -26,6 +26,7 @@ import {
 } from "../../services/scheduling";
 import { AppDrawer, DrawerBackdrop, UnsavedChangesDialog } from "../../components/AppDrawer";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
+import AppShell from "../../components/AppShell";
 import { SessionStatusButton } from "../../components/AppSessionStatus";
 import PatientSearchField from "../../components/PatientSearchField";
 import {
@@ -38,6 +39,7 @@ import {
   getPatientSearchText,
   normalizeSearchText,
 } from "../../utils/patientSearch";
+import { alpha, colors } from "../../styles/tokens";
 
 const START_HOUR = 7;
 const END_HOUR = 20;
@@ -5207,8 +5209,9 @@ export default function Agendamentos() {
   }
 
   return (
-    <PageWrapper $paddingTop="90px" $paddingBottom="60px">
-      <PageContent $maxWidth="1280px" $paddingX="30px" $paddingTop="0" $paddingBottom="0" $mobileBreakpoint="859px" $mobilePaddingX="15px" $mobilePaddingTop="0" $mobilePaddingBottom="0">
+    <AppShell pageTitle="Agenda">
+      <PageWrapper $paddingTop="0" $paddingBottom="60px">
+      <PageContent as="div" $maxWidth="1280px" $paddingX="30px" $paddingTop="32px" $paddingBottom="0" $mobileBreakpoint="859px" $mobilePaddingX="15px" $mobilePaddingTop="20px" $mobilePaddingBottom="0">
         <Header>
           <div>
             <h1 className="font40 extraBold">Agendamentos</h1>
@@ -7973,7 +7976,8 @@ export default function Agendamentos() {
           </PopoverCard>
         </PopoverOverlay>
       )}
-    </PageWrapper>
+      </PageWrapper>
+    </AppShell>
   );
 }
 
@@ -8984,16 +8988,16 @@ const ServicesLabel = styled.span`
 const WeekGrid = styled.div`
   border-radius: 16px;
   overflow: hidden;
-  border: 1px solid rgba(106, 121, 92, 0.2);
-  background: #fff;
+  border: 1px solid ${alpha.brand028};
+  background: ${colors.surface};
   box-shadow: 0 10px 24px rgba(42, 52, 35, 0.05);
 `;
 
 const WeekHeader = styled.div`
   display: grid;
   grid-template-columns: 80px repeat(${(props) => props.$cols || 5}, minmax(0, 1fr));
-  background: #f2f4ee;
-  border-bottom: 1px solid rgba(106, 121, 92, 0.15);
+  background: ${colors.surface};
+  border-bottom: 1px solid ${alpha.brand022};
 `;
 
 const WeekHeaderCell = styled.div`
@@ -9064,13 +9068,13 @@ const WeekPeriodRow = styled.div`
   display: grid;
   grid-template-columns: 80px repeat(5, minmax(0, 1fr));
   min-height: 36px;
-  border-bottom: 1px solid rgba(106, 121, 92, 0.12);
-  background: #f7f9f4;
+  border-bottom: 1px solid ${alpha.brand028};
+  background: ${colors.surfaceSecondary};
 `;
 
 const WeekPeriodSpacer = styled.div`
-  border-right: 1px solid rgba(106, 121, 92, 0.1);
-  background: linear-gradient(180deg, #f5f7f1 0%, #eef2e9 100%);
+  border-right: 1px solid ${alpha.brand028};
+  background: ${alpha.brand014};
 `;
 
 const WeekPeriodToggle = styled.button`
@@ -9082,13 +9086,13 @@ const WeekPeriodToggle = styled.button`
   width: 100%;
   padding: 8px 14px;
   border: none;
-  background: ${(props) => (props.$expanded ? "rgba(162, 177, 144, 0.14)" : "rgba(162, 177, 144, 0.08)")};
-  color: #42523a;
+  background: ${(props) => (props.$expanded ? alpha.brand022 : alpha.brand014)};
+  color: ${colors.brandDark};
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
 
   &:hover {
-    background: rgba(162, 177, 144, 0.18);
+    background: ${alpha.brand025};
   }
 `;
 
@@ -9103,7 +9107,7 @@ const WeekPeriodMeta = styled.span`
   margin-left: auto;
   font-size: 0.78rem;
   font-weight: 600;
-  color: #6a795c;
+  color: ${colors.brandDark};
 `;
 
 const WeekPeriodArrow = styled.strong`
@@ -9115,7 +9119,7 @@ const WeekRow = styled.div`
   display: grid;
   grid-template-columns: 80px repeat(${(props) => props.$cols || 5}, minmax(0, 1fr));
   min-height: 80px;
-  border-bottom: 1px solid rgba(106, 121, 92, 0.3);
+  border-bottom: 1px solid ${alpha.brand030};
   background: ${(props) => (props.$striped ? "rgba(106, 121, 92, 0.018)" : "#fff")};
   box-shadow:
     inset 0 -1px 0 rgba(255, 255, 255, 0.88),
@@ -9126,7 +9130,7 @@ const TimeCell = styled.div`
   padding: 8px 6px;
   color: #6a795c;
   font-weight: 600;
-  border-right: 1px solid rgba(106, 121, 92, 0.14);
+  border-right: 1px solid ${alpha.brand028};
   background: ${(props) => (props.$striped ? "#f6f8f3" : "#fafbf8")};
   display: flex;
   flex-direction: column;
@@ -9188,7 +9192,7 @@ const HourExpandToggle = styled.button`
 
 const SlotCell = styled.div`
   padding: 6px;
-  border-right: 1px solid rgba(106, 121, 92, 0.1);
+  border-right: 1px solid ${alpha.brand022};
   display: flex;
   flex-direction: column;
   gap: 6px;

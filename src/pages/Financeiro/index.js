@@ -3,9 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useLocation } from "react-router-dom";
 import styled from "styled-components";
 import {
-  FaBars,
   FaChartLine,
-  FaChevronLeft,
   FaEye,
   FaEyeSlash,
   FaMoneyBillWave,
@@ -19,22 +17,6 @@ import { toast } from "react-toastify";
 
 import Loading from "../../components/Loading";
 import { FinancialStatusPill } from "../../components/AppFinancialStatus";
-import {
-  SidebarShellWrapper,
-  SidebarShellLayout,
-  SidebarMainArea,
-} from "../../components/AppSidebarShell";
-import {
-  AppSidebar,
-  AppSidebarHeader,
-  AppSidebarSectionTitle,
-  AppSidebarToggle,
-  AppSidebarSection,
-  AppSidebarButton,
-  AppSidebarIcon,
-  AppSidebarLabel,
-  AppSidebarOverlay,
-} from "../../components/AppSidebar";
 import {
   PrimaryButton as SharedPrimaryButton,
   GhostButton as SharedGhostButton,
@@ -815,10 +797,7 @@ export default function Financeiro() {
   const routeLocation = useLocation();
   const [activeSection, setActiveSection] = useState("overview");
   const [receitasView, setReceitasView] = useState("atendimentos");
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [financialValuesVisible, setFinancialValuesVisible] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
   const formatCurrency = useCallback(
     (cents) => (financialValuesVisible ? formatCurrencyValue(cents) : MASKED_CURRENCY),
     [financialValuesVisible],
@@ -1042,36 +1021,6 @@ export default function Financeiro() {
     notes: "",
   });
 
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("financeiro_sidebar_collapsed");
-      if (stored !== null) {
-        setIsSidebarCollapsed(stored === "true");
-      }
-    } catch (error) {
-      // ignore storage errors
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return () => { };
-    const media = window.matchMedia("(max-width: 960px)");
-    const handleChange = () => {
-      setIsMobile(media.matches);
-      if (!media.matches) {
-        setIsSidebarOpen(false);
-      }
-    };
-
-    handleChange();
-    if (media.addEventListener) {
-      media.addEventListener("change", handleChange);
-      return () => media.removeEventListener("change", handleChange);
-    }
-    media.addListener(handleChange);
-    return () => media.removeListener(handleChange);
-  }, []);
 
   useEffect(() => {
     if (typeof document === "undefined") return () => { };
@@ -3205,42 +3154,11 @@ export default function Financeiro() {
     });
   }, []);
 
-  const toggleSidebar = useCallback(() => {
-    setIsSidebarCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem("financeiro_sidebar_collapsed", String(next));
-      } catch (error) {
-        // ignore storage errors
-      }
-      return next;
-    });
-  }, []);
-
-  const openSidebar = useCallback(() => {
-    setIsSidebarOpen(true);
-  }, []);
-
-  const closeSidebar = useCallback(() => {
-    setIsSidebarOpen(false);
-  }, []);
-
-  const handleSidebarToggle = useCallback(() => {
-    if (isMobile) {
-      closeSidebar();
-      return;
-    }
-    toggleSidebar();
-  }, [closeSidebar, isMobile, toggleSidebar]);
-
   const handleSectionChange = useCallback(
     (section) => {
       setActiveSection(section === "prices" ? "methods" : section);
-      if (isMobile) {
-        closeSidebar();
-      }
     },
-    [closeSidebar, isMobile],
+    [],
   );
 
   const openHolidayModal = useCallback(() => {
@@ -7894,16 +7812,6 @@ export default function Financeiro() {
     </Section>
   );
 
-  let sidebarToggleLabel = "Recolher menu";
-  let sidebarToggleIcon = <FaChevronLeft />;
-  if (isMobile) {
-    sidebarToggleLabel = "Fechar menu";
-    sidebarToggleIcon = <FaTimes />;
-  } else if (isSidebarCollapsed) {
-    sidebarToggleLabel = "Expandir menu";
-    sidebarToggleIcon = <FaBars />;
-  }
-
   const previewCycle = billingCycleSessionsPreview.cycle;
   const previewPatientName = previewCycle?.Patient ? getPatientDisplayName(previewCycle.Patient) : "-";
   const previewPlanName = previewCycle?.ServicePlan?.name || "-";
@@ -7927,148 +7835,86 @@ export default function Financeiro() {
   const showFinancialPrivacyToggle = ["overview", "receitas", "clinic-expenses"].includes(activeSection);
 
   return (
-    <SidebarShellWrapper $collapsed={isSidebarCollapsed}>
-      <SidebarShellLayout $collapsed={isSidebarCollapsed}>
-        <AppSidebar $collapsed={isSidebarCollapsed} $mobileOpen={isSidebarOpen}>
-          <AppSidebarHeader>
-            <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Menu</AppSidebarSectionTitle>
-            <AppSidebarToggle
+    <FinancePage>
+      <FinanceContent>
+        <FinanceSectionNavigation aria-label="Seções do Financeiro">
+          <FinanceSectionButton
+            type="button"
+            $active={activeSection === "overview"}
+            aria-pressed={activeSection === "overview"}
+            onClick={() => handleSectionChange("overview")}
+          >
+            <FaChartLine aria-hidden="true" /> Visão geral
+          </FinanceSectionButton>
+          <FinanceSectionButton
+            type="button"
+            $active={activeSection === "receitas"}
+            aria-pressed={activeSection === "receitas"}
+            onClick={() => handleSectionChange("receitas")}
+          >
+            <FaMoneyBillWave aria-hidden="true" /> Receitas
+          </FinanceSectionButton>
+          {SHOW_CLINIC_EXPENSES && (
+            <FinanceSectionButton
               type="button"
-              onClick={handleSidebarToggle}
-              aria-label={sidebarToggleLabel}
+              $active={activeSection === "clinic-expenses"}
+              aria-pressed={activeSection === "clinic-expenses"}
+              onClick={() => handleSectionChange("clinic-expenses")}
             >
-              {sidebarToggleIcon}
-            </AppSidebarToggle>
-          </AppSidebarHeader>
-
-          <AppSidebarSection $collapsed={isSidebarCollapsed}>
-            <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Operação</AppSidebarSectionTitle>
-            <AppSidebarButton
-              type="button"
-              $active={activeSection === "overview"}
-              $collapsed={isSidebarCollapsed}
-              onClick={() => handleSectionChange("overview")}
-              title="Visão geral"
-            >
-              <AppSidebarIcon $active={activeSection === "overview"}>
-                <FaChartLine />
-              </AppSidebarIcon>
-              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Visão geral</AppSidebarLabel>
-            </AppSidebarButton>
-            <AppSidebarButton
-              type="button"
-              $active={activeSection === "receitas"}
-              $collapsed={isSidebarCollapsed}
-              onClick={() => handleSectionChange("receitas")}
-              title="Receitas"
-            >
-              <AppSidebarIcon $active={activeSection === "receitas"}>
-                <FaMoneyBillWave />
-              </AppSidebarIcon>
-              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Receitas</AppSidebarLabel>
-            </AppSidebarButton>
-            {SHOW_CLINIC_EXPENSES && (
-              <AppSidebarButton
-                type="button"
-                $active={activeSection === "clinic-expenses"}
-                $collapsed={isSidebarCollapsed}
-                onClick={() => handleSectionChange("clinic-expenses")}
-                title="Despesas da clínica"
-                style={{ position: "relative" }}
-              >
-                <AppSidebarIcon $active={activeSection === "clinic-expenses"}>
-                  <FaWallet />
-                </AppSidebarIcon>
-                <AppSidebarLabel $collapsed={isSidebarCollapsed}>Despesas da clínica</AppSidebarLabel>
-                {clinicExpenseAlertsBadge ? (
-                  <SidebarAlertBadge $collapsed={isSidebarCollapsed}>
-                    {clinicExpenseAlertsBadge}
-                  </SidebarAlertBadge>
-                ) : null}
-              </AppSidebarButton>
-            )}
-          </AppSidebarSection>
-
+              <FaWallet aria-hidden="true" /> Despesas da clínica
+              {clinicExpenseAlertsBadge ? (
+                <SidebarAlertBadge>{clinicExpenseAlertsBadge}</SidebarAlertBadge>
+              ) : null}
+            </FinanceSectionButton>
+          )}
+          <FinanceSectionButton
+            type="button"
+            $active={activeSection === "methods"}
+            aria-pressed={activeSection === "methods"}
+            onClick={() => handleSectionChange("methods")}
+          >
+            <FaRegCreditCard aria-hidden="true" /> Formas de pagamento
+          </FinanceSectionButton>
+          <FinanceSectionButton
+            type="button"
+            $active={activeSection === "clinic-expense-categories"}
+            aria-pressed={activeSection === "clinic-expense-categories"}
+            onClick={() => handleSectionChange("clinic-expense-categories")}
+          >
+            <FaTags aria-hidden="true" /> Categorias de despesas
+          </FinanceSectionButton>
           {SHOW_FINANCIAL_MANAGEMENT && (
-            <AppSidebarSection $collapsed={isSidebarCollapsed}>
-              <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Gestao</AppSidebarSectionTitle>
-              <AppSidebarButton
+            <>
+              <FinanceSectionButton
                 type="button"
                 $active={activeSection === "recurring"}
-                $collapsed={isSidebarCollapsed}
+                aria-pressed={activeSection === "recurring"}
                 onClick={() => handleSectionChange("recurring")}
-                title="Despesas fixas"
               >
-                <AppSidebarIcon $active={activeSection === "recurring"}>
-                  <FaWallet />
-                </AppSidebarIcon>
-                <AppSidebarLabel $collapsed={isSidebarCollapsed}>Despesas fixas</AppSidebarLabel>
-              </AppSidebarButton>
-            </AppSidebarSection>
-          )}
-
-          {SHOW_FINANCIAL_REPORTS && (
-            <AppSidebarSection $collapsed={isSidebarCollapsed}>
-              <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Relatorios</AppSidebarSectionTitle>
-              <AppSidebarButton
-                type="button"
-                $active={activeSection === "reports"}
-                $collapsed={isSidebarCollapsed}
-                onClick={() => handleSectionChange("reports")}
-                title="Relatorios"
-              >
-                <AppSidebarIcon $active={activeSection === "reports"}>
-                  <FaChartLine />
-                </AppSidebarIcon>
-                <AppSidebarLabel $collapsed={isSidebarCollapsed}>Relatorios</AppSidebarLabel>
-              </AppSidebarButton>
-            </AppSidebarSection>
-          )}
-
-          <AppSidebarSection $collapsed={isSidebarCollapsed}>
-            <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Configurações</AppSidebarSectionTitle>
-            <AppSidebarButton
-              type="button"
-              $active={activeSection === "methods"}
-              $collapsed={isSidebarCollapsed}
-              onClick={() => handleSectionChange("methods")}
-              title="Formas de pagamento"
-            >
-              <AppSidebarIcon $active={activeSection === "methods"}>
-                <FaRegCreditCard />
-              </AppSidebarIcon>
-              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Formas de pagamento</AppSidebarLabel>
-            </AppSidebarButton>
-            <AppSidebarButton
-              type="button"
-              $active={activeSection === "clinic-expense-categories"}
-              $collapsed={isSidebarCollapsed}
-              onClick={() => handleSectionChange("clinic-expense-categories")}
-              title="Categorias de despesas"
-            >
-              <AppSidebarIcon $active={activeSection === "clinic-expense-categories"}>
-                <FaTags />
-              </AppSidebarIcon>
-              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Categorias de despesas</AppSidebarLabel>
-            </AppSidebarButton>
-            {SHOW_FINANCIAL_MANAGEMENT && (
-              <AppSidebarButton
+                <FaWallet aria-hidden="true" /> Despesas fixas
+              </FinanceSectionButton>
+              <FinanceSectionButton
                 type="button"
                 $active={activeSection === "categories"}
-                $collapsed={isSidebarCollapsed}
+                aria-pressed={activeSection === "categories"}
                 onClick={() => handleSectionChange("categories")}
-                title="Categorias"
               >
-                <AppSidebarIcon $active={activeSection === "categories"}>
-                  <FaTags />
-                </AppSidebarIcon>
-                <AppSidebarLabel $collapsed={isSidebarCollapsed}>Categorias</AppSidebarLabel>
-              </AppSidebarButton>
-            )}
-          </AppSidebarSection>
-        </AppSidebar>
+                <FaTags aria-hidden="true" /> Categorias
+              </FinanceSectionButton>
+            </>
+          )}
+          {SHOW_FINANCIAL_REPORTS && (
+            <FinanceSectionButton
+              type="button"
+              $active={activeSection === "reports"}
+              aria-pressed={activeSection === "reports"}
+              onClick={() => handleSectionChange("reports")}
+            >
+              <FaChartLine aria-hidden="true" /> Relatórios
+            </FinanceSectionButton>
+          )}
+        </FinanceSectionNavigation>
 
-        <SidebarMainArea>
           <Header>
             <HeaderText>
               <HeaderTitleRow>
@@ -8090,10 +7936,6 @@ export default function Financeiro() {
                 {renderReceitasTabs()}
               </HeaderTabsSlot>
             )}
-            <MobileMenuButton type="button" onClick={openSidebar}>
-              <FaBars />
-              Menu
-            </MobileMenuButton>
           </Header>
 
           <>
@@ -8107,10 +7949,7 @@ export default function Financeiro() {
             {activeSection === "holidays" && renderHolidays()}
             {SHOW_FINANCIAL_REPORTS && activeSection === "reports" && renderReports()}
           </>
-        </SidebarMainArea>
-      </SidebarShellLayout>
-
-      {isMobile && isSidebarOpen && <AppSidebarOverlay onClick={closeSidebar} />}
+      </FinanceContent>
 
       {selectedAttendancePackage && attendanceSelectedPatientSummary && (
         <>
@@ -9538,7 +9377,7 @@ export default function Financeiro() {
         onKeepEditing={keepModalEditing}
         onDiscard={discardModalChanges}
       />
-    </SidebarShellWrapper>
+    </FinancePage>
   );
 }
 
@@ -9918,27 +9757,66 @@ const MutedText = styled.span`
   color: #7a7a7a;
 `;
 
-// Botão de abertura da sidebar no mobile - específico do layout do Financeiro.
-const MobileMenuButton = styled.button`
-  display: none;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  background: #fff;
-  color: #2b2b2b;
-  font-weight: 700;
+const FinancePage = styled.div`
+  min-height: calc(100vh - 72px);
+  background: #f6f8f4;
+`;
+
+const FinanceContent = styled.div`
+  width: min(100%, 1600px);
+  margin: 0 auto;
+  padding: 24px 32px 64px;
+  box-sizing: border-box;
 
   @media (max-width: 960px) {
-    display: inline-flex;
+    padding: 24px 20px 64px;
+  }
+`;
+
+const FinanceSectionNavigation = styled.nav`
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding-top: 7px;
+  padding-bottom: 8px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  border-bottom: 1px solid rgba(106, 121, 92, 0.18);
+`;
+
+const FinanceSectionButton = styled.button`
+  position: relative;
+  min-height: 44px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: 1px solid ${(props) => (props.$active ? "#6a795c" : "rgba(106, 121, 92, 0.18)")};
+  border-radius: 10px;
+  background: ${(props) => (props.$active ? "#e8eee0" : "#fff")};
+  color: ${(props) => (props.$active ? "#354a2c" : "#5d6957")};
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    background: #eef3e9;
+    color: #354a2c;
+  }
+
+  &:focus-visible {
+    outline: 3px solid rgba(106, 121, 92, 0.28);
+    outline-offset: 2px;
   }
 `;
 
 const SidebarAlertBadge = styled.span`
   position: absolute;
-  top: -7px;
-  right: -7px;
+  top: -6px;
+  right: -6px;
   min-width: 22px;
   height: 22px;
   padding: 0 6px;

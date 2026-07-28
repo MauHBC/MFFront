@@ -3,34 +3,17 @@ import styled from "styled-components";
 import { useHistory, useLocation, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
-  FaBars,
   FaCalendarAlt,
-  FaChevronLeft,
   FaInfoCircle,
-  FaLayerGroup,
   FaPlus,
-  FaTags,
   FaTimes,
-  FaUsers,
 } from "react-icons/fa";
 
-import { ModuleBody } from "../../components/AppModuleShell";
 import {
-  SidebarShellWrapper,
-  SidebarShellLayout,
-  SidebarMainArea,
-} from "../../components/AppSidebarShell";
-import {
-  AppSidebar,
-  AppSidebarHeader,
-  AppSidebarSectionTitle,
-  AppSidebarToggle,
-  AppSidebarSection,
-  AppSidebarButton,
-  AppSidebarIcon,
-  AppSidebarLabel,
-  AppSidebarOverlay,
-} from "../../components/AppSidebar";
+  ModuleBody,
+  ModuleTabs,
+  ModuleTabButton,
+} from "../../components/AppModuleShell";
 import { AppToolbar, AppToolbarLeft } from "../../components/AppToolbar";
 import {
   PrimaryButton,
@@ -865,9 +848,6 @@ export default function Planos() {
   const isPatientPlanDetailPage = !!patientPlanId;
   const [activeTab, setActiveTab] = useState("patient-plans");
   const [isSaving, setIsSaving] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
 
   // Base data
   const [services, setServices] = useState([]);
@@ -1066,36 +1046,6 @@ export default function Planos() {
       setPpPatientSearch(patientName);
     }
   }, [location.search, patients]);
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("planos_sidebar_collapsed");
-      if (stored !== null) {
-        setIsSidebarCollapsed(stored === "true");
-      }
-    } catch (error) {
-      // ignore storage errors
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return () => { };
-    const media = window.matchMedia("(max-width: 960px)");
-    const handleChange = () => {
-      setIsMobile(media.matches);
-      if (!media.matches) {
-        setIsSidebarOpen(false);
-      }
-    };
-
-    handleChange();
-    if (media.addEventListener) {
-      media.addEventListener("change", handleChange);
-      return () => media.removeEventListener("change", handleChange);
-    }
-    media.addListener(handleChange);
-    return () => media.removeListener(handleChange);
-  }, []);
 
   useEffect(() => {
     if (activeTab === "patient-plans") loadPatientPlans();
@@ -2431,47 +2381,14 @@ export default function Planos() {
     ppDetailPlan,
   ]);
 
-  // ---- Sidebar handlers ----
-
-  const toggleSidebar = useCallback(() => {
-    setIsSidebarCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem("planos_sidebar_collapsed", String(next));
-      } catch (error) {
-        // ignore storage errors
-      }
-      return next;
-    });
-  }, []);
-
-  const openSidebar = useCallback(() => {
-    setIsSidebarOpen(true);
-  }, []);
-
-  const closeSidebar = useCallback(() => {
-    setIsSidebarOpen(false);
-  }, []);
-
-  const handleSidebarToggle = useCallback(() => {
-    if (isMobile) {
-      closeSidebar();
-      return;
-    }
-    toggleSidebar();
-  }, [closeSidebar, isMobile, toggleSidebar]);
-
   const handleSectionChange = useCallback(
     (section) => {
       if (isPatientPlanDetailPage) {
         history.push("/planos");
       }
       setActiveTab(section);
-      if (isMobile) {
-        closeSidebar();
-      }
     },
-    [closeSidebar, history, isMobile, isPatientPlanDetailPage],
+    [history, isPatientPlanDetailPage],
   );
 
   // ---- Drawer visibility ----
@@ -2568,15 +2485,6 @@ export default function Planos() {
     ? ppResumePreview.conflicted_sessions
     : [];
   const ppCancelSummary = ppCancelPlan ? getPatientPlanSummary(ppCancelPlan) : null;
-  let sidebarToggleLabel = "Recolher menu";
-  let sidebarToggleIcon = <FaChevronLeft />;
-  if (isMobile) {
-    sidebarToggleLabel = "Fechar menu";
-    sidebarToggleIcon = <FaTimes />;
-  } else if (isSidebarCollapsed) {
-    sidebarToggleLabel = "Expandir menu";
-    sidebarToggleIcon = <FaBars />;
-  }
   const activeSectionInfo = {
     "patient-plans": {
       title: "Pacientes com plano",
@@ -3145,7 +3053,7 @@ export default function Planos() {
   const futureRemovalCanConfirm = Number(futureRemovalPreview?.removable_count || 0) > 0
     && !futureRemovalConfirming;
 	  return (
-	    <SidebarShellWrapper $collapsed={isSidebarCollapsed}>
+	    <PlansPage>
 	      {anyDrawerOpen && <DrawerBackdrop onClick={handleBackdropClick} />}
 	      <UnsavedChangesDialog
 	        open={Boolean(discardDrawerClose)}
@@ -3867,6 +3775,7 @@ export default function Planos() {
             )}
             <PatientSearchField
               mode="select"
+              inputId="patient-plan-patient"
               required
               patients={patients}
               selectedPatientId={ppForm.patient_id}
@@ -4256,76 +4165,45 @@ export default function Planos() {
         </DrawerBody>
       </AppDrawer>
 
-      <SidebarShellLayout $collapsed={isSidebarCollapsed}>
-        <AppSidebar $collapsed={isSidebarCollapsed} $mobileOpen={isSidebarOpen}>
-          <AppSidebarHeader>
-            <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Menu</AppSidebarSectionTitle>
-            <AppSidebarToggle
-              type="button"
-              onClick={handleSidebarToggle}
-              title={sidebarToggleLabel}
-              aria-label={sidebarToggleLabel}
-            >
-              {sidebarToggleIcon}
-            </AppSidebarToggle>
-          </AppSidebarHeader>
+	      <PlansContent>
+	          <Header>
+	            <HeaderText>
+	              <Title>{activeSectionInfo.title}</Title>
+	              {activeSectionInfo.subtitle && <Subtitle>{activeSectionInfo.subtitle}</Subtitle>}
+	            </HeaderText>
+	          </Header>
 
-          <AppSidebarSection $collapsed={isSidebarCollapsed}>
-            <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Planos</AppSidebarSectionTitle>
-            <AppSidebarButton
-              type="button"
-              $active={activeTab === "patient-plans"}
-              $collapsed={isSidebarCollapsed}
-              onClick={() => handleSectionChange("patient-plans")}
-              title="Pacientes com plano"
-            >
-              <AppSidebarIcon $active={activeTab === "patient-plans"}>
-                <FaUsers />
-              </AppSidebarIcon>
-              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Pacientes com plano</AppSidebarLabel>
-            </AppSidebarButton>
-          </AppSidebarSection>
-
-          <AppSidebarSection $collapsed={isSidebarCollapsed}>
-            <AppSidebarSectionTitle $collapsed={isSidebarCollapsed}>Configurações</AppSidebarSectionTitle>
-            <AppSidebarButton
-              type="button"
-              $active={activeTab === "service-plans"}
-              $collapsed={isSidebarCollapsed}
-              onClick={() => handleSectionChange("service-plans")}
-              title="Planos mensais"
-            >
-              <AppSidebarIcon $active={activeTab === "service-plans"}>
-                <FaLayerGroup />
-              </AppSidebarIcon>
-              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Planos mensais</AppSidebarLabel>
-            </AppSidebarButton>
-            <AppSidebarButton
-              type="button"
-              $active={activeTab === "services"}
-              $collapsed={isSidebarCollapsed}
-              onClick={() => handleSectionChange("services")}
-              title="Serviços"
-            >
-              <AppSidebarIcon $active={activeTab === "services"}>
-                <FaTags />
-              </AppSidebarIcon>
-              <AppSidebarLabel $collapsed={isSidebarCollapsed}>Serviços</AppSidebarLabel>
-            </AppSidebarButton>
-          </AppSidebarSection>
-        </AppSidebar>
-
-        <SidebarMainArea>
-          <Header>
-            <HeaderText>
-              <Title>{activeSectionInfo.title}</Title>
-              {activeSectionInfo.subtitle && <Subtitle>{activeSectionInfo.subtitle}</Subtitle>}
-            </HeaderText>
-            <MobileMenuButton type="button" onClick={openSidebar}>
-              <FaBars />
-              Menu
-            </MobileMenuButton>
-          </Header>
+	          {!isPatientPlanDetailPage && (
+	            <ModuleTabs role="tablist" aria-label="Seções de Planos">
+	              <ModuleTabButton
+	                type="button"
+	                role="tab"
+	                $active={activeTab === "patient-plans"}
+	                aria-selected={activeTab === "patient-plans"}
+	                onClick={() => handleSectionChange("patient-plans")}
+	              >
+	                Pacientes com plano
+	              </ModuleTabButton>
+	              <ModuleTabButton
+	                type="button"
+	                role="tab"
+	                $active={activeTab === "service-plans"}
+	                aria-selected={activeTab === "service-plans"}
+	                onClick={() => handleSectionChange("service-plans")}
+	              >
+	                Planos mensais
+	              </ModuleTabButton>
+	              <ModuleTabButton
+	                type="button"
+	                role="tab"
+	                $active={activeTab === "services"}
+	                aria-selected={activeTab === "services"}
+	                onClick={() => handleSectionChange("services")}
+	              >
+	                Serviços
+	              </ModuleTabButton>
+	            </ModuleTabs>
+	          )}
 
           {isPatientPlanDetailPage && (
             <ModuleBody>
@@ -4453,8 +4331,9 @@ export default function Planos() {
             <ModuleBody>
               <AppToolbar>
                 <AppToolbarLeft>
-                  <PatientSearchField
-                    mode="filter"
+	                  <PatientSearchField
+	                    mode="filter"
+	                    inputId="patient-plans-search"
                     value={ppPatientSearch}
                     onChange={(value) => {
                       setPpFocusedPlanId("");
@@ -4745,11 +4624,8 @@ export default function Planos() {
               </TableWrap>
             </ModuleBody>
           )}
-        </SidebarMainArea>
-      </SidebarShellLayout>
-
-      {isMobile && isSidebarOpen && <AppSidebarOverlay onClick={closeSidebar} />}
-    </SidebarShellWrapper>
+	        </PlansContent>
+	    </PlansPage>
   );
 }
 
@@ -4785,20 +4661,30 @@ const Subtitle = styled.p`
   font-size: 15px;
 `;
 
-const MobileMenuButton = styled.button`
-  display: none;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid rgba(106, 121, 92, 0.22);
-  border-radius: 10px;
-  background: #fff;
-  color: #3d5230;
-  padding: 9px 12px;
-  font-weight: 700;
-  cursor: pointer;
+const PlansPage = styled.div`
+  min-height: calc(100vh - 72px);
+  background: #f6f8f4;
+`;
+
+const PlansContent = styled.div`
+  width: min(100%, 1440px);
+  margin: 0 auto;
+  padding: 24px 32px 64px;
+  box-sizing: border-box;
 
   @media (max-width: 960px) {
-    display: inline-flex;
+    padding: 24px 20px 64px;
+  }
+
+  ${ModuleTabs} {
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  ${ModuleTabButton} {
+    flex: 0 0 auto;
+    min-height: 44px;
+    white-space: nowrap;
   }
 `;
 

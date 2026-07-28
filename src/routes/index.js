@@ -27,19 +27,46 @@ import SchedulingEvents from "../pages/SchedulingEvents";
 import Planos from "../pages/Planos";
 import PlatformPaused from "../pages/PlatformPaused";
 import { isPlansModuleEnabled } from "../config/features";
+import AppShell from "../components/AppShell";
+
+function getPatientsPageTitle(pathname) {
+  if (pathname === "/pacientes/novo") return "Novo paciente";
+  if (pathname.includes("/avaliacoes/nova")) return "Nova avaliação";
+  if (pathname.includes("/avaliacoes/")) return "Avaliação";
+  if (/^\/pacientes\/[^/]+$/.test(pathname)) return "Perfil do paciente";
+  return "Pacientes";
+}
+
+function getAppShellPageTitle(pathname) {
+  if (pathname === "/financeiro") return "Financeiro";
+  if (pathname === "/planos" || pathname.startsWith("/planos/")) return "Planos";
+  return getPatientsPageTitle(pathname);
+}
 
 export default function Routes() {
   const location = useLocation();
 
   // Condicional para verificar se não é a HomePage
   const isPublicSignup = location.pathname.startsWith("/cadastro/paciente");
-  const shouldShowNavbar = location.pathname !== "/" && !isPublicSignup;
+  const usesPatientsAppShell = location.pathname === "/pacientes"
+    || location.pathname.startsWith("/pacientes/");
+  const usesPlansAppShell = location.pathname === "/planos"
+    || location.pathname.startsWith("/planos/");
+  const usesFinancialAppShell = location.pathname === "/financeiro";
+  const usesAppShell = [
+    "/menu",
+    "/painel",
+    "/dashboard",
+    "/agendamentos",
+    "/agendamentos/eventos",
+  ].includes(location.pathname)
+    || usesPatientsAppShell
+    || usesPlansAppShell
+    || usesFinancialAppShell;
+  const shouldShowNavbar = location.pathname !== "/" && !isPublicSignup && !usesAppShell;
 
-  return (
-    <>
-      {shouldShowNavbar && <ImobNavbar />} {/* Exibe a navbar em todas as páginas, exceto na HomePage */}
-
-      <Switch>
+  const routeContent = (
+    <Switch>
         {/* Rotas públicas */}
         <MyRoute exact path="/" component={HomePage} isClosed={false} />
         <MyRoute exact path="/menu" component={Menu} isClosed />
@@ -78,7 +105,17 @@ export default function Routes() {
         {/* Rota para páginas não encontradas ou sem acesso */}
         <MyRoute exact path="/semAcesso/" component={SemAcesso} isClosed={false} />
         <MyRoute path="*" component={Page404} isClosed={false} />
-      </Switch>
+    </Switch>
+  );
+
+  return (
+    <>
+      {shouldShowNavbar && <ImobNavbar />} {/* Exibe a navbar em todas as páginas, exceto na HomePage */}
+      {usesPatientsAppShell || usesPlansAppShell || usesFinancialAppShell ? (
+        <AppShell pageTitle={getAppShellPageTitle(location.pathname)}>
+          {routeContent}
+        </AppShell>
+      ) : routeContent}
     </>
   );
 }

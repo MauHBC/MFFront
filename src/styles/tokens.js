@@ -1,9 +1,29 @@
 export const colors = {
   brand: "var(--clinic-primary-color, #6a795c)",
   brandDark: "var(--clinic-secondary-color, #3d5230)",
+  brandHover: "var(--clinic-secondary-color, #536447)",
+  brandPressed: "#33412d",
+  focus: "#2f6fed",
   ink: "#1b1b1b",
   white: "#fff",
   appBackground: "#f7f8f4",
+  surface: "#ffffff",
+  surfaceSecondary: "#f4f6f2",
+  surfaceElevated: "#ffffff",
+  textPrimary: "#18211d",
+  textSecondary: "#556159",
+  textMuted: "#78827b",
+  borderSubtle: "rgba(37, 51, 44, 0.12)",
+  navigationBackground: "#f7f9f5",
+  navigationHover: "rgba(106, 121, 92, 0.1)",
+  navigationActive: "var(--clinic-primary-color, #6a795c)",
+  navigationActiveText: "#ffffff",
+  disabledBackground: "#edf0eb",
+  disabledText: "#9aa19c",
+  success: "#2f7d4a",
+  warning: "#a56608",
+  danger: "#a33b32",
+  info: "#346b91",
   sidebarBackground: "#f6f7f2",
   tableHeaderBackground: "#fafbf8",
   fieldDisabledBackground: "#f4f5f2",
@@ -40,12 +60,16 @@ export const radii = {
   sm: "8px",
   md: "10px",
   lg: "12px",
+  xl: "16px",
   pill: "20px",
 };
 
 export const layout = {
   topbarHeight: "80px",
+  appHeaderHeight: "64px",
   pageMaxWidth: "1200px",
+  appSidebarWidth: "256px",
+  appSidebarCollapsedWidth: "76px",
   sidebarWidth: "240px",
   sidebarCollapsedWidth: "86px",
   mobileBreakpoint: "768px",
@@ -54,6 +78,12 @@ export const layout = {
 };
 
 export const spacing = {
+  xs: "4px",
+  sm: "8px",
+  md: "12px",
+  lg: "16px",
+  xl: "24px",
+  xxl: "32px",
   pageX: "24px",
   pageTop: "32px",
   pageBottom: "48px",
@@ -70,4 +100,17 @@ export const fontSizes = {
   small: "0.81rem",
   tiny: "0.76rem",
   pill: "0.77rem",
+};
+
+export const shadows = {
+  subtle: "0 1px 2px rgba(24, 33, 29, 0.05)",
+  elevated: "0 14px 36px rgba(24, 33, 29, 0.08)",
+  navigation: "6px 0 24px rgba(24, 33, 29, 0.06)",
+};
+
+export const typography = {
+  family: "'Khula', sans-serif",
+  weightRegular: 400,
+  weightSemibold: 600,
+  weightBold: 800,
 };

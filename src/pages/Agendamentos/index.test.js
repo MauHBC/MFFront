@@ -13,6 +13,10 @@ import {
 } from "../../services/scheduling";
 import { getCoveragePreview, listPatientPlans } from "../../services/financial";
 
+jest.mock("../../components/AppShell", () => function AppShellMock({ children }) {
+  return <div data-testid="app-shell">{children}</div>;
+});
+
 jest.mock("react-toastify", () => ({
   toast: {
     error: jest.fn(),
@@ -266,6 +270,13 @@ describe("Agendamentos - editar agendamento", () => {
       }],
     });
     getCoveragePreview.mockResolvedValue({ data: null });
+  });
+
+  it("renderiza a Agenda dentro do App Shell", async () => {
+    renderAgendamentos();
+
+    expect(screen.getByTestId("app-shell")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Agendamentos" })).toBeInTheDocument();
   });
 
   afterEach(() => {

@@ -7,6 +7,7 @@ import { getUserFacingApiError } from "../../services/axios";
 import DataLoadingState from "../../components/DataLoadingState";
 import { LinkGhostButton } from "../../components/AppButton";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
+import AppShell from "../../components/AppShell";
 import {
   ModuleHeader,
   ModulePanel,
@@ -440,14 +441,16 @@ export default function SchedulingEvents() {
   }
 
   return (
-    <PageWrapper $paddingTop="90px" $paddingBottom="60px">
+    <AppShell pageTitle="Configurações da Agenda">
+      <PageWrapper $paddingTop="0" $paddingBottom="60px">
       <PageContent
+        as="div"
         $maxWidth="1260px"
-        $paddingTop="0"
+        $paddingTop="32px"
         $paddingX="20px"
         $paddingBottom="0"
         $mobilePaddingX="20px"
-        $mobilePaddingTop="0"
+        $mobilePaddingTop="20px"
         $mobilePaddingBottom="0"
       >
         <Header>
@@ -759,7 +762,8 @@ export default function SchedulingEvents() {
           </>
         )}
       </PageContent>
-    </PageWrapper>
+      </PageWrapper>
+    </AppShell>
   );
 }
 

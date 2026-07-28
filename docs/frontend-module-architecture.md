@@ -111,6 +111,36 @@ daquele módulo.
 
 ---
 
+## App Shell autenticado
+
+O shell global da área autenticada fica em `src/components/AppShell`. Usam essa
+estrutura `/menu`, `/painel`, o alias `/dashboard`, as rotas da Agenda
+(`/agendamentos` e `/agendamentos/eventos`) e o fluxo protegido de Pacientes
+sob `/pacientes`, além de Planos sob `/planos` e Financeiro em `/financeiro`.
+O cadastro público por token em `/cadastro/paciente/:token` permanece fora do
+shell autenticado.
+
+Responsabilidades:
+
+- `AppShell/index.js`: estado de expansão, drawer mobile, identidade da clínica,
+  menu do usuário e composição dos landmarks;
+- `AppShell/navigation.js`: fonte declarativa dos destinos globais, feature
+  flags e correspondência de rota ativa;
+- `AppShell/styled.js`: apresentação responsiva do shell;
+- `styles/tokens.js`: tokens semânticos compartilhados pelo shell e pelas
+  páginas já migradas.
+
+Para adicionar futuramente uma rota existente à navegação, inclua um item em
+`navigation.js` com `path`, `matchPaths`, ícone e a condição de visibilidade
+real já usada pelo produto. Não crie permissão apenas no frontend e não use a
+ausência de um link como substituto da autorização do backend.
+
+`ClinicContext` continua sendo a fonte da identidade autenticada. As cores
+`--clinic-primary-color`, `--clinic-secondary-color` e
+`--clinic-accent-color` alimentam somente tokens de marca. Texto, foco,
+contraste estrutural e estados críticos permanecem sob tokens semânticos
+controlados pela aplicação.
+
 ## Objetivo
 
 Garantir que todos os módulos novos e futuras evoluções sigam a mesma estrutura visual e arquitetural, reduzindo duplicação, acelerando desenvolvimento e mantendo consistência para o usuário.

@@ -4,14 +4,26 @@ import { FaCalendarAlt, FaUserFriends, FaMoneyBillWave, FaClipboardList, FaChart
 // Icone para exames: FaFileMedical
 import styled from "styled-components";
 import { isPlansModuleEnabled } from "../../config/features";
+import AppShell from "../../components/AppShell";
+import {
+  colors,
+  layout,
+  radii,
+  shadows,
+  spacing,
+  typography,
+} from "../../styles/tokens";
 
 export default function Menu() {
   return (
-    <Wrapper>
-      <Content>
-        <Title>
-          {/* <h1>Menu Principal</h1> */}
-        </Title>
+    <AppShell pageTitle="Atalhos">
+      <Wrapper>
+        <Content>
+          <Title>
+            <span>Visão geral</span>
+            <h1>O que você precisa acessar?</h1>
+            <p>Use os atalhos abaixo ou a navegação lateral para trocar de módulo.</p>
+          </Title>
         <Nav>
           <StyledLink to="/agendamentos">
             <IconBadge $bg="#f0f3ec" $color="#6a795c">
@@ -64,47 +76,66 @@ export default function Menu() {
             </StyledLink>
           )}
         </Nav>
-      </Content>
-    </Wrapper>
+        </Content>
+      </Wrapper>
+    </AppShell>
   );
 }
 
 // Styled-components
 const Wrapper = styled.div`
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-  padding: 20px;
-  background-color: #fff;
+  min-height: calc(100vh - ${layout.appHeaderHeight});
+  padding: ${spacing.xxl} ${spacing.xl};
+  background: ${colors.appBackground};
+
+  @media only screen and (max-width: ${layout.mobileBreakpoint}) {
+    padding: ${spacing.xl} ${spacing.lg};
+  }
 `;
 
 const Content = styled.div`
   width: 100%;
-  max-width: 1220px;
+  max-width: ${layout.pageMaxWidth};
   margin: 0 auto;
-  padding: 0 30px;
-  @media only screen and (max-width: 859px) {
-    padding: 0 15px;
-  }
 `;
 
 const Title = styled.div`
-  margin-bottom: 30px;
+  margin-bottom: ${spacing.xl};
 
   h1 {
-    font-size: 24px;
-    font-weight: 800; /* Extra bold */
-    color: #6A795C;
+    margin: ${spacing.xs} 0;
+    color: ${colors.textPrimary};
+    font-size: 2rem;
+    line-height: 1.15;
+    font-weight: ${typography.weightBold};
+  }
+
+  span {
+    color: ${colors.brand};
+    font-size: 0.75rem;
+    font-weight: ${typography.weightBold};
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  p {
+    color: ${colors.textSecondary};
+    font-size: 0.96rem;
   }
 `;
 
 const Nav = styled.nav`
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 16px;
-  padding: 20px 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: ${spacing.lg};
+
+  @media only screen and (max-width: 900px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media only screen and (max-width: 560px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 const StyledLink = styled(Link)`
@@ -113,24 +144,39 @@ const StyledLink = styled(Link)`
   align-items: center;
   text-align: center; /* Centraliza o texto */
   gap: 10px;
-  padding: 18px 24px;
+  padding: ${spacing.xl};
   min-width: 160px;
   font-size: 18px;
-  color: #1b1b1b;
+  color: ${colors.textPrimary};
   text-decoration: none;
-  border-radius: 18px;
-  background: #fff;
-  border: 1px solid rgba(106, 121, 92, 0.2);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.06);
+  border-radius: ${radii.xl};
+  background: ${colors.surfaceElevated};
+  border: 1px solid ${colors.borderSubtle};
+  box-shadow: ${shadows.subtle};
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 
-  &:hover {
+  &:hover,
+  &:focus-visible {
     transform: translateY(-3px);
-    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.1);
+    box-shadow: ${shadows.elevated};
+  }
+
+  &:focus-visible {
+    outline: 3px solid ${colors.focus};
+    outline-offset: 2px;
   }
 
   span {
     font-weight: 700;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+
+    &:hover,
+    &:focus-visible {
+      transform: none;
+    }
   }
 `;
 

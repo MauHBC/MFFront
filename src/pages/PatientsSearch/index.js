@@ -144,15 +144,16 @@ export default function PatientsSearch() {
   }, [inviteLink]);
 
   return (
-    <PageWrapper $paddingTop="90px" $paddingBottom="60px">
+    <PageWrapper $paddingTop="0" $paddingBottom="60px">
       <PageContent
+        as="div"
         $maxWidth="1220px"
-        $paddingTop="0"
+        $paddingTop="32px"
         $paddingX="30px"
         $paddingBottom="0"
         $mobileBreakpoint="859px"
         $mobilePaddingX="15px"
-        $mobilePaddingTop="0"
+        $mobilePaddingTop="20px"
         $mobilePaddingBottom="0"
       >
         <Header>
