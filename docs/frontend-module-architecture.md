@@ -113,54 +113,157 @@ daquele módulo.
 
 ## App Shell autenticado
 
-O shell global da área autenticada fica em `src/components/AppShell`. Usam essa
-estrutura `/menu`, `/painel`, o alias `/dashboard`, as rotas da Agenda
-(`/agendamentos` e `/agendamentos/eventos`) e o fluxo protegido de Pacientes
-sob `/pacientes`, além de Planos sob `/planos` e Financeiro em `/financeiro`.
-O cadastro público por token em `/cadastro/paciente/:token` permanece fora do
-shell autenticado.
+O shell global fica em `src/components/AppShell`. `AppShell/index.js` renderiza
+sidebar, cabeçalho, drawer mobile, menu do usuário e landmarks;
+`navigation.js` é a fonte declarativa dos destinos, visibilidade e rota ativa;
+`styled.js` contém a estrutura responsiva; e `styles/tokens.js` define os tokens
+semânticos usados pelo shell.
 
-Responsabilidades:
+`src/routes/index.js` envolve Pacientes, Planos e Financeiro em uma instância
+compartilhada. Menu, Painel, Agenda e Configurações da Agenda ainda montam
+`AppShell` nas próprias páginas. Por isso, as chaves dos módulos abertos são
+mantidas em `sessionStorage` sob `multifisio:app-shell:open-modules`: a troca
+entre essas instâncias não pode perder expansões já escolhidas. A preferência de
+sidebar fixada usa `localStorage` e a chave
+`multifisio:app-shell:sidebar-pinned`.
 
-- `AppShell/index.js`: estado de expansão, drawer mobile, identidade da clínica,
-  menu do usuário e composição dos landmarks;
-- `AppShell/navigation.js`: fonte declarativa dos destinos globais, feature
-  flags e correspondência de rota ativa;
-- `AppShell/styled.js`: apresentação responsiva do shell;
-- `styles/tokens.js`: tokens semânticos compartilhados pelo shell e pelas
-  páginas já migradas.
+### Árvore e rotas atuais
 
-Para adicionar futuramente uma rota existente à navegação, inclua um item em
-`navigation.js` com `path`, `matchPaths`, ícone e a condição de visibilidade
-real já usada pelo produto. Não crie permissão apenas no frontend e não use a
-ausência de um link como substituto da autorização do backend.
+| Item | Tipo | Destinos reais |
+|---|---|---|
+| Painel | Link direto | `/painel`; `/dashboard` é alias ativo |
+| Agenda | Expansível | Agenda: `/agendamentos`; Configurações: `/agendamentos/eventos` |
+| Pacientes | Link direto | `/pacientes` e subrotas protegidas |
+| Planos | Expansível e sujeito a `isPlansModuleEnabled` | Pacientes com plano: `/planos?tab=patient-plans`; Planos mensais: `/planos?tab=service-plans`; Serviços: `/planos?tab=services`; detalhes: `/planos/pacientes/:patientPlanId` |
+| Financeiro | Expansível | `/financeiro/visao-geral`, `/financeiro/receitas`, `/financeiro/despesas` e `/financeiro/configuracoes` |
+| Sair | Ação | Executa `useLogout` no menu do usuário; não é rota |
 
-Itens globais podem declarar `children` para representar um segundo nível no
-próprio App Shell. O item pai expansível abre seu primeiro filho quando acionado
-fora do módulo, deriva expansão e seleção da rota e mantém apenas um módulo
-expansível aberto. Pais e filhos respeitam `isVisible`; um pai sem filhos
-visíveis também é removido. O drawer mobile usa a mesma estrutura e fecha após
-a navegação. Ao sair do módulo, o submenu é recolhido; acesso direto, refresh e
-histórico do navegador voltam a derivar a expansão da rota atual. Links diretos
-e módulos expansíveis usam a mesma coluna fixa para ícones, sem deslocar seu
-eixo entre os estados compacto e expandido.
+`/financeiro` é uma entrada legada redirecionada para a Visão geral. Formas de
+pagamento e Categorias de despesas permanecem internas a Configurações, em
+subrotas próprias. Mensal/anual permanece modo interno da Visão geral.
 
-Financeiro é o primeiro módulo nesse padrão:
+Não existe hoje rota nem item declarativo de **Ajuda e suporte**. Ele só deve
+ser documentado ou adicionado à árvore depois que houver um destino real
+aprovado; não invente uma rota para completar visualmente a lista.
 
-- `/financeiro` preserva a entrada legada e redireciona para
-  `/financeiro/visao-geral`;
-- `/financeiro/visao-geral`, `/financeiro/receitas`,
-  `/financeiro/despesas` e `/financeiro/configuracoes` são os destinos do
-  segundo nível;
-- Formas de pagamento e Categorias de despesas continuam como abas internas de
-  Configurações, com rotas próprias sob `/financeiro/configuracoes`;
-- mensal/anual permanece modo da Visão geral, não item de navegação.
+### Tipos e hierarquia
 
-`ClinicContext` continua sendo a fonte da identidade autenticada. As cores
-`--clinic-primary-color`, `--clinic-secondary-color` e
-`--clinic-accent-color` alimentam somente tokens de marca. Texto, foco,
-contraste estrutural e estados críticos permanecem sob tokens semânticos
-controlados pela aplicação.
+- Link direto não possui `children`; navegar por ele não recolhe os módulos que
+  o usuário deixou abertos.
+- Módulo expansível possui `children`. Agenda, Planos e Financeiro têm estados
+  independentes: vários podem permanecer abertos, e cada botão alterna apenas o
+  próprio submenu.
+- A rota atual sempre acrescenta o módulo correspondente aos abertos. Acesso
+  direto, refresh e histórico preservam item ativo e expansão coerentes.
+- Ação executa comportamento local, como Sair, sem participar da resolução de
+  rota.
+- Pais e filhos podem declarar `isVisible`. Um pai invisível ou sem filhos
+  visíveis é removido. Isso controla apresentação; autorização continua nas
+  rotas protegidas e no backend.
+- Não há terceiro nível na sidebar. Dia, Semana e Mês e “Novo agendamento” são
+  controles internos da Agenda; Feriados e regras são internos às Configurações
+  da Agenda; Plano, Agenda e Histórico são internos ao vínculo do paciente.
+  Abas internas não viram automaticamente navegação global.
+
+### Estados desktop e mobile
+
+- Desktop inicia compacto. Hover ou foco expande temporariamente sobre o
+  conteúdo; fixar reserva `256px`. Compacto reserva `76px`.
+- O controle de fixação aparece no cabeçalho somente quando a sidebar desktop
+  está expandida. O nome acessível e o tooltip mudam entre “Fixar sidebar” e
+  “Desafixar sidebar”.
+- Até `960px`, a mesma árvore vira drawer; não existe uma segunda configuração
+  de menus. O drawer fecha após navegar e pelo overlay ou `Escape`. Fixação não
+  se aplica no mobile.
+- Botões nativos dos módulos respondem a Enter e Espaço. No compacto, foco
+  também revela o conteúdo; `title` e nome acessível identificam os itens.
+- Cada pai usa `aria-expanded` e `aria-controls`; a lista filha fica aninhada no
+  mesmo `<li>`. O pai não recebe `aria-current`. Somente o link efetivo recebe
+  `aria-current="page"`. Todos os controles mantêm `:focus-visible`.
+
+### Estrutura e medidas da sidebar
+
+`AppShell/styled.js` define uma grade compartilhada por links diretos e botões:
+coluna fixa do ícone (`28px`), coluna flexível do texto e coluna própria da seta
+(`24px`), com `12px` de padding da navegação, `12px` no item e `12px` de gap.
+O centro horizontal atual do ícone é `38px`. Texto e seta desaparecem do fluxo
+compacto sem deslocar o ícone; a faixa “Módulos” usa `visibility`, preservando a
+posição vertical. Não centralize o conjunto ícone/texto/seta nem mova a seta
+para a coluna do texto.
+
+### Cores e estados
+
+Os valores abaixo vêm de `src/styles/tokens.js` e são aplicados em
+`AppShell/styled.js`:
+
+| Estado | Token atual |
+|---|---|
+| Fundo da sidebar | `colors.navigationBackground` (`#f7f9f5`) |
+| Texto principal/secundário | `colors.textPrimary` / `colors.textSecondary` |
+| Item ativo | `colors.navigationActive` e `colors.navigationActiveText` |
+| Hover | `colors.navigationHover` |
+| Foco visível | `colors.focus` |
+| Badge financeiro | `colors.danger` sobre `colors.white` |
+| Bordas e superfícies | `colors.borderSubtle`, `colors.surface` |
+
+`navigationActive` e `brand` usam `--clinic-primary-color` com fallback; os
+demais estados permanecem semânticos da aplicação. O overlay mobile é o valor
+local `rgba(15, 23, 19, 0.48)` em `styled.js`. Não há estado desabilitado nos
+itens atuais; `disabledBackground` e `disabledText` são tokens compartilhados,
+não um contrato específico da sidebar. Abas internas, quando aplicáveis, usam
+texto, peso/cor e sublinhado ativo; não devem virar cápsulas por padrão.
+
+O badge do Financeiro é atualizado pelo evento
+`multifisio:app-shell:navigation-badge`, identificado por
+`NAVIGATION_BADGE_EVENT`. O renderer associa o valor à chave do filho; filhos
+não possuem ícones porque o renderer atual não os suporta.
+
+### Como adicionar um módulo
+
+1. Use link direto para um único destino global; use `children` apenas para
+   seções administrativas independentes. Mantenha modos e detalhes como abas ou
+   controles internos.
+2. Declare `key`, `label`, `path`, `matchPaths` e ícone do pai em
+   `navigation.js`. Para correspondência exata use `exactMatchPaths`; para
+   queries, use `isActive({ pathname, searchParams })`.
+3. Reaproveite rotas reais de `routes/index.js`; não crie rota apenas para
+   preencher o menu.
+4. Reaproveite `isVisible`/feature flag real. Ocultar não substitui autorização.
+5. Para badge, publique `NAVIGATION_BADGE_EVENT` com a chave exata do filho.
+6. Garanta `aria-expanded`, `aria-controls`, filho aninhado, foco visível e
+   somente um `aria-current`.
+7. Atualize `navigation.test.js`, `index.test.js`, o teste estrutural e a
+   integração da rota. Verifique desktop fixado/compacto, hover, foco e drawer.
+
+Exemplo mínimo da API atual:
+
+```js
+{
+  key: "example",
+  label: "Exemplo",
+  path: "/rota-existente",
+  matchPaths: ["/rota-existente"],
+  icon: ExistingIcon,
+  isVisible: () => existingFeatureFlag,
+  children: [
+    {
+      key: "example-overview",
+      label: "Visão geral",
+      path: "/rota-existente",
+      exactMatchPaths: ["/rota-existente"],
+    },
+  ],
+}
+```
+
+Não crie submenu para Pacientes; não promova Dia/Semana/Mês ou abas de vínculos;
+não adicione terceiro nível; não coloque a seta na coluna flexível; não remova a
+altura estrutural de “Módulos”; não duplique árvores desktop/mobile; não adicione
+ícones aos filhos sem suporte do renderer; e não substitua o App Shell pelas
+Navbar/Sidebar legadas, ainda necessárias às áreas não migradas.
+
+`ClinicContext` é a fonte da identidade autenticada. A navegação não escolhe
+tenant e não altera contratos de autorização.
 
 ## Objetivo
 
@@ -174,7 +277,7 @@ Garantir que todos os módulos novos e futuras evoluções sigam a mesma estrutu
 2. **Local só com divergência real e justificada.** Criar definição local apenas quando o visual ou comportamento requerido genuinamente diverge do componente compartilhado e essa divergência não pode ser resolvida com props.
 3. **Parametrização antes de fork.** Se um componente compartilhado quase atende, adicionar a prop necessária a ele em vez de duplicar o componente localmente.
 4. **Zero mudança silenciosa.** Nunca alterar um componente compartilhado sem checar o impacto em todos os módulos que o consomem.
-5. **Consistência com os módulos de referência.** Em caso de dúvida de padrão, consultar Planos (estrutura), Agendamentos (drawer/interação) e Financeiro (organização por abas).
+5. **Consistência com os módulos de referência.** Em caso de dúvida de padrão, consultar Planos (estrutura), Agendamentos (drawer/interação) e Financeiro (organização por rotas e seções).
 
 ---
 
@@ -455,14 +558,15 @@ Use este shell para módulos CRUD administrativos simples, com uma entidade prin
 
 ---
 
-## Padrão oficial: módulo com sidebar (Shell 2)
+## Template legado de sidebar interna (não usar como navegação global)
 
-Use este shell quando o módulo tiver múltiplas seções funcionais independentes que precisam de navegação lateral persistente e colapsável (ex: Financeiro, dashboards operacionais).
+Este template permanece no repositório para compatibilidade e referência de
+áreas ainda não migradas. Ele não substitui a navegação global do App Shell e
+não representa mais o Financeiro atual.
 
 **Template canônico:** `src/templates/SidebarModuleTemplate.js`
-**Referência real:** `src/pages/Financeiro/index.js`
 
-> Regra: novo módulo com sidebar nasce do template, não de uma cópia do Financeiro.
+> Não adote este template em módulo novo sem decisão arquitetural explícita.
 
 ### Composição obrigatória
 
@@ -550,22 +654,22 @@ Seguem as mesmas regras gerais (seção "Regras para exceções"):
 
 ---
 
-## Shell 1 vs Shell 2 — quando usar cada um
+## Shell de conteúdo vs sidebar interna legada
 
-| Critério | Shell 1 (sem sidebar) | Shell 2 (com sidebar) |
+| Critério | Shell de conteúdo | Sidebar interna legada |
 |---|---|---|
 | Entidades | 1 principal (com CRUD) | Múltiplas seções independentes |
 | Navegação | Abas lineares (opcional) | Sidebar colapsável persistente |
 | Complexidade | Baixa / média | Alta |
 | Template | `StandardModuleTemplate.js` | `SidebarModuleTemplate.js` |
-| Referência real | `Planos` | `Financeiro` |
+| Referência real | `Planos` | Nenhuma entre as rotas migradas |
 | Drawer CRUD | Sim (padrão) | Sim (por seção) |
 | PageWrapper | `AppLayout.PageWrapper` | `AppSidebarShell.SidebarShellWrapper` |
 | Container interno | `AppLayout.PageContent` | `AppSidebarShell.SidebarMainArea` |
 
-**Regra de decisão:** se o módulo novo precisar de mais de 3 seções funcionais com navegação própria entre elas, use Shell 2. Caso contrário, use Shell 1 com abas.
-
-**Regra de origem:** todo módulo novo parte do template oficial do shell escolhido. Nunca copie código de uma página existente.
+Se as seções precisarem aparecer na navegação global, declare-as como filhos em
+`AppShell/navigation.js`. Uma sidebar interna exige aprovação específica e não
+deve duplicar o App Shell.
 
 ---
 
@@ -600,12 +704,10 @@ Preferir sempre a adição de prop opcional com default seguro ao componente com
 
 Antes de entregar qualquer novo módulo ou tela administrativa:
 
-**Shell (escolher um)**
-- [ ] Shell 1 (sem sidebar): usa `PageWrapper` + `PageContent` do `AppLayout`?
-- [ ] Shell 2 (com sidebar): partiu do `src/templates/SidebarModuleTemplate.js`?
-- [ ] Shell 2: usa `SidebarShellWrapper` + `SidebarShellLayout` + `SidebarMainArea`?
-- [ ] Shell 2: usa `AppSidebar` + `AppSidebarHeader` + `AppSidebarSection` + `AppSidebarButton`?
-- [ ] Shell 2: `AppSidebar` está dentro de `SidebarShellWrapper` (CSS vars obrigatórias)?
+**Shell**
+- [ ] Usa o App Shell global nas rotas autenticadas migradas?
+- [ ] A navegação global foi declarada uma única vez em `AppShell/navigation.js`?
+- [ ] Evita sidebar interna paralela sem decisão arquitetural explícita?
 
 **Conteúdo**
 - [ ] O cabeçalho usa `ModuleHeader` + `ModuleTitle` do `AppModuleShell`?
