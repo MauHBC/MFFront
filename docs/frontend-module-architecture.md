@@ -140,7 +140,10 @@ próprio App Shell. O item pai expansível abre seu primeiro filho quando aciona
 fora do módulo, deriva expansão e seleção da rota e mantém apenas um módulo
 expansível aberto. Pais e filhos respeitam `isVisible`; um pai sem filhos
 visíveis também é removido. O drawer mobile usa a mesma estrutura e fecha após
-a navegação.
+a navegação. Ao sair do módulo, o submenu é recolhido; acesso direto, refresh e
+histórico do navegador voltam a derivar a expansão da rota atual. Links diretos
+e módulos expansíveis usam a mesma coluna fixa para ícones, sem deslocar seu
+eixo entre os estados compacto e expandido.
 
 Financeiro é o primeiro módulo nesse padrão:
 

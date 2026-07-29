@@ -29,6 +29,7 @@ import {
   Navigation,
   NavigationLabel,
   NavigationChevron,
+  NavigationIcon,
   NavigationLink,
   NavigationList,
   NavigationModuleButton,
@@ -120,7 +121,7 @@ export default function AppShell({ children, pageTitle }) {
     const activeExpandable = getVisibleNavigationItems().find(
       (item) => item.children && isNavigationItemActive(item, location.pathname),
     );
-    if (activeExpandable) setOpenModuleKey(activeExpandable.key);
+    setOpenModuleKey(activeExpandable?.key || null);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -252,7 +253,9 @@ export default function AppShell({ children, pageTitle }) {
                           }
                         }}
                       >
-                        <Icon aria-hidden="true" />
+                        <NavigationIcon aria-hidden="true">
+                          <Icon />
+                        </NavigationIcon>
                         <NavigationText $expanded={expanded}>{item.label}</NavigationText>
                         <NavigationChevron $expanded={expanded} $open={isOpen}>
                           <FaChevronDown aria-hidden="true" />
@@ -298,7 +301,9 @@ export default function AppShell({ children, pageTitle }) {
                       aria-label={!expanded ? item.label : undefined}
                       title={!expanded ? item.label : undefined}
                     >
-                      <Icon aria-hidden="true" />
+                      <NavigationIcon aria-hidden="true">
+                        <Icon />
+                      </NavigationIcon>
                       <NavigationText $expanded={expanded}>{item.label}</NavigationText>
                     </NavigationLink>
                   )}

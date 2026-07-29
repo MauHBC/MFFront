@@ -1,11 +1,13 @@
 import React from "react";
 import "@testing-library/jest-dom";
 import {
+  act,
   fireEvent,
   render,
   screen,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { createMemoryHistory } from "history";
+import { MemoryRouter, Router } from "react-router-dom";
 import AppShell, { PINNED_STORAGE_KEY } from ".";
 
 const mockLogout = jest.fn();
@@ -37,6 +39,19 @@ function renderShell(pathname = "/painel") {
       </AppShell>
     </MemoryRouter>,
   );
+}
+
+function renderShellWithHistory(pathname = "/painel") {
+  const history = createMemoryHistory({ initialEntries: [pathname] });
+  const result = render(
+    <Router history={history}>
+      <AppShell pageTitle="Painel">
+        <p>Conteúdo operacional</p>
+      </AppShell>
+    </Router>,
+  );
+
+  return { ...result, history };
 }
 
 describe("AppShell", () => {
@@ -186,6 +201,56 @@ describe("AppShell", () => {
     );
   });
 
+  it("recolhe Financeiro ao navegar para um módulo direto", () => {
+    const { history } = renderShellWithHistory("/financeiro/receitas");
+    const sidebar = screen.getByRole("complementary", { name: "Navegação principal" });
+
+    fireEvent.mouseEnter(sidebar);
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "Pacientes" }));
+
+    expect(history.location.pathname).toBe("/pacientes");
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(screen.getByRole("link", { name: "Pacientes" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("sincroniza a expansão do Financeiro ao voltar e avançar", () => {
+    const { history } = renderShellWithHistory("/financeiro/despesas");
+
+    fireEvent.mouseEnter(
+      screen.getByRole("complementary", { name: "Navegação principal" }),
+    );
+    fireEvent.click(screen.getByRole("link", { name: "Agenda" }));
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    act(() => history.goBack());
+    expect(history.location.pathname).toBe("/financeiro/despesas");
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    act(() => history.goForward());
+    expect(history.location.pathname).toBe("/agendamentos");
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
   it("fecha o drawer mobile ao navegar por um submenu", () => {
     const { container } = renderShell("/financeiro/visao-geral");
     const trigger = container.querySelector("[aria-controls='app-navigation']");
@@ -195,5 +260,20 @@ describe("AppShell", () => {
     fireEvent.click(screen.getByRole("link", { name: "Receitas" }));
 
     expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("recolhe Financeiro no drawer mobile ao navegar para outro módulo", () => {
+    const { container, history } = renderShellWithHistory("/financeiro/visao-geral");
+    const trigger = container.querySelector("[aria-controls='app-navigation']");
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("link", { name: "Planos" }));
+
+    expect(history.location.pathname).toBe("/planos");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
   });
 });

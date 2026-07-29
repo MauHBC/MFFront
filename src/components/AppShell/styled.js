@@ -201,7 +201,9 @@ const navigationItemStyles = css`
   min-height: 44px;
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: ${spacing.md};
+  padding: ${spacing.sm};
   border: 0;
   border-radius: ${radii.md};
   font: inherit;
@@ -209,11 +211,6 @@ const navigationItemStyles = css`
   text-decoration: none;
   cursor: pointer;
   transition: background 150ms ease, color 150ms ease;
-
-  svg {
-    flex: 0 0 auto;
-    font-size: 1.05rem;
-  }
 
   ${focusRing}
 
@@ -224,8 +221,6 @@ const navigationItemStyles = css`
 
 export const NavigationLink = styled.a`
   ${navigationItemStyles}
-  justify-content: ${(p) => (p.$expanded ? "flex-start" : "center")};
-  padding: ${spacing.sm} ${(p) => (p.$expanded ? spacing.md : spacing.sm)};
   color: ${(p) => (p.$active ? colors.navigationActiveText : colors.textSecondary)};
   background: ${(p) => (p.$active ? colors.navigationActive : "transparent")};
 
@@ -234,16 +229,10 @@ export const NavigationLink = styled.a`
     background: ${(p) => (p.$active ? colors.navigationActive : colors.navigationHover)};
   }
 
-  @media (max-width: ${layout.sidebarBreakpoint}) {
-    justify-content: flex-start;
-    padding: ${spacing.sm} ${spacing.md};
-  }
 `;
 
 export const NavigationModuleButton = styled.button`
   ${navigationItemStyles}
-  justify-content: ${(p) => (p.$expanded ? "flex-start" : "center")};
-  padding: ${spacing.sm} ${(p) => (p.$expanded ? spacing.md : spacing.sm)};
   background: ${(p) => (p.$active ? colors.navigationActive : "transparent")};
   color: ${(p) => (p.$active ? colors.navigationActiveText : colors.textSecondary)};
 
@@ -252,15 +241,27 @@ export const NavigationModuleButton = styled.button`
     background: ${(p) => (p.$active ? colors.navigationActive : colors.navigationHover)};
   }
 
-  @media (max-width: ${layout.sidebarBreakpoint}) {
-    justify-content: flex-start;
-    padding: ${spacing.sm} ${spacing.md};
+`;
+
+export const NavigationIcon = styled.span`
+  width: 28px;
+  height: 24px;
+  flex: 0 0 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  svg {
+    flex: 0 0 auto;
+    font-size: 1.05rem;
   }
 `;
 
 export const NavigationChevron = styled.span`
   margin-left: auto;
   display: ${(p) => (p.$expanded ? "inline-flex" : "none")};
+  align-items: center;
+  justify-content: center;
   transform: rotate(${(p) => (p.$open ? "180deg" : "0deg")});
   transition: transform 150ms ease;
 
