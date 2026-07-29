@@ -185,10 +185,10 @@ export const NavigationLabel = styled.p`
   font-weight: ${typography.weightBold};
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  display: ${(p) => (p.$expanded ? "block" : "none")};
+  visibility: ${(p) => (p.$expanded ? "visible" : "hidden")};
 
   @media (max-width: ${layout.sidebarBreakpoint}) {
-    display: block;
+    visibility: visible;
   }
 `;
 

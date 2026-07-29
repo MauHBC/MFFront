@@ -37,6 +37,18 @@ describe("AppShell navigation layout", () => {
     );
   });
 
+  it("preserva a faixa vertical do título ao recolher a sidebar", () => {
+    expect(stylesSource).toMatch(
+      /export const NavigationLabel = styled\.p`[\s\S]*visibility: \$\{\(p\) => \(p\.\$expanded \? "visible" : "hidden"\)\};/,
+    );
+    expect(stylesSource).not.toMatch(
+      /export const NavigationLabel = styled\.p`[^`]*display: \$\{\(p\) => \(p\.\$expanded \? "block" : "none"\)\};/,
+    );
+    expect(stylesSource).toMatch(
+      /export const NavigationLabel = styled\.p`[\s\S]*@media \(max-width: \$\{layout\.sidebarBreakpoint\}\)[\s\S]*visibility: visible;/,
+    );
+  });
+
   it("isola ícone, texto e seta em colunas determinísticas", () => {
     expect(stylesSource).toMatch(
       /export const NavigationItemContent = styled\.span`[\s\S]*display: grid;[\s\S]*var\(--navigation-icon-column\) minmax\(0, 1fr\) var\(--navigation-action-column\)[\s\S]*align-items: center;/,
