@@ -61,6 +61,21 @@ describe("AppShell navigation layout", () => {
     );
   });
 
+  it("alinha o texto de links e botões na mesma coordenada inicial", () => {
+    expect(stylesSource).toMatch(
+      /const navigationItemStyles = css`[\s\S]*padding: \$\{spacing\.sm\} var\(--navigation-item-inline-padding\);[\s\S]*text-align: left;/,
+    );
+    expect(stylesSource).toMatch(
+      /export const NavigationLink = styled\.a`\s*\$\{navigationItemStyles\}/,
+    );
+    expect(stylesSource).toMatch(
+      /export const NavigationModuleButton = styled\.button`\s*\$\{navigationItemStyles\}/,
+    );
+    expect(stylesSource).toMatch(
+      /export const NavigationText = styled\.span`[\s\S]*justify-self: start;/,
+    );
+  });
+
   it("remove texto e seta do fluxo compacto e restaura as colunas no drawer", () => {
     expect(stylesSource).toMatch(
       /NavigationItemContent[\s\S]*: "var\(--navigation-icon-column\)"[\s\S]*@media \(max-width: \$\{layout\.sidebarBreakpoint\}\)[\s\S]*grid-template-columns:[\s\S]*var\(--navigation-action-column\)/,

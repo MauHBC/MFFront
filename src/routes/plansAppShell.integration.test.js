@@ -76,7 +76,17 @@ describe("rotas de Planos no App Shell", () => {
     fireEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Planos" }));
 
     expect(screen.getByRole("heading", { name: "Administração de Planos" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Planos" })).toHaveAttribute("aria-current", "page");
+    fireEvent.mouseEnter(
+      screen.getByRole("complementary", { name: "Navegação principal" }),
+    );
+    expect(screen.getByRole("button", { name: "Planos" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("link", { name: "Pacientes com plano" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     expect(screen.queryByTestId("old-navbar")).not.toBeInTheDocument();
     expect(document.querySelectorAll("main")).toHaveLength(1);
   });
@@ -86,7 +96,13 @@ describe("rotas de Planos no App Shell", () => {
     (pathname) => {
       renderRoutes(pathname);
 
-      expect(screen.getByRole("link", { name: "Planos" })).toHaveAttribute(
+      fireEvent.mouseEnter(
+        screen.getByRole("complementary", { name: "Navegação principal" }),
+      );
+      expect(screen.getByRole("button", { name: "Planos" })).not.toHaveAttribute(
+        "aria-current",
+      );
+      expect(screen.getByRole("link", { name: "Pacientes com plano" })).toHaveAttribute(
         "aria-current",
         "page",
       );
@@ -102,7 +118,8 @@ describe("rotas de Planos no App Shell", () => {
     fireEvent.click(screen.getByRole("link", { name: "Detalhes do plano" }));
 
     expect(screen.getByRole("complementary", { name: "Navegação principal" })).toBe(sidebar);
-    expect(screen.getByRole("link", { name: "Planos" })).toHaveAttribute(
+    fireEvent.mouseEnter(sidebar);
+    expect(screen.getByRole("link", { name: "Pacientes com plano" })).toHaveAttribute(
       "aria-current",
       "page",
     );

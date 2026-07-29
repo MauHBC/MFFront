@@ -2,10 +2,8 @@ import {
   FaCalendarAlt,
   FaChartLine,
   FaClipboardList,
-  FaCog,
   FaMoneyBillWave,
   FaUserFriends,
-  FaWallet,
 } from "react-icons/fa";
 import { isPlansModuleEnabled } from "../../config/features";
 
@@ -25,6 +23,20 @@ const navigationItems = [
     path: "/agendamentos",
     matchPaths: ["/agendamentos"],
     icon: FaCalendarAlt,
+    children: [
+      {
+        key: "schedule-calendar",
+        label: "Agenda",
+        path: "/agendamentos",
+        exactMatchPaths: ["/agendamentos"],
+      },
+      {
+        key: "schedule-settings",
+        label: "Configurações",
+        path: "/agendamentos/eventos",
+        matchPaths: ["/agendamentos/eventos"],
+      },
+    ],
   },
   {
     key: "patients",
@@ -40,6 +52,36 @@ const navigationItems = [
     matchPaths: ["/planos"],
     icon: FaClipboardList,
     isVisible: () => isPlansModuleEnabled,
+    children: [
+      {
+        key: "plans-patients",
+        label: "Pacientes com plano",
+        path: "/planos?tab=patient-plans",
+        isActive: ({ pathname, searchParams }) => (
+          pathname.startsWith("/planos/pacientes/")
+          || (
+            pathname === "/planos"
+            && ["", "patient-plans"].includes(searchParams.get("tab") || "")
+          )
+        ),
+      },
+      {
+        key: "plans-monthly",
+        label: "Planos mensais",
+        path: "/planos?tab=service-plans",
+        isActive: ({ pathname, searchParams }) => (
+          pathname === "/planos" && searchParams.get("tab") === "service-plans"
+        ),
+      },
+      {
+        key: "plans-services",
+        label: "Serviços",
+        path: "/planos?tab=services",
+        isActive: ({ pathname, searchParams }) => (
+          pathname === "/planos" && searchParams.get("tab") === "services"
+        ),
+      },
+    ],
   },
   {
     key: "financial",
@@ -53,28 +95,24 @@ const navigationItems = [
         label: "Visão geral",
         path: "/financeiro/visao-geral",
         matchPaths: ["/financeiro/visao-geral"],
-        icon: FaChartLine,
       },
       {
         key: "financial-revenues",
         label: "Receitas",
         path: "/financeiro/receitas",
         matchPaths: ["/financeiro/receitas"],
-        icon: FaMoneyBillWave,
       },
       {
         key: "financial-expenses",
         label: "Despesas da clínica",
         path: "/financeiro/despesas",
         matchPaths: ["/financeiro/despesas"],
-        icon: FaWallet,
       },
       {
         key: "financial-settings",
         label: "Configurações",
         path: "/financeiro/configuracoes",
         matchPaths: ["/financeiro/configuracoes"],
-        icon: FaCog,
       },
     ],
   },
@@ -99,12 +137,16 @@ export function getVisibleNavigationItems() {
   return filterVisibleNavigationItems(navigationItems);
 }
 
-export function isNavigationItemActive(item, pathname) {
-  const matchesItem = item.matchPaths.some(
+export function isNavigationItemActive(item, pathname, search = "") {
+  const searchParams = new URLSearchParams(search);
+  if (item.isActive?.({ pathname, searchParams })) return true;
+
+  const matchesExactPath = (item.exactMatchPaths || []).includes(pathname);
+  const matchesItem = (item.matchPaths || []).some(
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );
-  return matchesItem || (item.children || []).some(
-    (child) => isNavigationItemActive(child, pathname),
+  return matchesExactPath || matchesItem || (item.children || []).some(
+    (child) => isNavigationItemActive(child, pathname, search),
   );
 }
 

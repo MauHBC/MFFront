@@ -80,7 +80,13 @@ describe("rota do Financeiro no App Shell", () => {
     fireEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Financeiro" }));
 
     expect(screen.getByRole("heading", { name: "Visão financeira" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+    fireEvent.mouseEnter(
+      screen.getByRole("complementary", { name: "Navegação principal" }),
+    );
+    expect(screen.getByRole("button", { name: "Financeiro" })).not.toHaveAttribute(
+      "aria-current",
+    );
+    expect(screen.getByRole("link", { name: "Visão geral" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -91,7 +97,10 @@ describe("rota do Financeiro no App Shell", () => {
   it("mantém o App Shell no acesso direto e refresh conceitual", () => {
     renderRoutes("/financeiro");
 
-    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+    fireEvent.mouseEnter(
+      screen.getByRole("complementary", { name: "Navegação principal" }),
+    );
+    expect(screen.getByRole("link", { name: "Visão geral" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -106,7 +115,10 @@ describe("rota do Financeiro no App Shell", () => {
     expect(screen.getByTestId("finance-location")).toHaveTextContent(
       "/financeiro/receitas?view=mensalidades&month=2026-07&patient_id=41&patient_name=Ana",
     );
-    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+    fireEvent.mouseEnter(
+      screen.getByRole("complementary", { name: "Navegação principal" }),
+    );
+    expect(screen.getByRole("link", { name: "Receitas" })).toHaveAttribute(
       "aria-current",
       "page",
     );

@@ -8,7 +8,6 @@ import {
   FaBirthdayCake,
   FaChevronLeft,
   FaChevronRight,
-  FaCog,
   FaPlus,
   FaSpinner,
   FaTimes,
@@ -5231,13 +5230,6 @@ export default function Agendamentos() {
                 {pendingCenterTotal > 99 ? "99+" : pendingCenterTotal}
               </NotificationBadge>
             </NotificationButton>
-            <ToolbarLink
-              to="/agendamentos/eventos"
-              aria-label="Configurações da agenda"
-              title="Configurações da agenda"
-            >
-              <FaCog aria-hidden="true" />
-            </ToolbarLink>
             <PrimaryButton
               type="button"
               $topAction
@@ -11889,27 +11881,6 @@ const SecondaryButton = styled.button`
     opacity: 0.6;
     cursor: not-allowed;
     box-shadow: none;
-  }
-`;
-
-const ToolbarLink = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  padding: 0;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.68);
-  color: #6a795c;
-  border: 1px solid rgba(106, 121, 92, 0.18);
-  font-size: 1rem;
-  font-weight: 600;
-  text-decoration: none;
-
-  &:hover {
-    background: #fff;
-    border-color: rgba(106, 121, 92, 0.3);
   }
 `;
 

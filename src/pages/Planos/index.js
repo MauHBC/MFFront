@@ -9,11 +9,7 @@ import {
   FaTimes,
 } from "react-icons/fa";
 
-import {
-  ModuleBody,
-  ModuleTabs,
-  ModuleTabButton,
-} from "../../components/AppModuleShell";
+import { ModuleBody } from "../../components/AppModuleShell";
 import { AppToolbar, AppToolbarLeft } from "../../components/AppToolbar";
 import {
   PrimaryButton,
@@ -1026,8 +1022,11 @@ export default function Planos() {
     const patientName = params.get("patient_name");
     const queryPatientPlanId = params.get("patient_plan_id");
     const status = params.get("status");
+    const availableTabs = ["patient-plans", "service-plans", "services"];
 
-    if (tab === "patient-plans" || patientId || queryPatientPlanId) {
+    if (availableTabs.includes(tab)) {
+      setActiveTab(tab);
+    } else if (patientId || queryPatientPlanId) {
       setActiveTab("patient-plans");
     }
 
@@ -2380,16 +2379,6 @@ export default function Planos() {
     ppAdminSummary,
     ppDetailPlan,
   ]);
-
-  const handleSectionChange = useCallback(
-    (section) => {
-      if (isPatientPlanDetailPage) {
-        history.push("/planos");
-      }
-      setActiveTab(section);
-    },
-    [history, isPatientPlanDetailPage],
-  );
 
   // ---- Drawer visibility ----
 
@@ -4173,38 +4162,6 @@ export default function Planos() {
 	            </HeaderText>
 	          </Header>
 
-	          {!isPatientPlanDetailPage && (
-	            <ModuleTabs role="tablist" aria-label="Seções de Planos">
-	              <ModuleTabButton
-	                type="button"
-	                role="tab"
-	                $active={activeTab === "patient-plans"}
-	                aria-selected={activeTab === "patient-plans"}
-	                onClick={() => handleSectionChange("patient-plans")}
-	              >
-	                Pacientes com plano
-	              </ModuleTabButton>
-	              <ModuleTabButton
-	                type="button"
-	                role="tab"
-	                $active={activeTab === "service-plans"}
-	                aria-selected={activeTab === "service-plans"}
-	                onClick={() => handleSectionChange("service-plans")}
-	              >
-	                Planos mensais
-	              </ModuleTabButton>
-	              <ModuleTabButton
-	                type="button"
-	                role="tab"
-	                $active={activeTab === "services"}
-	                aria-selected={activeTab === "services"}
-	                onClick={() => handleSectionChange("services")}
-	              >
-	                Serviços
-	              </ModuleTabButton>
-	            </ModuleTabs>
-	          )}
-
           {isPatientPlanDetailPage && (
             <ModuleBody>
               {ppDetailError && !ppDetailLoading && (
@@ -4676,16 +4633,6 @@ const PlansContent = styled.div`
     padding: 24px 20px 64px;
   }
 
-  ${ModuleTabs} {
-    overflow-x: auto;
-    overscroll-behavior-inline: contain;
-  }
-
-  ${ModuleTabButton} {
-    flex: 0 0 auto;
-    min-height: 44px;
-    white-space: nowrap;
-  }
 `;
 
 const ToolbarFilterField = styled.label`

@@ -54,6 +54,7 @@ import {
 } from "./styled";
 
 const PINNED_STORAGE_KEY = "multifisio:app-shell:sidebar-pinned";
+const OPEN_MODULES_STORAGE_KEY = "multifisio:app-shell:open-modules";
 
 function NavigationItemPresentation({
   expanded,
@@ -103,11 +104,28 @@ export default function AppShell({ children, pageTitle }) {
   const [navigationBadges, setNavigationBadges] = useState({});
   const navigationItems = getVisibleNavigationItems();
   const activeExpandableItem = navigationItems.find(
-    (item) => item.children && isNavigationItemActive(item, location.pathname),
+    (item) => item.children
+      && isNavigationItemActive(item, location.pathname, location.search),
   );
-  const [openModuleKey, setOpenModuleKey] = useState(
-    activeExpandableItem?.key || null,
-  );
+  const [openModuleKeys, setOpenModuleKeys] = useState(() => {
+    let storedKeys = [];
+    try {
+      const parsedKeys = JSON.parse(
+        window.sessionStorage.getItem(OPEN_MODULES_STORAGE_KEY) || "[]",
+      );
+      if (Array.isArray(parsedKeys)) storedKeys = parsedKeys;
+    } catch {
+      storedKeys = [];
+    }
+    const expandableKeys = navigationItems
+      .filter((item) => item.children?.length)
+      .map((item) => item.key);
+    const validStoredKeys = storedKeys.filter((key) => expandableKeys.includes(key));
+    if (activeExpandableItem && !validStoredKeys.includes(activeExpandableItem.key)) {
+      return [...validStoredKeys, activeExpandableItem.key];
+    }
+    return validStoredKeys;
+  });
   const mobileTriggerRef = useRef(null);
   const sidebarRef = useRef(null);
   const navigationRef = useRef(null);
@@ -117,6 +135,17 @@ export default function AppShell({ children, pageTitle }) {
   useEffect(() => {
     window.localStorage.setItem(PINNED_STORAGE_KEY, String(pinned));
   }, [pinned]);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(
+        OPEN_MODULES_STORAGE_KEY,
+        JSON.stringify(openModuleKeys),
+      );
+    } catch {
+      // Storage may be unavailable in privacy-restricted environments.
+    }
+  }, [openModuleKeys]);
 
   useEffect(() => {
     const handleNavigationBadge = (event) => {
@@ -147,10 +176,17 @@ export default function AppShell({ children, pageTitle }) {
     setMobileOpen(false);
     setUserMenuOpen(false);
     const activeExpandable = getVisibleNavigationItems().find(
-      (item) => item.children && isNavigationItemActive(item, location.pathname),
+      (item) => item.children
+        && isNavigationItemActive(item, location.pathname, location.search),
     );
-    setOpenModuleKey(activeExpandable?.key || null);
-  }, [location.pathname]);
+    if (activeExpandable) {
+      setOpenModuleKeys((currentKeys) => (
+        currentKeys.includes(activeExpandable.key)
+          ? currentKeys
+          : [...currentKeys, activeExpandable.key]
+      ));
+    }
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     if (!mobileOpen && !userMenuOpen) return undefined;
@@ -246,10 +282,14 @@ export default function AppShell({ children, pageTitle }) {
           <NavigationLabel $expanded={expanded}>Módulos</NavigationLabel>
           <NavigationList>
             {navigationItems.map((item) => {
-              const active = isNavigationItemActive(item, location.pathname);
+              const active = isNavigationItemActive(
+                item,
+                location.pathname,
+                location.search,
+              );
               const Icon = item.icon;
               const hasChildren = Boolean(item.children?.length);
-              const isOpen = openModuleKey === item.key;
+              const isOpen = openModuleKeys.includes(item.key);
 
               return (
                 <li key={item.key}>
@@ -261,23 +301,28 @@ export default function AppShell({ children, pageTitle }) {
                         $expanded={expanded}
                         aria-expanded={isOpen}
                         aria-controls={`app-subnavigation-${item.key}`}
-                        aria-current={active ? "page" : undefined}
                         aria-label={!expanded ? item.label : undefined}
                         title={!expanded ? item.label : undefined}
                         onClick={() => {
                           if (!expanded) {
                             setTemporarilyExpanded(true);
-                            setOpenModuleKey(item.key);
+                            setOpenModuleKeys((currentKeys) => (
+                              currentKeys.includes(item.key)
+                                ? currentKeys
+                                : [...currentKeys, item.key]
+                            ));
                             if (!active) history.push(item.path);
                             return;
                           }
+                          setOpenModuleKeys((currentKeys) => (
+                            currentKeys.includes(item.key)
+                              ? currentKeys.filter((key) => key !== item.key)
+                              : [...currentKeys, item.key]
+                          ));
                           if (!isOpen) {
-                            setOpenModuleKey(item.key);
                             if (!active) {
                               history.push(item.path);
                             }
-                          } else {
-                            setOpenModuleKey(null);
                           }
                         }}
                       >
@@ -301,6 +346,7 @@ export default function AppShell({ children, pageTitle }) {
                           const childActive = isNavigationItemActive(
                             child,
                             location.pathname,
+                            location.search,
                           );
                           return (
                             <li key={child.key}>
@@ -420,4 +466,4 @@ AppShell.propTypes = {
   pageTitle: PropTypes.string.isRequired,
 };
 
-export { PINNED_STORAGE_KEY };
+export { OPEN_MODULES_STORAGE_KEY, PINNED_STORAGE_KEY };

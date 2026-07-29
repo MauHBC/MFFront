@@ -277,6 +277,11 @@ describe("Agendamentos - editar agendamento", () => {
 
     expect(screen.getByTestId("app-shell")).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Agendamentos" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Configurações da agenda" }))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Abrir central de pendencias/ }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Novo agendamento" })).toBeInTheDocument();
   });
 
   afterEach(() => {

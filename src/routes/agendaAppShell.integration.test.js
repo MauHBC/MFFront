@@ -61,7 +61,20 @@ describe("fluxo real Menu para Agenda", () => {
     fireEvent.click(within(main).getByRole("link", { name: "Agenda" }));
 
     expect(screen.getByRole("heading", { name: "Agendamentos" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Agenda" })).toHaveAttribute("aria-current", "page");
+    fireEvent.mouseEnter(
+      screen.getByRole("complementary", { name: "Navegação principal" }),
+    );
+    expect(screen.getByRole("button", { name: "Agenda" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Agenda" })).not.toHaveAttribute(
+      "aria-current",
+    );
+    expect(screen.getByRole("link", { name: "Agenda" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     expect(screen.queryByTestId("old-navbar")).not.toBeInTheDocument();
   });
 });

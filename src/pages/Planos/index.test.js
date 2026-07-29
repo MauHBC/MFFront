@@ -3,13 +3,15 @@ import path from "path";
 import React from "react";
 import "@testing-library/jest-dom";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
 } from "@testing-library/react";
-import { MemoryRouter, Route } from "react-router-dom";
+import { createMemoryHistory } from "history";
+import { Router, Route } from "react-router-dom";
 import Planos from ".";
 import {
   listPatientPlans,
@@ -42,12 +44,14 @@ jest.mock("../../services/financial", () => ({
 }));
 
 function renderPlans(pathname = "/planos") {
-  return render(
-    <MemoryRouter initialEntries={[pathname]}>
+  const history = createMemoryHistory({ initialEntries: [pathname] });
+  const result = render(
+    <Router history={history}>
       <Route exact path="/planos" component={Planos} />
       <Route exact path="/planos/pacientes/:patientPlanId" component={Planos} />
-    </MemoryRouter>,
+    </Router>,
   );
+  return { ...result, history };
 }
 
 describe("Planos no contêiner do App Shell", () => {
@@ -102,14 +106,11 @@ describe("Planos no contêiner do App Shell", () => {
     jest.clearAllMocks();
   });
 
-  it("mantém as três seções, carrega a listagem e aplica a pesquisa existente", async () => {
+  it("carrega a seção padrão sem duplicar a navegação lateral e aplica a pesquisa", async () => {
     renderPlans();
 
-    expect(screen.getAllByRole("tab")).toHaveLength(3);
-    expect(screen.getByRole("tab", { name: "Pacientes com plano" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(screen.queryByRole("tablist", { name: "Seções de Planos" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Pacientes com plano" })).toBeInTheDocument();
     expect(await screen.findByText("Ana")).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Nome do paciente"), {
@@ -121,13 +122,29 @@ describe("Planos no contêiner do App Shell", () => {
     });
   });
 
-  it("preserva os planos comerciais e serviços como seções locais responsivas", async () => {
-    renderPlans();
+  it("preserva planos mensais e serviços como destinos controlados pela rota", async () => {
+    const { history } = renderPlans();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Planos mensais" }));
+    act(() => history.push("/planos?tab=service-plans"));
+    expect(history.location.search).toBe("?tab=service-plans");
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Planos mensais" })).toBeInTheDocument();
+    });
     expect((await screen.findAllByText("Mensal 2x")).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Serviços" }));
+    act(() => history.push("/planos?tab=services"));
+    expect(history.location.search).toBe("?tab=services");
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Serviços" })).toBeInTheDocument();
+    });
+    expect((await screen.findAllByText("Fisioterapia")).length).toBeGreaterThan(0);
+  });
+
+  it("restaura a seção indicada pela query no acesso direto", async () => {
+    renderPlans("/planos?tab=services");
+
+    expect(screen.queryByRole("tablist", { name: "Seções de Planos" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Serviços" })).toBeInTheDocument();
     expect((await screen.findAllByText("Fisioterapia")).length).toBeGreaterThan(0);
   });
 

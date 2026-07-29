@@ -209,6 +209,7 @@ const navigationItemStyles = css`
   border-radius: ${radii.md};
   font: inherit;
   font-weight: ${typography.weightSemibold};
+  text-align: left;
   text-decoration: none;
   cursor: pointer;
   transition: background 150ms ease, color 150ms ease;
@@ -354,6 +355,7 @@ export const SubnavigationBadge = styled.span`
 
 export const NavigationText = styled.span`
   display: ${(p) => (p.$expanded ? "inline" : "none")};
+  justify-self: start;
 
   @media (max-width: ${layout.sidebarBreakpoint}) {
     display: inline;

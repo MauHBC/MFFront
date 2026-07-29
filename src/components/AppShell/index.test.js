@@ -8,7 +8,10 @@ import {
 } from "@testing-library/react";
 import { createMemoryHistory } from "history";
 import { MemoryRouter, Router } from "react-router-dom";
-import AppShell, { PINNED_STORAGE_KEY } from ".";
+import AppShell, {
+  OPEN_MODULES_STORAGE_KEY,
+  PINNED_STORAGE_KEY,
+} from ".";
 
 const mockLogout = jest.fn();
 
@@ -57,6 +60,7 @@ function renderShellWithHistory(pathname = "/painel") {
 describe("AppShell", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     mockLogout.mockClear();
   });
 
@@ -66,7 +70,7 @@ describe("AppShell", () => {
     expect(screen.getByText("Clínica de Fisioterapia com Nome Longo")).toBeInTheDocument();
     expect(screen.getByText("Conteúdo operacional")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Painel" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Agenda" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("button", { name: "Agenda" })).not.toHaveAttribute("aria-current");
   });
 
   it("inicia compacta, expande temporariamente e fixa a navegação sem perder a preferência", () => {
@@ -85,7 +89,7 @@ describe("AppShell", () => {
     expect(screen.getByText("Clínica de Fisioterapia com Nome Longo")).toBeVisible();
     fireEvent.mouseLeave(sidebar);
 
-    fireEvent.focus(screen.getByRole("link", { name: "Agenda" }));
+    fireEvent.focus(screen.getByRole("button", { name: "Agenda" }));
     expect(screen.getByText("Clínica de Fisioterapia com Nome Longo")).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Fixar sidebar" }));
@@ -201,7 +205,7 @@ describe("AppShell", () => {
     );
   });
 
-  it("recolhe Financeiro ao navegar para um módulo direto", () => {
+  it("preserva Financeiro expandido ao navegar para um módulo direto", () => {
     const { history } = renderShellWithHistory("/financeiro/receitas");
     const sidebar = screen.getByRole("complementary", { name: "Navegação principal" });
 
@@ -216,7 +220,7 @@ describe("AppShell", () => {
     expect(history.location.pathname).toBe("/pacientes");
     expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
       "aria-expanded",
-      "false",
+      "true",
     );
     expect(screen.getByRole("link", { name: "Pacientes" })).toHaveAttribute(
       "aria-current",
@@ -224,16 +228,16 @@ describe("AppShell", () => {
     );
   });
 
-  it("sincroniza a expansão do Financeiro ao voltar e avançar", () => {
+  it("sincroniza a rota ativa sem recolher módulos ao voltar e avançar", () => {
     const { history } = renderShellWithHistory("/financeiro/despesas");
 
     fireEvent.mouseEnter(
       screen.getByRole("complementary", { name: "Navegação principal" }),
     );
-    fireEvent.click(screen.getByRole("link", { name: "Agenda" }));
+    fireEvent.click(screen.getByRole("button", { name: "Agenda" }));
     expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
       "aria-expanded",
-      "false",
+      "true",
     );
 
     act(() => history.goBack());
@@ -242,12 +246,24 @@ describe("AppShell", () => {
       "aria-expanded",
       "true",
     );
+    expect(screen.getByRole("link", { name: "Despesas da clínica" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
 
     act(() => history.goForward());
     expect(history.location.pathname).toBe("/agendamentos");
     expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
       "aria-expanded",
-      "false",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Agenda" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("link", { name: "Agenda" })).toHaveAttribute(
+      "aria-current",
+      "page",
     );
   });
 
@@ -262,18 +278,146 @@ describe("AppShell", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("recolhe Financeiro no drawer mobile ao navegar para outro módulo", () => {
+  it("fecha o drawer mobile sem recolher os módulos já expandidos", () => {
     const { container, history } = renderShellWithHistory("/financeiro/visao-geral");
     const trigger = container.querySelector("[aria-controls='app-navigation']");
 
     fireEvent.click(trigger);
-    fireEvent.click(screen.getByRole("link", { name: "Planos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Planos" }));
 
     expect(history.location.pathname).toBe("/planos");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
       "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Planos" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("mantém expansões independentes e alterna somente o módulo clicado", () => {
+    const { history } = renderShellWithHistory();
+    fireEvent.mouseEnter(
+      screen.getByRole("complementary", { name: "Navegação principal" }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Agenda" }));
+    expect(history.location.pathname).toBe("/agendamentos");
+    expect(screen.getByRole("button", { name: "Agenda" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Planos" }));
+    expect(history.location.pathname).toBe("/planos");
+    expect(screen.getByRole("button", { name: "Agenda" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Planos" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Financeiro" }));
+    expect(screen.getByRole("button", { name: "Planos" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Planos" }));
+    expect(screen.getByRole("button", { name: "Planos" })).toHaveAttribute(
+      "aria-expanded",
       "false",
     );
+    expect(screen.getByRole("button", { name: "Agenda" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "Pacientes" }));
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("preserva módulos abertos quando a rota troca a instância do App Shell", () => {
+    const { unmount } = renderShell();
+    fireEvent.mouseEnter(
+      screen.getByRole("complementary", { name: "Navegação principal" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Planos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Financeiro" }));
+
+    expect(JSON.parse(
+      window.sessionStorage.getItem(OPEN_MODULES_STORAGE_KEY),
+    )).toEqual(["plans", "financial"]);
+
+    unmount();
+    renderShell("/agendamentos");
+
+    expect(screen.getByRole("button", { name: "Agenda" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Planos" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it.each([
+    ["/agendamentos/eventos", "Agenda", "Configurações"],
+    ["/planos?tab=services", "Planos", "Serviços"],
+    ["/financeiro/receitas", "Financeiro", "Receitas"],
+  ])(
+    "sincroniza o módulo e o único submenu ativo no acesso direto a %s",
+    (pathname, moduleLabel, childLabel) => {
+      renderShell(pathname);
+      fireEvent.mouseEnter(
+        screen.getByRole("complementary", { name: "Navegação principal" }),
+      );
+
+      const moduleButton = screen.getByRole("button", { name: moduleLabel });
+      expect(moduleButton).toHaveAttribute("aria-expanded", "true");
+      expect(moduleButton).not.toHaveAttribute("aria-current");
+      expect(screen.getByRole("link", { name: childLabel })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+      expect(screen.getAllByRole("link").filter(
+        (link) => link.getAttribute("aria-current") === "page",
+      )).toHaveLength(1);
+    },
+  );
+
+  it("mantém o submenu semanticamente aninhado e o botão pai acessível por teclado", () => {
+    renderShell();
+    fireEvent.mouseEnter(
+      screen.getByRole("complementary", { name: "Navegação principal" }),
+    );
+    const agendaButton = screen.getByRole("button", { name: "Agenda" });
+    const parentItem = agendaButton.closest("li");
+    const submenuId = agendaButton.getAttribute("aria-controls");
+
+    agendaButton.focus();
+    expect(agendaButton).toHaveFocus();
+    expect(agendaButton).toHaveAttribute("type", "button");
+    expect(parentItem.querySelector(`#${submenuId}`)).not.toBeNull();
   });
 });
