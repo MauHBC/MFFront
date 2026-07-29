@@ -3083,7 +3083,7 @@ export default function Financeiro() {
 
   useEffect(() => {
     if (!attendanceDrilldownPatientId) return;
-    if (attendanceDetailSessions.isLoading) return;
+    if (attendanceDetailSessions.isLoading || attendanceDetailSessions.error) return;
     const { mode, period } = getAttendanceDetailPeriod({
       periodMode: attendancePeriodMode,
       periodMonth: attendancePeriodMonth,
@@ -3097,6 +3097,7 @@ export default function Financeiro() {
     if (!cacheKey || attendanceDetailSummary?.cacheKey === cacheKey) return;
     handleViewPatientSessions(attendanceDrilldownPatientId, { keepTab: true });
   }, [
+    attendanceDetailSessions.error,
     attendanceDetailSessions.isLoading,
     attendanceDetailSummary?.cacheKey,
     attendanceDrilldownPatientId,

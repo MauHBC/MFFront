@@ -1263,5 +1263,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       expect(getFinancialRevenuePatientDetail).toHaveBeenCalled();
     });
     expect(await screen.findByText(/detalhes deste paciente/i)).toBeInTheDocument();
+    expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(1);
   });
 });
