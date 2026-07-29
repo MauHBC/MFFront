@@ -142,4 +142,58 @@ describe("AppShell", () => {
 
     expect(mockLogout).toHaveBeenCalledTimes(1);
   });
+
+  it("expande Financeiro no modo compacto e abre a Visão geral sem fixar a sidebar", () => {
+    const { container } = renderShell();
+    const financialButton = screen.getByRole("button", { name: "Financeiro" });
+
+    expect(financialButton).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(financialButton);
+
+    expect(financialButton).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("link", { name: "Visão geral" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("link", { name: "Receitas" })).toHaveAttribute(
+      "href",
+      "/financeiro/receitas",
+    );
+    expect(screen.getByRole("link", { name: "Despesas da clínica" })).toHaveAttribute(
+      "href",
+      "/financeiro/despesas",
+    );
+    expect(screen.getByRole("link", { name: "Configurações" })).toHaveAttribute(
+      "href",
+      "/financeiro/configuracoes",
+    );
+    expect(container.firstChild).toHaveAttribute("data-sidebar-pinned", "false");
+  });
+
+  it("deriva a expansão e o submenu ativo de uma rota financeira direta", () => {
+    renderShell("/financeiro/despesas");
+
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    fireEvent.mouseEnter(
+      screen.getByRole("complementary", { name: "Navegação principal" }),
+    );
+    expect(screen.getByRole("link", { name: "Despesas da clínica" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("fecha o drawer mobile ao navegar por um submenu", () => {
+    const { container } = renderShell("/financeiro/visao-geral");
+    const trigger = container.querySelector("[aria-controls='app-navigation']");
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("link", { name: "Receitas" }));
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
 });

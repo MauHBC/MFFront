@@ -1,22 +1,18 @@
 /* eslint-disable no-use-before-define */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import styled from "styled-components";
 import {
-  FaChartLine,
   FaEye,
   FaEyeSlash,
-  FaMoneyBillWave,
-  FaRegCreditCard,
-  FaTags,
   FaTimes,
-  FaWallet,
   FaPlus,
 } from "react-icons/fa";
 import { toast } from "react-toastify";
 
 import Loading from "../../components/Loading";
 import { FinancialStatusPill } from "../../components/AppFinancialStatus";
+import { NAVIGATION_BADGE_EVENT } from "../../components/AppShell/navigation";
 import {
   PrimaryButton as SharedPrimaryButton,
   GhostButton as SharedGhostButton,
@@ -485,6 +481,21 @@ const SHOW_MANUAL_ENTRIES = false;
 // Mantemos a view antiga disponivel no codigo, mas fora da navegacao para simplificar a UX.
 const SHOW_DEDICATED_PAYMENTS_VIEW = false;
 
+const getFinancialSectionFromPath = (pathname) => {
+  if (pathname === "/financeiro/receitas") return "receitas";
+  if (pathname === "/financeiro/despesas") return "clinic-expenses";
+  if (pathname === "/financeiro/configuracoes/categorias-despesas") {
+    return "clinic-expense-categories";
+  }
+  if (
+    pathname === "/financeiro/configuracoes"
+    || pathname === "/financeiro/configuracoes/formas-pagamento"
+  ) {
+    return "methods";
+  }
+  return "overview";
+};
+
 const ATTENDANCE_UI = {
   colors: {
     background: "#f6f8fb",
@@ -801,7 +812,9 @@ const normalizeFinancialOverview = (
 
 export default function Financeiro() {
   const routeLocation = useLocation();
-  const [activeSection, setActiveSection] = useState("overview");
+  const [activeSection, setActiveSection] = useState(() =>
+    getFinancialSectionFromPath(routeLocation.pathname)
+  );
   const [receitasView, setReceitasView] = useState("atendimentos");
   const [financialValuesVisible, setFinancialValuesVisible] = useState(false);
   const formatCurrency = useCallback(
@@ -936,6 +949,19 @@ export default function Financeiro() {
   );
   const billingCyclesMonthPickerRef = useRef(null);
   const [billingCyclesDrilldownPatientId, setBillingCyclesDrilldownPatientId] = useState(null);
+
+  useEffect(() => {
+    setActiveSection(getFinancialSectionFromPath(routeLocation.pathname));
+  }, [routeLocation.pathname]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(NAVIGATION_BADGE_EVENT, {
+      detail: {
+        key: "financial-expenses",
+        value: formatExpenseAlertCount(clinicExpenseAlertsCount),
+      },
+    }));
+  }, [clinicExpenseAlertsCount]);
 
   useEffect(() => {
     const params = new URLSearchParams(routeLocation.search || "");
@@ -3178,13 +3204,6 @@ export default function Financeiro() {
       detailsEl.style.setProperty("--action-menu-left", `${left}px`);
     });
   }, []);
-
-  const handleSectionChange = useCallback(
-    (section) => {
-      setActiveSection(section === "prices" ? "methods" : section);
-    },
-    [],
-  );
 
   const openHolidayModal = useCallback(() => {
     setHolidayForm(emptyHolidayForm);
@@ -7848,98 +7867,20 @@ export default function Financeiro() {
     overview: "Visão geral",
     receitas: "Receitas",
     "clinic-expenses": "Despesas da clínica",
-    methods: "Formas de pagamento",
-    "clinic-expense-categories": "Categorias de despesas",
+    methods: "Configurações",
+    "clinic-expense-categories": "Configurações",
     holidays: "Feriados",
     recurring: "Despesas fixas",
     reports: "Relatórios",
     categories: "Categorias",
   };
   const currentSectionTitle = sectionTitleByKey[activeSection] || "Financeiro";
-  const clinicExpenseAlertsBadge = formatExpenseAlertCount(clinicExpenseAlertsCount);
   const showFinancialPrivacyToggle = ["overview", "receitas", "clinic-expenses"].includes(activeSection);
+  const isFinancialSettings = ["methods", "clinic-expense-categories"].includes(activeSection);
 
   return (
     <FinancePage>
       <FinanceContent>
-        <FinanceSectionNavigation aria-label="Seções do Financeiro">
-          <FinanceSectionButton
-            type="button"
-            $active={activeSection === "overview"}
-            aria-pressed={activeSection === "overview"}
-            onClick={() => handleSectionChange("overview")}
-          >
-            <FaChartLine aria-hidden="true" /> Visão geral
-          </FinanceSectionButton>
-          <FinanceSectionButton
-            type="button"
-            $active={activeSection === "receitas"}
-            aria-pressed={activeSection === "receitas"}
-            onClick={() => handleSectionChange("receitas")}
-          >
-            <FaMoneyBillWave aria-hidden="true" /> Receitas
-          </FinanceSectionButton>
-          {SHOW_CLINIC_EXPENSES && (
-            <FinanceSectionButton
-              type="button"
-              $active={activeSection === "clinic-expenses"}
-              aria-pressed={activeSection === "clinic-expenses"}
-              onClick={() => handleSectionChange("clinic-expenses")}
-            >
-              <FaWallet aria-hidden="true" /> Despesas da clínica
-              {clinicExpenseAlertsBadge ? (
-                <SidebarAlertBadge>{clinicExpenseAlertsBadge}</SidebarAlertBadge>
-              ) : null}
-            </FinanceSectionButton>
-          )}
-          <FinanceSectionButton
-            type="button"
-            $active={activeSection === "methods"}
-            aria-pressed={activeSection === "methods"}
-            onClick={() => handleSectionChange("methods")}
-          >
-            <FaRegCreditCard aria-hidden="true" /> Formas de pagamento
-          </FinanceSectionButton>
-          <FinanceSectionButton
-            type="button"
-            $active={activeSection === "clinic-expense-categories"}
-            aria-pressed={activeSection === "clinic-expense-categories"}
-            onClick={() => handleSectionChange("clinic-expense-categories")}
-          >
-            <FaTags aria-hidden="true" /> Categorias de despesas
-          </FinanceSectionButton>
-          {SHOW_FINANCIAL_MANAGEMENT && (
-            <>
-              <FinanceSectionButton
-                type="button"
-                $active={activeSection === "recurring"}
-                aria-pressed={activeSection === "recurring"}
-                onClick={() => handleSectionChange("recurring")}
-              >
-                <FaWallet aria-hidden="true" /> Despesas fixas
-              </FinanceSectionButton>
-              <FinanceSectionButton
-                type="button"
-                $active={activeSection === "categories"}
-                aria-pressed={activeSection === "categories"}
-                onClick={() => handleSectionChange("categories")}
-              >
-                <FaTags aria-hidden="true" /> Categorias
-              </FinanceSectionButton>
-            </>
-          )}
-          {SHOW_FINANCIAL_REPORTS && (
-            <FinanceSectionButton
-              type="button"
-              $active={activeSection === "reports"}
-              aria-pressed={activeSection === "reports"}
-              onClick={() => handleSectionChange("reports")}
-            >
-              <FaChartLine aria-hidden="true" /> Relatórios
-            </FinanceSectionButton>
-          )}
-        </FinanceSectionNavigation>
-
           <Header>
             <HeaderText>
               <HeaderTitleRow>
@@ -7962,6 +7903,29 @@ export default function Financeiro() {
               </HeaderTabsSlot>
             )}
           </Header>
+
+          {isFinancialSettings && (
+            <SettingsTabs role="tablist" aria-label="Configurações financeiras">
+              <SettingsTab
+                as={Link}
+                to="/financeiro/configuracoes/formas-pagamento"
+                role="tab"
+                $active={activeSection === "methods"}
+                aria-selected={activeSection === "methods"}
+              >
+                Formas de pagamento
+              </SettingsTab>
+              <SettingsTab
+                as={Link}
+                to="/financeiro/configuracoes/categorias-despesas"
+                role="tab"
+                $active={activeSection === "clinic-expense-categories"}
+                aria-selected={activeSection === "clinic-expense-categories"}
+              >
+                Categorias de despesas
+              </SettingsTab>
+            </SettingsTabs>
+          )}
 
           <>
             {activeSection === "overview" && renderOverview()}
@@ -9798,37 +9762,36 @@ const FinanceContent = styled.div`
   }
 `;
 
-const FinanceSectionNavigation = styled.nav`
+const SettingsTabs = styled.div`
   display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
-  padding-top: 7px;
-  padding-bottom: 8px;
+  gap: 24px;
+  margin: 0 0 20px;
+  border-bottom: 1px solid rgba(106, 121, 92, 0.22);
   overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  border-bottom: 1px solid rgba(106, 121, 92, 0.18);
 `;
 
-const FinanceSectionButton = styled.button`
+const SettingsTab = styled.a`
   position: relative;
-  min-height: 44px;
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
-  border: 1px solid ${(props) => (props.$active ? "#6a795c" : "rgba(106, 121, 92, 0.18)")};
-  border-radius: 10px;
-  background: ${(props) => (props.$active ? "#e8eee0" : "#fff")};
-  color: ${(props) => (props.$active ? "#354a2c" : "#5d6957")};
-  font: inherit;
-  font-size: 0.88rem;
-  font-weight: 800;
-  white-space: nowrap;
-  cursor: pointer;
+  padding: 10px 2px 12px;
+  border: 0;
+  background: transparent;
+  color: ${(props) => (props.$active ? "#354a2c" : "#667160")};
+  font-size: 0.92rem;
+  font-weight: ${(props) => (props.$active ? 800 : 650)};
+  text-decoration: none;
+
+  &::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: -1px;
+    left: 0;
+    height: 3px;
+    background: ${(props) => (props.$active ? "#6a795c" : "transparent")};
+  }
 
   &:hover {
-    background: #eef3e9;
     color: #354a2c;
   }
 
@@ -9836,24 +9799,6 @@ const FinanceSectionButton = styled.button`
     outline: 3px solid rgba(106, 121, 92, 0.28);
     outline-offset: 2px;
   }
-`;
-
-const SidebarAlertBadge = styled.span`
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: #c63b32;
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 0.72rem;
-  flex-shrink: 0;
 `;
 
 const SmallButton = styled.button`

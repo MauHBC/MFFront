@@ -196,24 +196,19 @@ export const NavigationList = styled.ul`
   list-style: none;
 `;
 
-export const NavigationLink = styled.a`
+const navigationItemStyles = css`
+  width: 100%;
   min-height: 44px;
   display: flex;
   align-items: center;
-  justify-content: ${(p) => (p.$expanded ? "flex-start" : "center")};
   gap: ${spacing.md};
-  padding: ${spacing.sm} ${(p) => (p.$expanded ? spacing.md : spacing.sm)};
+  border: 0;
   border-radius: ${radii.md};
-  color: ${(p) => (p.$active ? colors.navigationActiveText : colors.textSecondary)};
-  background: ${(p) => (p.$active ? colors.navigationActive : "transparent")};
+  font: inherit;
   font-weight: ${typography.weightSemibold};
   text-decoration: none;
+  cursor: pointer;
   transition: background 150ms ease, color 150ms ease;
-
-  &:hover {
-    color: ${(p) => (p.$active ? colors.navigationActiveText : colors.textPrimary)};
-    background: ${(p) => (p.$active ? colors.navigationActive : colors.navigationHover)};
-  }
 
   svg {
     flex: 0 0 auto;
@@ -222,14 +217,111 @@ export const NavigationLink = styled.a`
 
   ${focusRing}
 
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+`;
+
+export const NavigationLink = styled.a`
+  ${navigationItemStyles}
+  justify-content: ${(p) => (p.$expanded ? "flex-start" : "center")};
+  padding: ${spacing.sm} ${(p) => (p.$expanded ? spacing.md : spacing.sm)};
+  color: ${(p) => (p.$active ? colors.navigationActiveText : colors.textSecondary)};
+  background: ${(p) => (p.$active ? colors.navigationActive : "transparent")};
+
+  &:hover {
+    color: ${(p) => (p.$active ? colors.navigationActiveText : colors.textPrimary)};
+    background: ${(p) => (p.$active ? colors.navigationActive : colors.navigationHover)};
+  }
+
   @media (max-width: ${layout.sidebarBreakpoint}) {
     justify-content: flex-start;
     padding: ${spacing.sm} ${spacing.md};
+  }
+`;
+
+export const NavigationModuleButton = styled.button`
+  ${navigationItemStyles}
+  justify-content: ${(p) => (p.$expanded ? "flex-start" : "center")};
+  padding: ${spacing.sm} ${(p) => (p.$expanded ? spacing.md : spacing.sm)};
+  background: ${(p) => (p.$active ? colors.navigationActive : "transparent")};
+  color: ${(p) => (p.$active ? colors.navigationActiveText : colors.textSecondary)};
+
+  &:hover {
+    color: ${(p) => (p.$active ? colors.navigationActiveText : colors.textPrimary)};
+    background: ${(p) => (p.$active ? colors.navigationActive : colors.navigationHover)};
+  }
+
+  @media (max-width: ${layout.sidebarBreakpoint}) {
+    justify-content: flex-start;
+    padding: ${spacing.sm} ${spacing.md};
+  }
+`;
+
+export const NavigationChevron = styled.span`
+  margin-left: auto;
+  display: ${(p) => (p.$expanded ? "inline-flex" : "none")};
+  transform: rotate(${(p) => (p.$open ? "180deg" : "0deg")});
+  transition: transform 150ms ease;
+
+  @media (max-width: ${layout.sidebarBreakpoint}) {
+    display: inline-flex;
   }
 
   @media (prefers-reduced-motion: reduce) {
     transition: none;
   }
+`;
+
+export const SubnavigationList = styled.ul`
+  display: ${(p) => (p.$open && p.$expanded ? "grid" : "none")};
+  gap: ${spacing.xs};
+  margin: ${spacing.xs} 0 ${spacing.sm};
+  padding: 0 0 0 44px;
+  list-style: none;
+
+  @media (max-width: ${layout.sidebarBreakpoint}) {
+    display: ${(p) => (p.$open ? "grid" : "none")};
+  }
+`;
+
+export const SubnavigationLink = styled.a`
+  position: relative;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  padding: ${spacing.xs} ${spacing.md};
+  border-left: 3px solid ${(p) => (p.$active ? colors.brand : "transparent")};
+  border-radius: 0 ${radii.sm} ${radii.sm} 0;
+  background: ${(p) => (p.$active ? colors.navigationActive : "transparent")};
+  color: ${(p) => (p.$active ? colors.navigationActiveText : colors.textSecondary)};
+  font-size: 0.86rem;
+  font-weight: ${(p) => (
+    p.$active ? typography.weightBold : typography.weightSemibold
+  )};
+  text-decoration: none;
+
+  &:hover {
+    background: ${(p) => (p.$active ? colors.navigationActive : colors.navigationHover)};
+    color: ${colors.textPrimary};
+  }
+
+  ${focusRing}
+`;
+
+export const SubnavigationBadge = styled.span`
+  min-width: 20px;
+  height: 20px;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: ${radii.pill};
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: ${colors.danger};
+  color: ${colors.white};
+  font-size: 0.7rem;
+  font-weight: ${typography.weightBold};
 `;
 
 export const NavigationText = styled.span`

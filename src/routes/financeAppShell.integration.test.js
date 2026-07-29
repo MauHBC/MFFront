@@ -80,7 +80,7 @@ describe("rota do Financeiro no App Shell", () => {
     fireEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Financeiro" }));
 
     expect(screen.getByRole("heading", { name: "Visão financeira" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Financeiro" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -91,7 +91,7 @@ describe("rota do Financeiro no App Shell", () => {
   it("mantém o App Shell no acesso direto e refresh conceitual", () => {
     renderRoutes("/financeiro");
 
-    expect(screen.getByRole("link", { name: "Financeiro" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -103,10 +103,41 @@ describe("rota do Financeiro no App Shell", () => {
     const pathname = "/financeiro?view=mensalidades&month=2026-07&patient_id=41&patient_name=Ana";
     renderRoutes(pathname);
 
-    expect(screen.getByTestId("finance-location")).toHaveTextContent(pathname);
-    expect(screen.getByRole("link", { name: "Financeiro" })).toHaveAttribute(
+    expect(screen.getByTestId("finance-location")).toHaveTextContent(
+      "/financeiro/receitas?view=mensalidades&month=2026-07&patient_id=41&patient_name=Ana",
+    );
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
       "aria-current",
       "page",
     );
+  });
+
+  it.each([
+    ["/financeiro/visao-geral", "Visão geral"],
+    ["/financeiro/receitas", "Receitas"],
+    ["/financeiro/despesas", "Despesas da clínica"],
+    ["/financeiro/configuracoes", "Configurações"],
+    ["/financeiro/configuracoes/formas-pagamento", "Configurações"],
+    ["/financeiro/configuracoes/categorias-despesas", "Configurações"],
+  ])("mantém Financeiro expandido e destaca %s", (pathname, activeLabel) => {
+    renderRoutes(pathname);
+
+    expect(screen.getByRole("button", { name: "Financeiro" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    fireEvent.mouseEnter(
+      screen.getByRole("complementary", { name: "Navegação principal" }),
+    );
+    expect(screen.getByRole("link", { name: activeLabel })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(document.querySelectorAll(
+      "#app-subnavigation-financial [aria-current='page']",
+    )).toHaveLength(1);
+    expect(screen.getAllByRole("link", {
+      name: /^(Visão geral|Receitas|Despesas da clínica|Configurações)$/,
+    })).toHaveLength(4);
   });
 });

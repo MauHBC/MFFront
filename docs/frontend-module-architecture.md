@@ -135,6 +135,24 @@ Para adicionar futuramente uma rota existente à navegação, inclua um item em
 real já usada pelo produto. Não crie permissão apenas no frontend e não use a
 ausência de um link como substituto da autorização do backend.
 
+Itens globais podem declarar `children` para representar um segundo nível no
+próprio App Shell. O item pai expansível abre seu primeiro filho quando acionado
+fora do módulo, deriva expansão e seleção da rota e mantém apenas um módulo
+expansível aberto. Pais e filhos respeitam `isVisible`; um pai sem filhos
+visíveis também é removido. O drawer mobile usa a mesma estrutura e fecha após
+a navegação.
+
+Financeiro é o primeiro módulo nesse padrão:
+
+- `/financeiro` preserva a entrada legada e redireciona para
+  `/financeiro/visao-geral`;
+- `/financeiro/visao-geral`, `/financeiro/receitas`,
+  `/financeiro/despesas` e `/financeiro/configuracoes` são os destinos do
+  segundo nível;
+- Formas de pagamento e Categorias de despesas continuam como abas internas de
+  Configurações, com rotas próprias sob `/financeiro/configuracoes`;
+- mensal/anual permanece modo da Visão geral, não item de navegação.
+
 `ClinicContext` continua sendo a fonte da identidade autenticada. As cores
 `--clinic-primary-color`, `--clinic-secondary-color` e
 `--clinic-accent-color` alimentam somente tokens de marca. Texto, foco,

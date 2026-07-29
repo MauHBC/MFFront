@@ -1,5 +1,5 @@
 import React from "react";
-import { Switch, useLocation } from "react-router-dom";
+import { Redirect, Switch, useLocation } from "react-router-dom";
 
 import MyRoute from "./MyRoute";
 
@@ -38,9 +38,19 @@ function getPatientsPageTitle(pathname) {
 }
 
 function getAppShellPageTitle(pathname) {
-  if (pathname === "/financeiro") return "Financeiro";
+  if (pathname === "/financeiro" || pathname.startsWith("/financeiro/")) return "Financeiro";
   if (pathname === "/planos" || pathname.startsWith("/planos/")) return "Planos";
   return getPatientsPageTitle(pathname);
+}
+
+function LegacyFinancialRoute() {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search || "");
+  const view = params.get("view") || params.get("tab");
+  const pathname = view === "mensalidades"
+    ? "/financeiro/receitas"
+    : "/financeiro/visao-geral";
+  return <Redirect to={{ pathname, search: location.search }} />;
 }
 
 export default function Routes() {
@@ -52,7 +62,8 @@ export default function Routes() {
     || location.pathname.startsWith("/pacientes/");
   const usesPlansAppShell = location.pathname === "/planos"
     || location.pathname.startsWith("/planos/");
-  const usesFinancialAppShell = location.pathname === "/financeiro";
+  const usesFinancialAppShell = location.pathname === "/financeiro"
+    || location.pathname.startsWith("/financeiro/");
   const usesAppShell = [
     "/menu",
     "/painel",
@@ -86,7 +97,20 @@ export default function Routes() {
         <MyRoute exact path="/agendamentos/eventos" component={SchedulingEvents} isClosed />
         <MyRoute exact path="/painel" component={Painel} isClosed />
         <MyRoute exact path="/dashboard" component={Painel} isClosed />
-        <MyRoute exact path="/financeiro" component={Financeiro} isClosed />
+        <MyRoute exact path="/financeiro" component={LegacyFinancialRoute} isClosed />
+        <MyRoute
+          exact
+          path={[
+            "/financeiro/visao-geral",
+            "/financeiro/receitas",
+            "/financeiro/despesas",
+            "/financeiro/configuracoes",
+            "/financeiro/configuracoes/formas-pagamento",
+            "/financeiro/configuracoes/categorias-despesas",
+          ]}
+          component={Financeiro}
+          isClosed
+        />
         <MyRoute exact path="/platform" component={PlatformPaused} isClosed />
         <MyRoute exact path="/platform/clinics/:id" component={PlatformPaused} isClosed />
         <MyRoute

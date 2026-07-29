@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useHistory, useLocation } from "react-router-dom";
 import {
   FaBars,
   FaChevronDown,
@@ -15,6 +15,7 @@ import { useLogout } from "../../hooks/useLogout";
 import {
   getVisibleNavigationItems,
   isNavigationItemActive,
+  NAVIGATION_BADGE_EVENT,
 } from "./navigation";
 import {
   CloseNavigationButton,
@@ -27,14 +28,19 @@ import {
   MobileMenuButton,
   Navigation,
   NavigationLabel,
+  NavigationChevron,
   NavigationLink,
   NavigationList,
+  NavigationModuleButton,
   NavigationText,
   Overlay,
   Shell,
   Sidebar,
   SidebarPinButton,
   SkipLink,
+  SubnavigationLink,
+  SubnavigationBadge,
+  SubnavigationList,
   TenantArea,
   TenantMark,
   TenantName,
@@ -52,6 +58,7 @@ function readPinnedPreference() {
 }
 
 export default function AppShell({ children, pageTitle }) {
+  const history = useHistory();
   const location = useLocation();
   const { username } = useAuth();
   const handleLogout = useLogout();
@@ -64,16 +71,33 @@ export default function AppShell({ children, pageTitle }) {
   const [temporarilyExpanded, setTemporarilyExpanded] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [navigationBadges, setNavigationBadges] = useState({});
+  const navigationItems = getVisibleNavigationItems();
+  const activeExpandableItem = navigationItems.find(
+    (item) => item.children && isNavigationItemActive(item, location.pathname),
+  );
+  const [openModuleKey, setOpenModuleKey] = useState(
+    activeExpandableItem?.key || null,
+  );
   const mobileTriggerRef = useRef(null);
   const sidebarRef = useRef(null);
   const navigationRef = useRef(null);
   const userButtonRef = useRef(null);
-  const navigationItems = getVisibleNavigationItems();
   const expanded = pinned || temporarilyExpanded;
 
   useEffect(() => {
     window.localStorage.setItem(PINNED_STORAGE_KEY, String(pinned));
   }, [pinned]);
+
+  useEffect(() => {
+    const handleNavigationBadge = (event) => {
+      const { key, value } = event.detail || {};
+      if (!key) return;
+      setNavigationBadges((current) => ({ ...current, [key]: value || null }));
+    };
+    window.addEventListener(NAVIGATION_BADGE_EVENT, handleNavigationBadge);
+    return () => window.removeEventListener(NAVIGATION_BADGE_EVENT, handleNavigationBadge);
+  }, []);
 
   const handleSidebarBlur = useCallback((event) => {
     if (!event.currentTarget.contains(event.relatedTarget)) {
@@ -93,6 +117,10 @@ export default function AppShell({ children, pageTitle }) {
   useEffect(() => {
     setMobileOpen(false);
     setUserMenuOpen(false);
+    const activeExpandable = getVisibleNavigationItems().find(
+      (item) => item.children && isNavigationItemActive(item, location.pathname),
+    );
+    if (activeExpandable) setOpenModuleKey(activeExpandable.key);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -191,21 +219,89 @@ export default function AppShell({ children, pageTitle }) {
             {navigationItems.map((item) => {
               const active = isNavigationItemActive(item, location.pathname);
               const Icon = item.icon;
+              const hasChildren = Boolean(item.children?.length);
+              const isOpen = openModuleKey === item.key;
 
               return (
                 <li key={item.key}>
-                  <NavigationLink
-                    as={Link}
-                    to={item.path}
-                    $active={active}
-                    $expanded={expanded}
-                    aria-current={active ? "page" : undefined}
-                    aria-label={!expanded ? item.label : undefined}
-                    title={!expanded ? item.label : undefined}
-                  >
-                    <Icon aria-hidden="true" />
-                    <NavigationText $expanded={expanded}>{item.label}</NavigationText>
-                  </NavigationLink>
+                  {hasChildren ? (
+                    <>
+                      <NavigationModuleButton
+                        type="button"
+                        $active={active}
+                        $expanded={expanded}
+                        aria-expanded={isOpen}
+                        aria-controls={`app-subnavigation-${item.key}`}
+                        aria-current={active ? "page" : undefined}
+                        aria-label={!expanded ? item.label : undefined}
+                        title={!expanded ? item.label : undefined}
+                        onClick={() => {
+                          if (!expanded) {
+                            setTemporarilyExpanded(true);
+                            setOpenModuleKey(item.key);
+                            if (!active) history.push(item.path);
+                            return;
+                          }
+                          if (!isOpen) {
+                            setOpenModuleKey(item.key);
+                            if (!active) {
+                              history.push(item.path);
+                            }
+                          } else {
+                            setOpenModuleKey(null);
+                          }
+                        }}
+                      >
+                        <Icon aria-hidden="true" />
+                        <NavigationText $expanded={expanded}>{item.label}</NavigationText>
+                        <NavigationChevron $expanded={expanded} $open={isOpen}>
+                          <FaChevronDown aria-hidden="true" />
+                        </NavigationChevron>
+                      </NavigationModuleButton>
+                      <SubnavigationList
+                        id={`app-subnavigation-${item.key}`}
+                        $open={isOpen}
+                        $expanded={expanded}
+                      >
+                        {item.children.map((child) => {
+                          const childActive = isNavigationItemActive(
+                            child,
+                            location.pathname,
+                          );
+                          return (
+                            <li key={child.key}>
+                              <SubnavigationLink
+                                as={Link}
+                                to={child.path}
+                                $active={childActive}
+                                aria-current={childActive ? "page" : undefined}
+                              >
+                                {child.label}
+                                {navigationBadges[child.key] ? (
+                                  <SubnavigationBadge aria-label={`${navigationBadges[child.key]} alertas`}>
+                                    {navigationBadges[child.key]}
+                                  </SubnavigationBadge>
+                                ) : null}
+                              </SubnavigationLink>
+                            </li>
+                          );
+                        })}
+                      </SubnavigationList>
+                    </>
+                  ) : (
+                    <NavigationLink
+                      as={Link}
+                      to={item.path}
+                      $active={active}
+                      $expanded={expanded}
+                      aria-current={active ? "page" : undefined}
+                      aria-label={!expanded ? item.label : undefined}
+                      title={!expanded ? item.label : undefined}
+                    >
+                      <Icon aria-hidden="true" />
+                      <NavigationText $expanded={expanded}>{item.label}</NavigationText>
+                    </NavigationLink>
+                  )}
                 </li>
               );
             })}

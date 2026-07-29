@@ -79,8 +79,8 @@ jest.mock("../../services/financial", () => ({
   listPatientCredits: jest.fn(),
 }));
 
-const renderFinanceiro = () => render(
-  <MemoryRouter>
+const renderFinanceiro = (pathname = "/financeiro/receitas") => render(
+  <MemoryRouter initialEntries={[pathname]}>
     <Financeiro />
   </MemoryRouter>,
 );
@@ -256,7 +256,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
           pendingBalance: 16000,
         },
     }));
-    renderFinanceiro();
+    renderFinanceiro("/financeiro/visao-geral");
     await revealFinancialValues();
 
     await waitFor(() => {
@@ -286,7 +286,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
   });
 
   it("navega um mês no mensal e um ano no anual", async () => {
-    renderFinanceiro();
+    renderFinanceiro("/financeiro/visao-geral");
 
     await waitFor(() => {
       expect(getFinancialOverview).toHaveBeenCalledWith("2026-06", "month");
@@ -325,7 +325,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
         },
       });
     });
-    renderFinanceiro();
+    renderFinanceiro("/financeiro/visao-geral");
     await revealFinancialValues();
     expect(await screen.findAllByText("R$ 110,00")).toHaveLength(2);
 
@@ -361,7 +361,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
         ? Promise.reject(new Error("annual failure"))
         : Promise.resolve({ data: { month: period } })
     ));
-    renderFinanceiro();
+    renderFinanceiro("/financeiro/visao-geral");
     await waitFor(() => {
       expect(getFinancialOverview).toHaveBeenCalledWith("2026-06", "month");
     });
@@ -375,6 +375,36 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     });
     expect(screen.getByText("Nenhuma movimentação encontrada para este ano."))
       .toBeInTheDocument();
+  });
+
+  it("abre Configurações em Formas de pagamento e preserva links diretos das abas", async () => {
+    renderFinanceiro("/financeiro/configuracoes");
+
+    expect(screen.getByRole("heading", { name: "Configurações" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Formas de pagamento" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("tab", { name: "Categorias de despesas" })).toHaveAttribute(
+      "href",
+      "/financeiro/configuracoes/categorias-despesas",
+    );
+    expect(screen.queryByRole("navigation", { name: "Seções do Financeiro" })).not.toBeInTheDocument();
+    expect(await screen.findByText("Nova forma")).toBeInTheDocument();
+  });
+
+  it("abre diretamente Categorias de despesas e mantém a aba correta após refresh", async () => {
+    renderFinanceiro("/financeiro/configuracoes/categorias-despesas");
+
+    expect(screen.getByRole("tab", { name: "Categorias de despesas" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("tab", { name: "Formas de pagamento" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+    expect(await screen.findByText("Nova categoria")).toBeInTheDocument();
   });
 
   afterEach(() => {
@@ -391,7 +421,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
 
     expect(screen.getByRole("button", { name: "Mostrar valores financeiros" })).toBeInTheDocument();
     await revealFinancialValues();
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
 
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
@@ -465,7 +494,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     renderFinanceiro();
 
     await revealFinancialValues();
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
@@ -546,7 +574,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     renderFinanceiro();
 
     await revealFinancialValues();
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
@@ -613,7 +640,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     renderFinanceiro();
 
     await revealFinancialValues();
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
@@ -671,7 +697,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
 
     renderFinanceiro();
 
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
@@ -685,7 +710,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
   it("usa resumo agregado no modo anual", async () => {
     renderFinanceiro();
 
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
 
     await waitFor(() => {
@@ -777,7 +801,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
 
     renderFinanceiro();
 
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
@@ -882,7 +905,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
 
     renderFinanceiro();
 
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
@@ -987,7 +1009,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     renderFinanceiro();
 
     await revealFinancialValues();
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
@@ -1067,7 +1088,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
 
     renderFinanceiro();
 
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await userEvent.click(screen.getByRole("button", { name: "Mensalidades" }));
     await screen.findByText("Maria Silva");
 
@@ -1105,7 +1125,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     renderFinanceiro();
     await revealFinancialValues();
 
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await userEvent.click(screen.getByRole("button", { name: "Mensalidades" }));
     await screen.findByText("Maria Silva");
 
@@ -1171,7 +1190,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
 
     renderFinanceiro();
 
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
@@ -1212,7 +1230,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
 
     renderFinanceiro();
 
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
     await screen.findByText("Fisioterapia");
@@ -1239,7 +1256,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
 
     renderFinanceiro();
 
-    await userEvent.click(screen.getByRole("button", { name: "Receitas" }));
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
