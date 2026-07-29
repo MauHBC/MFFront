@@ -168,8 +168,12 @@ export const CloseNavigationButton = styled.button`
 `;
 
 export const Navigation = styled.nav`
+  --navigation-inline-padding: ${spacing.md};
+  --navigation-item-inline-padding: ${spacing.md};
+  --navigation-icon-column: 28px;
+  --navigation-action-column: 24px;
   flex: 1;
-  padding: ${spacing.lg} ${spacing.md};
+  padding: ${spacing.lg} var(--navigation-inline-padding);
   overflow-y: auto;
 `;
 
@@ -199,11 +203,8 @@ export const NavigationList = styled.ul`
 const navigationItemStyles = css`
   width: 100%;
   min-height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: ${spacing.md};
-  padding: ${spacing.sm};
+  display: block;
+  padding: ${spacing.sm} var(--navigation-item-inline-padding);
   border: 0;
   border-radius: ${radii.md};
   font: inherit;
@@ -243,10 +244,29 @@ export const NavigationModuleButton = styled.button`
 
 `;
 
+export const NavigationItemContent = styled.span`
+  width: 100%;
+  display: grid;
+  grid-template-columns: ${(p) => (
+    p.$expanded
+      ? "var(--navigation-icon-column) minmax(0, 1fr) var(--navigation-action-column)"
+      : "var(--navigation-icon-column)"
+  )};
+  column-gap: ${(p) => (p.$expanded ? spacing.md : "0")};
+  align-items: center;
+
+  @media (max-width: ${layout.sidebarBreakpoint}) {
+    grid-template-columns:
+      var(--navigation-icon-column)
+      minmax(0, 1fr)
+      var(--navigation-action-column);
+    column-gap: ${spacing.md};
+  }
+`;
+
 export const NavigationIcon = styled.span`
-  width: 28px;
+  width: var(--navigation-icon-column);
   height: 24px;
-  flex: 0 0 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -258,19 +278,26 @@ export const NavigationIcon = styled.span`
 `;
 
 export const NavigationChevron = styled.span`
-  margin-left: auto;
-  display: ${(p) => (p.$expanded ? "inline-flex" : "none")};
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   transform: rotate(${(p) => (p.$open ? "180deg" : "0deg")});
   transition: transform 150ms ease;
 
-  @media (max-width: ${layout.sidebarBreakpoint}) {
-    display: inline-flex;
-  }
-
   @media (prefers-reduced-motion: reduce) {
     transition: none;
+  }
+`;
+
+export const NavigationItemTrailing = styled.span`
+  width: var(--navigation-action-column);
+  height: 24px;
+  display: ${(p) => (p.$expanded ? "inline-flex" : "none")};
+  align-items: center;
+  justify-content: center;
+
+  @media (max-width: ${layout.sidebarBreakpoint}) {
+    display: inline-flex;
   }
 `;
 

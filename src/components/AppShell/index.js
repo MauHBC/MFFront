@@ -30,6 +30,8 @@ import {
   NavigationLabel,
   NavigationChevron,
   NavigationIcon,
+  NavigationItemContent,
+  NavigationItemTrailing,
   NavigationLink,
   NavigationList,
   NavigationModuleButton,
@@ -52,6 +54,32 @@ import {
 } from "./styled";
 
 const PINNED_STORAGE_KEY = "multifisio:app-shell:sidebar-pinned";
+
+function NavigationItemPresentation({
+  expanded,
+  icon: Icon,
+  label,
+  trailing,
+}) {
+  return (
+    <NavigationItemContent $expanded={expanded}>
+      <NavigationIcon aria-hidden="true">
+        <Icon />
+      </NavigationIcon>
+      <NavigationText $expanded={expanded}>{label}</NavigationText>
+      <NavigationItemTrailing $expanded={expanded}>
+        {trailing}
+      </NavigationItemTrailing>
+    </NavigationItemContent>
+  );
+}
+
+NavigationItemPresentation.propTypes = {
+  expanded: PropTypes.bool.isRequired,
+  icon: PropTypes.elementType.isRequired,
+  label: PropTypes.string.isRequired,
+  trailing: PropTypes.node.isRequired,
+};
 
 function readPinnedPreference() {
   if (typeof window === "undefined") return false;
@@ -253,13 +281,16 @@ export default function AppShell({ children, pageTitle }) {
                           }
                         }}
                       >
-                        <NavigationIcon aria-hidden="true">
-                          <Icon />
-                        </NavigationIcon>
-                        <NavigationText $expanded={expanded}>{item.label}</NavigationText>
-                        <NavigationChevron $expanded={expanded} $open={isOpen}>
-                          <FaChevronDown aria-hidden="true" />
-                        </NavigationChevron>
+                        <NavigationItemPresentation
+                          expanded={expanded}
+                          icon={Icon}
+                          label={item.label}
+                          trailing={(
+                            <NavigationChevron $open={isOpen}>
+                              <FaChevronDown aria-hidden="true" />
+                            </NavigationChevron>
+                          )}
+                        />
                       </NavigationModuleButton>
                       <SubnavigationList
                         id={`app-subnavigation-${item.key}`}
@@ -301,10 +332,12 @@ export default function AppShell({ children, pageTitle }) {
                       aria-label={!expanded ? item.label : undefined}
                       title={!expanded ? item.label : undefined}
                     >
-                      <NavigationIcon aria-hidden="true">
-                        <Icon />
-                      </NavigationIcon>
-                      <NavigationText $expanded={expanded}>{item.label}</NavigationText>
+                      <NavigationItemPresentation
+                        expanded={expanded}
+                        icon={Icon}
+                        label={item.label}
+                        trailing={false}
+                      />
                     </NavigationLink>
                   )}
                 </li>
