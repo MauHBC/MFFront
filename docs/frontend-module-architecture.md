@@ -187,9 +187,11 @@ aprovado; não invente uma rota para completar visualmente a lista.
 coluna fixa do ícone (`28px`), coluna flexível do texto e coluna própria da seta
 (`24px`), com `12px` de padding da navegação, `12px` no item e `12px` de gap.
 O centro horizontal atual do ícone é `38px`. Texto e seta desaparecem do fluxo
-compacto sem deslocar o ícone; a faixa “Módulos” usa `visibility`, preservando a
-posição vertical. Não centralize o conjunto ícone/texto/seta nem mova a seta
-para a coluna do texto.
+compacto sem deslocar o ícone; a faixa “Módulos” usa `visibility`, altura fixa,
+fonte zerada e recorte de overflow no estado compacto, preservando a posição
+vertical sem reservar largura horizontal. A topbar e o cabeçalho da sidebar
+compartilham `layout.appHeaderHeight` (`52px`). Não centralize o conjunto
+ícone/texto/seta nem mova a seta para a coluna do texto.
 
 ### Cores e estados
 
@@ -198,17 +200,23 @@ Os valores abaixo vêm de `src/styles/tokens.js` e são aplicados em
 
 | Estado | Token atual |
 |---|---|
-| Fundo da sidebar | `colors.navigationBackground` (`#f7f9f5`) |
-| Texto principal/secundário | `colors.textPrimary` / `colors.textSecondary` |
-| Item ativo | `colors.navigationActive` e `colors.navigationActiveText` |
-| Hover | `colors.navigationHover` |
-| Foco visível | `colors.focus` |
+| Fundo da sidebar | `colors.appChromeBackground`, derivado de `--clinic-primary-color` em OKLCH `L 0.485`, com `C ≤ 0.045`; fallback `oklch(0.485 0.03 145)` |
+| Módulo aberto | `colors.navigationModuleOpenBackground`, OKLCH `L 0.525`, com `C ≤ 0.045`; fallback `oklch(0.525 0.03 145)` |
+| Fundo do submenu | `colors.navigationSubmenuBackground`, OKLCH `L 0.415`, com `C ≤ 0.04`; fallback `oklch(0.415 0.026 145)` |
+| Texto principal/secundário da navegação | `colors.appChromeForeground` / `colors.appChromeMutedForeground` |
+| Página ativa no submenu | `colors.navigationSubmenuActiveBackground` (`rgb(255 255 255 / 14%)`) |
+| Hover da navegação | `colors.navigationHoverSurface` (`rgb(255 255 255 / 8%)`) |
+| Foco visível na moldura | `colors.appChromeFocus` |
 | Badge financeiro | `colors.danger` sobre `colors.white` |
-| Bordas e superfícies | `colors.borderSubtle`, `colors.surface` |
+| Workspace | `colors.workspaceBackground` (`oklch(0.98 0.004 250)`) |
+| Topbar e bordas | `colors.surface`, `colors.borderSubtle` e `colors.appChromeBorder` |
 
-`navigationActive` e `brand` usam `--clinic-primary-color` com fallback; os
-demais estados permanecem semânticos da aplicação. O overlay mobile é o valor
-local `rgba(15, 23, 19, 0.48)` em `styled.js`. Não há estado desabilitado nos
+As superfícies `appChromeBackground`, `navigationModuleOpenBackground`,
+`navigationSubmenuBackground` e `navigationSubmenuIndicator` derivam de
+`--clinic-primary-color`, limitando a cromaticidade em OKLCH. Os fallbacks
+preservam a mesma relação de luminosidade quando relative color syntax não está
+disponível. O overlay mobile é o valor local `rgba(15, 23, 19, 0.48)` em
+`styled.js`. Não há estado desabilitado nos
 itens atuais; `disabledBackground` e `disabledText` são tokens compartilhados,
 não um contrato específico da sidebar. Abas internas, quando aplicáveis, usam
 texto, peso/cor e sublinhado ativo; não devem virar cápsulas por padrão.
