@@ -47,6 +47,9 @@ describe("AppShell navigation layout", () => {
     expect(stylesSource).toMatch(
       /export const NavigationLabel = styled\.p`[\s\S]*@media \(max-width: \$\{layout\.sidebarBreakpoint\}\)[\s\S]*visibility: visible;/,
     );
+    expect(stylesSource).toMatch(
+      /export const NavigationLabel = styled\.p`[\s\S]*font-size: \$\{\(p\) => \(p\.\$expanded \? "0\.7rem" : "0"\)\};[\s\S]*overflow: hidden;/,
+    );
   });
 
   it("isola ícone, texto e seta em colunas determinísticas", () => {
@@ -82,6 +85,69 @@ describe("AppShell navigation layout", () => {
     );
     expect(stylesSource).toMatch(
       /NavigationItemTrailing[\s\S]*display: \$\{\(p\) => \(p\.\$expanded \? "inline-flex" : "none"\)\};[\s\S]*@media \(max-width: \$\{layout\.sidebarBreakpoint\}\)[\s\S]*display: inline-flex;/,
+    );
+  });
+
+  it("orienta o chevron para a direita fechado e para baixo aberto", () => {
+    expect(stylesSource).toMatch(
+      /export const NavigationChevron = styled\.span`[\s\S]*transform: rotate\(\$\{\(p\) => \(p\.\$open \? "0deg" : "-90deg"\)\}\);/,
+    );
+    expect(stylesSource).toMatch(
+      /export const NavigationChevron = styled\.span`[\s\S]*@media \(prefers-reduced-motion: reduce\)[\s\S]*transition: none;/,
+    );
+  });
+
+  it("agrupa subitens em uma superfície contínua e centraliza seu grid", () => {
+    expect(stylesSource).toMatch(
+      /export const SubnavigationList = styled\.ul`[\s\S]*margin: 0 0 \$\{spacing\.xs\};[\s\S]*border-left: 3px solid var\(--navigation-submenu-indicator\);[\s\S]*border-radius: 0;[\s\S]*background: var\(--navigation-submenu-surface\);/,
+    );
+    expect(stylesSource).not.toMatch(
+      /export const SubnavigationList = styled\.ul`[\s\S]*&::before/,
+    );
+    expect(stylesSource).toMatch(
+      /export const SubnavigationLink = styled\.a`[\s\S]*min-height: 42px;[\s\S]*display: grid;[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;[\s\S]*align-items: center;[\s\S]*padding: \$\{spacing\.sm\} \$\{spacing\.md\};[\s\S]*line-height: 1\.25;/,
+    );
+    expect(stylesSource).toMatch(
+      /export const SubnavigationLink = styled\.a`[\s\S]*border: 0;[\s\S]*border-radius: 0;/,
+    );
+  });
+
+  it("diferencia módulo aberto sem reintroduzir marcador no destino direto", () => {
+    expect(componentSource).toMatch(
+      /<NavigationModuleButton[\s\S]*?\$active=\{active\}[\s\S]*?\$open=\{isOpen\}/,
+    );
+    expect(stylesSource).toMatch(
+      /export const NavigationModuleButton = styled\.button`[\s\S]*p\.\$open \|\| p\.\$active \? "var\(--navigation-module-open-surface\)" : "transparent"/,
+    );
+    expect(stylesSource).not.toMatch(
+      /export const NavigationLink = styled\.a`[\s\S]*&::before/,
+    );
+  });
+
+  it("alinha o cabeçalho da sidebar e a topbar clara pela altura semântica", () => {
+    expect(stylesSource).toMatch(
+      /export const TenantArea = styled\.div`[\s\S]*height: \$\{layout\.appHeaderHeight\};[\s\S]*min-height: \$\{layout\.appHeaderHeight\};/,
+    );
+    expect(stylesSource).toMatch(
+      /export const Header = styled\.header`[\s\S]*height: \$\{layout\.appHeaderHeight\};[\s\S]*background: \$\{colors\.surface\};[\s\S]*border-bottom: 1px solid \$\{colors\.borderSubtle\};/,
+    );
+  });
+
+  it("mantém o contexto da página em uma linha com truncamento seguro", () => {
+    expect(stylesSource).toMatch(
+      /export const HeaderTitle = styled\.div`[\s\S]*display: flex;[\s\S]*overflow: hidden;[\s\S]*white-space: nowrap;/,
+    );
+    expect(stylesSource).toMatch(
+      /strong \{[\s\S]*min-width: 0;[\s\S]*text-overflow: ellipsis;[\s\S]*white-space: nowrap;/,
+    );
+  });
+
+  it("remove a causa estrutural do overflow horizontal no modo compacto", () => {
+    expect(stylesSource).toMatch(
+      /export const Sidebar = styled\.aside`[\s\S]*border-right: 0;[\s\S]*&::after \{[\s\S]*width: 1px;[\s\S]*background: \$\{colors\.appChromeBorder\};/,
+    );
+    expect(stylesSource).toMatch(
+      /export const Navigation = styled\.nav`[\s\S]*overflow-x: clip;[\s\S]*overflow-y: auto;/,
     );
   });
 });

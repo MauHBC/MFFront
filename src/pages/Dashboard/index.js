@@ -535,9 +535,7 @@ MetricCard.propTypes = {
 const Page = styled.div`
   min-height: calc(100vh - ${layout.appHeaderHeight});
   padding: ${spacing.xxl} ${spacing.xl} 52px;
-  background:
-    radial-gradient(circle at top left, rgba(227, 241, 236, 0.7), transparent 34%),
-    ${colors.appBackground};
+  background: ${colors.workspaceBackground};
   color: ${colors.textPrimary};
 
   @media (max-width: ${layout.mobileBreakpoint}) {

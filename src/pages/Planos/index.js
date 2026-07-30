@@ -10,6 +10,7 @@ import {
 } from "react-icons/fa";
 
 import { ModuleBody } from "../../components/AppModuleShell";
+import { colors as appColors } from "../../styles/tokens";
 import { AppToolbar, AppToolbarLeft } from "../../components/AppToolbar";
 import {
   PrimaryButton,
@@ -4620,7 +4621,7 @@ const Subtitle = styled.p`
 
 const PlansPage = styled.div`
   min-height: calc(100vh - 72px);
-  background: #f6f8f4;
+  background: ${appColors.workspaceBackground};
 `;
 
 const PlansContent = styled.div`

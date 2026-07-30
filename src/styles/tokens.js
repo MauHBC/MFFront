@@ -16,8 +16,28 @@ export const colors = {
   borderSubtle: "rgba(37, 51, 44, 0.12)",
   navigationBackground: "#f7f9f5",
   navigationHover: "rgba(106, 121, 92, 0.1)",
+  navigationHoverSurface: "rgb(255 255 255 / 8%)",
+  navigationModuleOpenBackgroundFallback: "oklch(0.525 0.03 145)",
+  navigationModuleOpenBackground:
+    "oklch(from var(--clinic-primary-color, #6a795c) 0.525 min(c, 0.045) h)",
+  navigationSubmenuBackgroundFallback: "oklch(0.415 0.026 145)",
+  navigationSubmenuBackground:
+    "oklch(from var(--clinic-primary-color, #6a795c) 0.415 min(c, 0.04) h)",
+  navigationSubmenuIndicatorFallback: "oklch(0.78 0.09 145)",
+  navigationSubmenuIndicator:
+    "oklch(from var(--clinic-primary-color, #6a795c) 0.78 clamp(0.06, c, 0.14) h)",
+  navigationSubmenuActiveBackground: "rgb(255 255 255 / 14%)",
   navigationActive: "var(--clinic-primary-color, #6a795c)",
   navigationActiveText: "#ffffff",
+  appChromeBackgroundFallback: "oklch(0.485 0.03 145)",
+  appChromeBackground:
+    "oklch(from var(--clinic-primary-color, #6a795c) 0.485 min(c, 0.045) h)",
+  appChromeForeground: "oklch(0.98 0.004 145)",
+  appChromeMutedForeground: "oklch(0.90 0.01 145)",
+  appChromeFocus: "oklch(0.95 0.04 145)",
+  appHeaderControlHover: "rgb(24 33 29 / 5%)",
+  workspaceBackground: "oklch(0.98 0.004 250)",
+  appChromeBorder: "rgb(255 255 255 / 14%)",
   disabledBackground: "#edf0eb",
   disabledText: "#9aa19c",
   success: "#2f7d4a",
@@ -66,7 +86,7 @@ export const radii = {
 
 export const layout = {
   topbarHeight: "80px",
-  appHeaderHeight: "64px",
+  appHeaderHeight: "52px",
   pageMaxWidth: "1200px",
   appSidebarWidth: "256px",
   appSidebarCollapsedWidth: "76px",

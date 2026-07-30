@@ -298,6 +298,7 @@ export default function AppShell({ children, pageTitle }) {
                       <NavigationModuleButton
                         type="button"
                         $active={active}
+                        $open={isOpen}
                         $expanded={expanded}
                         aria-expanded={isOpen}
                         aria-controls={`app-subnavigation-${item.key}`}

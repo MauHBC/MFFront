@@ -11,7 +11,7 @@ import { colors, layout, spacing } from "../../styles/tokens";
 
 export const PageWrapper = styled.div`
   min-height: 100vh;
-  background: ${(p) => p.$background || colors.appBackground};
+  background: ${(p) => p.$background || colors.workspaceBackground};
   padding-top: ${(p) => p.$paddingTop || "90px"};
   padding-bottom: ${(p) => p.$paddingBottom || "0"};
 `;

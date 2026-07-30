@@ -20,6 +20,7 @@ import {
 import { UnsavedChangesDialog } from "../../components/AppDrawer";
 import { DataTable as SharedDataTable } from "../../components/AppTable";
 import PatientSearchField from "../../components/PatientSearchField";
+import { colors as appColors } from "../../styles/tokens";
 import axios, { getUserFacingApiError } from "../../services/axios";
 import {
   listFinancialEntries,
@@ -9749,7 +9750,7 @@ const MutedText = styled.span`
 
 const FinancePage = styled.div`
   min-height: calc(100vh - 72px);
-  background: #f6f8f4;
+  background: ${appColors.workspaceBackground};
 `;
 
 const FinanceContent = styled.div`
