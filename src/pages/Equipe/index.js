@@ -1,9 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
-import { FaTimes } from "react-icons/fa";
+import { FaEdit, FaPlus, FaTimes } from "react-icons/fa";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
-import { loadTeamReadModel } from "../../services/team";
+import {
+  activateTeamPerson,
+  createTeamPerson,
+  loadTeamReadModel,
+  updateTeamPerson,
+} from "../../services/team";
 import { getUserFacingApiError } from "../../services/axios";
 import { ModuleHeader, ModulePanel, ModuleSubtitle, ModuleTitle } from "../../components/AppModuleShell";
 import DataLoadingState from "../../components/DataLoadingState";
@@ -13,9 +18,12 @@ import {
   DrawerBackdrop,
   DrawerBody,
   DrawerCloseBtn,
+  DrawerFooter,
   DrawerHeader,
   DrawerTitle,
+  UnsavedChangesDialog,
 } from "../../components/AppDrawer";
+import { GhostButton, PrimaryButton, RowActionButton } from "../../components/AppButton";
 import { colors, layout } from "../../styles/tokens";
 
 const MODULE_LABELS = {
@@ -39,6 +47,28 @@ const POWER_LABELS = {
   "administrators.manage": "Gerenciar administradores",
   "security_history.view": "Consultar histórico de segurança",
 };
+
+const EMPTY_PERSON_FORM = Object.freeze({
+  name: "",
+  email: "",
+  phone: "",
+  isProfessional: false,
+});
+
+export function validatePersonForm(values) {
+  const errors = {};
+  const name = values.name.trim();
+  const email = values.email.trim();
+  const phone = values.phone.trim();
+  if (name.length < 2 || name.length > 255) {
+    errors.name = "Informe um nome entre 2 e 255 caracteres.";
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errors.email = "Informe um e-mail válido.";
+  }
+  if (phone.length > 40) errors.phone = "O telefone deve ter no máximo 40 caracteres.";
+  return errors;
+}
 
 const capabilityLabel = (key) => key.split(".").map((part) => ({
   view: "visualizar",
@@ -70,6 +100,8 @@ export function buildTeamPresentation(model) {
     return {
       id: person.id,
       name: person.name,
+      email: person.email || "",
+      phone: person.phone || "",
       isActive: person.is_active === true,
       isProfessional: Boolean(person.professional),
       professionalActive: person.professional?.is_active === true,
@@ -116,6 +148,117 @@ function AccessDenied() {
   );
 }
 
+function PersonDrawer({ editor, onChange, onClose, onSubmit }) {
+  const creating = editor.mode === "create";
+  return (
+    <>
+      <DrawerBackdrop onClick={onClose} />
+      <AppDrawer
+        $open
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="person-drawer-title"
+      >
+        <DrawerHeader>
+          <DrawerTitle id="person-drawer-title">
+            {creating ? "Nova pessoa" : "Editar pessoa"}
+          </DrawerTitle>
+          <DrawerCloseBtn type="button" aria-label="Fechar formulário" onClick={onClose}>
+            <FaTimes />
+          </DrawerCloseBtn>
+        </DrawerHeader>
+        <DrawerBody>
+          <PersonForm onSubmit={onSubmit} noValidate>
+            <FieldGroup>
+              <FieldLabel htmlFor="team-person-name">Nome</FieldLabel>
+              <FieldInput
+                autoFocus
+                id="team-person-name"
+                value={editor.values.name}
+                onChange={(event) => onChange("name", event.target.value)}
+                aria-invalid={Boolean(editor.errors.name)}
+                aria-describedby={editor.errors.name ? "team-person-name-error" : undefined}
+                disabled={editor.submitting}
+              />
+              {editor.errors.name && <FieldError id="team-person-name-error">{editor.errors.name}</FieldError>}
+            </FieldGroup>
+            <FieldGroup>
+              <FieldLabel htmlFor="team-person-email">E-mail</FieldLabel>
+              <FieldInput
+                id="team-person-email"
+                type="email"
+                value={editor.values.email}
+                onChange={(event) => onChange("email", event.target.value)}
+                aria-invalid={Boolean(editor.errors.email)}
+                aria-describedby={editor.errors.email ? "team-person-email-error" : undefined}
+                disabled={editor.submitting}
+              />
+              {editor.errors.email && <FieldError id="team-person-email-error">{editor.errors.email}</FieldError>}
+            </FieldGroup>
+            <FieldGroup>
+              <FieldLabel htmlFor="team-person-phone">Telefone</FieldLabel>
+              <FieldInput
+                id="team-person-phone"
+                value={editor.values.phone}
+                onChange={(event) => onChange("phone", event.target.value)}
+                aria-invalid={Boolean(editor.errors.phone)}
+                aria-describedby={editor.errors.phone ? "team-person-phone-error" : undefined}
+                disabled={editor.submitting}
+              />
+              {editor.errors.phone && <FieldError id="team-person-phone-error">{editor.errors.phone}</FieldError>}
+            </FieldGroup>
+            {creating && (
+              <CheckboxLabel>
+                <input
+                  type="checkbox"
+                  checked={editor.values.isProfessional}
+                  onChange={(event) => onChange("isProfessional", event.target.checked)}
+                  disabled={editor.submitting}
+                />
+                Registrar também como profissional, sem criar login
+              </CheckboxLabel>
+            )}
+            <FormNotice>
+              Esta operação não cria conta de acesso, senha, convite, perfil ou permissão.
+            </FormNotice>
+            {editor.apiError && <FormError role="alert">{editor.apiError}</FormError>}
+            <DrawerFooter>
+              <GhostButton type="button" onClick={onClose} disabled={editor.submitting}>
+                Cancelar
+              </GhostButton>
+              <PrimaryButton type="submit" disabled={editor.submitting}>
+                {editor.submitting ? "Salvando..." : "Salvar"}
+              </PrimaryButton>
+            </DrawerFooter>
+          </PersonForm>
+        </DrawerBody>
+      </AppDrawer>
+    </>
+  );
+}
+
+PersonDrawer.propTypes = {
+  editor: PropTypes.shape({
+    mode: PropTypes.oneOf(["create", "edit"]).isRequired,
+    values: PropTypes.shape({
+      name: PropTypes.string,
+      email: PropTypes.string,
+      phone: PropTypes.string,
+      isProfessional: PropTypes.bool,
+    }).isRequired,
+    errors: PropTypes.shape({
+      name: PropTypes.string,
+      email: PropTypes.string,
+      phone: PropTypes.string,
+    }).isRequired,
+    apiError: PropTypes.string.isRequired,
+    submitting: PropTypes.bool.isRequired,
+  }).isRequired,
+  onChange: PropTypes.func.isRequired,
+  onClose: PropTypes.func.isRequired,
+  onSubmit: PropTypes.func.isRequired,
+};
+
 export default function Equipe() {
   const authorization = useAuthorization();
   const [state, setState] = useState({ status: "idle", model: null, error: "" });
@@ -123,6 +266,10 @@ export default function Equipe() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [accessFilter, setAccessFilter] = useState("all");
   const [selectedProfileId, setSelectedProfileId] = useState(null);
+  const [editor, setEditor] = useState(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [activatingPersonId, setActivatingPersonId] = useState(null);
+  const [actionError, setActionError] = useState("");
 
   const load = useCallback(async () => {
     if (!authorization.canViewTeam) return;
@@ -159,6 +306,107 @@ export default function Equipe() {
     });
   }, [accessFilter, presentation.people, search, statusFilter]);
   const selectedProfile = presentation.profiles.find(({ id }) => id === selectedProfileId);
+  const editorDirty = editor
+    ? JSON.stringify(editor.values) !== JSON.stringify(editor.initialValues)
+    : false;
+
+  const openCreate = () => setEditor({
+    mode: "create",
+    personId: null,
+    values: { ...EMPTY_PERSON_FORM },
+    initialValues: { ...EMPTY_PERSON_FORM },
+    errors: {},
+    apiError: "",
+    submitting: false,
+  });
+
+  const openEdit = (person) => {
+    const values = {
+      name: person.name,
+      email: person.email,
+      phone: person.phone,
+      isProfessional: person.isProfessional,
+    };
+    setEditor({
+      mode: "edit",
+      personId: person.id,
+      values,
+      initialValues: { ...values },
+      errors: {},
+      apiError: "",
+      submitting: false,
+    });
+  };
+
+  const requestEditorClose = () => {
+    if (editor?.submitting) return;
+    if (editorDirty) setConfirmDiscard(true);
+    else setEditor(null);
+  };
+
+  useEffect(() => {
+    if (!editor) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape" || editor.submitting) return;
+      if (editorDirty) setConfirmDiscard(true);
+      else setEditor(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [editor, editorDirty]);
+
+  const changeEditorValue = (field, value) => setEditor((current) => ({
+    ...current,
+    values: { ...current.values, [field]: value },
+    errors: { ...current.errors, [field]: undefined },
+    apiError: "",
+  }));
+
+  const submitPerson = async (event) => {
+    event.preventDefault();
+    if (!editor || editor.submitting) return;
+    const errors = validatePersonForm(editor.values);
+    if (Object.keys(errors).length) {
+      setEditor((current) => ({ ...current, errors }));
+      return;
+    }
+    setEditor((current) => ({ ...current, submitting: true, apiError: "" }));
+    const payload = {
+      name: editor.values.name.trim(),
+      email: editor.values.email.trim(),
+      phone: editor.values.phone.trim(),
+      isProfessional: editor.values.isProfessional,
+    };
+    try {
+      if (editor.mode === "create") await createTeamPerson(payload);
+      else await updateTeamPerson(editor.personId, payload);
+      setEditor(null);
+      await load();
+    } catch (error) {
+      const duplicate = error?.response?.data?.error === "TEAM_IDENTITY_ALREADY_EXISTS";
+      setEditor((current) => ({
+        ...current,
+        submitting: false,
+        apiError: duplicate
+          ? "Já existe uma pessoa com este e-mail na clínica."
+          : getUserFacingApiError(error, "Não foi possível salvar a pessoa."),
+      }));
+    }
+  };
+
+  const reactivatePerson = async (personId) => {
+    if (activatingPersonId) return;
+    setActionError("");
+    setActivatingPersonId(personId);
+    try {
+      await activateTeamPerson(personId);
+      await load();
+    } catch (error) {
+      setActionError(getUserFacingApiError(error, "Não foi possível reativar a pessoa."));
+    } finally {
+      setActivatingPersonId(null);
+    }
+  };
 
   if (authorization.status === "loading" || authorization.status === "idle") {
     return <Page><DataLoadingState text="Verificando acesso à Equipe..." /></Page>;
@@ -169,7 +417,7 @@ export default function Equipe() {
     <Page>
       <ModuleHeader>
         <ModuleTitle>Equipe</ModuleTitle>
-        <ModuleSubtitle>Pessoas, acessos e perfis da clínica em modo de consulta.</ModuleSubtitle>
+        <ModuleSubtitle>Pessoas, profissionais, acessos e perfis da clínica.</ModuleSubtitle>
       </ModuleHeader>
 
       {state.status === "loading" && <DataLoadingState text="Carregando equipe..." />}
@@ -184,6 +432,7 @@ export default function Equipe() {
           <ModulePanel as="section">
             <SectionHeader>
               <div><SectionTitle>Pessoas e acessos</SectionTitle><Count>{filteredPeople.length} encontrado(s)</Count></div>
+              <PrimaryButton type="button" onClick={openCreate}><FaPlus /> Nova pessoa</PrimaryButton>
             </SectionHeader>
             <Filters aria-label="Filtros da equipe">
               <SearchInput
@@ -199,16 +448,34 @@ export default function Equipe() {
                 <option value="all">Com e sem acesso</option><option value="with">Com conta</option><option value="without">Sem conta</option>
               </Select>
             </Filters>
+            {actionError && <FormError role="alert">{actionError}</FormError>}
             {filteredPeople.length === 0 ? <DataLoadingState tone="empty" text="Nenhuma pessoa encontrada." /> : (
               <PeopleList>{filteredPeople.map((person) => (
                 <PersonRow key={person.id}>
                   <PersonMain><strong>{person.name}</strong><small>{person.isPerson ? (person.account?.login || (person.isProfessional ? "Profissional sem login" : "Sem conta de acesso")) : `Conta sem pessoa vinculada · ${person.account?.login}`}</small></PersonMain>
                   <Badges>
+                    {person.isPerson && <NeutralPill>Pessoa</NeutralPill>}
                     {person.isProfessional && <NeutralPill>Profissional</NeutralPill>}
                     <StatusPill $tone={person.isActive ? "active" : "paused"}>{person.isActive ? "Ativo" : "Inativo"}</StatusPill>
                     <NeutralPill>{person.account ? "Com acesso" : "Sem acesso"}</NeutralPill>
                   </Badges>
                   <ProfileNames>{person.profiles.length ? person.profiles.map(({ name }) => name).join(", ") : "Sem perfil"}</ProfileNames>
+                  <RowActions>
+                    {person.isPerson && (
+                      <RowActionButton type="button" onClick={() => openEdit(person)}>
+                        <FaEdit /> Editar
+                      </RowActionButton>
+                    )}
+                    {person.isPerson && !person.isActive && (
+                      <RowActionButton
+                        type="button"
+                        onClick={() => reactivatePerson(person.id)}
+                        disabled={activatingPersonId === person.id}
+                      >
+                        {activatingPersonId === person.id ? "Reativando..." : "Reativar pessoa"}
+                      </RowActionButton>
+                    )}
+                  </RowActions>
                 </PersonRow>
               ))}</PeopleList>
             )}
@@ -234,6 +501,22 @@ export default function Equipe() {
           <DrawerBody><ProfileDetails profile={selectedProfile} catalog={state.model.catalog} /></DrawerBody>
         </AppDrawer></>
       )}
+      {editor && (
+        <PersonDrawer
+          editor={editor}
+          onChange={changeEditorValue}
+          onClose={requestEditorClose}
+          onSubmit={submitPerson}
+        />
+      )}
+      <UnsavedChangesDialog
+        open={confirmDiscard}
+        onKeepEditing={() => setConfirmDiscard(false)}
+        onDiscard={() => {
+          setConfirmDiscard(false);
+          setEditor(null);
+        }}
+      />
     </Page>
   );
 }
@@ -274,7 +557,7 @@ ProfileDetails.propTypes = {
 
 const Page = styled.div`padding: 28px 32px 40px; @media (max-width: ${layout.moduleBreakpoint}) { padding: 20px 16px 32px; }`;
 const Sections = styled.div`display: grid; gap: 20px;`;
-const SectionHeader = styled.div`display: flex; justify-content: space-between; margin-bottom: 16px;`;
+const SectionHeader = styled.div`display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 16px; @media (max-width: 560px) { align-items: stretch; flex-direction: column; }`;
 const SectionTitle = styled.h2`margin: 0; color: ${colors.ink}; font-size: 1.05rem;`;
 const Count = styled.small`display: block; margin-top: 4px; color: ${colors.softText};`;
 const Filters = styled.div`display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; gap: 10px; margin-bottom: 16px; @media (max-width: 720px) { grid-template-columns: 1fr; }`;
@@ -282,10 +565,11 @@ const fieldCss = `min-height: 42px; border: 1px solid #d9ded5; border-radius: 8p
 const SearchInput = styled.input`${fieldCss}`;
 const Select = styled.select`${fieldCss}`;
 const PeopleList = styled.div`display: grid;`;
-const PersonRow = styled.article`display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(160px, 0.8fr); gap: 16px; align-items: center; padding: 15px 0; border-top: 1px solid #e8ebe5; @media (max-width: 720px) { grid-template-columns: 1fr; gap: 8px; }`;
+const PersonRow = styled.article`display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(140px, 0.7fr) auto; gap: 16px; align-items: center; padding: 15px 0; border-top: 1px solid #e8ebe5; @media (max-width: 900px) { grid-template-columns: minmax(180px, 1fr) auto; } @media (max-width: 620px) { grid-template-columns: 1fr; gap: 8px; }`;
 const PersonMain = styled.div`display: grid; gap: 3px; small { color: ${colors.softText}; }`;
 const Badges = styled.div`display: flex; gap: 6px; flex-wrap: wrap;`;
 const ProfileNames = styled.div`color: ${colors.softText}; font-size: 0.88rem;`;
+const RowActions = styled.div`display: flex; gap: 8px; flex-wrap: wrap; button { display: inline-flex; align-items: center; gap: 5px; }`;
 const ProfileList = styled.div`display: grid; margin-top: 12px;`;
 const ProfileButton = styled.button`display: flex; justify-content: space-between; gap: 16px; width: 100%; padding: 14px 4px; border: 0; border-top: 1px solid #e8ebe5; background: transparent; text-align: left; cursor: pointer; span { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } small { color: ${colors.softText}; } &:hover { background: #f8f9f7; } &:focus-visible { outline: 3px solid rgba(106, 121, 92, 0.28); } @media (max-width: 620px) { flex-direction: column; }`;
 const StatePanel = styled(ModulePanel)`text-align: center;`;
@@ -294,3 +578,11 @@ const Details = styled.div`color: ${colors.ink}; p { color: ${colors.softText}; 
 const DetailRow = styled.div`display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #e8ebe5; span { color: ${colors.softText}; text-align: right; }`;
 const DetailHeading = styled.h3`font-size: 0.95rem; margin: 24px 0 8px;`;
 const SimpleList = styled.ul`margin: 0; padding-left: 20px; color: ${colors.softText}; li { margin: 7px 0; } em { font-style: normal; font-size: 0.76rem; font-weight: 700; }`;
+const PersonForm = styled.form`display: grid; gap: 18px;`;
+const FieldGroup = styled.div`display: grid; gap: 6px;`;
+const FieldLabel = styled.label`color: ${colors.ink}; font-size: 0.88rem; font-weight: 700;`;
+const FieldInput = styled.input`${fieldCss} &[aria-invalid="true"] { border-color: #b5473c; } &:focus-visible { outline: 3px solid rgba(106, 121, 92, 0.24); outline-offset: 1px; }`;
+const FieldError = styled.small`color: #9f342b;`;
+const CheckboxLabel = styled.label`display: flex; gap: 9px; align-items: flex-start; color: ${colors.ink}; font-size: 0.9rem; line-height: 1.4; cursor: pointer; input { margin-top: 3px; }`;
+const FormNotice = styled.p`margin: 0; padding: 12px; border-radius: 8px; background: #f6f8f4; color: ${colors.softText}; font-size: 0.86rem; line-height: 1.45;`;
+const FormError = styled.p`margin: 0; color: #9f342b; font-size: 0.88rem; font-weight: 700;`;

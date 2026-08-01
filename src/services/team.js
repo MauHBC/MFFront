@@ -14,6 +14,29 @@ export const getTeamPeople = () => api.get("/team/people").then(data);
 
 export const getAuthorizationProfiles = () => api.get("/team/profiles").then(data);
 
+export const createTeamPerson = ({ name, email, phone, isProfessional }) => api.post(
+  "/team/people",
+  {
+    name,
+    email: email || null,
+    phone: phone || null,
+    is_professional: isProfessional === true,
+  },
+).then(data);
+
+export const updateTeamPerson = (personId, { name, email, phone }) => api.put(
+  `/team/people/${personId}`,
+  {
+    name,
+    email: email || null,
+    phone: phone || null,
+  },
+).then(data);
+
+export const activateTeamPerson = (personId) => api.patch(
+  `/team/people/${personId}/activate`,
+).then(data);
+
 export const loadTeamReadModel = () => Promise.all([
   getTeamPeople(),
   getAuthorizationProfiles(),
