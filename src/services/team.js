@@ -37,6 +37,28 @@ export const activateTeamPerson = (personId) => api.patch(
   `/team/people/${personId}/activate`,
 ).then(data);
 
+export const createAuthorizationProfile = ({ name, permissions, capabilities }) => api.post(
+  "/team/profiles",
+  { name, permissions, capabilities },
+).then(data);
+
+export const updateAuthorizationProfile = (
+  profileId,
+  { name, permissions, capabilities },
+) => api.put(
+  `/team/profiles/${profileId}`,
+  { name, permissions, capabilities },
+).then(data);
+
+export const assignAuthorizationProfile = (profileId, userId) => api.post(
+  `/team/profiles/${profileId}/assignments`,
+  { user_id: userId },
+).then(data);
+
+export const unassignAuthorizationProfile = (profileId, userId) => api.delete(
+  `/team/profiles/${profileId}/assignments/${userId}`,
+).then(data);
+
 export const loadTeamReadModel = () => Promise.all([
   getTeamPeople(),
   getAuthorizationProfiles(),

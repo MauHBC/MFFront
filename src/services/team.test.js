@@ -1,9 +1,13 @@
 import api from "./axios";
 import {
   activateTeamPerson,
+  assignAuthorizationProfile,
+  createAuthorizationProfile,
   createTeamPerson,
   getAuthorizationContext,
   loadTeamReadModel,
+  unassignAuthorizationProfile,
+  updateAuthorizationProfile,
   updateTeamPerson,
 } from "./team";
 
@@ -12,6 +16,7 @@ jest.mock("./axios", () => ({
   post: jest.fn(),
   put: jest.fn(),
   patch: jest.fn(),
+  delete: jest.fn(),
 }));
 
 describe("team read service", () => {
@@ -20,6 +25,30 @@ describe("team read service", () => {
     api.post.mockReset();
     api.put.mockReset();
     api.patch.mockReset();
+    api.delete.mockReset();
+  });
+
+  it("cria e edita perfil somente com a definição oficial", async () => {
+    api.post.mockResolvedValueOnce({ data: { id: 8 } });
+    api.put.mockResolvedValueOnce({ data: { id: 8 } });
+    const definition = {
+      name: "Recepção",
+      permissions: [{ moduleKey: "patients", accessLevel: "view", scopeLevel: "clinic", canExport: false }],
+      capabilities: [],
+    };
+    await createAuthorizationProfile(definition);
+    await updateAuthorizationProfile(8, definition);
+    expect(api.post).toHaveBeenCalledWith("/team/profiles", definition);
+    expect(api.put).toHaveBeenCalledWith("/team/profiles/8", definition);
+  });
+
+  it("atribui e remove perfil sem enviar clinic_id", async () => {
+    api.post.mockResolvedValueOnce({ data: { id: 11 } });
+    api.delete.mockResolvedValueOnce({ data: null });
+    await assignAuthorizationProfile(8, 4);
+    await unassignAuthorizationProfile(8, 4);
+    expect(api.post).toHaveBeenCalledWith("/team/profiles/8/assignments", { user_id: 4 });
+    expect(api.delete).toHaveBeenCalledWith("/team/profiles/8/assignments/4");
   });
 
   it("consulta o contexto sem enviar identidade controlada pelo navegador", async () => {

@@ -5,16 +5,24 @@ import Equipe, { buildTeamPresentation } from ".";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   activateTeamPerson,
+  assignAuthorizationProfile,
+  createAuthorizationProfile,
   createTeamPerson,
   loadTeamReadModel,
+  unassignAuthorizationProfile,
+  updateAuthorizationProfile,
   updateTeamPerson,
 } from "../../services/team";
 
 jest.mock("../../contexts/AuthorizationContext", () => ({ useAuthorization: jest.fn() }));
 jest.mock("../../services/team", () => ({
   activateTeamPerson: jest.fn(),
+  assignAuthorizationProfile: jest.fn(),
+  createAuthorizationProfile: jest.fn(),
   createTeamPerson: jest.fn(),
   loadTeamReadModel: jest.fn(),
+  unassignAuthorizationProfile: jest.fn(),
+  updateAuthorizationProfile: jest.fn(),
   updateTeamPerson: jest.fn(),
 }));
 jest.mock("../../services/axios", () => ({
@@ -30,14 +38,17 @@ const model = {
   profiles: [
     { id: 20, name: "Administrador", native_type: "administrator", is_active: true, permissions: [], capabilities: [] },
     { id: 21, name: "Recepção", native_type: null, is_active: false, permissions: [{ moduleKey: "patients", accessLevel: "view", scopeLevel: "clinic", canExport: false }], capabilities: [] },
+    { id: 22, name: "Atendimento", native_type: null, is_active: true, permissions: [], capabilities: [] },
   ],
   catalog: {
-    modules: [{ module_key: "patients" }],
+    access_levels: [{ key: "none", rank: 0 }, { key: "view", rank: 1 }, { key: "manage", rank: 2 }],
+    modules: [{ module_key: "patients", valid_access_levels: ["none", "view", "manage"], valid_scopes: ["own", "clinic"], exportable: true }],
     distributable_capabilities: [],
     administrator_only_capabilities: [],
     administrative_powers: [{ power_key: "access_profiles.manage", editable: false }],
   },
   assignmentState: {
+    users: [{ user_id: 10, effective_permissions: { authorization_state: "authorized", is_administrator: true, modules: [] } }],
     assignments: [
       { assignment_id: 1, user_id: 10, profile_id: 20 },
       { assignment_id: 2, user_id: 10, profile_id: 21 },
@@ -54,9 +65,17 @@ describe("Equipe", () => {
     createTeamPerson.mockReset();
     updateTeamPerson.mockReset();
     activateTeamPerson.mockReset();
+    assignAuthorizationProfile.mockReset();
+    createAuthorizationProfile.mockReset();
+    unassignAuthorizationProfile.mockReset();
+    updateAuthorizationProfile.mockReset();
     createTeamPerson.mockResolvedValue({ id: 30 });
     updateTeamPerson.mockResolvedValue({ id: 1 });
     activateTeamPerson.mockResolvedValue({ id: 3 });
+    assignAuthorizationProfile.mockResolvedValue({ id: 4 });
+    createAuthorizationProfile.mockResolvedValue({ id: 23 });
+    unassignAuthorizationProfile.mockResolvedValue(null);
+    updateAuthorizationProfile.mockResolvedValue({ id: 22 });
   });
 
   it("cria pessoa comum sem campos de conta, perfil ou credencial", async () => {
@@ -169,7 +188,7 @@ describe("Equipe", () => {
     expect(await screen.findByText("ana@clinica.test")).toBeInTheDocument();
     expect(screen.getByText("Profissional sem login")).toBeInTheDocument();
     expect(screen.getByText("Administrador, Recepção")).toBeInTheDocument();
-    expect(screen.getByText("Perfil personalizado")).toBeInTheDocument();
+    expect(screen.getAllByText("Perfil personalizado").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Inativo").length).toBeGreaterThan(0);
   });
 
@@ -193,8 +212,58 @@ describe("Equipe", () => {
     render(<Equipe />);
     fireEvent.click(await screen.findByRole("button", { name: /Administrador/ }));
     expect(screen.getByText("Pacientes")).toBeInTheDocument();
-    expect(screen.getByText("Gerenciar perfis")).toBeInTheDocument();
+    expect(screen.getAllByText("Gerenciar perfis").length).toBeGreaterThan(0);
     expect(screen.getByText("Não editável")).toBeInTheDocument();
+  });
+
+  it("cria perfil personalizado usando somente o catálogo", async () => {
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo perfil/ }));
+    fireEvent.change(screen.getByLabelText("Nome do perfil"), { target: { value: "Financeiro leitura" } });
+    fireEvent.change(screen.getByLabelText("Nível de Pacientes"), { target: { value: "view" } });
+    fireEvent.change(screen.getByLabelText("Escopo de Pacientes"), { target: { value: "clinic" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
+    await waitFor(() => expect(createAuthorizationProfile).toHaveBeenCalledWith({
+      name: "Financeiro leitura",
+      permissions: [{ moduleKey: "patients", accessLevel: "view", scopeLevel: "clinic", canExport: false }],
+      capabilities: [],
+    }));
+  });
+
+  it("não oferece edição para perfis nativos e edita personalizado", async () => {
+    render(<Equipe />);
+    await screen.findByText("Administrador");
+    expect(screen.getAllByText(/definição bloqueada/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole("button", { name: /Editar definição/ })[0]);
+    fireEvent.change(screen.getByLabelText("Nome do perfil"), { target: { value: "Atendimento atualizado" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
+    await waitFor(() => expect(updateAuthorizationProfile).toHaveBeenCalledWith(21, expect.objectContaining({
+      name: "Atendimento atualizado",
+    })));
+  });
+
+  it("atribui e remove perfis somente para pessoa com conta", async () => {
+    render(<Equipe />);
+    const manageButtons = await screen.findAllByRole("button", { name: "Gerenciar perfis" });
+    expect(manageButtons).toHaveLength(1);
+    fireEvent.click(manageButtons[0]);
+    fireEvent.click(screen.getByLabelText(/Administrador/));
+    fireEvent.click(screen.getByLabelText(/Atendimento/));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar atribuições" }));
+    await waitFor(() => expect(assignAuthorizationProfile).toHaveBeenCalledWith(22, 10));
+    expect(unassignAuthorizationProfile).toHaveBeenCalledWith(20, 10);
+  });
+
+  it("confirma descarte do perfil alterado e preserva dados após erro", async () => {
+    createAuthorizationProfile.mockRejectedValueOnce(new Error("offline"));
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo perfil/ }));
+    fireEvent.change(screen.getByLabelText("Nome do perfil"), { target: { value: "Rascunho perfil" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
+    expect(await screen.findByText("Não foi possível salvar o perfil.")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Rascunho perfil")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.getByText("Alterações não salvas")).toBeInTheDocument();
   });
 
   it("mantém estado vazio após filtros sem correspondência", async () => {

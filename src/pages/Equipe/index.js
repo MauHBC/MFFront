@@ -5,8 +5,12 @@ import { FaEdit, FaPlus, FaTimes } from "react-icons/fa";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   activateTeamPerson,
+  assignAuthorizationProfile,
+  createAuthorizationProfile,
   createTeamPerson,
   loadTeamReadModel,
+  unassignAuthorizationProfile,
+  updateAuthorizationProfile,
   updateTeamPerson,
 } from "../../services/team";
 import { getUserFacingApiError } from "../../services/axios";
@@ -89,6 +93,8 @@ export function buildTeamPresentation(model) {
   const accountById = new Map(accounts.map((account) => [account.user_id, account]));
   const profileById = new Map((model.profiles || []).map((profile) => [profile.id, profile]));
   const assignmentsByUser = new Map();
+  const assignmentUsers = new Map((model.assignmentState?.users || [])
+    .map((user) => [user.user_id, user]));
   (model.assignmentState?.assignments || []).forEach((assignment) => {
     const current = assignmentsByUser.get(assignment.user_id) || [];
     assignmentsByUser.set(assignment.user_id, [...current, assignment.profile_id]);
@@ -111,6 +117,9 @@ export function buildTeamPresentation(model) {
         isActive: person.account.is_active === true,
       } : null,
       profiles: profileIds.map((id) => profileById.get(id)).filter(Boolean),
+      effectivePermissions: person.account
+        ? assignmentUsers.get(person.account.id)?.effective_permissions || null
+        : null,
       isPerson: true,
     };
   });
@@ -125,6 +134,7 @@ export function buildTeamPresentation(model) {
       account: { id: account.user_id, login: account.login_identifier, isActive: account.is_active },
       profiles: (assignmentsByUser.get(account.user_id) || [])
         .map((id) => profileById.get(id)).filter(Boolean),
+      effectivePermissions: assignmentUsers.get(account.user_id)?.effective_permissions || null,
     }));
   const assignmentCounts = (model.assignmentState?.assignments || []).reduce((counts, item) => ({
     ...counts,
@@ -259,6 +269,244 @@ PersonDrawer.propTypes = {
   onSubmit: PropTypes.func.isRequired,
 };
 
+const profileValues = (profile = null) => ({
+  name: profile?.name || "",
+  permissions: Object.fromEntries((profile?.permissions || []).map((item) => [
+    item.moduleKey,
+    { ...item },
+  ])),
+  capabilities: [...(profile?.capabilities || [])],
+});
+
+const profilePayload = (values) => ({
+  name: values.name.trim(),
+  permissions: Object.values(values.permissions).filter(
+    ({ accessLevel }) => accessLevel && accessLevel !== "none",
+  ),
+  capabilities: [...values.capabilities],
+});
+
+function ProfileEditorDrawer({ editor: current, catalog, onChange, onClose, onSubmit }) {
+  const accessRanks = new Map((catalog.access_levels || []).map(({ key, rank }) => [key, rank]));
+  const capabilityEnabled = (rule) => {
+    const permission = current.values.permissions[rule.module_key];
+    return permission
+      && (accessRanks.get(permission.accessLevel) || 0)
+        >= (accessRanks.get(rule.minimum_access_level) || 0)
+      && (rule.required_capabilities || []).every(
+        (required) => current.values.capabilities.includes(required),
+      );
+  };
+  return (
+    <>
+      <DrawerBackdrop onClick={onClose} />
+      <AppDrawer $open role="dialog" aria-modal="true" aria-labelledby="profile-editor-title">
+        <DrawerHeader>
+          <DrawerTitle id="profile-editor-title">
+            {current.mode === "create" ? "Novo perfil personalizado" : "Editar perfil personalizado"}
+          </DrawerTitle>
+          <DrawerCloseBtn type="button" aria-label="Fechar editor de perfil" onClick={onClose}><FaTimes /></DrawerCloseBtn>
+        </DrawerHeader>
+        <DrawerBody>
+          <PersonForm onSubmit={onSubmit} noValidate>
+            <FieldGroup>
+              <FieldLabel htmlFor="profile-name">Nome do perfil</FieldLabel>
+              <FieldInput
+                autoFocus
+                id="profile-name"
+                value={current.values.name}
+                onChange={(event) => onChange("name", event.target.value)}
+                aria-invalid={Boolean(current.errors.name)}
+                disabled={current.submitting}
+              />
+              {current.errors.name && <FieldError>{current.errors.name}</FieldError>}
+            </FieldGroup>
+            <DetailHeading>Módulos</DetailHeading>
+            {(catalog.modules || []).map((module) => {
+              const permission = current.values.permissions[module.module_key] || {
+                moduleKey: module.module_key,
+                accessLevel: "none",
+                scopeLevel: null,
+                canExport: false,
+              };
+              return (
+                <PermissionEditorRow key={module.module_key}>
+                  <strong>{MODULE_LABELS[module.module_key] || module.module_key}</strong>
+                  <Select
+                    aria-label={`Nível de ${MODULE_LABELS[module.module_key] || module.module_key}`}
+                    value={permission.accessLevel}
+                    disabled={current.submitting}
+                    onChange={(event) => onChange("permission", {
+                      module,
+                      field: "accessLevel",
+                      value: event.target.value,
+                    })}
+                  >
+                    {(module.valid_access_levels || []).map((level) => (
+                      <option key={level} value={level}>{ACCESS_LABELS[level] || level}</option>
+                    ))}
+                  </Select>
+                  {permission.accessLevel !== "none" && (module.valid_scopes || []).length > 0 && (
+                    <Select
+                      aria-label={`Escopo de ${MODULE_LABELS[module.module_key] || module.module_key}`}
+                      value={permission.scopeLevel || ""}
+                      disabled={current.submitting}
+                      onChange={(event) => onChange("permission", {
+                        module, field: "scopeLevel", value: event.target.value || null,
+                      })}
+                    >
+                      <option value="">Selecione o escopo</option>
+                      {module.valid_scopes.map((scope) => (
+                        <option key={scope} value={scope}>{SCOPE_LABELS[scope] || scope}</option>
+                      ))}
+                    </Select>
+                  )}
+                  {module.exportable && permission.accessLevel !== "none" && (
+                    <CheckboxLabel>
+                      <input
+                        type="checkbox"
+                        checked={permission.canExport === true}
+                        disabled={current.submitting}
+                        onChange={(event) => onChange("permission", {
+                          module, field: "canExport", value: event.target.checked,
+                        })}
+                      />
+                      Permitir exportação
+                    </CheckboxLabel>
+                  )}
+                </PermissionEditorRow>
+              );
+            })}
+            <DetailHeading>Capacidades adicionais</DetailHeading>
+            <CapabilityGrid>
+              {(catalog.distributable_capabilities || []).map((rule) => (
+                <CheckboxLabel key={rule.capability_key}>
+                  <input
+                    type="checkbox"
+                    checked={current.values.capabilities.includes(rule.capability_key)}
+                    disabled={current.submitting || (!current.values.capabilities.includes(rule.capability_key) && !capabilityEnabled(rule))}
+                    onChange={(event) => onChange("capability", {
+                      key: rule.capability_key, checked: event.target.checked,
+                    })}
+                  />
+                  {capabilityLabel(rule.capability_key)}
+                </CheckboxLabel>
+              ))}
+            </CapabilityGrid>
+            <FormNotice>Opções e dependências são fornecidas pelo catálogo oficial. Poderes exclusivos do Administrador não podem ser distribuídos.</FormNotice>
+            {current.apiError && <FormError role="alert">{current.apiError}</FormError>}
+            <DrawerFooter>
+              <GhostButton type="button" onClick={onClose} disabled={current.submitting}>Cancelar</GhostButton>
+              <PrimaryButton type="submit" disabled={current.submitting}>{current.submitting ? "Salvando..." : "Salvar perfil"}</PrimaryButton>
+            </DrawerFooter>
+          </PersonForm>
+        </DrawerBody>
+      </AppDrawer>
+    </>
+  );
+}
+
+ProfileEditorDrawer.propTypes = {
+  editor: PropTypes.shape({
+    mode: PropTypes.oneOf(["create", "edit"]),
+    values: PropTypes.shape({
+      name: PropTypes.string,
+      permissions: PropTypes.objectOf(PropTypes.shape({})),
+      capabilities: PropTypes.arrayOf(PropTypes.string),
+    }),
+    errors: PropTypes.shape({ name: PropTypes.string }),
+    apiError: PropTypes.string,
+    submitting: PropTypes.bool,
+  }).isRequired,
+  catalog: PropTypes.shape({
+    access_levels: PropTypes.arrayOf(PropTypes.shape({})),
+    modules: PropTypes.arrayOf(PropTypes.shape({})),
+    distributable_capabilities: PropTypes.arrayOf(PropTypes.shape({})),
+  }).isRequired,
+  onChange: PropTypes.func.isRequired,
+  onClose: PropTypes.func.isRequired,
+  onSubmit: PropTypes.func.isRequired,
+};
+
+function AssignmentDrawer({ editor: current, profiles, onToggle, onClose, onSubmit }) {
+  return (
+    <>
+      <DrawerBackdrop onClick={onClose} />
+      <AppDrawer $open role="dialog" aria-modal="true" aria-labelledby="assignment-title">
+        <DrawerHeader>
+          <DrawerTitle id="assignment-title">Perfis de {current.person.name}</DrawerTitle>
+          <DrawerCloseBtn type="button" aria-label="Fechar atribuições" onClick={onClose}><FaTimes /></DrawerCloseBtn>
+        </DrawerHeader>
+        <DrawerBody>
+          <PersonForm onSubmit={onSubmit}>
+            <FormNotice>A conta pode permanecer sem perfil e, nesse caso, não recebe permissões granulares.</FormNotice>
+            <CapabilityGrid>
+              {profiles.filter(({ is_active: active }) => active).map((profile) => (
+                <CheckboxLabel key={profile.id}>
+                  <input
+                    type="checkbox"
+                    checked={current.profileIds.includes(profile.id)}
+                    onChange={(event) => onToggle(profile.id, event.target.checked)}
+                    disabled={current.submitting}
+                  />
+                  {profile.name} {profile.native_type ? "(nativo)" : "(personalizado)"}
+                </CheckboxLabel>
+              ))}
+            </CapabilityGrid>
+            <DetailHeading>Permissões efetivas atuais</DetailHeading>
+            <EffectiveDetails effective={current.person.effectivePermissions} />
+            {current.apiError && <FormError role="alert">{current.apiError}</FormError>}
+            <DrawerFooter>
+              <GhostButton type="button" onClick={onClose} disabled={current.submitting}>Cancelar</GhostButton>
+              <PrimaryButton type="submit" disabled={current.submitting}>{current.submitting ? "Salvando..." : "Salvar atribuições"}</PrimaryButton>
+            </DrawerFooter>
+          </PersonForm>
+        </DrawerBody>
+      </AppDrawer>
+    </>
+  );
+}
+
+AssignmentDrawer.propTypes = {
+  editor: PropTypes.shape({
+    person: PropTypes.shape({ name: PropTypes.string, effectivePermissions: PropTypes.shape({}) }),
+    profileIds: PropTypes.arrayOf(PropTypes.number),
+    apiError: PropTypes.string,
+    submitting: PropTypes.bool,
+  }).isRequired,
+  profiles: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
+  onToggle: PropTypes.func.isRequired,
+  onClose: PropTypes.func.isRequired,
+  onSubmit: PropTypes.func.isRequired,
+};
+
+function EffectiveDetails({ effective }) {
+  if (!effective || effective.authorization_state === "no_permissions") {
+    return <FormNotice>Esta conta não possui permissões granulares efetivas.</FormNotice>;
+  }
+  if (effective.authorization_state === "invalid") {
+    return <FormError role="alert">Estado de autorização inválido. Nenhum acesso deve ser concedido.</FormError>;
+  }
+  return (
+    <Details>
+      {effective.is_administrator && <FormNotice>Administrador: acesso estrutural completo.</FormNotice>}
+      {(effective.modules || []).filter(({ access_level: level }) => level !== "none").map((module) => (
+        <DetailRow key={module.module_key}>
+          <strong>{MODULE_LABELS[module.module_key] || module.module_key}</strong>
+          <span>{ACCESS_LABELS[module.access_level] || module.access_level}{module.scope_level ? ` · ${SCOPE_LABELS[module.scope_level]}` : ""}{module.can_export ? " · Pode exportar" : ""}</span>
+        </DetailRow>
+      ))}
+    </Details>
+  );
+}
+
+EffectiveDetails.propTypes = { effective: PropTypes.shape({
+  authorization_state: PropTypes.string,
+  is_administrator: PropTypes.bool,
+  modules: PropTypes.arrayOf(PropTypes.shape({})),
+}) };
+EffectiveDetails.defaultProps = { effective: null };
+
 export default function Equipe() {
   const authorization = useAuthorization();
   const [state, setState] = useState({ status: "idle", model: null, error: "" });
@@ -267,7 +515,9 @@ export default function Equipe() {
   const [accessFilter, setAccessFilter] = useState("all");
   const [selectedProfileId, setSelectedProfileId] = useState(null);
   const [editor, setEditor] = useState(null);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [profileEditor, setProfileEditor] = useState(null);
+  const [assignmentEditor, setAssignmentEditor] = useState(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [activatingPersonId, setActivatingPersonId] = useState(null);
   const [actionError, setActionError] = useState("");
 
@@ -309,6 +559,13 @@ export default function Equipe() {
   const editorDirty = editor
     ? JSON.stringify(editor.values) !== JSON.stringify(editor.initialValues)
     : false;
+  const profileEditorDirty = profileEditor
+    ? JSON.stringify(profileEditor.values) !== JSON.stringify(profileEditor.initialValues)
+    : false;
+  const assignmentEditorDirty = assignmentEditor
+    ? JSON.stringify([...assignmentEditor.profileIds].sort())
+      !== JSON.stringify([...assignmentEditor.initialProfileIds].sort())
+    : false;
 
   const openCreate = () => setEditor({
     mode: "create",
@@ -340,7 +597,7 @@ export default function Equipe() {
 
   const requestEditorClose = () => {
     if (editor?.submitting) return;
-    if (editorDirty) setConfirmDiscard(true);
+    if (editorDirty) setConfirmDiscard("person");
     else setEditor(null);
   };
 
@@ -348,7 +605,7 @@ export default function Equipe() {
     if (!editor) return undefined;
     const handleKeyDown = (event) => {
       if (event.key !== "Escape" || editor.submitting) return;
-      if (editorDirty) setConfirmDiscard(true);
+      if (editorDirty) setConfirmDiscard("person");
       else setEditor(null);
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -405,6 +662,121 @@ export default function Equipe() {
       setActionError(getUserFacingApiError(error, "Não foi possível reativar a pessoa."));
     } finally {
       setActivatingPersonId(null);
+    }
+  };
+
+  const openProfileCreate = () => {
+    const values = profileValues();
+    setProfileEditor({ mode: "create", profileId: null, values, initialValues: profileValues(), errors: {}, apiError: "", submitting: false });
+  };
+
+  const openProfileEdit = (profile) => {
+    if (profile.native_type) return;
+    const values = profileValues(profile);
+    setProfileEditor({ mode: "edit", profileId: profile.id, values, initialValues: profileValues(profile), errors: {}, apiError: "", submitting: false });
+  };
+
+  const changeProfileValue = (field, value) => setProfileEditor((current) => {
+    if (field === "name") return { ...current, values: { ...current.values, name: value }, errors: {}, apiError: "" };
+    if (field === "capability") {
+      const capabilities = value.checked
+        ? [...current.values.capabilities, value.key]
+        : current.values.capabilities.filter((key) => key !== value.key);
+      return { ...current, values: { ...current.values, capabilities }, apiError: "" };
+    }
+    const existing = current.values.permissions[value.module.module_key] || {
+      moduleKey: value.module.module_key, accessLevel: "none", scopeLevel: null, canExport: false,
+    };
+    const next = { ...existing, [value.field]: value.value };
+    if (value.field === "accessLevel") {
+      if (value.value === "none") Object.assign(next, { scopeLevel: null, canExport: false });
+      else if ((value.module.valid_scopes || []).length === 0) next.scopeLevel = null;
+    }
+    return {
+      ...current,
+      values: {
+        ...current.values,
+        permissions: { ...current.values.permissions, [value.module.module_key]: next },
+      },
+      apiError: "",
+    };
+  });
+
+  const requestProfileClose = () => {
+    if (profileEditor?.submitting) return;
+    if (profileEditorDirty) setConfirmDiscard("profile");
+    else setProfileEditor(null);
+  };
+
+  const submitProfile = async (event) => {
+    event.preventDefault();
+    if (!profileEditor || profileEditor.submitting) return;
+    if (profileEditor.values.name.trim().length < 2 || profileEditor.values.name.trim().length > 120) {
+      setProfileEditor((current) => ({ ...current, errors: { name: "Informe um nome entre 2 e 120 caracteres." } }));
+      return;
+    }
+    setProfileEditor((current) => ({ ...current, submitting: true, apiError: "" }));
+    try {
+      const payload = profilePayload(profileEditor.values);
+      if (profileEditor.mode === "create") await createAuthorizationProfile(payload);
+      else await updateAuthorizationProfile(profileEditor.profileId, payload);
+      setProfileEditor(null);
+      await load();
+    } catch (error) {
+      const duplicate = error?.response?.data?.error === "AUTHORIZATION_PROFILE_ALREADY_EXISTS";
+      setProfileEditor((current) => ({
+        ...current,
+        submitting: false,
+        apiError: duplicate ? "Já existe um perfil com este nome na clínica." : getUserFacingApiError(error, "Não foi possível salvar o perfil."),
+      }));
+    }
+  };
+
+  const openAssignments = (person) => {
+    if (!person.account) return;
+    const ids = person.profiles.map(({ id }) => id);
+    setAssignmentEditor({ person, profileIds: ids, initialProfileIds: [...ids], apiError: "", submitting: false });
+  };
+
+  const requestAssignmentClose = () => {
+    if (assignmentEditor?.submitting) return;
+    if (assignmentEditorDirty) setConfirmDiscard("assignment");
+    else setAssignmentEditor(null);
+  };
+
+  useEffect(() => {
+    if (!profileEditor && !assignmentEditor) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      if (profileEditor) requestProfileClose();
+      else requestAssignmentClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
+  const submitAssignments = async (event) => {
+    event.preventDefault();
+    if (!assignmentEditor || assignmentEditor.submitting) return;
+    setAssignmentEditor((current) => ({ ...current, submitting: true, apiError: "" }));
+    const additions = assignmentEditor.profileIds.filter((id) => !assignmentEditor.initialProfileIds.includes(id));
+    const removals = assignmentEditor.initialProfileIds.filter((id) => !assignmentEditor.profileIds.includes(id));
+    try {
+      await additions.reduce((previous, profileId) => previous.then(
+        () => assignAuthorizationProfile(profileId, assignmentEditor.person.account.id),
+      ), Promise.resolve());
+      await removals.reduce((previous, profileId) => previous.then(
+        () => unassignAuthorizationProfile(profileId, assignmentEditor.person.account.id),
+      ), Promise.resolve());
+      setAssignmentEditor(null);
+      await load();
+    } catch (error) {
+      await load();
+      setAssignmentEditor((current) => ({
+        ...current,
+        submitting: false,
+        apiError: getUserFacingApiError(error, "Não foi possível concluir as atribuições. O estado atual foi recarregado."),
+      }));
     }
   };
 
@@ -466,6 +838,11 @@ export default function Equipe() {
                         <FaEdit /> Editar
                       </RowActionButton>
                     )}
+                    {person.account ? (
+                      <RowActionButton type="button" onClick={() => openAssignments(person)}>
+                        Gerenciar perfis
+                      </RowActionButton>
+                    ) : <NoAccessText>Sem conta de acesso</NoAccessText>}
                     {person.isPerson && !person.isActive && (
                       <RowActionButton
                         type="button"
@@ -482,13 +859,19 @@ export default function Equipe() {
           </ModulePanel>
 
           <ModulePanel as="section">
-            <SectionTitle>Perfis e permissões</SectionTitle>
+            <SectionHeader>
+              <div><SectionTitle>Perfis e permissões</SectionTitle><Count>Definições da clínica</Count></div>
+              <PrimaryButton type="button" onClick={openProfileCreate}><FaPlus /> Novo perfil</PrimaryButton>
+            </SectionHeader>
             {presentation.profiles.length === 0 ? <DataLoadingState tone="empty" text="Nenhum perfil encontrado." /> : (
               <ProfileList>{presentation.profiles.map((profile) => (
-                <ProfileButton type="button" key={profile.id} onClick={() => setSelectedProfileId(profile.id)}>
-                  <span><strong>{profile.name}</strong><small>{profile.native_type ? "Perfil nativo" : "Perfil personalizado"}</small></span>
-                  <span><StatusPill $tone={profile.is_active ? "active" : "paused"}>{profile.is_active ? "Ativo" : "Inativo"}</StatusPill><Count>{profile.assignmentCount} atribuição(ões)</Count></span>
-                </ProfileButton>
+                <ProfileRow key={profile.id}>
+                  <ProfileButton type="button" onClick={() => setSelectedProfileId(profile.id)}>
+                    <span><strong>{profile.name}</strong><small>{profile.native_type ? "Perfil nativo · definição bloqueada" : "Perfil personalizado"}</small></span>
+                    <span><StatusPill $tone={profile.is_active ? "active" : "paused"}>{profile.is_active ? "Ativo" : "Inativo"}</StatusPill><Count>{profile.assignmentCount} atribuição(ões)</Count></span>
+                  </ProfileButton>
+                  {!profile.native_type && <RowActionButton type="button" onClick={() => openProfileEdit(profile)}><FaEdit /> Editar definição</RowActionButton>}
+                </ProfileRow>
               ))}</ProfileList>
             )}
           </ModulePanel>
@@ -509,12 +892,38 @@ export default function Equipe() {
           onSubmit={submitPerson}
         />
       )}
+      {profileEditor && (
+        <ProfileEditorDrawer
+          editor={profileEditor}
+          catalog={state.model.catalog}
+          onChange={changeProfileValue}
+          onClose={requestProfileClose}
+          onSubmit={submitProfile}
+        />
+      )}
+      {assignmentEditor && (
+        <AssignmentDrawer
+          editor={assignmentEditor}
+          profiles={presentation.profiles}
+          onToggle={(profileId, checked) => setAssignmentEditor((current) => ({
+            ...current,
+            profileIds: checked
+              ? [...current.profileIds, profileId]
+              : current.profileIds.filter((id) => id !== profileId),
+            apiError: "",
+          }))}
+          onClose={requestAssignmentClose}
+          onSubmit={submitAssignments}
+        />
+      )}
       <UnsavedChangesDialog
-        open={confirmDiscard}
-        onKeepEditing={() => setConfirmDiscard(false)}
+        open={Boolean(confirmDiscard)}
+        onKeepEditing={() => setConfirmDiscard(null)}
         onDiscard={() => {
-          setConfirmDiscard(false);
-          setEditor(null);
+          if (confirmDiscard === "person") setEditor(null);
+          if (confirmDiscard === "profile") setProfileEditor(null);
+          if (confirmDiscard === "assignment") setAssignmentEditor(null);
+          setConfirmDiscard(null);
         }}
       />
     </Page>
@@ -572,6 +981,7 @@ const ProfileNames = styled.div`color: ${colors.softText}; font-size: 0.88rem;`;
 const RowActions = styled.div`display: flex; gap: 8px; flex-wrap: wrap; button { display: inline-flex; align-items: center; gap: 5px; }`;
 const ProfileList = styled.div`display: grid; margin-top: 12px;`;
 const ProfileButton = styled.button`display: flex; justify-content: space-between; gap: 16px; width: 100%; padding: 14px 4px; border: 0; border-top: 1px solid #e8ebe5; background: transparent; text-align: left; cursor: pointer; span { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } small { color: ${colors.softText}; } &:hover { background: #f8f9f7; } &:focus-visible { outline: 3px solid rgba(106, 121, 92, 0.28); } @media (max-width: 620px) { flex-direction: column; }`;
+const ProfileRow = styled.div`display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; border-top: 1px solid #e8ebe5; ${ProfileButton} { border-top: 0; } @media (max-width: 620px) { grid-template-columns: 1fr; padding-bottom: 12px; }`;
 const StatePanel = styled(ModulePanel)`text-align: center;`;
 const RetryButton = styled.button`border: 1px solid ${colors.brand}; border-radius: 8px; background: ${colors.white}; color: ${colors.brandDark}; padding: 9px 14px; font-weight: 700; cursor: pointer;`;
 const Details = styled.div`color: ${colors.ink}; p { color: ${colors.softText}; }`;
@@ -586,3 +996,6 @@ const FieldError = styled.small`color: #9f342b;`;
 const CheckboxLabel = styled.label`display: flex; gap: 9px; align-items: flex-start; color: ${colors.ink}; font-size: 0.9rem; line-height: 1.4; cursor: pointer; input { margin-top: 3px; }`;
 const FormNotice = styled.p`margin: 0; padding: 12px; border-radius: 8px; background: #f6f8f4; color: ${colors.softText}; font-size: 0.86rem; line-height: 1.45;`;
 const FormError = styled.p`margin: 0; color: #9f342b; font-size: 0.88rem; font-weight: 700;`;
+const NoAccessText = styled.small`color: ${colors.softText}; align-self: center;`;
+const PermissionEditorRow = styled.div`display: grid; gap: 8px; padding: 14px 0; border-top: 1px solid #e8ebe5;`;
+const CapabilityGrid = styled.div`display: grid; gap: 12px;`;
