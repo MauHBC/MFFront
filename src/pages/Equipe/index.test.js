@@ -279,3 +279,86 @@ test("normalização preserva perfis nativos, personalizados e inativos", () => 
   expect(result.people[0].profiles).toHaveLength(2);
   expect(result.profiles.find(({ id }) => id === 21)).toMatchObject({ native_type: null, is_active: false, assignmentCount: 1 });
 });
+
+test("payload real de atribuições expõe permissão efetiva de Agenda", async () => {
+  useAuthorization.mockReturnValue({ status: "ready", canViewTeam: true });
+  const scheduleModel = {
+    ...model,
+    profiles: [{
+      id: 25,
+      name: "Acesso Agenda",
+      native_type: null,
+      is_active: true,
+      permissions: [{
+        moduleKey: "schedule",
+        accessLevel: "manage",
+        scopeLevel: "clinic",
+        canExport: false,
+      }],
+      capabilities: ["schedule.configure"],
+    }],
+    catalog: {
+      ...model.catalog,
+      modules: [{
+        module_key: "schedule",
+        valid_access_levels: ["none", "view", "manage"],
+        valid_scopes: ["own", "clinic"],
+        exportable: false,
+      }],
+    },
+    assignmentState: {
+      users: [{
+        user_id: 10,
+        assignment_ids: [8],
+        effective_permissions: {
+          authorization_state: "authorized",
+          is_administrator: false,
+          modules: [{
+            module_key: "schedule",
+            access_level: "manage",
+            scope_level: "clinic",
+            can_export: false,
+          }],
+          capabilities: ["schedule.configure"],
+          administrative_powers: [],
+        },
+      }],
+      assignments: [{ assignment_id: 8, user_id: 10, profile_id: 25 }],
+    },
+  };
+  loadTeamReadModel.mockResolvedValue(scheduleModel);
+  render(<Equipe />);
+  fireEvent.click(await screen.findByRole("button", { name: "Gerenciar perfis" }));
+  expect(screen.getByText("Agenda")).toBeInTheDocument();
+  expect(screen.getByText(/Gerenciar.*Toda a clínica/)).toBeInTheDocument();
+  expect(screen.queryByText(/não possui permissões granulares/)).not.toBeInTheDocument();
+});
+
+test.each([
+  ["no_permissions", "Esta conta não possui permissões granulares efetivas."],
+  ["invalid", "Estado de autorização inválido. Nenhum acesso deve ser concedido."],
+])("frontend distingue estado %s no contrato efetivo", async (stateName, expectedMessage) => {
+  useAuthorization.mockReturnValue({ status: "ready", canViewTeam: true });
+  loadTeamReadModel.mockResolvedValue({
+    ...model,
+    assignmentState: {
+      users: [{
+        user_id: 10,
+        assignment_ids: stateName === "invalid" ? [1] : [],
+        effective_permissions: {
+          authorization_state: stateName,
+          is_administrator: false,
+          modules: [],
+          capabilities: [],
+          administrative_powers: [],
+        },
+      }],
+      assignments: stateName === "invalid"
+        ? [{ assignment_id: 1, user_id: 10, profile_id: 20 }]
+        : [],
+    },
+  });
+  render(<Equipe />);
+  fireEvent.click(await screen.findByRole("button", { name: "Gerenciar perfis" }));
+  expect(screen.getByText(expectedMessage)).toBeInTheDocument();
+});
