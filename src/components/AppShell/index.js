@@ -12,6 +12,7 @@ import {
 import { useClinicContext } from "../../contexts/ClinicContext";
 import { useAuth } from "../../hooks/useAuth";
 import { useLogout } from "../../hooks/useLogout";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   getVisibleNavigationItems,
   isNavigationItemActive,
@@ -92,6 +93,7 @@ export default function AppShell({ children, pageTitle }) {
   const location = useLocation();
   const { username } = useAuth();
   const handleLogout = useLogout();
+  const { canViewTeam } = useAuthorization();
   const {
     displayName,
     logoSrc,
@@ -102,7 +104,7 @@ export default function AppShell({ children, pageTitle }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [navigationBadges, setNavigationBadges] = useState({});
-  const navigationItems = getVisibleNavigationItems();
+  const navigationItems = getVisibleNavigationItems({ canViewTeam });
   const activeExpandableItem = navigationItems.find(
     (item) => item.children
       && isNavigationItemActive(item, location.pathname, location.search),
@@ -175,7 +177,7 @@ export default function AppShell({ children, pageTitle }) {
   useEffect(() => {
     setMobileOpen(false);
     setUserMenuOpen(false);
-    const activeExpandable = getVisibleNavigationItems().find(
+    const activeExpandable = getVisibleNavigationItems({ canViewTeam }).find(
       (item) => item.children
         && isNavigationItemActive(item, location.pathname, location.search),
     );
@@ -186,7 +188,7 @@ export default function AppShell({ children, pageTitle }) {
           : [...currentKeys, activeExpandable.key]
       ));
     }
-  }, [location.pathname, location.search]);
+  }, [canViewTeam, location.pathname, location.search]);
 
   useEffect(() => {
     if (!mobileOpen && !userMenuOpen) return undefined;

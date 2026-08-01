@@ -4,6 +4,7 @@ import {
   FaClipboardList,
   FaMoneyBillWave,
   FaUserFriends,
+  FaUsersCog,
 } from "react-icons/fa";
 import { isPlansModuleEnabled } from "../../config/features";
 
@@ -44,6 +45,14 @@ const navigationItems = [
     path: "/pacientes",
     matchPaths: ["/pacientes"],
     icon: FaUserFriends,
+  },
+  {
+    key: "team",
+    label: "Equipe",
+    path: "/equipe",
+    matchPaths: ["/equipe"],
+    icon: FaUsersCog,
+    isVisible: ({ canViewTeam } = {}) => canViewTeam === true,
   },
   {
     key: "plans",
@@ -118,14 +127,14 @@ const navigationItems = [
   },
 ];
 
-export function filterVisibleNavigationItems(items) {
+export function filterVisibleNavigationItems(items, visibilityContext = {}) {
   return items.reduce((visibleItems, item) => {
-    if (item.isVisible && !item.isVisible()) return visibleItems;
+    if (item.isVisible && !item.isVisible(visibilityContext)) return visibleItems;
 
     if (!item.children) return [...visibleItems, item];
 
     const children = item.children.filter(
-      (child) => !child.isVisible || child.isVisible(),
+      (child) => !child.isVisible || child.isVisible(visibilityContext),
     );
     if (children.length === 0) return visibleItems;
 
@@ -133,8 +142,8 @@ export function filterVisibleNavigationItems(items) {
   }, []);
 }
 
-export function getVisibleNavigationItems() {
-  return filterVisibleNavigationItems(navigationItems);
+export function getVisibleNavigationItems(visibilityContext) {
+  return filterVisibleNavigationItems(navigationItems, visibilityContext);
 }
 
 export function isNavigationItemActive(item, pathname, search = "") {

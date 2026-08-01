@@ -10,6 +10,7 @@ import store, { persistor } from "./store";
 import history from "./services/history";
 import Routes from "./routes";
 import { ClinicProvider, useClinicContext } from "./contexts/ClinicContext";
+import { AuthorizationProvider } from "./contexts/AuthorizationContext";
 import { PublicClinicProvider, usePublicClinicContext } from "./contexts/PublicClinicContext";
 import productIdentity from "./config/productIdentity";
 import TenantLoading from "./components/TenantLoading";
@@ -113,12 +114,14 @@ function App() {
         <Router history={history}>
           <PublicClinicProvider>
             <ClinicProvider>
-              <AppHelmet />
-              <InitialRenderGate>
-                <Routes />
-              </InitialRenderGate>
-              <AppVersionReloader />
-              <ToastContainer autoClose={2000} className="toats-container" />
+              <AuthorizationProvider>
+                <AppHelmet />
+                <InitialRenderGate>
+                  <Routes />
+                </InitialRenderGate>
+                <AppVersionReloader />
+                <ToastContainer autoClose={2000} className="toats-container" />
+              </AuthorizationProvider>
             </ClinicProvider>
           </PublicClinicProvider>
         </Router>

@@ -89,4 +89,14 @@ describe("AppShell navigation", () => {
       "/planos/pacientes/41",
     )).toBe(true);
   });
+
+  it("exibe Equipe somente com o contexto administrativo oficial", () => {
+    expect(getVisibleNavigationItems().some(({ key }) => key === "team")).toBe(false);
+    expect(getVisibleNavigationItems({ canViewTeam: false })
+      .some(({ key }) => key === "team")).toBe(false);
+    const items = getVisibleNavigationItems({ canViewTeam: true });
+    const team = items.find(({ key }) => key === "team");
+    expect(team.path).toBe("/equipe");
+    expect(isNavigationItemActive(team, "/equipe")).toBe(true);
+  });
 });

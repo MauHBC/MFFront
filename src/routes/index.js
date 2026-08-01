@@ -28,6 +28,7 @@ import Planos from "../pages/Planos";
 import PlatformPaused from "../pages/PlatformPaused";
 import { isPlansModuleEnabled } from "../config/features";
 import AppShell from "../components/AppShell";
+import Equipe from "../pages/Equipe";
 
 function getPatientsPageTitle(pathname) {
   if (pathname === "/pacientes/novo") return "Novo paciente";
@@ -40,6 +41,7 @@ function getPatientsPageTitle(pathname) {
 function getAppShellPageTitle(pathname) {
   if (pathname === "/financeiro" || pathname.startsWith("/financeiro/")) return "Financeiro";
   if (pathname === "/planos" || pathname.startsWith("/planos/")) return "Planos";
+  if (pathname === "/equipe") return "Equipe";
   return getPatientsPageTitle(pathname);
 }
 
@@ -64,6 +66,7 @@ export default function Routes() {
     || location.pathname.startsWith("/planos/");
   const usesFinancialAppShell = location.pathname === "/financeiro"
     || location.pathname.startsWith("/financeiro/");
+  const usesTeamAppShell = location.pathname === "/equipe";
   const usesAppShell = [
     "/menu",
     "/painel",
@@ -73,7 +76,8 @@ export default function Routes() {
   ].includes(location.pathname)
     || usesPatientsAppShell
     || usesPlansAppShell
-    || usesFinancialAppShell;
+    || usesFinancialAppShell
+    || usesTeamAppShell;
   const shouldShowNavbar = location.pathname !== "/" && !isPublicSignup && !usesAppShell;
 
   const routeContent = (
@@ -97,6 +101,7 @@ export default function Routes() {
         <MyRoute exact path="/agendamentos/eventos" component={SchedulingEvents} isClosed />
         <MyRoute exact path="/painel" component={Painel} isClosed />
         <MyRoute exact path="/dashboard" component={Painel} isClosed />
+        <MyRoute exact path="/equipe" component={Equipe} isClosed />
         <MyRoute exact path="/financeiro" component={LegacyFinancialRoute} isClosed />
         <MyRoute
           exact
@@ -135,7 +140,7 @@ export default function Routes() {
   return (
     <>
       {shouldShowNavbar && <ImobNavbar />} {/* Exibe a navbar em todas as páginas, exceto na HomePage */}
-      {usesPatientsAppShell || usesPlansAppShell || usesFinancialAppShell ? (
+      {usesPatientsAppShell || usesPlansAppShell || usesFinancialAppShell || usesTeamAppShell ? (
         <AppShell pageTitle={getAppShellPageTitle(location.pathname)}>
           {routeContent}
         </AppShell>

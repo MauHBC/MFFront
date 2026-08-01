@@ -2,6 +2,7 @@ import React from "react";
 import "@testing-library/jest-dom";
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -14,6 +15,7 @@ import AppShell, {
 } from ".";
 
 const mockLogout = jest.fn();
+const mockAuthorization = { canViewTeam: false };
 
 jest.mock("../../contexts/ClinicContext", () => ({
   useClinicContext: () => ({
@@ -34,6 +36,10 @@ jest.mock("../../hooks/useLogout", () => ({
   useLogout: () => mockLogout,
 }));
 
+jest.mock("../../contexts/AuthorizationContext", () => ({
+  useAuthorization: () => mockAuthorization,
+}));
+
 function renderShell(pathname = "/painel") {
   return render(
     <MemoryRouter initialEntries={[pathname]}>
@@ -43,6 +49,19 @@ function renderShell(pathname = "/painel") {
     </MemoryRouter>,
   );
 }
+
+afterEach(() => {
+  mockAuthorization.canViewTeam = false;
+});
+
+it("exibe Equipe no App Shell somente quando autorizada", () => {
+  renderShell();
+  expect(screen.queryByRole("link", { name: "Equipe" })).not.toBeInTheDocument();
+  cleanup();
+  mockAuthorization.canViewTeam = true;
+  renderShell();
+  expect(screen.getByRole("link", { name: "Equipe" })).toHaveAttribute("href", "/equipe");
+});
 
 function renderShellWithHistory(pathname = "/painel") {
   const history = createMemoryHistory({ initialEntries: [pathname] });

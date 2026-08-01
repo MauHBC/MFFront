@@ -29,6 +29,10 @@ jest.mock("../hooks/useAuth", () => ({
   useAuth: () => ({ isLoggedIn: true, username: "Maurício" }),
 }));
 jest.mock("../hooks/useLogout", () => ({ useLogout: () => jest.fn() }));
+jest.mock("../contexts/AuthorizationContext", () => ({
+  useAuthorization: () => ({ canViewTeam: false }),
+}));
+jest.mock("../pages/Equipe", () => () => <div>Equipe</div>);
 
 jest.mock("../pages/Financeiro", () => function FinanceRouteMock() {
   const location = mockUseLocation();
