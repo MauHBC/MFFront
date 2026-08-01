@@ -1,4 +1,4 @@
-# Equipe — pessoas, perfis e atribuições
+# Equipe — pessoas, acessos, perfis e atribuições
 
 O módulo autenticado `/equipe` usa exclusivamente contratos tenant-scoped do
 backend. `AuthorizationProvider` consulta `/team/authorization-context` em
@@ -40,6 +40,19 @@ poderes exclusivos. O frontend mantém somente rótulos de apresentação em
 português; não replica a matriz de autorização nem decide permissões clínicas.
 O backend continua como autoridade final.
 
-Esta etapa não oferece criação de login, senha, convite, edição de perfis
-nativos, exclusão de perfil, inativação profissional, transferência de agenda
-ou pacientes.
+O Bloco 1 de contas gerais acrescenta, somente para pessoa ativa já cadastrada:
+
+- criação de conta com e-mail global e senha inicial manual;
+- redefinição de senha;
+- bloqueio e desbloqueio explícitos;
+- exibição separada dos estados da pessoa e da conta.
+
+Os formulários não enviam `clinic_id`, preservam os campos depois de conflito e
+bloqueiam duplo envio. Redefinição, bloqueio e desbloqueio exigem confirmação.
+Criar uma conta não cria profissional, grupo, perfil ou permissão; as
+atribuições continuam exclusivamente no drawer de perfis. Vínculo marcado como
+inválido pelo backend não oferece mutações na interface.
+
+A entrega não oferece exclusão, convite, seleção de clínica, identidade
+multi-clínica, edição de perfis nativos, inativação profissional, transferência
+de Agenda ou Pacientes. Também não ativa enforcement granular.

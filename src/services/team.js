@@ -37,6 +37,37 @@ export const activateTeamPerson = (personId) => api.patch(
   `/team/people/${personId}/activate`,
 ).then(data);
 
+export const createTeamAccount = (personId, { email, password, passwordConfirmation }) => api.post(
+  `/team/people/${personId}/account`,
+  {
+    email,
+    password,
+    password_confirmation: passwordConfirmation,
+  },
+).then(data);
+
+export const resetTeamAccountPassword = (
+  personId,
+  { password, passwordConfirmation },
+) => api.patch(
+  `/team/people/${personId}/account/password`,
+  {
+    password,
+    password_confirmation: passwordConfirmation,
+    confirmed: true,
+  },
+).then(data);
+
+export const blockTeamAccount = (personId) => api.patch(
+  `/team/people/${personId}/account/block`,
+  { confirmed: true },
+).then(data);
+
+export const unblockTeamAccount = (personId) => api.patch(
+  `/team/people/${personId}/account/unblock`,
+  { confirmed: true },
+).then(data);
+
 export const createAuthorizationProfile = ({ name, permissions, capabilities }) => api.post(
   "/team/profiles",
   { name, permissions, capabilities },

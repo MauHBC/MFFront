@@ -6,12 +6,16 @@ import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   activateTeamPerson,
   assignAuthorizationProfile,
+  blockTeamAccount,
   createAuthorizationProfile,
+  createTeamAccount,
   createTeamPerson,
   loadTeamReadModel,
+  resetTeamAccountPassword,
   unassignAuthorizationProfile,
   updateAuthorizationProfile,
   updateTeamPerson,
+  unblockTeamAccount,
 } from "../../services/team";
 import { getUserFacingApiError } from "../../services/axios";
 import { ModuleHeader, ModulePanel, ModuleSubtitle, ModuleTitle } from "../../components/AppModuleShell";
@@ -29,6 +33,7 @@ import {
 } from "../../components/AppDrawer";
 import { GhostButton, PrimaryButton, RowActionButton } from "../../components/AppButton";
 import { colors, layout } from "../../styles/tokens";
+import AccountAccessDrawer, { validateAccountAccessForm } from "./AccountAccessDrawer";
 
 const MODULE_LABELS = {
   dashboard: "Painel",
@@ -50,6 +55,11 @@ const POWER_LABELS = {
   "access_profiles.manage": "Gerenciar perfis",
   "administrators.manage": "Gerenciar administradores",
   "security_history.view": "Consultar histórico de segurança",
+};
+const ACCOUNT_STATUS_LABELS = {
+  active: "Acesso ativo",
+  blocked: "Acesso bloqueado",
+  invalid: "Vínculo inválido",
 };
 
 const EMPTY_PERSON_FORM = Object.freeze({
@@ -102,6 +112,7 @@ export function buildTeamPresentation(model) {
 
   const people = (model.people || []).map((person) => {
     const account = person.account ? accountById.get(person.account.id) : null;
+    const accountState = account || person.account;
     const profileIds = person.account ? assignmentsByUser.get(person.account.id) || [] : [];
     return {
       id: person.id,
@@ -113,8 +124,12 @@ export function buildTeamPresentation(model) {
       professionalActive: person.professional?.is_active === true,
       account: person.account ? {
         id: person.account.id,
-        login: account?.login_identifier || person.account.email || null,
+        login: accountState?.login_identifier || person.account.email || null,
         isActive: person.account.is_active === true,
+        status: person.account.status || accountState?.status
+          || (person.account.is_active ? "active" : "blocked"),
+        linkageType: person.account.linkage_type || accountState?.linkage_type || "legacy",
+        hasCredential: person.account.has_credential ?? accountState?.has_credential ?? false,
       } : null,
       profiles: profileIds.map((id) => profileById.get(id)).filter(Boolean),
       effectivePermissions: person.account
@@ -131,7 +146,14 @@ export function buildTeamPresentation(model) {
       isProfessional: false,
       professionalActive: false,
       isPerson: false,
-      account: { id: account.user_id, login: account.login_identifier, isActive: account.is_active },
+      account: {
+        id: account.user_id,
+        login: account.login_identifier,
+        isActive: account.is_active,
+        status: account.status || (account.is_active ? "active" : "blocked"),
+        linkageType: account.linkage_type || "legacy",
+        hasCredential: account.has_credential === true,
+      },
       profiles: (assignmentsByUser.get(account.user_id) || [])
         .map((id) => profileById.get(id)).filter(Boolean),
       effectivePermissions: assignmentUsers.get(account.user_id)?.effective_permissions || null,
@@ -517,6 +539,7 @@ export default function Equipe() {
   const [editor, setEditor] = useState(null);
   const [profileEditor, setProfileEditor] = useState(null);
   const [assignmentEditor, setAssignmentEditor] = useState(null);
+  const [accountEditor, setAccountEditor] = useState(null);
   const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [activatingPersonId, setActivatingPersonId] = useState(null);
   const [actionError, setActionError] = useState("");
@@ -565,6 +588,9 @@ export default function Equipe() {
   const assignmentEditorDirty = assignmentEditor
     ? JSON.stringify([...assignmentEditor.profileIds].sort())
       !== JSON.stringify([...assignmentEditor.initialProfileIds].sort())
+    : false;
+  const accountEditorDirty = accountEditor
+    ? JSON.stringify(accountEditor.values) !== JSON.stringify(accountEditor.initialValues)
     : false;
 
   const openCreate = () => setEditor({
@@ -665,6 +691,86 @@ export default function Equipe() {
     }
   };
 
+  const openAccountAction = (mode, person) => {
+    if (!person.isPerson || person.account?.linkageType === "invalid") return;
+    const values = {
+      email: mode === "create" ? person.email : "",
+      password: "",
+      passwordConfirmation: "",
+      confirmed: false,
+    };
+    setAccountEditor({
+      mode,
+      person,
+      values,
+      initialValues: { ...values },
+      errors: {},
+      apiError: "",
+      submitting: false,
+    });
+  };
+
+  const changeAccountValue = (field, value) => setAccountEditor((current) => ({
+    ...current,
+    values: { ...current.values, [field]: value },
+    errors: { ...current.errors, [field]: undefined },
+    apiError: "",
+  }));
+
+  const requestAccountClose = () => {
+    if (accountEditor?.submitting) return;
+    if (accountEditorDirty) setConfirmDiscard("account");
+    else setAccountEditor(null);
+  };
+
+  const submitAccount = async (event) => {
+    event.preventDefault();
+    if (!accountEditor || accountEditor.submitting) return;
+    const errors = validateAccountAccessForm(accountEditor.mode, accountEditor.values);
+    if (Object.keys(errors).length) {
+      setAccountEditor((current) => ({ ...current, errors }));
+      return;
+    }
+    setAccountEditor((current) => ({ ...current, submitting: true, apiError: "" }));
+    const { mode, person, values } = accountEditor;
+    try {
+      if (mode === "create") {
+        await createTeamAccount(person.id, {
+          email: values.email.trim(),
+          password: values.password,
+          passwordConfirmation: values.passwordConfirmation,
+        });
+      } else if (mode === "reset") {
+        await resetTeamAccountPassword(person.id, {
+          password: values.password,
+          passwordConfirmation: values.passwordConfirmation,
+        });
+      } else if (mode === "block") {
+        await blockTeamAccount(person.id);
+      } else {
+        await unblockTeamAccount(person.id);
+      }
+      setAccountEditor(null);
+      await load();
+    } catch (error) {
+      const code = error?.response?.data?.error;
+      const messages = {
+        LOGIN_IDENTIFIER_UNAVAILABLE: "Este e-mail de login não está disponível.",
+        ACCOUNT_ACCESS_CONFLICT: "Não foi possível concluir porque o estado da conta mudou.",
+        PERSON_ALREADY_HAS_ACCOUNT: "Esta pessoa já possui uma conta de acesso.",
+        LAST_ADMINISTRATOR_REQUIRED: "A clínica precisa manter pelo menos um Administrador ativo.",
+        INVALID_ACCOUNT_LINK: "O vínculo desta conta está inconsistente e não pode ser alterado.",
+        TEAM_ADMINISTRATOR_REQUIRED: "Sua autorização administrativa não está mais válida.",
+      };
+      setAccountEditor((current) => ({
+        ...current,
+        submitting: false,
+        apiError: messages[code]
+          || getUserFacingApiError(error, "Não foi possível concluir a gestão do acesso."),
+      }));
+    }
+  };
+
   const openProfileCreate = () => {
     const values = profileValues();
     setProfileEditor({ mode: "create", profileId: null, values, initialValues: profileValues(), errors: {}, apiError: "", submitting: false });
@@ -733,7 +839,7 @@ export default function Equipe() {
   };
 
   const openAssignments = (person) => {
-    if (!person.account) return;
+    if (!person.account || person.account.linkageType === "invalid") return;
     const ids = person.profiles.map(({ id }) => id);
     setAssignmentEditor({ person, profileIds: ids, initialProfileIds: [...ids], apiError: "", submitting: false });
   };
@@ -745,11 +851,12 @@ export default function Equipe() {
   };
 
   useEffect(() => {
-    if (!profileEditor && !assignmentEditor) return undefined;
+    if (!profileEditor && !assignmentEditor && !accountEditor) return undefined;
     const handleKeyDown = (event) => {
       if (event.key !== "Escape") return;
       if (profileEditor) requestProfileClose();
-      else requestAssignmentClose();
+      else if (assignmentEditor) requestAssignmentClose();
+      else requestAccountClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -778,6 +885,53 @@ export default function Equipe() {
         apiError: getUserFacingApiError(error, "Não foi possível concluir as atribuições. O estado atual foi recarregado."),
       }));
     }
+  };
+
+  const renderAccountLifecycleAction = (person) => {
+    if (person.account.isActive) {
+      return (
+        <RowActionButton type="button" onClick={() => openAccountAction("block", person)}>
+          Bloquear
+        </RowActionButton>
+      );
+    }
+    if (person.isActive && person.account.hasCredential) {
+      return (
+        <RowActionButton type="button" onClick={() => openAccountAction("unblock", person)}>
+          Desbloquear
+        </RowActionButton>
+      );
+    }
+    return null;
+  };
+
+  const renderAccountActions = (person) => {
+    if (!person.account) {
+      if (person.isPerson && person.isActive) {
+        return (
+          <RowActionButton type="button" onClick={() => openAccountAction("create", person)}>
+            Criar acesso
+          </RowActionButton>
+        );
+      }
+      return <NoAccessText>Sem conta de acesso</NoAccessText>;
+    }
+    if (person.account.linkageType === "invalid") return null;
+    return (
+      <>
+        <RowActionButton type="button" onClick={() => openAssignments(person)}>
+          Gerenciar perfis
+        </RowActionButton>
+        {person.isPerson && (
+          <>
+            <RowActionButton type="button" onClick={() => openAccountAction("reset", person)}>
+              Redefinir senha
+            </RowActionButton>
+            {renderAccountLifecycleAction(person)}
+          </>
+        )}
+      </>
+    );
   };
 
   if (authorization.status === "loading" || authorization.status === "idle") {
@@ -829,7 +983,11 @@ export default function Equipe() {
                     {person.isPerson && <NeutralPill>Pessoa</NeutralPill>}
                     {person.isProfessional && <NeutralPill>Profissional</NeutralPill>}
                     <StatusPill $tone={person.isActive ? "active" : "paused"}>{person.isActive ? "Ativo" : "Inativo"}</StatusPill>
-                    <NeutralPill>{person.account ? "Com acesso" : "Sem acesso"}</NeutralPill>
+                    <NeutralPill>
+                      {person.account
+                        ? (ACCOUNT_STATUS_LABELS[person.account.status] || "Com acesso")
+                        : "Sem acesso"}
+                    </NeutralPill>
                   </Badges>
                   <ProfileNames>{person.profiles.length ? person.profiles.map(({ name }) => name).join(", ") : "Sem perfil"}</ProfileNames>
                   <RowActions>
@@ -838,11 +996,7 @@ export default function Equipe() {
                         <FaEdit /> Editar
                       </RowActionButton>
                     )}
-                    {person.account ? (
-                      <RowActionButton type="button" onClick={() => openAssignments(person)}>
-                        Gerenciar perfis
-                      </RowActionButton>
-                    ) : <NoAccessText>Sem conta de acesso</NoAccessText>}
+                    {renderAccountActions(person)}
                     {person.isPerson && !person.isActive && (
                       <RowActionButton
                         type="button"
@@ -916,6 +1070,14 @@ export default function Equipe() {
           onSubmit={submitAssignments}
         />
       )}
+      {accountEditor && (
+        <AccountAccessDrawer
+          editor={accountEditor}
+          onChange={changeAccountValue}
+          onClose={requestAccountClose}
+          onSubmit={submitAccount}
+        />
+      )}
       <UnsavedChangesDialog
         open={Boolean(confirmDiscard)}
         onKeepEditing={() => setConfirmDiscard(null)}
@@ -923,6 +1085,7 @@ export default function Equipe() {
           if (confirmDiscard === "person") setEditor(null);
           if (confirmDiscard === "profile") setProfileEditor(null);
           if (confirmDiscard === "assignment") setAssignmentEditor(null);
+          if (confirmDiscard === "account") setAccountEditor(null);
           setConfirmDiscard(null);
         }}
       />

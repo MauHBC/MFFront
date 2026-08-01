@@ -1,29 +1,39 @@
 import React from "react";
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent, render, screen, waitFor, within,
+} from "@testing-library/react";
 import Equipe, { buildTeamPresentation } from ".";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   activateTeamPerson,
   assignAuthorizationProfile,
+  blockTeamAccount,
   createAuthorizationProfile,
+  createTeamAccount,
   createTeamPerson,
   loadTeamReadModel,
+  resetTeamAccountPassword,
   unassignAuthorizationProfile,
   updateAuthorizationProfile,
   updateTeamPerson,
+  unblockTeamAccount,
 } from "../../services/team";
 
 jest.mock("../../contexts/AuthorizationContext", () => ({ useAuthorization: jest.fn() }));
 jest.mock("../../services/team", () => ({
   activateTeamPerson: jest.fn(),
   assignAuthorizationProfile: jest.fn(),
+  blockTeamAccount: jest.fn(),
   createAuthorizationProfile: jest.fn(),
+  createTeamAccount: jest.fn(),
   createTeamPerson: jest.fn(),
   loadTeamReadModel: jest.fn(),
+  resetTeamAccountPassword: jest.fn(),
   unassignAuthorizationProfile: jest.fn(),
   updateAuthorizationProfile: jest.fn(),
   updateTeamPerson: jest.fn(),
+  unblockTeamAccount: jest.fn(),
 }));
 jest.mock("../../services/axios", () => ({
   getUserFacingApiError: (error, fallback) => fallback,
@@ -31,7 +41,7 @@ jest.mock("../../services/axios", () => ({
 
 const model = {
   people: [
-    { id: 1, name: "Ana", email: "ana@clinica.test", phone: "2799999999", is_active: true, professional: { is_active: true }, account: { id: 10, email: "ana@clinica.test", is_active: true } },
+    { id: 1, name: "Ana", email: "ana@clinica.test", phone: "2799999999", is_active: true, professional: { is_active: true }, account: { id: 10, email: "ana@clinica.test", is_active: true, status: "active", linkage_type: "legacy", has_credential: true } },
     { id: 2, name: "Bia", email: "bia@clinica.test", phone: null, is_active: true, professional: { is_active: true }, account: null },
     { id: 3, name: "Caio", email: null, phone: null, is_active: false, professional: null, account: null },
   ],
@@ -63,19 +73,27 @@ describe("Equipe", () => {
     loadTeamReadModel.mockReset();
     loadTeamReadModel.mockResolvedValue(model);
     createTeamPerson.mockReset();
+    createTeamAccount.mockReset();
     updateTeamPerson.mockReset();
     activateTeamPerson.mockReset();
+    blockTeamAccount.mockReset();
     assignAuthorizationProfile.mockReset();
     createAuthorizationProfile.mockReset();
     unassignAuthorizationProfile.mockReset();
     updateAuthorizationProfile.mockReset();
+    resetTeamAccountPassword.mockReset();
+    unblockTeamAccount.mockReset();
     createTeamPerson.mockResolvedValue({ id: 30 });
+    createTeamAccount.mockResolvedValue({ user_id: 11, status: "active" });
     updateTeamPerson.mockResolvedValue({ id: 1 });
     activateTeamPerson.mockResolvedValue({ id: 3 });
+    blockTeamAccount.mockResolvedValue({ user_id: 10, status: "blocked" });
     assignAuthorizationProfile.mockResolvedValue({ id: 4 });
     createAuthorizationProfile.mockResolvedValue({ id: 23 });
     unassignAuthorizationProfile.mockResolvedValue(null);
     updateAuthorizationProfile.mockResolvedValue({ id: 22 });
+    resetTeamAccountPassword.mockResolvedValue({ user_id: 10 });
+    unblockTeamAccount.mockResolvedValue({ user_id: 10, status: "active" });
   });
 
   it("cria pessoa comum sem campos de conta, perfil ou credencial", async () => {
@@ -190,6 +208,126 @@ describe("Equipe", () => {
     expect(screen.getByText("Administrador, Recepção")).toBeInTheDocument();
     expect(screen.getAllByText("Perfil personalizado").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Inativo").length).toBeGreaterThan(0);
+  });
+
+  it("cria acesso sem atribuir perfil e protege contra envio duplicado", async () => {
+    let resolveRequest;
+    createTeamAccount.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveRequest = resolve;
+    }));
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: "Criar acesso" }));
+    const drawer = screen.getByRole("dialog", { name: "Criar acesso" });
+    fireEvent.change(within(drawer).getByLabelText("E-mail de login"), {
+      target: { value: " BIA@Example.Test " },
+    });
+    fireEvent.change(within(drawer).getByLabelText("Senha inicial"), {
+      target: { value: "Senha@123" },
+    });
+    fireEvent.change(within(drawer).getByLabelText("Confirmar senha"), {
+      target: { value: "Senha@123" },
+    });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Criar acesso" }));
+    const pending = await within(drawer).findByRole("button", { name: "Criando..." });
+    expect(pending).toBeDisabled();
+    fireEvent.click(pending);
+    expect(createTeamAccount).toHaveBeenCalledTimes(1);
+    expect(createTeamAccount).toHaveBeenCalledWith(2, {
+      email: "BIA@Example.Test",
+      password: "Senha@123",
+      passwordConfirmation: "Senha@123",
+    });
+    expect(assignAuthorizationProfile).not.toHaveBeenCalled();
+    resolveRequest({ user_id: 11 });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Criar acesso" })).not.toBeInTheDocument());
+  });
+
+  it("preserva formulario quando o e-mail de login entra em conflito", async () => {
+    createTeamAccount.mockRejectedValueOnce({
+      response: { data: { error: "LOGIN_IDENTIFIER_UNAVAILABLE" } },
+    });
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: "Criar acesso" }));
+    const drawer = screen.getByRole("dialog", { name: "Criar acesso" });
+    fireEvent.change(within(drawer).getByLabelText("Senha inicial"), {
+      target: { value: "Senha@123" },
+    });
+    fireEvent.change(within(drawer).getByLabelText("Confirmar senha"), {
+      target: { value: "Senha@123" },
+    });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Criar acesso" }));
+    expect(await within(drawer).findByText("Este e-mail de login não está disponível.")).toBeInTheDocument();
+    expect(within(drawer).getAllByDisplayValue("Senha@123")).toHaveLength(2);
+    expect(within(drawer).getByRole("button", { name: "Criar acesso" })).not.toBeDisabled();
+  });
+
+  it("redefine senha com confirmação sem modificar perfis", async () => {
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: "Redefinir senha" }));
+    const drawer = screen.getByRole("dialog", { name: "Redefinir senha" });
+    fireEvent.change(within(drawer).getByLabelText("Nova senha"), {
+      target: { value: "Nova@123" },
+    });
+    fireEvent.change(within(drawer).getByLabelText("Confirmar senha"), {
+      target: { value: "Nova@123" },
+    });
+    fireEvent.click(within(drawer).getByLabelText(/Confirmo esta operação/));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Redefinir senha" }));
+    await waitFor(() => expect(resetTeamAccountPassword).toHaveBeenCalledWith(1, {
+      password: "Nova@123",
+      passwordConfirmation: "Nova@123",
+    }));
+    expect(assignAuthorizationProfile).not.toHaveBeenCalled();
+    expect(unassignAuthorizationProfile).not.toHaveBeenCalled();
+  });
+
+  it("preserva confirmação quando o último Administrador não pode ser bloqueado", async () => {
+    blockTeamAccount.mockRejectedValueOnce({
+      response: { data: { error: "LAST_ADMINISTRATOR_REQUIRED" } },
+    });
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: "Bloquear" }));
+    const drawer = screen.getByRole("dialog", { name: "Bloquear acesso" });
+    const confirmation = within(drawer).getByLabelText(/Confirmo esta operação/);
+    fireEvent.click(confirmation);
+    fireEvent.click(within(drawer).getByRole("button", { name: "Bloquear acesso" }));
+    expect(await within(drawer).findByText(/pelo menos um Administrador ativo/)).toBeInTheDocument();
+    expect(confirmation).toBeChecked();
+  });
+
+  it("desbloqueia conta bloqueada e não oferece ações para vínculo inválido", async () => {
+    const blockedModel = {
+      ...model,
+      people: model.people.map((person) => (person.id === 1 ? {
+        ...person,
+        account: { ...person.account, is_active: false, status: "blocked" },
+      } : person)),
+      accountState: {
+        accounts: model.accountState.accounts.map((account) => ({
+          ...account, is_active: false, status: "blocked", has_credential: true,
+        })),
+      },
+    };
+    loadTeamReadModel.mockResolvedValue(blockedModel);
+    const { unmount } = render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: "Desbloquear" }));
+    const drawer = screen.getByRole("dialog", { name: "Desbloquear acesso" });
+    fireEvent.click(within(drawer).getByLabelText(/Confirmo esta operação/));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Desbloquear acesso" }));
+    await waitFor(() => expect(unblockTeamAccount).toHaveBeenCalledWith(1));
+    unmount();
+
+    loadTeamReadModel.mockResolvedValue({
+      ...model,
+      people: model.people.map((person) => (person.id === 1 ? {
+        ...person,
+        account: { ...person.account, status: "invalid", linkage_type: "invalid" },
+      } : person)),
+    });
+    render(<Equipe />);
+    expect(await screen.findByText("Vínculo inválido")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Redefinir senha" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Bloquear" })).not.toBeInTheDocument();
   });
 
   it("nega acesso direto sem carregar dados", () => {

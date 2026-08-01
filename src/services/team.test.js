@@ -2,13 +2,17 @@ import api from "./axios";
 import {
   activateTeamPerson,
   assignAuthorizationProfile,
+  blockTeamAccount,
   createAuthorizationProfile,
+  createTeamAccount,
   createTeamPerson,
   getAuthorizationContext,
   loadTeamReadModel,
+  resetTeamAccountPassword,
   unassignAuthorizationProfile,
   updateAuthorizationProfile,
   updateTeamPerson,
+  unblockTeamAccount,
 } from "./team";
 
 jest.mock("./axios", () => ({
@@ -97,5 +101,35 @@ describe("team read service", () => {
       phone: null,
     });
     expect(api.patch).toHaveBeenCalledWith("/team/people/4/activate");
+  });
+
+  it("administra conta somente pelos contratos tenant-scoped de Equipe", async () => {
+    api.post.mockResolvedValueOnce({ data: { user_id: 9 } });
+    api.patch.mockResolvedValue({ data: { user_id: 9 } });
+    await createTeamAccount(4, {
+      email: "login@example.test",
+      password: "Senha@123",
+      passwordConfirmation: "Senha@123",
+    });
+    await resetTeamAccountPassword(4, {
+      password: "Nova@123",
+      passwordConfirmation: "Nova@123",
+    });
+    await blockTeamAccount(4);
+    await unblockTeamAccount(4);
+    expect(api.post).toHaveBeenCalledWith("/team/people/4/account", {
+      email: "login@example.test",
+      password: "Senha@123",
+      password_confirmation: "Senha@123",
+    });
+    expect(api.patch.mock.calls).toEqual([
+      ["/team/people/4/account/password", {
+        password: "Nova@123",
+        password_confirmation: "Nova@123",
+        confirmed: true,
+      }],
+      ["/team/people/4/account/block", { confirmed: true }],
+      ["/team/people/4/account/unblock", { confirmed: true }],
+    ]);
   });
 });
