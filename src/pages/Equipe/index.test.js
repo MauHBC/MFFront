@@ -123,6 +123,7 @@ describe("Equipe", () => {
       status: "ready",
       canViewTeam: true,
       canManageProfessionalLifecycle: true,
+      reload: jest.fn(),
     });
     loadTeamReadModel.mockReset();
     loadTeamReadModel.mockResolvedValue(model);
@@ -522,9 +523,33 @@ describe("Equipe", () => {
   });
 
   it("nega acesso direto sem carregar dados", () => {
-    useAuthorization.mockReturnValue({ status: "ready", canViewTeam: false });
+    useAuthorization.mockReturnValue({
+      status: "ready", canViewTeam: false, reload: jest.fn(),
+    });
     render(<Equipe />);
     expect(screen.getByText("Acesso não permitido")).toBeInTheDocument();
+    expect(loadTeamReadModel).not.toHaveBeenCalled();
+  });
+
+  it("mantém 403 distinto de falha de carregamento", () => {
+    useAuthorization.mockReturnValue({
+      status: "forbidden", canViewTeam: false, reload: jest.fn(),
+    });
+    render(<Equipe />);
+    expect(screen.getByText("Acesso não permitido")).toBeInTheDocument();
+    expect(screen.queryByText(/Não foi possível carregar a área Equipe/)).not.toBeInTheDocument();
+    expect(loadTeamReadModel).not.toHaveBeenCalled();
+  });
+
+  it("exibe falha segura do contexto para rede ou 5xx e permite repetir", () => {
+    const reload = jest.fn();
+    useAuthorization.mockReturnValue({ status: "error", canViewTeam: false, reload });
+    render(<Equipe />);
+    expect(screen.getByText("Não foi possível carregar a área Equipe. Tente novamente."))
+      .toBeInTheDocument();
+    expect(screen.queryByText("Acesso não permitido")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    expect(reload).toHaveBeenCalledTimes(1);
     expect(loadTeamReadModel).not.toHaveBeenCalled();
   });
 

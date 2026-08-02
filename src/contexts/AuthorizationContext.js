@@ -19,6 +19,13 @@ const AuthorizationContext = createContext({
 });
 const TEAM_POWER = "access_profiles.manage";
 
+export function classifyAuthorizationContextFailure(error) {
+  const status = error?.response?.status;
+  if (status === 401) return "idle";
+  if (status === 403) return "forbidden";
+  return "error";
+}
+
 export function isTeamAdministrator(context) {
   const validModules = Array.isArray(context?.modules)
     && context.modules.length > 0
@@ -58,8 +65,8 @@ export function AuthorizationProvider({ children }) {
     try {
       const context = await getAuthorizationContext();
       setState({ status: "ready", context });
-    } catch {
-      setState({ status: "error", context: null });
+    } catch (error) {
+      setState({ status: classifyAuthorizationContextFailure(error), context: null });
     }
   }, [isLoggedIn]);
 

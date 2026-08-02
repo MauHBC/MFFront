@@ -1,5 +1,6 @@
 import {
   canManageProfessionalLifecycle,
+  classifyAuthorizationContextFailure,
   isTeamAdministrator,
 } from "./AuthorizationContext";
 
@@ -51,5 +52,17 @@ describe("AuthorizationContext", () => {
     { ...administrator, capabilities: null },
   ])("falha fechado para contexto ausente, profissional ou sem perfil", (context) => {
     expect(isTeamAdministrator(context)).toBe(false);
+  });
+
+  it.each([
+    [{ response: { status: 401 } }, "idle"],
+    [{ response: { status: 403 } }, "forbidden"],
+    [{ response: { status: 500 } }, "error"],
+    [new Error("network unavailable"), "error"],
+  ])("classifica falha do contexto sem confundir autorização e indisponibilidade", (
+    error,
+    expectedStatus,
+  ) => {
+    expect(classifyAuthorizationContextFailure(error)).toBe(expectedStatus);
   });
 });

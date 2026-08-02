@@ -109,6 +109,19 @@ daquele módulo.
 > Documento de referência para criação e manutenção de módulos administrativos no frontend.
 > Reflete o padrão consolidado nas microetapas 1–17 (Planos, Agendamentos, Financeiro).
 
+### Estados de autorização e contenção responsiva da Equipe
+
+O `AuthorizationContext` diferencia ausência de sessão (`401`), acesso negado
+(`403`) e falha de carregamento (rede, timeout ou `5xx`). A rota `/equipe`
+preserva o tratamento global da sessão para `401`, mostra “Acesso não permitido”
+somente para uma negação real e apresenta uma falha de carregamento com nova
+tentativa nos demais erros. Um estado vazio válido não é tratado como erro.
+
+Na área Equipe, tabelas largas preservam suas colunas e largura mínima dentro do
+próprio wrapper rolável. Os ancestrais de grid e a página admitem encolhimento
+com `min-width: 0`; por isso a rolagem horizontal permanece no wrapper da tabela
+e não se propaga ao documento ou ao App Shell.
+
 ---
 
 ## App Shell autenticado

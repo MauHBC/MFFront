@@ -183,6 +183,23 @@ function AccessDenied() {
   );
 }
 
+function AuthorizationLoadError({ onRetry }) {
+  return (
+    <Page>
+      <StatePanel>
+        <DataLoadingState
+          tone="error"
+          text="Não foi possível carregar a área Equipe. Tente novamente."
+          compact
+        />
+        <RetryButton type="button" onClick={onRetry}>Tentar novamente</RetryButton>
+      </StatePanel>
+    </Page>
+  );
+}
+
+AuthorizationLoadError.propTypes = { onRetry: PropTypes.func.isRequired };
+
 function PersonDrawer({ editor, onChange, onClose, onSubmit }) {
   const creating = editor.mode === "create";
   return (
@@ -951,6 +968,9 @@ export default function Equipe() {
   if (authorization.status === "loading" || authorization.status === "idle") {
     return <Page><DataLoadingState text="Verificando acesso à Equipe..." /></Page>;
   }
+  if (authorization.status === "error") {
+    return <AuthorizationLoadError onRetry={authorization.reload} />;
+  }
   if (!authorization.canViewTeam) return <AccessDenied />;
 
   return (
@@ -1156,8 +1176,26 @@ ProfileDetails.propTypes = {
   }).isRequired,
 };
 
-const Page = styled.div`padding: 28px 32px 40px; @media (max-width: ${layout.moduleBreakpoint}) { padding: 20px 16px 32px; }`;
-const Sections = styled.div`display: grid; gap: 20px;`;
+const Page = styled.div`
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 28px 32px 40px;
+
+  @media (max-width: ${layout.moduleBreakpoint}) {
+    padding: 20px 16px 32px;
+  }
+`;
+const Sections = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  min-width: 0;
+
+  > * {
+    min-width: 0;
+  }
+`;
 const SectionHeader = styled.div`display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 16px; @media (max-width: 560px) { align-items: stretch; flex-direction: column; }`;
 const SectionTitle = styled.h2`margin: 0; color: ${colors.ink}; font-size: 1.05rem;`;
 const Count = styled.small`display: block; margin-top: 4px; color: ${colors.softText};`;

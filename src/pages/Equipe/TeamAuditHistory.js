@@ -246,7 +246,7 @@ export default function TeamAuditHistory({ people }) {
   const rows = state.data?.items || [];
 
   return (
-    <ModulePanel as="section">
+    <AuditPanel as="section">
       <SectionHeader>
         <div>
           <SectionTitle>Histórico administrativo</SectionTitle>
@@ -415,7 +415,7 @@ export default function TeamAuditHistory({ people }) {
       {selectedEvent && (
         <AuditDetailsDrawer event={selectedEvent} onClose={() => setSelectedEvent(null)} />
       )}
-    </ModulePanel>
+    </AuditPanel>
   );
 }
 
@@ -505,7 +505,15 @@ const ErrorState = styled.div`
   justify-items: center;
   gap: 8px;
 `;
+const AuditPanel = styled(ModulePanel)`
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+`;
 const TableWrap = styled.div`
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
 `;
 const Table = styled.table`
