@@ -6,8 +6,11 @@ import {
   createAuthorizationProfile,
   createTeamAccount,
   createTeamPerson,
+  confirmProfessionalInactivation,
+  deactivateTeamPerson,
   getAuthorizationContext,
   loadTeamReadModel,
+  previewProfessionalInactivation,
   resetTeamAccountPassword,
   unassignAuthorizationProfile,
   updateAuthorizationProfile,
@@ -101,6 +104,35 @@ describe("team read service", () => {
       phone: null,
     });
     expect(api.patch).toHaveBeenCalledWith("/team/people/4/activate");
+  });
+
+  it("usa prévia e comando idempotente para inativação profissional", async () => {
+    api.patch.mockResolvedValueOnce({ data: { id: 4 } });
+    api.post.mockResolvedValue({ data: { professional_id: 12 } });
+    const intent = {
+      effective_at: "2026-08-01T12:00:00.000Z",
+      reason: "Transferência aprovada",
+      deactivate_person: true,
+      destinations: { assignments: 20, sessions: 20, series: 20, drafts: 20, plans: 20 },
+      overrides: {},
+    };
+    await deactivateTeamPerson(4);
+    await previewProfessionalInactivation(12, intent);
+    await confirmProfessionalInactivation(12, {
+      intent,
+      previewToken: "preview-token",
+      idempotencyKey: "command-key-123",
+    });
+    expect(api.patch).toHaveBeenCalledWith("/team/people/4/deactivate", { confirmed: true });
+    expect(api.post.mock.calls).toEqual([
+      ["/team/professionals/12/inactivation-preview", intent],
+      ["/team/professionals/12/inactivation-commands", {
+        ...intent,
+        preview_token: "preview-token",
+        confirmed: true,
+      }, { headers: { "Idempotency-Key": "command-key-123" } }],
+    ]);
+    expect(JSON.stringify(api.post.mock.calls)).not.toContain("clinic_id");
   });
 
   it("administra conta somente pelos contratos tenant-scoped de Equipe", async () => {

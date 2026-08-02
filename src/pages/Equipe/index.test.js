@@ -12,7 +12,10 @@ import {
   createAuthorizationProfile,
   createTeamAccount,
   createTeamPerson,
+  confirmProfessionalInactivation,
+  deactivateTeamPerson,
   loadTeamReadModel,
+  previewProfessionalInactivation,
   resetTeamAccountPassword,
   unassignAuthorizationProfile,
   updateAuthorizationProfile,
@@ -28,7 +31,10 @@ jest.mock("../../services/team", () => ({
   createAuthorizationProfile: jest.fn(),
   createTeamAccount: jest.fn(),
   createTeamPerson: jest.fn(),
+  confirmProfessionalInactivation: jest.fn(),
+  deactivateTeamPerson: jest.fn(),
   loadTeamReadModel: jest.fn(),
+  previewProfessionalInactivation: jest.fn(),
   resetTeamAccountPassword: jest.fn(),
   unassignAuthorizationProfile: jest.fn(),
   updateAuthorizationProfile: jest.fn(),
@@ -41,8 +47,8 @@ jest.mock("../../services/axios", () => ({
 
 const model = {
   people: [
-    { id: 1, name: "Ana", email: "ana@clinica.test", phone: "2799999999", is_active: true, professional: { is_active: true }, account: { id: 10, email: "ana@clinica.test", is_active: true, status: "active", linkage_type: "legacy", has_credential: true } },
-    { id: 2, name: "Bia", email: "bia@clinica.test", phone: null, is_active: true, professional: { is_active: true }, account: null },
+    { id: 1, name: "Ana", email: "ana@clinica.test", phone: "2799999999", is_active: true, professional: { id: 101, is_active: true }, account: { id: 10, email: "ana@clinica.test", is_active: true, status: "active", linkage_type: "legacy", has_credential: true } },
+    { id: 2, name: "Bia", email: "bia@clinica.test", phone: null, is_active: true, professional: { id: 102, is_active: true }, account: null },
     { id: 3, name: "Caio", email: null, phone: null, is_active: false, professional: null, account: null },
   ],
   profiles: [
@@ -67,13 +73,61 @@ const model = {
   accountState: { accounts: [{ user_id: 10, name: "Ana", login_identifier: "ana@clinica.test", is_active: true, linked_person_id: 1 }] },
 };
 
+const lifecycleModel = {
+  ...model,
+  people: model.people.map((person) => (person.id === 2 ? {
+    ...person,
+    account: {
+      id: 11,
+      email: "bia@clinica.test",
+      is_active: true,
+      status: "active",
+      linkage_type: "canonical",
+      has_credential: true,
+    },
+  } : person)),
+  assignmentState: {
+    ...model.assignmentState,
+    users: [
+      ...model.assignmentState.users,
+      {
+        user_id: 11,
+        effective_permissions: {
+          authorization_state: "authorized",
+          is_administrator: false,
+          modules: [{ module_key: "schedule", access_level: "manage" }],
+        },
+      },
+    ],
+  },
+  accountState: {
+    accounts: [
+      ...model.accountState.accounts,
+      {
+        user_id: 11,
+        name: "Bia",
+        login_identifier: "bia@clinica.test",
+        is_active: true,
+        linked_person_id: 2,
+      },
+    ],
+  },
+};
+
 describe("Equipe", () => {
   beforeEach(() => {
-    useAuthorization.mockReturnValue({ status: "ready", canViewTeam: true });
+    useAuthorization.mockReturnValue({
+      status: "ready",
+      canViewTeam: true,
+      canManageProfessionalLifecycle: true,
+    });
     loadTeamReadModel.mockReset();
     loadTeamReadModel.mockResolvedValue(model);
     createTeamPerson.mockReset();
     createTeamAccount.mockReset();
+    confirmProfessionalInactivation.mockReset();
+    deactivateTeamPerson.mockReset();
+    previewProfessionalInactivation.mockReset();
     updateTeamPerson.mockReset();
     activateTeamPerson.mockReset();
     blockTeamAccount.mockReset();
@@ -85,6 +139,13 @@ describe("Equipe", () => {
     unblockTeamAccount.mockReset();
     createTeamPerson.mockResolvedValue({ id: 30 });
     createTeamAccount.mockResolvedValue({ user_id: 11, status: "active" });
+    confirmProfessionalInactivation.mockResolvedValue({ professional_id: 101 });
+    deactivateTeamPerson.mockResolvedValue({ id: 1 });
+    previewProfessionalInactivation.mockResolvedValue({
+      preview_token: "preview-token",
+      counts: {},
+      blockers: [],
+    });
     updateTeamPerson.mockResolvedValue({ id: 1 });
     activateTeamPerson.mockResolvedValue({ id: 3 });
     blockTeamAccount.mockResolvedValue({ user_id: 10, status: "blocked" });
@@ -328,6 +389,133 @@ describe("Equipe", () => {
     expect(await screen.findByText("Vínculo inválido")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Redefinir senha" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Bloquear" })).not.toBeInTheDocument();
+  });
+
+  it("mostra impactos, cancela agenda futura e bloqueia duplo envio", async () => {
+    loadTeamReadModel.mockResolvedValue(lifecycleModel);
+    previewProfessionalInactivation.mockResolvedValueOnce({
+      preview_token: "preview-cancel",
+      counts: {
+        affected_patients: 2,
+        assignments: 2,
+        mutable_future_sessions: 3,
+        protected_future_sessions: 1,
+        blocked_operational_sessions: 0,
+        series: 1,
+      },
+      blockers: [],
+    });
+    let resolveCommand;
+    confirmProfessionalInactivation.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCommand = resolve;
+    }));
+    render(<Equipe />);
+    const anaRow = (await screen.findByText("Ana")).closest("article");
+    fireEvent.click(within(anaRow).getByRole("button", { name: "Inativar" }));
+    fireEvent.click(screen.getByLabelText(/Cancelar .* futuras/));
+    fireEvent.change(screen.getByLabelText("Motivo"), {
+      target: { value: "Encerramento aprovado" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Visualizar impactos" }));
+    await waitFor(() => expect(previewProfessionalInactivation).toHaveBeenCalledWith(
+      101,
+      expect.objectContaining({
+        reason: "Encerramento aprovado",
+        deactivate_person: true,
+        destinations: { assignments: null, sessions: "cancel", series: "cancel" },
+      }),
+    ));
+    expect(await screen.findByText("3")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/Confirmo os impactos/));
+    const confirmButton = screen.getByRole("button", { name: /Confirmar opera/ });
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
+    expect(confirmProfessionalInactivation).toHaveBeenCalledTimes(1);
+    resolveCommand({
+      person_inactivated: true,
+      account_blocked: true,
+      canceled_session_ids: [1, 2, 3],
+      preserved_session_ids: [4],
+    });
+    expect(await screen.findByText(/3 sess/)).toBeInTheDocument();
+    expect(screen.getByText(/conta foi bloqueada/)).toBeInTheDocument();
+  });
+
+  it("exibe conflito na previa e exige nova previa quando o estado muda", async () => {
+    loadTeamReadModel.mockResolvedValue(lifecycleModel);
+    previewProfessionalInactivation
+      .mockResolvedValueOnce({
+        preview_token: "preview-conflict",
+        counts: {},
+        blockers: [{ code: "PROFESSIONAL_DESTINATION_AVAILABILITY_CONFLICT" }],
+      })
+      .mockResolvedValueOnce({ preview_token: "preview-stale", counts: {}, blockers: [] });
+    confirmProfessionalInactivation.mockRejectedValueOnce({
+      response: { data: { error: "PREVIEW_STATE_CHANGED" } },
+    });
+    render(<Equipe />);
+    const anaRow = (await screen.findByText("Ana")).closest("article");
+    fireEvent.click(within(anaRow).getByRole("button", { name: "Inativar" }));
+    fireEvent.change(screen.getByLabelText("Profissional de destino"), { target: { value: "102" } });
+    fireEvent.change(screen.getByLabelText("Motivo"), { target: { value: "Transferir carteira" } });
+    fireEvent.click(screen.getByRole("button", { name: "Visualizar impactos" }));
+    await waitFor(() => expect(previewProfessionalInactivation).toHaveBeenCalledWith(
+      101,
+      expect.objectContaining({
+        destinations: {
+          assignments: 102,
+          sessions: 102,
+          series: 102,
+          drafts: 102,
+          plans: 102,
+        },
+      }),
+    ));
+    expect(await screen.findByText(/possui conflito na agenda futura/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Confirmar opera/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar prévia" }));
+    await screen.findByLabelText(/Confirmo os impactos/);
+    fireEvent.click(screen.getByLabelText(/Confirmo os impactos/));
+    fireEvent.click(screen.getByRole("button", { name: /Confirmar opera/ }));
+    expect(await screen.findByText(/estado mudou depois da prévia/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visualizar impactos" })).toBeInTheDocument();
+  });
+
+  it("inativa pessoa sem atuacao profissional somente apos confirmacao", async () => {
+    loadTeamReadModel.mockResolvedValue({
+      ...model,
+      people: [
+        ...model.people,
+        {
+          id: 4,
+          name: "Dora",
+          email: null,
+          phone: null,
+          is_active: true,
+          professional: null,
+          account: null,
+        },
+      ],
+    });
+    render(<Equipe />);
+    const row = (await screen.findByText("Dora")).closest("article");
+    fireEvent.click(within(row).getByRole("button", { name: "Inativar" }));
+    const confirmButton = screen.getByRole("button", { name: /Confirmar inativa/ });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.click(screen.getByLabelText(/Confirmo a inativa/));
+    fireEvent.click(confirmButton);
+    await waitFor(() => expect(deactivateTeamPerson).toHaveBeenCalledTimes(1));
+  });
+
+  it("mantem inativacao profissional indisponivel com a flag desligada", async () => {
+    useAuthorization.mockReturnValue({
+      status: "ready",
+      canViewTeam: true,
+      canManageProfessionalLifecycle: false,
+    });
+    render(<Equipe />);
+    await screen.findByText("Ana");
+    expect(screen.queryByRole("button", { name: "Inativar" })).not.toBeInTheDocument();
   });
 
   it("nega acesso direto sem carregar dados", () => {

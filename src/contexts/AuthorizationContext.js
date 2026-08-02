@@ -14,6 +14,7 @@ const AuthorizationContext = createContext({
   status: "idle",
   context: null,
   canViewTeam: false,
+  canManageProfessionalLifecycle: false,
   reload: () => {},
 });
 const TEAM_POWER = "access_profiles.manage";
@@ -36,6 +37,12 @@ export function isTeamAdministrator(context) {
     && context?.is_administrator === true
     && Array.isArray(context?.administrative_powers)
     && context.administrative_powers.includes(TEAM_POWER);
+}
+
+export function canManageProfessionalLifecycle(context) {
+  return isTeamAdministrator(context)
+    && context?.professional_lifecycle_available === true
+    && context?.capabilities?.includes("professionals.lifecycle.manage");
 }
 
 export function AuthorizationProvider({ children }) {
@@ -63,6 +70,8 @@ export function AuthorizationProvider({ children }) {
   const value = useMemo(() => ({
     ...state,
     canViewTeam: state.status === "ready" && isTeamAdministrator(state.context),
+    canManageProfessionalLifecycle: state.status === "ready"
+      && canManageProfessionalLifecycle(state.context),
     reload,
   }), [reload, state]);
 

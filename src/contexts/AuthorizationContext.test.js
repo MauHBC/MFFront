@@ -1,4 +1,7 @@
-import { isTeamAdministrator } from "./AuthorizationContext";
+import {
+  canManageProfessionalLifecycle,
+  isTeamAdministrator,
+} from "./AuthorizationContext";
 
 jest.mock("../services/team", () => ({ getAuthorizationContext: jest.fn() }));
 
@@ -19,6 +22,23 @@ describe("AuthorizationContext", () => {
 
   it("aceita somente Administrador com o poder oficial", () => {
     expect(isTeamAdministrator(administrator)).toBe(true);
+  });
+
+  it("libera ciclo profissional somente com gate e capacidade oficiais", () => {
+    expect(canManageProfessionalLifecycle({
+      ...administrator,
+      professional_lifecycle_available: true,
+      capabilities: ["professionals.lifecycle.manage"],
+    })).toBe(true);
+    expect(canManageProfessionalLifecycle({
+      ...administrator,
+      professional_lifecycle_available: false,
+      capabilities: ["professionals.lifecycle.manage"],
+    })).toBe(false);
+    expect(canManageProfessionalLifecycle({
+      ...administrator,
+      professional_lifecycle_available: true,
+    })).toBe(false);
   });
 
   it.each([

@@ -34,6 +34,7 @@ import {
 import { GhostButton, PrimaryButton, RowActionButton } from "../../components/AppButton";
 import { colors, layout } from "../../styles/tokens";
 import AccountAccessDrawer, { validateAccountAccessForm } from "./AccountAccessDrawer";
+import ProfessionalInactivationDrawer from "./ProfessionalInactivationDrawer";
 
 const MODULE_LABELS = {
   dashboard: "Painel",
@@ -121,6 +122,7 @@ export function buildTeamPresentation(model) {
       phone: person.phone || "",
       isActive: person.is_active === true,
       isProfessional: Boolean(person.professional),
+      professionalId: person.professional ? Number(person.professional.id) : null,
       professionalActive: person.professional?.is_active === true,
       account: person.account ? {
         id: person.account.id,
@@ -540,6 +542,7 @@ export default function Equipe() {
   const [profileEditor, setProfileEditor] = useState(null);
   const [assignmentEditor, setAssignmentEditor] = useState(null);
   const [accountEditor, setAccountEditor] = useState(null);
+  const [inactivationEditor, setInactivationEditor] = useState(null);
   const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [activatingPersonId, setActivatingPersonId] = useState(null);
   const [actionError, setActionError] = useState("");
@@ -934,6 +937,16 @@ export default function Equipe() {
     );
   };
 
+  const canInactivate = (person) => (
+    person.isPerson
+    && person.isActive
+    && person.account?.linkageType !== "invalid"
+    && (
+      person.professionalActive !== true
+      || authorization.canManageProfessionalLifecycle
+    )
+  );
+
   if (authorization.status === "loading" || authorization.status === "idle") {
     return <Page><DataLoadingState text="Verificando acesso à Equipe..." /></Page>;
   }
@@ -997,6 +1010,11 @@ export default function Equipe() {
                       </RowActionButton>
                     )}
                     {renderAccountActions(person)}
+                    {canInactivate(person) && (
+                      <RowActionButton type="button" onClick={() => setInactivationEditor(person)}>
+                        Inativar
+                      </RowActionButton>
+                    )}
                     {person.isPerson && !person.isActive && (
                       <RowActionButton
                         type="button"
@@ -1076,6 +1094,14 @@ export default function Equipe() {
           onChange={changeAccountValue}
           onClose={requestAccountClose}
           onSubmit={submitAccount}
+        />
+      )}
+      {inactivationEditor && (
+        <ProfessionalInactivationDrawer
+          person={inactivationEditor}
+          targets={presentation.people.filter(({ isPerson }) => isPerson)}
+          onClose={() => setInactivationEditor(null)}
+          onCompleted={load}
         />
       )}
       <UnsavedChangesDialog

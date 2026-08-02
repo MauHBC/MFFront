@@ -37,6 +37,25 @@ export const activateTeamPerson = (personId) => api.patch(
   `/team/people/${personId}/activate`,
 ).then(data);
 
+export const deactivateTeamPerson = (personId) => api.patch(
+  `/team/people/${personId}/deactivate`,
+  { confirmed: true },
+).then(data);
+
+export const previewProfessionalInactivation = (professionalId, intent) => api.post(
+  `/team/professionals/${professionalId}/inactivation-preview`,
+  intent,
+).then(data);
+
+export const confirmProfessionalInactivation = (
+  professionalId,
+  { intent, previewToken, idempotencyKey },
+) => api.post(
+  `/team/professionals/${professionalId}/inactivation-commands`,
+  { ...intent, preview_token: previewToken, confirmed: true },
+  { headers: { "Idempotency-Key": idempotencyKey } },
+).then(data);
+
 export const createTeamAccount = (personId, { email, password, passwordConfirmation }) => api.post(
   `/team/people/${personId}/account`,
   {

@@ -54,5 +54,26 @@ atribuições continuam exclusivamente no drawer de perfis. Vínculo marcado com
 inválido pelo backend não oferece mutações na interface.
 
 A entrega não oferece exclusão, convite, seleção de clínica, identidade
-multi-clínica, edição de perfis nativos, inativação profissional, transferência
-de Agenda ou Pacientes. Também não ativa enforcement granular.
+multi-clínica ou edição de perfis nativos. Também não ativa enforcement
+granular.
+
+O Bloco 2 acrescenta o drawer de inativação. Para atuação profissional ativa,
+ele só aparece quando o contexto oficial informa a disponibilidade do fluxo e
+a capacidade `professionals.lifecycle.manage`. O operador escolhe entre:
+
+- transferir sessões, recorrências, responsabilidades, rascunhos e mudanças de
+  plano para um profissional ativo e autorizado da mesma clínica; ou
+- cancelar sessões futuras tratáveis, encerrar recorrências e responsabilidades
+  e preservar os registros históricos.
+
+Antes da confirmação, a interface exige motivo, solicita a prévia oficial e
+mostra contagens e bloqueios retornados pelo backend. Qualquer mudança na
+intenção descarta a prévia; mudança concorrente, token expirado ou divergente
+exige uma nova prévia. A confirmação possui checkbox explícito, chave de
+idempotência e proteção contra duplo envio. O resultado distingue itens
+cancelados, transferidos e preservados.
+
+O frontend apenas apresenta destinos elegíveis e o contrato recebido. Tenant,
+autoridade, permissões, conflitos, último Administrador e estado operacional
+são revalidados pelo backend dentro da transação. Com o default seguro da flag,
+a ação profissional permanece oculta e as rotas permanecem indisponíveis.
