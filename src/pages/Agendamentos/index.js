@@ -53,7 +53,6 @@ const APPOINTMENT_MINUTE_OPTIONS = Array.from({ length: 60 }, (_, minute) => {
   const value = String(minute).padStart(2, "0");
   return { value, label: value };
 });
-const PROFESSIONAL_GROUP_SLUG = "profissional";
 const ATTENDANCE_CONFIRMATION_TOLERANCE_MINUTES = 15;
 const MAX_WEEK_SLOT_VISIBLE = 3;
 const WEEK_PERIODS = [
@@ -1560,13 +1559,13 @@ export default function Agendamentos() {
         patientServiceAgreementsResponse,
         operationalPolicyResponse,
       ] = await reuseInFlightAgendaRequest("agenda:base-data", () => Promise.all([
-        axios.get("/patients"),
-        axios.get("/users", { params: { group: PROFESSIONAL_GROUP_SLUG } }),
+        axios.get("/schedule/references/patients"),
+        axios.get("/schedule/references/professionals"),
         axios.get("/service-limits"),
         axios.get("/session-statuses"),
         axios.get("/services"),
-        axios.get("/service-prices"),
-        axios.get("/patient-service-agreements"),
+        axios.get("/schedule/references/service-prices"),
+        axios.get("/schedule/references/patient-service-agreements"),
         axios.get("/unit-scheduling-policy"),
       ]));
       setPatients(Array.isArray(patientsResponse.data) ? patientsResponse.data : []);

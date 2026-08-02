@@ -16,6 +16,7 @@ import {
   listFinancialPayments,
 } from "../../services/financial";
 import AppShell from "../../components/AppShell";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   colors,
   layout,
@@ -23,8 +24,6 @@ import {
   shadows,
   spacing,
 } from "../../styles/tokens";
-
-const PROFESSIONAL_GROUP_SLUG = "profissional";
 
 const ACTIVE_SESSION_STATUSES = new Set(["scheduled", "done", "no_show"]);
 const CANCELED_SESSION_STATUSES = new Set(["canceled"]);
@@ -127,6 +126,10 @@ const getOperationalAlertCategory = (alert) => {
 };
 
 export default function Dashboard() {
+  const { canAccessModule } = useAuthorization();
+  const canReadSchedule = canAccessModule("schedule");
+  const canReadPatients = canAccessModule("patients");
+  const canReadFinance = canAccessModule("finance");
   const [selectedMonth, setSelectedMonth] = useState(formatMonthParam(new Date()));
   const [professionalId, setProfessionalId] = useState("all");
   const [serviceId, setServiceId] = useState("all");
@@ -175,6 +178,8 @@ export default function Dashboard() {
       if (professionalId !== "all") pendingParams.professional_user_id = professionalId;
       if (serviceId !== "all") pendingParams.service_id = serviceId;
 
+      const emptyListResponse = Promise.resolve({ data: [] });
+      const emptyAlertsResponse = Promise.resolve({ data: { alerts: [] } });
       const [
         sessionsResponse,
         todaySessionsResponse,
@@ -186,15 +191,19 @@ export default function Dashboard() {
         entriesResponse,
         paymentsResponse,
       ] = await Promise.all([
-        axios.get("/sessions", { params: sessionParams }),
-        axios.get("/sessions", { params: todayParams }),
-        axios.get("/sessions", { params: pendingParams }),
-        axios.get("/patients"),
-        axios.get("/users", { params: { group: PROFESSIONAL_GROUP_SLUG } }),
-        axios.get("/services"),
-        axios.get("/operational-alerts", { params: { month: selectedMonth } }),
-        listFinancialEntries(),
-        listFinancialPayments(),
+        canReadSchedule ? axios.get("/sessions", { params: sessionParams }) : emptyListResponse,
+        canReadSchedule ? axios.get("/sessions", { params: todayParams }) : emptyListResponse,
+        canReadSchedule ? axios.get("/sessions", { params: pendingParams }) : emptyListResponse,
+        canReadPatients ? axios.get("/patients") : emptyListResponse,
+        canReadSchedule
+          ? axios.get("/schedule/references/professionals")
+          : emptyListResponse,
+        canReadSchedule ? axios.get("/services") : emptyListResponse,
+        canReadSchedule
+          ? axios.get("/operational-alerts", { params: { month: selectedMonth } })
+          : emptyAlertsResponse,
+        canReadFinance ? listFinancialEntries() : emptyListResponse,
+        canReadFinance ? listFinancialPayments() : emptyListResponse,
       ]);
 
       setSessions(Array.isArray(sessionsResponse.data) ? sessionsResponse.data : []);
@@ -211,7 +220,16 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [professionalId, range.from, range.to, selectedMonth, serviceId]);
+  }, [
+    canReadFinance,
+    canReadPatients,
+    canReadSchedule,
+    professionalId,
+    range.from,
+    range.to,
+    selectedMonth,
+    serviceId,
+  ]);
 
   useEffect(() => {
     loadDashboard();

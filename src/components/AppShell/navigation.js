@@ -17,6 +17,7 @@ const navigationItems = [
     path: "/painel",
     matchPaths: ["/painel", "/dashboard"],
     icon: FaChartLine,
+    isVisible: ({ canAccessModule } = {}) => canAccessModule?.("dashboard") === true,
   },
   {
     key: "schedule",
@@ -24,6 +25,7 @@ const navigationItems = [
     path: "/agendamentos",
     matchPaths: ["/agendamentos"],
     icon: FaCalendarAlt,
+    isVisible: ({ canAccessModule } = {}) => canAccessModule?.("schedule") === true,
     children: [
       {
         key: "schedule-calendar",
@@ -36,6 +38,10 @@ const navigationItems = [
         label: "Configurações",
         path: "/agendamentos/eventos",
         matchPaths: ["/agendamentos/eventos"],
+        isVisible: ({ canAccessModule, hasCapability } = {}) => (
+          canAccessModule?.("schedule", "manage") === true
+          && hasCapability?.("schedule.configure") === true
+        ),
       },
     ],
   },
@@ -45,6 +51,7 @@ const navigationItems = [
     path: "/pacientes",
     matchPaths: ["/pacientes"],
     icon: FaUserFriends,
+    isVisible: ({ canAccessModule } = {}) => canAccessModule?.("patients") === true,
   },
   {
     key: "team",
@@ -60,7 +67,9 @@ const navigationItems = [
     path: "/planos",
     matchPaths: ["/planos"],
     icon: FaClipboardList,
-    isVisible: () => isPlansModuleEnabled,
+    isVisible: ({ canAccessModule } = {}) => (
+      isPlansModuleEnabled && canAccessModule?.("plans") === true
+    ),
     children: [
       {
         key: "plans-patients",
@@ -98,6 +107,7 @@ const navigationItems = [
     path: "/financeiro/visao-geral",
     matchPaths: ["/financeiro"],
     icon: FaMoneyBillWave,
+    isVisible: ({ canAccessModule } = {}) => canAccessModule?.("finance") === true,
     children: [
       {
         key: "financial-overview",
@@ -122,6 +132,10 @@ const navigationItems = [
         label: "Configurações",
         path: "/financeiro/configuracoes",
         matchPaths: ["/financeiro/configuracoes"],
+        isVisible: ({ canAccessModule, hasCapability } = {}) => (
+          canAccessModule?.("finance", "manage") === true
+          && hasCapability?.("finance.configure") === true
+        ),
       },
     ],
   },

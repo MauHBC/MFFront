@@ -1,28 +1,60 @@
 import {
   canManageProfessionalLifecycle,
   classifyAuthorizationContextFailure,
+  contextCanAccessModule,
+  contextHasCapability,
+  isValidAuthorizationContext,
   isTeamAdministrator,
 } from "./AuthorizationContext";
 
 jest.mock("../services/team", () => ({ getAuthorizationContext: jest.fn() }));
 
 describe("AuthorizationContext", () => {
+  const modules = [
+    "dashboard", "schedule", "patients", "clinical_records",
+    "plans", "finance", "team", "settings",
+  ].map((moduleKey) => ({
+    module_key: moduleKey,
+    access_level: "manage",
+    scope_level: ["dashboard", "finance", "team", "settings"].includes(moduleKey)
+      ? null
+      : "clinic",
+    can_export: false,
+  }));
   const administrator = {
     authorization_state: "authorized",
     catalog_version: 6,
     is_administrator: true,
-    modules: [{
-      module_key: "team",
-      access_level: "manage",
-      scope_level: "clinic",
-      can_export: false,
-    }],
+    modules,
     capabilities: [],
     administrative_powers: ["access_profiles.manage"],
   };
 
   it("aceita somente Administrador com o poder oficial", () => {
     expect(isTeamAdministrator(administrator)).toBe(true);
+  });
+
+  it("resolve modulos e capacidades apenas em payload oficial completo", () => {
+    const agendaOnly = {
+      ...administrator,
+      is_administrator: false,
+      administrative_powers: [],
+      modules: modules.map((module) => ({
+        ...module,
+        access_level: module.module_key === "schedule" ? "manage" : "none",
+        scope_level: module.module_key === "schedule" ? "clinic" : null,
+      })),
+      capabilities: ["schedule.configure"],
+    };
+    expect(isValidAuthorizationContext(agendaOnly)).toBe(true);
+    expect(contextCanAccessModule(agendaOnly, "schedule", "manage")).toBe(true);
+    expect(contextCanAccessModule(agendaOnly, "patients")).toBe(false);
+    expect(contextHasCapability(agendaOnly, "schedule.configure")).toBe(true);
+    expect(isValidAuthorizationContext({ ...agendaOnly, modules: agendaOnly.modules.slice(1) }))
+      .toBe(false);
+    expect(isValidAuthorizationContext({ ...agendaOnly, catalog_version: 7 })).toBe(false);
+    expect(contextCanAccessModule({ ...agendaOnly, authorization_state: "invalid" }, "schedule"))
+      .toBe(false);
   });
 
   it("libera ciclo profissional somente com gate e capacidade oficiais", () => {

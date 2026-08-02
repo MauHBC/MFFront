@@ -15,7 +15,11 @@ import AppShell, {
 } from ".";
 
 const mockLogout = jest.fn();
-const mockAuthorization = { canViewTeam: false };
+const mockAuthorization = {
+  canViewTeam: false,
+  canAccessModule: () => true,
+  hasCapability: () => true,
+};
 
 jest.mock("../../contexts/ClinicContext", () => ({
   useClinicContext: () => ({

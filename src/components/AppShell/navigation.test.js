@@ -5,6 +5,11 @@ import {
 } from "./navigation";
 
 describe("AppShell navigation", () => {
+  const fullAccess = {
+    canAccessModule: () => true,
+    hasCapability: () => true,
+    canViewTeam: true,
+  };
   it("remove o módulo quando ele ou todos os seus submenus estão indisponíveis", () => {
     const hiddenParent = {
       key: "hidden-parent",
@@ -45,7 +50,7 @@ describe("AppShell navigation", () => {
   });
 
   it("expõe somente os submenus aprovados de Agenda e Planos", () => {
-    const items = getVisibleNavigationItems();
+    const items = getVisibleNavigationItems(fullAccess);
     const agenda = items.find(({ key }) => key === "schedule");
     const patients = items.find(({ key }) => key === "patients");
     const plans = items.find(({ key }) => key === "plans");
@@ -63,7 +68,7 @@ describe("AppShell navigation", () => {
   });
 
   it("resolve o submenu ativo pelas rotas e queries reais", () => {
-    const items = getVisibleNavigationItems();
+    const items = getVisibleNavigationItems(fullAccess);
     const agenda = items.find(({ key }) => key === "schedule");
     const plans = items.find(({ key }) => key === "plans");
 
@@ -91,12 +96,25 @@ describe("AppShell navigation", () => {
   });
 
   it("exibe Equipe somente com o contexto administrativo oficial", () => {
-    expect(getVisibleNavigationItems().some(({ key }) => key === "team")).toBe(false);
-    expect(getVisibleNavigationItems({ canViewTeam: false })
+    expect(getVisibleNavigationItems({
+      canAccessModule: () => true,
+      hasCapability: () => true,
+      canViewTeam: false,
+    })
       .some(({ key }) => key === "team")).toBe(false);
-    const items = getVisibleNavigationItems({ canViewTeam: true });
+    const items = getVisibleNavigationItems(fullAccess);
     const team = items.find(({ key }) => key === "team");
     expect(team.path).toBe("/equipe");
     expect(isNavigationItemActive(team, "/equipe")).toBe(true);
+  });
+
+  it("perfil somente Agenda nao enxerga outros modulos ou configuracao sem capacidade", () => {
+    const items = getVisibleNavigationItems({
+      canAccessModule: (moduleKey) => moduleKey === "schedule",
+      hasCapability: () => false,
+      canViewTeam: false,
+    });
+    expect(items.map(({ key }) => key)).toEqual(["schedule"]);
+    expect(items[0].children.map(({ key }) => key)).toEqual(["schedule-calendar"]);
   });
 });

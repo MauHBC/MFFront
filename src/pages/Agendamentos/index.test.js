@@ -168,7 +168,7 @@ describe("Agendamentos - editar agendamento", () => {
     });
 
     axios.get.mockImplementation((url, config = {}) => {
-      if (url === "/patients") {
+      if (url === "/schedule/references/patients") {
         return Promise.resolve({
           data: [
             { id: 20, full_name: "Paciente Teste" },
@@ -181,7 +181,7 @@ describe("Agendamentos - editar agendamento", () => {
           ],
         });
       }
-      if (url === "/users") {
+      if (url === "/schedule/references/professionals") {
         return Promise.resolve({ data: [{ id: 30, name: "Profissional Teste" }] });
       }
       if (url === "/service-limits") {
@@ -198,7 +198,7 @@ describe("Agendamentos - editar agendamento", () => {
           ],
         });
       }
-      if (url === "/service-prices") {
+      if (url === "/schedule/references/service-prices") {
         return Promise.resolve({
           data: [
             { id: 100, service_id: 40, price_cents: 12000, currency: "BRL", is_active: true },
@@ -206,7 +206,7 @@ describe("Agendamentos - editar agendamento", () => {
           ],
         });
       }
-      if (url === "/patient-service-agreements") {
+      if (url === "/schedule/references/patient-service-agreements") {
         return Promise.resolve({ data: [] });
       }
       if (url === "/unit-scheduling-policy") {
@@ -270,6 +270,16 @@ describe("Agendamentos - editar agendamento", () => {
       }],
     });
     getCoveragePreview.mockResolvedValue({ data: null });
+  });
+
+  it("carrega somente referencias reduzidas de pacientes e profissionais", async () => {
+    renderAgendamentos();
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/schedule/references/patients",
+    ));
+    expect(axios.get).toHaveBeenCalledWith("/schedule/references/professionals");
+    expect(axios.get.mock.calls.some(([url]) => url === "/patients")).toBe(false);
+    expect(axios.get.mock.calls.some(([url]) => url === "/users")).toBe(false);
   });
 
   it("renderiza a Agenda dentro do App Shell", async () => {
@@ -786,7 +796,7 @@ describe("Agendamentos - editar agendamento", () => {
 
   it("nao envia reposicao disponivel quando usuario nao escolhe usar reposicao", async () => {
     axios.get.mockImplementation((url, config = {}) => {
-      if (url === "/patients") {
+      if (url === "/schedule/references/patients") {
         return Promise.resolve({
           data: [
             { id: 20, full_name: "Paciente Teste" },
@@ -794,7 +804,7 @@ describe("Agendamentos - editar agendamento", () => {
           ],
         });
       }
-      if (url === "/users") {
+      if (url === "/schedule/references/professionals") {
         return Promise.resolve({ data: [{ id: 30, name: "Profissional Teste" }] });
       }
       if (url === "/service-limits") return Promise.resolve({ data: [] });
@@ -894,10 +904,10 @@ describe("Agendamentos - editar agendamento", () => {
 
   it("mantem reposicao explicita quando usuario escolhe usar reposicao", async () => {
     axios.get.mockImplementation((url, config = {}) => {
-      if (url === "/patients") {
+      if (url === "/schedule/references/patients") {
         return Promise.resolve({ data: [{ id: 20, full_name: "Paciente Teste" }] });
       }
-      if (url === "/users") {
+      if (url === "/schedule/references/professionals") {
         return Promise.resolve({ data: [{ id: 30, name: "Profissional Teste" }] });
       }
       if (url === "/service-limits") return Promise.resolve({ data: [] });

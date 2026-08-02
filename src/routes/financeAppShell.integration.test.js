@@ -30,7 +30,9 @@ jest.mock("../hooks/useAuth", () => ({
 }));
 jest.mock("../hooks/useLogout", () => ({ useLogout: () => jest.fn() }));
 jest.mock("../contexts/AuthorizationContext", () => ({
-  useAuthorization: () => ({ canViewTeam: false }),
+  useAuthorization: () => ({
+    canViewTeam: false, canAccessModule: () => true, hasCapability: () => true,
+  }),
 }));
 jest.mock("../pages/Equipe", () => () => <div>Equipe</div>);
 

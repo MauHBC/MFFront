@@ -40,6 +40,16 @@ poderes exclusivos. O frontend mantém somente rótulos de apresentação em
 português; não replica a matriz de autorização nem decide permissões clínicas.
 O backend continua como autoridade final.
 
+Todos os módulos do App Shell usam esse mesmo contexto oficial. Sidebar,
+atalhos e guards de URL exigem o nível do respectivo módulo; configurações
+também exigem a capacidade específica. Durante `loading`, em `invalid`,
+`no_permissions`, `403` ou erro de carregamento, o componente protegido não é
+montado.
+
+Agenda usa os contratos reduzidos `/schedule/references/*` e não consulta os
+diretórios amplos `/patients` e `/users`. O frontend não implementa nem replica
+o resolvedor: apenas interpreta o resultado fechado entregue pelo backend.
+
 O Bloco 1 de contas gerais acrescenta, somente para pessoa ativa já cadastrada:
 
 - criação de conta com e-mail global e senha inicial manual;
@@ -53,9 +63,9 @@ Criar uma conta não cria profissional, grupo, perfil ou permissão; as
 atribuições continuam exclusivamente no drawer de perfis. Vínculo marcado como
 inválido pelo backend não oferece mutações na interface.
 
-A entrega não oferece exclusão, convite, seleção de clínica, identidade
-multi-clínica ou edição de perfis nativos. Também não ativa enforcement
-granular.
+A entrega de contas não oferece exclusão, convite, seleção de clínica,
+identidade multi-clínica ou edição de perfis nativos. O enforcement dos módulos
+é responsabilidade independente dos guards atuais e do backend.
 
 O Bloco 2 acrescenta o drawer de inativação. Para atuação profissional ativa,
 ele só aparece quando o contexto oficial informa a disponibilidade do fluxo e

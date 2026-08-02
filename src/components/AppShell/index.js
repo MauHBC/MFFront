@@ -93,7 +93,7 @@ export default function AppShell({ children, pageTitle }) {
   const location = useLocation();
   const { username } = useAuth();
   const handleLogout = useLogout();
-  const { canViewTeam } = useAuthorization();
+  const authorization = useAuthorization();
   const {
     displayName,
     logoSrc,
@@ -104,7 +104,7 @@ export default function AppShell({ children, pageTitle }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [navigationBadges, setNavigationBadges] = useState({});
-  const navigationItems = getVisibleNavigationItems({ canViewTeam });
+  const navigationItems = getVisibleNavigationItems(authorization);
   const activeExpandableItem = navigationItems.find(
     (item) => item.children
       && isNavigationItemActive(item, location.pathname, location.search),
@@ -177,7 +177,7 @@ export default function AppShell({ children, pageTitle }) {
   useEffect(() => {
     setMobileOpen(false);
     setUserMenuOpen(false);
-    const activeExpandable = getVisibleNavigationItems({ canViewTeam }).find(
+    const activeExpandable = getVisibleNavigationItems(authorization).find(
       (item) => item.children
         && isNavigationItemActive(item, location.pathname, location.search),
     );
@@ -188,7 +188,7 @@ export default function AppShell({ children, pageTitle }) {
           : [...currentKeys, activeExpandable.key]
       ));
     }
-  }, [canViewTeam, location.pathname, location.search]);
+  }, [authorization, location.pathname, location.search]);
 
   useEffect(() => {
     if (!mobileOpen && !userMenuOpen) return undefined;

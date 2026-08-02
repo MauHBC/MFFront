@@ -5,6 +5,7 @@ import { FaCalendarAlt, FaUserFriends, FaMoneyBillWave, FaClipboardList, FaChart
 import styled from "styled-components";
 import { isPlansModuleEnabled } from "../../config/features";
 import AppShell from "../../components/AppShell";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   colors,
   layout,
@@ -15,6 +16,8 @@ import {
 } from "../../styles/tokens";
 
 export default function Menu() {
+  const authorization = useAuthorization();
+  const canAccess = authorization.canAccessModule;
   return (
     <AppShell pageTitle="Atalhos">
       <Wrapper>
@@ -25,22 +28,22 @@ export default function Menu() {
             <p>Use os atalhos abaixo ou a navegação lateral para trocar de módulo.</p>
           </Title>
         <Nav>
-          <StyledLink to="/agendamentos">
+          {canAccess("schedule") && <StyledLink to="/agendamentos">
             <IconBadge $bg="#f0f3ec" $color="#6a795c">
               <FaCalendarAlt size={24} />
             </IconBadge>
             <div>
               <span>Agenda</span>
             </div>
-          </StyledLink>
-          <StyledLink to="/painel">
+          </StyledLink>}
+          {canAccess("dashboard") && <StyledLink to="/painel">
             <IconBadge $bg="#edf4f2" $color="#517268">
               <FaChartLine size={24} />
             </IconBadge>
             <div>
               <span>Painel</span>
             </div>
-          </StyledLink>
+          </StyledLink>}
           {/* <StyledLink to="/laudos">
             <IconBadge $bg="#f6f0ec" $color="#8a6a5a">
               <FaFileMedical size={24} />
@@ -49,23 +52,23 @@ export default function Menu() {
               <span>Exames</span>
             </div>
           </StyledLink> */}
-          <StyledLink to="/financeiro">
+          {canAccess("finance") && <StyledLink to="/financeiro">
             <IconBadge $bg="#e9f1ee" $color="#4f6b45">
               <FaMoneyBillWave size={24} />
             </IconBadge>
             <div>
               <span>Financeiro</span>
             </div>
-          </StyledLink>
-          <StyledLink to="/pacientes">
+          </StyledLink>}
+          {canAccess("patients") && <StyledLink to="/pacientes">
             <IconBadge $bg="#edf1f7" $color="#5a6e8a">
               <FaUserFriends size={24} />
             </IconBadge>
             <div>
               <span>Pacientes</span>
             </div>
-          </StyledLink>
-          {isPlansModuleEnabled && (
+          </StyledLink>}
+          {isPlansModuleEnabled && canAccess("plans") && (
             <StyledLink to="/planos">
               <IconBadge $bg="#eef3ec" $color="#3d5a30">
                 <FaClipboardList size={24} />

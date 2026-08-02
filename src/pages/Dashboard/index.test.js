@@ -24,14 +24,31 @@ jest.mock("../../services/financial", () => ({
   listFinancialPayments: jest.fn(),
 }));
 
+const mockCanAccessModule = jest.fn(() => true);
+jest.mock("../../contexts/AuthorizationContext", () => ({
+  useAuthorization: () => ({ canAccessModule: mockCanAccessModule }),
+}));
+
 describe("Dashboard", () => {
   beforeEach(() => {
+    mockCanAccessModule.mockImplementation(() => true);
     axios.get.mockImplementation((url) => {
       if (url === "/operational-alerts") return Promise.resolve({ data: { alerts: [] } });
       return Promise.resolve({ data: [] });
     });
     listFinancialEntries.mockResolvedValue({ data: [] });
     listFinancialPayments.mockResolvedValue({ data: [] });
+  });
+
+  it("nao consulta APIs amplas de usuarios nem modulos sem permissao oficial", async () => {
+    mockCanAccessModule.mockImplementation((moduleKey) => moduleKey === "dashboard");
+
+    render(<Dashboard />);
+
+    expect(await screen.findByRole("heading", { name: "Agenda" })).toBeInTheDocument();
+    expect(axios.get).not.toHaveBeenCalled();
+    expect(listFinancialEntries).not.toHaveBeenCalled();
+    expect(listFinancialPayments).not.toHaveBeenCalled();
   });
 
   it("preserva filtros e seções operacionais dentro do App Shell", async () => {

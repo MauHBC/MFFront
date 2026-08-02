@@ -90,31 +90,42 @@ export default function Routes() {
         <MyRoute exact path="/cadastro/paciente/:token" component={PatientSelfSignup} isClosed={false} />
 
         {/* Rotas protegidas */}
-        <MyRoute exact path="/register/" component={Register} isClosed />
-        <MyRoute exact path="/pacientes" component={PatientsSearch} isClosed />
-        <MyRoute exact path="/pacientes/novo" component={PatientsNew} isClosed />
-        <MyRoute exact path="/pacientes/consultar" component={PatientsSearch} isClosed />
-        <MyRoute exact path="/pacientes/:id" component={PatientDetails} isClosed />
-        <MyRoute exact path="/pacientes/:id/avaliacoes/nova" component={PatientEvaluationNew} isClosed />
-        <MyRoute exact path="/pacientes/:id/avaliacoes/:evaluationId" component={PatientEvaluationDetails} isClosed />
-        <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed />
-        <MyRoute exact path="/agendamentos/eventos" component={SchedulingEvents} isClosed />
-        <MyRoute exact path="/painel" component={Painel} isClosed />
-        <MyRoute exact path="/dashboard" component={Painel} isClosed />
-        <MyRoute exact path="/equipe" component={Equipe} isClosed />
-        <MyRoute exact path="/financeiro" component={LegacyFinancialRoute} isClosed />
+        <MyRoute exact path="/register/" component={Register} isClosed administratorOnly />
+        <MyRoute exact path="/pacientes" component={PatientsSearch} isClosed requiredModule="patients" />
+        <MyRoute exact path="/pacientes/novo" component={PatientsNew} isClosed requiredModule="patients" minimumAccessLevel="edit" />
+        <MyRoute exact path="/pacientes/consultar" component={PatientsSearch} isClosed requiredModule="patients" />
+        <MyRoute exact path="/pacientes/:id" component={PatientDetails} isClosed requiredModule="patients" />
+        <MyRoute exact path="/pacientes/:id/avaliacoes/nova" component={PatientEvaluationNew} isClosed requiredModule="clinical_records" minimumAccessLevel="edit" requiredCapability="clinical_records.write" />
+        <MyRoute exact path="/pacientes/:id/avaliacoes/:evaluationId" component={PatientEvaluationDetails} isClosed requiredModule="clinical_records" requiredCapability="clinical_records.read" />
+        <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed requiredModule="schedule" />
+        <MyRoute exact path="/agendamentos/eventos" component={SchedulingEvents} isClosed requiredModule="schedule" minimumAccessLevel="manage" requiredCapability="schedule.configure" />
+        <MyRoute exact path="/painel" component={Painel} isClosed requiredModule="dashboard" />
+        <MyRoute exact path="/dashboard" component={Painel} isClosed requiredModule="dashboard" />
+        <MyRoute exact path="/equipe" component={Equipe} isClosed administratorOnly />
+        <MyRoute exact path="/financeiro" component={LegacyFinancialRoute} isClosed requiredModule="finance" />
         <MyRoute
           exact
           path={[
             "/financeiro/visao-geral",
             "/financeiro/receitas",
             "/financeiro/despesas",
+          ]}
+          component={Financeiro}
+          isClosed
+          requiredModule="finance"
+        />
+        <MyRoute
+          exact
+          path={[
             "/financeiro/configuracoes",
             "/financeiro/configuracoes/formas-pagamento",
             "/financeiro/configuracoes/categorias-despesas",
           ]}
           component={Financeiro}
           isClosed
+          requiredModule="finance"
+          minimumAccessLevel="manage"
+          requiredCapability="finance.configure"
         />
         <MyRoute exact path="/platform" component={PlatformPaused} isClosed />
         <MyRoute exact path="/platform/clinics/:id" component={PlatformPaused} isClosed />
@@ -123,12 +134,14 @@ export default function Routes() {
           path="/planos"
           component={isPlansModuleEnabled ? Planos : Page404}
           isClosed={isPlansModuleEnabled}
+          requiredModule="plans"
         />
         <MyRoute
           exact
           path="/planos/pacientes/:patientPlanId"
           component={isPlansModuleEnabled ? Planos : Page404}
           isClosed={isPlansModuleEnabled}
+          requiredModule="plans"
         />
 
         {/* Rota para páginas não encontradas ou sem acesso */}
