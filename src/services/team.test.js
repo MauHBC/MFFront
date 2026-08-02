@@ -9,6 +9,7 @@ import {
   confirmProfessionalInactivation,
   deactivateTeamPerson,
   getAuthorizationContext,
+  getTeamAuditEvents,
   loadTeamReadModel,
   previewProfessionalInactivation,
   resetTeamAccountPassword,
@@ -104,6 +105,33 @@ describe("team read service", () => {
       phone: null,
     });
     expect(api.patch).toHaveBeenCalledWith("/team/people/4/activate");
+  });
+
+  it("consulta auditoria somente com filtros permitidos e sem tenant", async () => {
+    api.get.mockResolvedValueOnce({ data: { items: [] } });
+    await getTeamAuditEvents({
+      from: "2026-07-01",
+      to: "2026-07-31",
+      actor: "clinic_user:4",
+      action: "team.person.updated",
+      person_id: "7",
+      cursor: "cursor-seguro",
+      limit: 10,
+      empty: "",
+      clinic_id: 2,
+    });
+    expect(api.get).toHaveBeenCalledWith("/team/audit-events", {
+      params: {
+        from: "2026-07-01",
+        to: "2026-07-31",
+        actor: "clinic_user:4",
+        action: "team.person.updated",
+        person_id: "7",
+        cursor: "cursor-seguro",
+        limit: 10,
+      },
+    });
+    expect(JSON.stringify(api.get.mock.calls)).not.toContain("clinic_id");
   });
 
   it("usa prévia e comando idempotente para inativação profissional", async () => {

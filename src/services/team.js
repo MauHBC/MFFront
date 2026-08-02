@@ -14,6 +14,19 @@ export const getTeamPeople = () => api.get("/team/people").then(data);
 
 export const getAuthorizationProfiles = () => api.get("/team/profiles").then(data);
 
+const TEAM_AUDIT_FILTERS = new Set([
+  "from", "to", "actor", "action", "person_id", "cursor", "limit",
+]);
+
+export const getTeamAuditEvents = (filters = {}) => {
+  const params = Object.entries(filters).reduce((result, [key, value]) => (
+    !TEAM_AUDIT_FILTERS.has(key) || value === "" || value === null || value === undefined
+      ? result
+      : { ...result, [key]: value }
+  ), {});
+  return api.get("/team/audit-events", { params }).then(data);
+};
+
 export const createTeamPerson = ({ name, email, phone, isProfessional }) => api.post(
   "/team/people",
   {

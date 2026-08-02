@@ -35,6 +35,7 @@ import { GhostButton, PrimaryButton, RowActionButton } from "../../components/Ap
 import { colors, layout } from "../../styles/tokens";
 import AccountAccessDrawer, { validateAccountAccessForm } from "./AccountAccessDrawer";
 import ProfessionalInactivationDrawer from "./ProfessionalInactivationDrawer";
+import TeamAuditHistory from "./TeamAuditHistory";
 
 const MODULE_LABELS = {
   dashboard: "Painel",
@@ -1047,6 +1048,8 @@ export default function Equipe() {
               ))}</ProfileList>
             )}
           </ModulePanel>
+
+          <TeamAuditHistory people={presentation.people} />
         </Sections>
       )}
 

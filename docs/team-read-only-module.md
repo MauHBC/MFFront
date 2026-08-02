@@ -77,3 +77,14 @@ O frontend apenas apresenta destinos elegíveis e o contrato recebido. Tenant,
 autoridade, permissões, conflitos, último Administrador e estado operacional
 são revalidados pelo backend dentro da transação. Com o default seguro da flag,
 a ação profissional permanece oculta e as rotas permanecem indisponíveis.
+
+O Bloco 3 acrescenta o histórico administrativo somente leitura. A seção
+consulta `/team/audit-events` sem enviar `clinic_id` e oferece filtros por
+período, ator, ação e pessoa. A paginação usa exclusivamente os cursores opacos
+do backend; o frontend não calcula offsets nem interpreta identidade tenant.
+
+Rótulos de ação, resultado e campos de antes/depois vêm do contrato oficial. A
+interface nunca renderiza `metadata` ou JSON arbitrário e não mantém um catálogo
+paralelo de eventos. Os estados de carregamento, vazio, erro, filtros aplicados,
+sucesso e detalhes sanitizados são explícitos. Não existe controle para criar,
+editar ou excluir auditoria, e abrir a consulta não registra um novo evento.

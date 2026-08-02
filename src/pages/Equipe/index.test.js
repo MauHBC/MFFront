@@ -24,6 +24,9 @@ import {
 } from "../../services/team";
 
 jest.mock("../../contexts/AuthorizationContext", () => ({ useAuthorization: jest.fn() }));
+jest.mock("./TeamAuditHistory", () => function TeamAuditHistoryMock() {
+  return <section>Histórico administrativo</section>;
+});
 jest.mock("../../services/team", () => ({
   activateTeamPerson: jest.fn(),
   assignAuthorizationProfile: jest.fn(),
