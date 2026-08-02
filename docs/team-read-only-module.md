@@ -46,6 +46,11 @@ também exigem a capacidade específica. Durante `loading`, em `invalid`,
 `no_permissions`, `403` ou erro de carregamento, o componente protegido não é
 montado.
 
+O carregamento do contexto é vinculado ao estado autenticado, ao usuário e ao
+token atuais por uma geração opaca. Logout ou troca de identidade fecha o App
+Shell imediatamente e invalida respostas pendentes; sucesso ou erro atrasado de
+uma sessão anterior nunca substitui o contexto da sessão atual.
+
 Agenda usa os contratos reduzidos `/schedule/references/*` e não consulta os
 diretórios amplos `/patients` e `/users`. O frontend não implementa nem replica
 o resolvedor: apenas interpreta o resultado fechado entregue pelo backend.

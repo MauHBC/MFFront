@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import PropTypes from "prop-types";
@@ -92,40 +93,100 @@ export function canManageProfessionalLifecycle(context) {
 
 export function AuthorizationProvider({ children }) {
   const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
-  const [state, setState] = useState({ status: "idle", context: null });
+  const token = useSelector((state) => state.auth.token);
+  const userId = useSelector((state) => state.auth.user?.id);
+  const sessionIdentity = useMemo(
+    () => (
+      isLoggedIn
+      && typeof token === "string"
+      && token.length > 0
+      && Number.isSafeInteger(Number(userId))
+      && Number(userId) > 0
+        ? Object.freeze({})
+        : null
+    ),
+    [isLoggedIn, token, userId],
+  );
+  const activeIdentityRef = useRef(sessionIdentity);
+  const requestGenerationRef = useRef(0);
+  const mountedRef = useRef(false);
+  const [state, setState] = useState({ status: "idle", context: null, identity: null });
+
+  activeIdentityRef.current = sessionIdentity;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestGenerationRef.current += 1;
+    };
+  }, []);
 
   const reload = useCallback(async () => {
-    if (!isLoggedIn) {
-      setState({ status: "idle", context: null });
+    const identity = sessionIdentity;
+    const generation = requestGenerationRef.current + 1;
+    requestGenerationRef.current = generation;
+    if (!identity) {
+      if (mountedRef.current) {
+        setState({ status: "idle", context: null, identity: null });
+      }
       return;
     }
-    setState({ status: "loading", context: null });
+    if (mountedRef.current) {
+      setState({ status: "loading", context: null, identity });
+    }
     try {
       const context = await getAuthorizationContext();
-      setState({ status: "ready", context });
+      if (
+        mountedRef.current
+        && requestGenerationRef.current === generation
+        && activeIdentityRef.current === identity
+      ) {
+        setState({ status: "ready", context, identity });
+      }
     } catch (error) {
-      setState({ status: classifyAuthorizationContextFailure(error), context: null });
+      if (
+        mountedRef.current
+        && requestGenerationRef.current === generation
+        && activeIdentityRef.current === identity
+      ) {
+        setState({
+          status: classifyAuthorizationContextFailure(error),
+          context: null,
+          identity,
+        });
+      }
     }
-  }, [isLoggedIn]);
+  }, [sessionIdentity]);
 
   useEffect(() => {
     reload();
   }, [reload]);
 
+  const visibleState = useMemo(() => (
+    state.identity === sessionIdentity
+      ? state
+      : {
+        status: sessionIdentity ? "loading" : "idle",
+        context: null,
+      }
+  ), [sessionIdentity, state]);
+
   const value = useMemo(() => ({
-    ...state,
-    canViewTeam: state.status === "ready" && isTeamAdministrator(state.context),
-    canManageProfessionalLifecycle: state.status === "ready"
-      && canManageProfessionalLifecycle(state.context),
+    status: visibleState.status,
+    context: visibleState.context,
+    canViewTeam: visibleState.status === "ready" && isTeamAdministrator(visibleState.context),
+    canManageProfessionalLifecycle: visibleState.status === "ready"
+      && canManageProfessionalLifecycle(visibleState.context),
     canAccessModule: (moduleKey, minimumAccessLevel = "view") => (
-      state.status === "ready"
-      && contextCanAccessModule(state.context, moduleKey, minimumAccessLevel)
+      visibleState.status === "ready"
+      && contextCanAccessModule(visibleState.context, moduleKey, minimumAccessLevel)
     ),
     hasCapability: (capability) => (
-      state.status === "ready" && contextHasCapability(state.context, capability)
+      visibleState.status === "ready" && contextHasCapability(visibleState.context, capability)
     ),
     reload,
-  }), [reload, state]);
+  }), [reload, visibleState]);
 
   return (
     <AuthorizationContext.Provider value={value}>
