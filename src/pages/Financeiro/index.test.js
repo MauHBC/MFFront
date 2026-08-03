@@ -89,6 +89,28 @@ const revealFinancialValues = async () => {
   await userEvent.click(screen.getByRole("button", { name: "Mostrar valores financeiros" }));
 };
 
+const expectChargeTableStructure = (serviceName, expectedCells) => {
+  const row = screen.getByText(serviceName).closest("tr");
+  const table = row.closest("table");
+
+  expect(within(table).getAllByRole("columnheader").map((header) => header.textContent.trim()))
+    .toEqual([
+      "Data",
+      "Serviço",
+      "Sessões",
+      "Valor",
+      "Recebido",
+      "A receber",
+      "Status",
+      "Ações",
+    ]);
+
+  const cells = within(row).getAllByRole("cell");
+  expect(cells).toHaveLength(8);
+  expect(cells.map((cell) => cell.textContent.replace(/\s+/g, " ").trim()))
+    .toEqual(expectedCells);
+};
+
 const RealDate = Date;
 const fixedFinanceiroTestDate = new RealDate("2026-06-15T12:00:00-03:00");
 
@@ -583,6 +605,16 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(screen.getByText("R$ 150,00")).toBeInTheDocument();
     expect(screen.getByText("R$ 900,00")).toBeInTheDocument();
     expect(screen.queryByText("Sem cobrança gerada")).not.toBeInTheDocument();
+    expectChargeTableStructure("Fisioterapia", [
+      "10/06/2026",
+      "Fisioterapia",
+      "5/9",
+      "R$ 1.050,00",
+      "R$ 150,00",
+      "R$ 900,00",
+      "Parcial",
+      "Sessões",
+    ]);
   });
 
   it("nao transforma sessao sem FinancialEntry em cobranca pendente", async () => {
@@ -658,8 +690,8 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
         month: "2026-06",
         summary: {
           total: 30000,
-          received: 30000,
-          pending: 0,
+          received: 0,
+          pending: 30000,
           creditAvailable: 0,
         },
         entries: [
@@ -673,7 +705,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
             description: "Atendimento - Avaliação Coluna",
             amount_cents: 30000,
             reference_date: "2026-06-12",
-            status: "paid",
+            status: "pending",
           },
         ],
         sessions: [
@@ -697,10 +729,21 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
 
     renderFinanceiro();
 
+    await revealFinancialValues();
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
     expect(await screen.findByText("Avaliação Coluna")).toBeInTheDocument();
+    expectChargeTableStructure("Avaliação Coluna", [
+      "12/06/2026",
+      "Avaliação Coluna",
+      "0/1",
+      "R$ 300,00",
+      "R$ 0,00",
+      "R$ 300,00",
+      "Pendente",
+      "Sessões",
+    ]);
 
     await userEvent.type(screen.getByLabelText("Pesquisar paciente"), "Maria Silva");
 

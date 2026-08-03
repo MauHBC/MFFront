@@ -6453,6 +6453,7 @@ export default function Financeiro() {
                 <thead>
                   <tr>
                     <th>Data</th>
+                    <th>Serviço</th>
                     <th>Sessões</th>
                     <th>Valor</th>
                     <th>Recebido</th>
