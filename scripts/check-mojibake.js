@@ -12,6 +12,7 @@ const TEXT_EXTENSIONS = new Set([
   ".jsx",
   ".md",
   ".mjs",
+  ".sh",
   ".ts",
   ".tsx",
   ".txt",

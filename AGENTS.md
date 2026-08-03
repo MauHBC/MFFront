@@ -12,6 +12,21 @@ usa `main`.
 - Lint: `npx eslint src`
 - Mojibake e build: `npm run check:mojibake` e `npm run build`
 
+## Fonte da verdade de produção
+
+- O Nginx publica `/var/www/espacocuidarvix-frontend/current`.
+- `current` deve ser um symlink para um release imutável em
+  `/var/www/espacocuidarvix-frontend/releases/`.
+- `/opt/apps/mffront` é apenas um checkout auxiliar. Seu branch, `HEAD`, pasta
+  `build` ou estado de atraso não identificam a versão publicada.
+- Antes de comparar produção com Git, leia o destino de `current` e o
+  `app-version.json` do release ou dos domínios publicados.
+- Todo novo release deve ser compilado de um commit exato existente em
+  `origin/main`; o hash deve constar no `app-version.json` e no nome do release.
+- O procedimento canônico, validações e rollback estão em
+  [docs/deploy-production.md](docs/deploy-production.md). Use
+  [scripts/deploy-production.sh](scripts/deploy-production.sh) para publicar.
+
 ## Regras obrigatórias
 
 - O tenant público é resolvido pelo domínio no backend; não aceite `clinic_id`
