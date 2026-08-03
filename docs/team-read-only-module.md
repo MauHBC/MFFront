@@ -11,7 +11,7 @@ As junções de apresentação usam apenas `person_id`, `user_id` e `profile_id`
 DTOs oficiais. Conta sem pessoa e profissional sem login permanecem estados
 distintos.
 
-A Etapa 2 reutiliza somente os contratos oficiais de pessoa para:
+O fluxo de pessoas reutiliza somente os contratos oficiais para:
 
 - criar pessoa sem conta de acesso;
 - criar pessoa com atuação profissional, ainda sem conta;
@@ -23,8 +23,8 @@ O formulário preserva valores após erro, bloqueia envio duplicado e confirma o
 descarte de alterações pendentes. O drawer de permissões continua estritamente
 somente para consulta.
 
-A Etapa 3 acrescenta criação e edição de perfis personalizados e atribuição de
-um ou vários perfis a contas existentes. Administrador e Profissional são
+O fluxo de perfis permite criar e editar perfis personalizados e atribuir um ou
+vários perfis a contas existentes. Administrador e Profissional são
 exibidos como nativos e bloqueados para edição, conforme o contrato oficial.
 Pessoa ou profissional sem conta não recebe controles de atribuição. Módulos,
 níveis, escopos, exportação e capacidades são renderizados a partir do catálogo
@@ -55,7 +55,7 @@ Agenda usa os contratos reduzidos `/schedule/references/*` e não consulta os
 diretórios amplos `/patients` e `/users`. O frontend não implementa nem replica
 o resolvedor: apenas interpreta o resultado fechado entregue pelo backend.
 
-O Bloco 1 de contas gerais acrescenta, somente para pessoa ativa já cadastrada:
+O fluxo de contas gerais permite, somente para pessoa ativa já cadastrada:
 
 - criação de conta com e-mail global e senha inicial manual;
 - redefinição de senha;
@@ -68,12 +68,15 @@ Criar uma conta não cria profissional, grupo, perfil ou permissão; as
 atribuições continuam exclusivamente no drawer de perfis. Vínculo marcado como
 inválido pelo backend não oferece mutações na interface.
 
-A entrega de contas não oferece exclusão, convite, seleção de clínica,
-identidade multi-clínica ou edição de perfis nativos. O enforcement dos módulos
-é responsabilidade independente dos guards atuais e do backend.
+A entrega de contas não oferece exclusão, convite, seleção de clínica ou edição
+de perfis nativos. O schema do backend admite memberships por clínica para uma
+identidade global, mas o login atual não seleciona tenant e falha fechado diante
+de múltiplos vínculos. O frontend não deve inferir clínica pelo e-mail, domínio
+público ou primeiro membership. Os guards melhoram a experiência; o backend
+continua responsável pelo enforcement autoritativo.
 
-O Bloco 2 acrescenta o drawer de inativação. Para atuação profissional ativa,
-ele só aparece quando o contexto oficial informa a disponibilidade do fluxo e
+Para atuação profissional ativa, o drawer de inativação só aparece quando o
+contexto oficial informa a disponibilidade do fluxo e
 a capacidade `professionals.lifecycle.manage`. O operador escolhe entre:
 
 - transferir sessões, recorrências, responsabilidades, rascunhos e mudanças de
@@ -93,7 +96,7 @@ autoridade, permissões, conflitos, último Administrador e estado operacional
 são revalidados pelo backend dentro da transação. Com o default seguro da flag,
 a ação profissional permanece oculta e as rotas permanecem indisponíveis.
 
-O Bloco 3 acrescenta o histórico administrativo somente leitura. A seção
+O histórico administrativo é somente leitura. A seção
 consulta `/team/audit-events` sem enviar `clinic_id` e oferece filtros por
 período, ator, ação e pessoa. A paginação usa exclusivamente os cursores opacos
 do backend; o frontend não calcula offsets nem interpreta identidade tenant.

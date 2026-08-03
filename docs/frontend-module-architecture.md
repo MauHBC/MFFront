@@ -109,6 +109,34 @@ daquele módulo.
 > Documento de referência para criação e manutenção de módulos administrativos no frontend.
 > Reflete o padrão consolidado nas microetapas 1–17 (Planos, Agendamentos, Financeiro).
 
+### Autorização oficial e fail-closed
+
+`AuthorizationProvider` carrega `/team/authorization-context` para a identidade
+e o token atuais. Sidebar, atalhos e `MyRoute` usam exclusivamente os módulos,
+níveis e capacidades desse contrato. O frontend não consulta grupo ou nome de
+perfil para conceder acesso, não replica o resolvedor e somente considera
+administrativo o booleano literal `is_administrator === true` em um contexto
+válido e `authorized`.
+
+Durante `idle`, `loading`, `invalid`, `no_permissions`, `403` ou erro de
+carregamento, o módulo protegido não é montado. Acesso direto por URL recebe a
+mesma negação do guard; ainda assim, o backend é a autoridade final e precisa
+negar a API independentemente do estado visual. Ocultar item da navegação nunca
+substitui autorização.
+
+O contexto não é persistido em `localStorage`. Logout, troca de token, troca de
+usuário ou desmontagem invalidam a geração corrente e fecham imediatamente o
+shell protegido. Respostas assíncronas de uma sessão anterior, inclusive erros,
+não podem substituir o contexto da nova identidade.
+
+Agenda usa somente as projeções reduzidas `/schedule/references/*`. A
+permissão de Agenda não libera os diretórios amplos de Pacientes ou Usuários;
+cada módulo e endpoint mantém seu próprio gate.
+
+Os contratos visuais específicos de pessoas, contas, perfis, inativação e
+auditoria da área Equipe estão em
+[team-read-only-module.md](team-read-only-module.md).
+
 ### Estados de autorização e contenção responsiva da Equipe
 
 O `AuthorizationContext` diferencia ausência de sessão (`401`), acesso negado
