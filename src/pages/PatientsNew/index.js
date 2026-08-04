@@ -100,13 +100,17 @@ export default function PatientsNew() {
   const clinicalRecordsModule = authorization.context?.modules?.find(
     (module) => module.module_key === "clinical_records",
   );
-  const showsResponsibleProfessional = authorization.status === "ready"
+  const isStructuralAdministrator = authorization.status === "ready"
+    && authorization.context?.is_administrator === true;
+  const hasClinicPatientScope = authorization.status === "ready"
     && patientsModule?.scope_level === "clinic";
+  const showsResponsibleProfessional = isStructuralAdministrator || hasClinicPatientScope;
   const canAssignPatientCare = authorization.status === "ready"
     && (
-      authorization.context?.is_administrator === true
+      isStructuralAdministrator
       || (
-        clinicalRecordsModule?.scope_level === "clinic"
+        hasClinicPatientScope
+        && clinicalRecordsModule?.scope_level === "clinic"
         && authorization.hasCapability("clinical_records.responsibility.manage")
       )
     );

@@ -130,6 +130,34 @@ describe("PatientsNew", () => {
     ));
   });
 
+  it("mantém o campo opcional visível para o Administrador estrutural", async () => {
+    mockAuthorization = {
+      status: "ready",
+      context: {
+        is_administrator: true,
+        modules: [{ module_key: "patients", scope_level: null }],
+      },
+      hasCapability: jest.fn(() => true),
+    };
+    axios.get.mockResolvedValue({
+      data: [{
+        id: 30,
+        name: "Profissional canônico ativo",
+        clinic_professional_id: 300,
+      }],
+    });
+
+    renderPage();
+
+    const responsibleSelect = await screen.findByLabelText(
+      "Profissional responsável (opcional)",
+    );
+    expect(responsibleSelect).toBeInTheDocument();
+    await waitFor(() => expect(responsibleSelect).not.toBeDisabled());
+    expect(screen.getByRole("option", { name: "Profissional canônico ativo" }))
+      .toHaveValue("300");
+  });
+
   it("lista profissionais canônicos e envia o responsável opcional selecionado", async () => {
     mockAuthorization = {
       status: "ready",
