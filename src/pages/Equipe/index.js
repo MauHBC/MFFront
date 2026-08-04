@@ -1,4 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback, useEffect, useMemo, useRef, useState,
+} from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import { FaEdit, FaPlus, FaTimes } from "react-icons/fa";
@@ -63,6 +65,56 @@ const ACCOUNT_STATUS_LABELS = {
   active: "Acesso ativo",
   blocked: "Acesso bloqueado",
   invalid: "Vínculo inválido",
+};
+
+function PersonActionsMenu({ personName, children }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnOutsideClick = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <ActionsMenuRoot ref={rootRef}>
+      <ActionsMenuTrigger
+        type="button"
+        aria-label={`Ações de ${personName}`}
+        aria-haspopup="true"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        Ações <span aria-hidden="true">•••</span>
+      </ActionsMenuTrigger>
+      {open && (
+        <ActionsMenuPopover
+          aria-label={`Opções de ${personName}`}
+          onClickCapture={(event) => {
+            if (event.target.closest("button:not(:disabled)")) setOpen(false);
+          }}
+        >
+          {children}
+        </ActionsMenuPopover>
+      )}
+    </ActionsMenuRoot>
+  );
+}
+
+PersonActionsMenu.propTypes = {
+  personName: PropTypes.string.isRequired,
+  children: PropTypes.node.isRequired,
 };
 
 const EMPTY_PERSON_FORM = Object.freeze({
@@ -1044,36 +1096,40 @@ export default function Equipe() {
                   </Badges>
                   <ProfileNames>{person.profiles.length ? person.profiles.map(({ name }) => name).join(", ") : "Sem perfil"}</ProfileNames>
                   <RowActions>
-                    {person.isPerson && (
-                      <RowActionButton type="button" onClick={() => openEdit(person)}>
-                        <FaEdit /> Editar
-                      </RowActionButton>
-                    )}
-                    {renderAccountActions(person)}
-                    {person.isPerson && person.isActive && !person.isProfessional && (
-                      <RowActionButton
-                        type="button"
-                        onClick={() => activateProfessional(person.id)}
-                        disabled={activatingProfessionalId === person.id}
-                      >
-                        {activatingProfessionalId === person.id
-                          ? "Ativando atuação..."
-                          : "Ativar atuação profissional"}
-                      </RowActionButton>
-                    )}
-                    {canInactivate(person) && (
-                      <RowActionButton type="button" onClick={() => setInactivationEditor(person)}>
-                        Inativar
-                      </RowActionButton>
-                    )}
-                    {person.isPerson && !person.isActive && (
-                      <RowActionButton
-                        type="button"
-                        onClick={() => reactivatePerson(person.id)}
-                        disabled={activatingPersonId === person.id}
-                      >
-                        {activatingPersonId === person.id ? "Reativando..." : "Reativar pessoa"}
-                      </RowActionButton>
+                    {(person.isPerson || (person.account && person.account.linkageType !== "invalid")) && (
+                      <PersonActionsMenu personName={person.name}>
+                        {person.isPerson && (
+                          <RowActionButton type="button" onClick={() => openEdit(person)}>
+                            <FaEdit /> Editar
+                          </RowActionButton>
+                        )}
+                        {renderAccountActions(person)}
+                        {person.isPerson && person.isActive && !person.isProfessional && (
+                          <RowActionButton
+                            type="button"
+                            onClick={() => activateProfessional(person.id)}
+                            disabled={activatingProfessionalId === person.id}
+                          >
+                            {activatingProfessionalId === person.id
+                              ? "Ativando atuação..."
+                              : "Ativar atuação profissional"}
+                          </RowActionButton>
+                        )}
+                        {canInactivate(person) && (
+                          <RowActionButton type="button" onClick={() => setInactivationEditor(person)}>
+                            Inativar
+                          </RowActionButton>
+                        )}
+                        {person.isPerson && !person.isActive && (
+                          <RowActionButton
+                            type="button"
+                            onClick={() => reactivatePerson(person.id)}
+                            disabled={activatingPersonId === person.id}
+                          >
+                            {activatingPersonId === person.id ? "Reativando..." : "Reativar pessoa"}
+                          </RowActionButton>
+                        )}
+                      </PersonActionsMenu>
                     )}
                   </RowActions>
                 </PersonRow>
@@ -1238,7 +1294,45 @@ const PersonRow = styled.article`display: grid; grid-template-columns: minmax(18
 const PersonMain = styled.div`display: grid; gap: 3px; small { color: ${colors.softText}; }`;
 const Badges = styled.div`display: flex; gap: 6px; flex-wrap: wrap;`;
 const ProfileNames = styled.div`color: ${colors.softText}; font-size: 0.88rem;`;
-const RowActions = styled.div`display: flex; gap: 8px; flex-wrap: wrap; button { display: inline-flex; align-items: center; gap: 5px; }`;
+const RowActions = styled.div`display: flex; justify-content: flex-end;`;
+const ActionsMenuRoot = styled.div`
+  position: relative;
+`;
+const ActionsMenuTrigger = styled(RowActionButton)`
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+`;
+const ActionsMenuPopover = styled.div`
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  min-width: 220px;
+  padding: 6px;
+  border: 1px solid #d9ded5;
+  border-radius: 10px;
+  background: ${colors.white};
+  box-shadow: 0 12px 30px rgba(38, 49, 36, 0.16);
+
+  ${RowActionButton} {
+    display: inline-flex;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    border-color: transparent;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 620px) {
+    right: auto;
+    left: 0;
+    min-width: min(260px, calc(100vw - 64px));
+  }
+`;
 const ProfileList = styled.div`display: grid; margin-top: 12px;`;
 const ProfileButton = styled.button`display: flex; justify-content: space-between; gap: 16px; width: 100%; padding: 14px 4px; border: 0; border-top: 1px solid #e8ebe5; background: transparent; text-align: left; cursor: pointer; span { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } small { color: ${colors.softText}; } &:hover { background: #f8f9f7; } &:focus-visible { outline: 3px solid rgba(106, 121, 92, 0.28); } @media (max-width: 620px) { flex-direction: column; }`;
 const ProfileRow = styled.div`display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; border-top: 1px solid #e8ebe5; ${ProfileButton} { border-top: 0; } @media (max-width: 620px) { grid-template-columns: 1fr; padding-bottom: 12px; }`;
