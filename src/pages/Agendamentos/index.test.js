@@ -13,6 +13,13 @@ import {
 } from "../../services/scheduling";
 import { getCoveragePreview, listPatientPlans } from "../../services/financial";
 
+let mockProfessionalAssigned = true;
+let mockAuthorization = null;
+
+jest.mock("../../contexts/AuthorizationContext", () => ({
+  useAuthorization: () => mockAuthorization,
+}));
+
 jest.mock("../../components/AppShell", () => function AppShellMock({ children }) {
   return <div data-testid="app-shell">{children}</div>;
 });
@@ -145,6 +152,24 @@ const submitAndConfirmReview = async () => {
   fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
 };
 
+const selectAssignedProfessional = async (container) => {
+  await waitFor(() => expect(axios.get.mock.calls.some(
+    ([url, config]) => url === "/schedule/references/professionals"
+      && Number(config?.params?.patient_id) > 0,
+  )).toBe(true));
+  const select = container.querySelector('select[name="professional_user_id"]');
+  await waitFor(() => expect(
+    Array.from(select.options).some((option) => option.value === "30"),
+  ).toBe(true));
+  await waitFor(() => expect(
+    Array.from(select.options).some((option) => option.textContent === "Validando profissionais..."),
+  ).toBe(false));
+  fireEvent.change(select, {
+    target: { value: "30" },
+  });
+  expect(select.value).toBe("30");
+};
+
 describe("Agendamentos - editar agendamento", () => {
   let sessionsMockData;
 
@@ -152,6 +177,12 @@ describe("Agendamentos - editar agendamento", () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-06-29T06:00:00"));
     jest.clearAllMocks();
     sessionsMockData = [baseSession, canceledSession, noShowSession];
+    mockProfessionalAssigned = true;
+    mockAuthorization = {
+      status: "ready",
+      context: { is_administrator: true },
+      hasCapability: jest.fn(() => true),
+    };
 
     Object.defineProperty(window, "matchMedia", {
       writable: true,
@@ -182,7 +213,14 @@ describe("Agendamentos - editar agendamento", () => {
         });
       }
       if (url === "/schedule/references/professionals") {
-        return Promise.resolve({ data: [{ id: 30, name: "Profissional Teste" }] });
+        return Promise.resolve({
+          data: [{
+            id: 30,
+            name: "Profissional Teste",
+            clinic_professional_id: 300,
+            is_assigned: config?.params?.patient_id ? mockProfessionalAssigned : null,
+          }],
+        });
       }
       if (url === "/service-limits") {
         return Promise.resolve({ data: [] });
@@ -544,6 +582,7 @@ describe("Agendamentos - editar agendamento", () => {
     const patientInput = await screen.findByPlaceholderText("Buscar paciente");
     fireEvent.change(patientInput, { target: { value: "Paciente Com Plano" } });
     fireEvent.click(await screen.findByText("Paciente Com Plano"));
+    await selectAssignedProfessional(container);
 
     const serviceSelect = container.querySelector('select[name="service_id"]');
     expect(serviceSelect).toBeTruthy();
@@ -593,6 +632,49 @@ describe("Agendamentos - editar agendamento", () => {
     expect(axios.get.mock.calls.some(([url]) => url === "/patient-credits")).toBe(false);
   });
 
+  it("exige ação explícita para atribuir profissional e criar agendamento", async () => {
+    mockProfessionalAssigned = false;
+    const { container } = renderAgendamentos();
+
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+
+    const assignmentOption = await screen.findByText(
+      "Profissional Teste — atribuir ao confirmar",
+    );
+    fireEvent.change(container.querySelector('select[name="professional_user_id"]'), {
+      target: { value: assignmentOption.value },
+    });
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "40" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-06-30" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+    expect(await screen.findByRole("button", { name: "Atribuir e agendar" }))
+      .toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Atribuir e agendar" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 20,
+        professional_user_id: 30,
+        assign_patient_care: true,
+      }),
+    ));
+  });
+
   it("envia valor por sessao negociado apenas quando usuario altera manualmente", async () => {
     const { container } = renderAgendamentos();
 
@@ -606,6 +688,8 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
 
     const emptyPriceInput = container.querySelector('input[name="session_price"]');
+    await selectAssignedProfessional(container);
+
     expect(emptyPriceInput).toBeTruthy();
     expect(emptyPriceInput).toBeDisabled();
     expect(emptyPriceInput.value).toBe("");
@@ -651,6 +735,7 @@ describe("Agendamentos - editar agendamento", () => {
     });
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
 
     fireEvent.change(container.querySelector('select[name="service_id"]'), {
       target: { value: "40" },
@@ -730,6 +815,7 @@ describe("Agendamentos - editar agendamento", () => {
     });
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
 
     fireEvent.change(container.querySelector('select[name="service_id"]'), {
       target: { value: "40" },
@@ -774,6 +860,7 @@ describe("Agendamentos - editar agendamento", () => {
     });
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
 
     fireEvent.change(container.querySelector('select[name="service_id"]'), {
       target: { value: "40" },
@@ -805,7 +892,14 @@ describe("Agendamentos - editar agendamento", () => {
         });
       }
       if (url === "/schedule/references/professionals") {
-        return Promise.resolve({ data: [{ id: 30, name: "Profissional Teste" }] });
+        return Promise.resolve({
+          data: [{
+            id: 30,
+            name: "Profissional Teste",
+            clinic_professional_id: 300,
+            is_assigned: config?.params?.patient_id ? true : null,
+          }],
+        });
       }
       if (url === "/service-limits") return Promise.resolve({ data: [] });
       if (url === "/session-statuses") return Promise.resolve({ data: [] });
@@ -864,6 +958,7 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(patientInput, { target: { value: "Paciente Teste" } });
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
 
     const serviceSelect = container.querySelector('select[name="service_id"]');
     fireEvent.change(serviceSelect, { target: { value: "40" } });
@@ -878,8 +973,9 @@ describe("Agendamentos - editar agendamento", () => {
       expect(screen.queryByText(/#901/)).not.toBeInTheDocument();
       expect(screen.queryByText(/vence em/i)).not.toBeInTheDocument();
 
-	    fireEvent.change(patientInput, { target: { value: "Paciente Sem Vinculo" } });
+    fireEvent.change(patientInput, { target: { value: "Paciente Sem Vinculo" } });
     fireEvent.click(await screen.findByText("Paciente Sem Vinculo"));
+    await selectAssignedProfessional(container);
 
     fireEvent.change(container.querySelector('input[type="date"]'), {
       target: { value: "2026-06-30" },
@@ -908,7 +1004,14 @@ describe("Agendamentos - editar agendamento", () => {
         return Promise.resolve({ data: [{ id: 20, full_name: "Paciente Teste" }] });
       }
       if (url === "/schedule/references/professionals") {
-        return Promise.resolve({ data: [{ id: 30, name: "Profissional Teste" }] });
+        return Promise.resolve({
+          data: [{
+            id: 30,
+            name: "Profissional Teste",
+            clinic_professional_id: 300,
+            is_assigned: config?.params?.patient_id ? true : null,
+          }],
+        });
       }
       if (url === "/service-limits") return Promise.resolve({ data: [] });
       if (url === "/session-statuses") return Promise.resolve({ data: [] });
@@ -968,6 +1071,7 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(patientInput, { target: { value: "Paciente Teste" } });
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
 
     const serviceSelect = container.querySelector('select[name="service_id"]');
     fireEvent.change(serviceSelect, { target: { value: "40" } });
@@ -1033,6 +1137,7 @@ describe("Agendamentos - editar agendamento", () => {
     });
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
 
 	    fireEvent.change(container.querySelector('select[name="service_id"]'), {
 	      target: { value: "40" },
@@ -1100,6 +1205,7 @@ describe("Agendamentos - editar agendamento", () => {
     });
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
 
     fireEvent.change(container.querySelector('select[name="service_id"]'), {
       target: { value: "40" },

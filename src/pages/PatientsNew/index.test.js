@@ -11,9 +11,15 @@ import { toast } from "react-toastify";
 import PatientsNew from ".";
 import axios from "../../services/axios";
 
+let mockAuthorization = null;
+
+jest.mock("../../contexts/AuthorizationContext", () => ({
+  useAuthorization: () => mockAuthorization,
+}));
+
 jest.mock("../../services/axios", () => ({
   __esModule: true,
-  default: { post: jest.fn() },
+  default: { get: jest.fn(), post: jest.fn() },
 }));
 jest.mock("react-toastify", () => ({
   toast: {
@@ -33,6 +39,15 @@ function renderPage() {
 describe("PatientsNew", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthorization = {
+      status: "ready",
+      context: {
+        is_administrator: false,
+        modules: [{ module_key: "patients", scope_level: "own" }],
+      },
+      hasCapability: jest.fn(() => false),
+    };
+    axios.get.mockResolvedValue({ data: [] });
     axios.post.mockResolvedValue({ data: { id: 123 } });
   });
 
@@ -79,5 +94,47 @@ describe("PatientsNew", () => {
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith("Paciente cadastrado com sucesso.");
     });
+  });
+
+  it("exige e envia profissional responsável no cadastro administrativo", async () => {
+    mockAuthorization = {
+      status: "ready",
+      context: {
+        is_administrator: true,
+        modules: [{ module_key: "patients", scope_level: "clinic" }],
+      },
+      hasCapability: jest.fn(() => true),
+    };
+    axios.get.mockResolvedValue({
+      data: [{
+        id: 30,
+        name: "Profissional responsável",
+        clinic_professional_id: 300,
+      }],
+    });
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText("Nome completo *"), {
+      target: { value: "Paciente administrativo" },
+    });
+    fireEvent.change(screen.getByLabelText("Atenção do paciente *"), {
+      target: { value: "medium" },
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "Salvar paciente" }).closest("form"));
+    expect(toast.error).toHaveBeenCalledWith("Selecione o profissional responsável.");
+    expect(axios.post).not.toHaveBeenCalled();
+
+    const responsibleSelect = await screen.findByLabelText("Profissional responsável *");
+    await waitFor(() => expect(responsibleSelect).not.toBeDisabled());
+    fireEvent.change(responsibleSelect, {
+      target: { value: "300" },
+    });
+    expect(responsibleSelect.value).toBe("300");
+    fireEvent.submit(screen.getByRole("button", { name: "Salvar paciente" }).closest("form"));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/patients",
+      expect.objectContaining({ clinic_professional_id: 300 }),
+    ));
   });
 });

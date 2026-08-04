@@ -1,4 +1,9 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useHistory } from "react-router-dom";
 import styled from "styled-components";
 import { toast } from "react-toastify";
@@ -7,6 +12,7 @@ import axios from "../../services/axios";
 import Loading from "../../components/Loading";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { LinkGhostButton } from "../../components/AppButton";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import { Field as SharedField } from "../../components/AppForm";
 import {
   ModuleHeader,
@@ -83,8 +89,27 @@ const buildTreatmentGoalPayload = (selectedValues = [], otherText = "") => {
 
 export default function PatientsNew() {
   const history = useHistory();
+  const authorization = useAuthorization();
   const attentionLevelRef = useRef(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [professionals, setProfessionals] = useState([]);
+  const [isProfessionalsLoading, setIsProfessionalsLoading] = useState(false);
+  const patientsModule = authorization.context?.modules?.find(
+    (module) => module.module_key === "patients",
+  );
+  const clinicalRecordsModule = authorization.context?.modules?.find(
+    (module) => module.module_key === "clinical_records",
+  );
+  const requiresResponsibleProfessional = authorization.status === "ready"
+    && patientsModule?.scope_level === "clinic";
+  const canAssignPatientCare = authorization.status === "ready"
+    && (
+      authorization.context?.is_administrator === true
+      || (
+        clinicalRecordsModule?.scope_level === "clinic"
+        && authorization.hasCapability("clinical_records.responsibility.manage")
+      )
+    );
   const [form, setForm] = useState({
     full_name: "",
     nickname: "",
@@ -119,7 +144,32 @@ export default function PatientsNew() {
     address_city: "",
     address_state: "",
     address_zip: "",
+    clinic_professional_id: "",
   });
+
+  useEffect(() => {
+    if (!requiresResponsibleProfessional || !canAssignPatientCare) {
+      setProfessionals([]);
+      return undefined;
+    }
+    let active = true;
+    setIsProfessionalsLoading(true);
+    axios.get("/schedule/references/professionals")
+      .then((response) => {
+        if (!active) return;
+        setProfessionals((Array.isArray(response.data) ? response.data : []).filter(
+          (professional) => Number.isSafeInteger(Number(professional.clinic_professional_id))
+            && Number(professional.clinic_professional_id) > 0,
+        ));
+      })
+      .catch(() => {
+        if (active) setProfessionals([]);
+      })
+      .finally(() => {
+        if (active) setIsProfessionalsLoading(false);
+      });
+    return () => { active = false; };
+  }, [canAssignPatientCare, requiresResponsibleProfessional]);
 
   const handleChange = useCallback((event) => {
     const { name, value, type, checked } = event.target;
@@ -154,6 +204,11 @@ export default function PatientsNew() {
     async (event) => {
       event.preventDefault();
 
+      if (authorization.status !== "ready") {
+        toast.error("Aguarde a validação das suas permissões.");
+        return;
+      }
+
       const name = form.full_name.trim();
       if (name.length < 3) {
         toast.error("Informe o nome completo do paciente.");
@@ -170,6 +225,14 @@ export default function PatientsNew() {
       if (!clean(form.attention_level)) {
         toast.error("Selecione a atenção do paciente antes de salvar.");
         attentionLevelRef.current?.focus();
+        return;
+      }
+      if (requiresResponsibleProfessional && !canAssignPatientCare) {
+        toast.error("Você não possui autorização para definir o profissional responsável.");
+        return;
+      }
+      if (requiresResponsibleProfessional && !form.clinic_professional_id) {
+        toast.error("Selecione o profissional responsável.");
         return;
       }
 
@@ -224,6 +287,9 @@ export default function PatientsNew() {
           ? clean(form.address_state).toUpperCase()
           : null,
         address_zip: clean(form.address_zip),
+        ...(requiresResponsibleProfessional
+          ? { clinic_professional_id: Number(form.clinic_professional_id) }
+          : {}),
       };
 
       setIsSaving(true);
@@ -240,7 +306,13 @@ export default function PatientsNew() {
         setIsSaving(false);
       }
     },
-    [form, history],
+    [
+      authorization.status,
+      canAssignPatientCare,
+      form,
+      history,
+      requiresResponsibleProfessional,
+    ],
   );
 
   const isTreatmentGoalOtherSelected = form.treatment_goal_options.includes("other");
@@ -268,6 +340,30 @@ export default function PatientsNew() {
           <Form onSubmit={handleSubmit}>
             <SectionTitle>Dados pessoais</SectionTitle>
             <FormGrid>
+              {requiresResponsibleProfessional && (
+                <Field>
+                  Profissional responsável *
+                  <select
+                    name="clinic_professional_id"
+                    value={form.clinic_professional_id}
+                    onChange={handleChange}
+                    required
+                    disabled={isProfessionalsLoading || !canAssignPatientCare}
+                  >
+                    <option value="">
+                      {isProfessionalsLoading ? "Carregando..." : "Selecionar"}
+                    </option>
+                    {professionals.map((professional) => (
+                      <option
+                        key={professional.clinic_professional_id}
+                        value={professional.clinic_professional_id}
+                      >
+                        {professional.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
               <Field>
                 Nome completo *
                 <input

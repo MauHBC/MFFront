@@ -26,6 +26,7 @@ import {
 import { AppDrawer, DrawerBackdrop, UnsavedChangesDialog } from "../../components/AppDrawer";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import AppShell from "../../components/AppShell";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import { SessionStatusButton } from "../../components/AppSessionStatus";
 import PatientSearchField from "../../components/PatientSearchField";
 import {
@@ -1421,10 +1422,16 @@ const getVisibleDateRange = (view, baseDate, includeWeekend = false) => {
   };
 };
 
-
+const recurrenceConfirmationLabel = (preview) => {
+  if (preview.is_submitting) return "Salvando...";
+  if (preview.single_payload?.assign_patient_care) return "Atribuir e agendar";
+  if (preview.series_payload?.assign_patient_care) return "Atribuir e agendar";
+  return "Confirmar agendamento";
+};
 
 export default function Agendamentos() {
   const routeLocation = useLocation();
+  const authorization = useAuthorization();
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const savingSessionIdsRef = useRef(new Set());
@@ -1442,6 +1449,10 @@ export default function Agendamentos() {
   const packageScopePreviewRequestIdRef = useRef(0);
   const [patients, setPatients] = useState([]);
   const [professionals, setProfessionals] = useState([]);
+  const [patientProfessionals, setPatientProfessionals] = useState([]);
+  const [isPatientProfessionalsLoading, setIsPatientProfessionalsLoading] = useState(false);
+  const [patientProfessionalsError, setPatientProfessionalsError] = useState(false);
+  const patientProfessionalsRequestIdRef = useRef(0);
   const [serviceLimits, setServiceLimits] = useState([]);
   const [services, setServices] = useState([]);
   const [servicePrices, setServicePrices] = useState([]);
@@ -1817,6 +1828,7 @@ export default function Agendamentos() {
     setForm((prev) => ({
       ...prev,
       patient_id: String(patient.id),
+      professional_user_id: editingId ? prev.professional_user_id : "",
       billing_mode: editingId ? prev.billing_mode : "per_session",
       patient_credit_id: "",
       session_replacement_credit_id: "",
@@ -1826,14 +1838,96 @@ export default function Agendamentos() {
     setFormPatientQuery(getPatientName(patient));
   }, [editingId]);
 
-  const professionalOptions = useMemo(
-    () =>
-      professionals.map((professional) => ({
+  useEffect(() => {
+    const patientId = Number(form.patient_id);
+    const requestId = patientProfessionalsRequestIdRef.current + 1;
+    patientProfessionalsRequestIdRef.current = requestId;
+    if (!Number.isSafeInteger(patientId) || patientId <= 0 || editingId) {
+      setPatientProfessionals([]);
+      setIsPatientProfessionalsLoading(false);
+      setPatientProfessionalsError(false);
+      return undefined;
+    }
+    setPatientProfessionals([]);
+    setIsPatientProfessionalsLoading(true);
+    setPatientProfessionalsError(false);
+    axios.get("/schedule/references/professionals", { params: { patient_id: patientId } })
+      .then((response) => {
+        if (patientProfessionalsRequestIdRef.current !== requestId) return;
+        setPatientProfessionals(Array.isArray(response.data) ? response.data : []);
+      })
+      .catch(() => {
+        if (patientProfessionalsRequestIdRef.current !== requestId) return;
+        setPatientProfessionals([]);
+        setPatientProfessionalsError(true);
+      })
+      .finally(() => {
+        if (patientProfessionalsRequestIdRef.current === requestId) {
+          setIsPatientProfessionalsLoading(false);
+        }
+      });
+    return () => {
+      if (patientProfessionalsRequestIdRef.current === requestId) {
+        patientProfessionalsRequestIdRef.current += 1;
+      }
+    };
+  }, [editingId, form.patient_id]);
+
+  const clinicalRecordsModule = authorization.context?.modules?.find(
+    (module) => module.module_key === "clinical_records",
+  );
+  const canAssignPatientCare = authorization.status === "ready"
+    && (
+      authorization.context?.is_administrator === true
+      || (
+        clinicalRecordsModule?.scope_level === "clinic"
+        && authorization.hasCapability("clinical_records.responsibility.manage")
+      )
+    );
+  const professionalOptions = useMemo(() => {
+    const source = !editingId && form.patient_id ? patientProfessionals : professionals;
+    return source
+      .filter((professional) => (
+        editingId || professional.is_assigned === true || canAssignPatientCare
+      ))
+      .map((professional) => ({
         id: professional.id,
         name: professional.name || professional.email || "Profissional",
-      })),
-    [professionals],
+        is_assigned: professional.is_assigned,
+      }));
+  }, [canAssignPatientCare, editingId, form.patient_id, patientProfessionals, professionals]);
+  const selectedProfessional = useMemo(
+    () => professionalOptions.find(
+      (professional) => String(professional.id) === String(form.professional_user_id),
+    ) || null,
+    [form.professional_user_id, professionalOptions],
   );
+  const requiresExplicitCareAssignment = !editingId
+    && selectedProfessional?.is_assigned === false;
+
+  useEffect(() => {
+    if (
+      editingId
+      || form.professional_user_id
+      || isPatientProfessionalsLoading
+      || patientProfessionalsError
+    ) return;
+    const assigned = professionalOptions.filter(
+      (professional) => professional.is_assigned === true,
+    );
+    if (assigned.length === 1) {
+      setForm((current) => ({
+        ...current,
+        professional_user_id: String(assigned[0].id),
+      }));
+    }
+  }, [
+    editingId,
+    form.professional_user_id,
+    isPatientProfessionalsLoading,
+    patientProfessionalsError,
+    professionalOptions,
+  ]);
 
   const serviceOptions = useMemo(
     () =>
@@ -4253,6 +4347,22 @@ export default function Agendamentos() {
         toast.error("Selecione o paciente.");
         return;
       }
+      if (!editingId && isPatientProfessionalsLoading) {
+        toast.error("Aguarde a validação dos profissionais responsáveis.");
+        return;
+      }
+      if (!editingId && patientProfessionalsError) {
+        toast.error("Não foi possível validar os profissionais responsáveis.");
+        return;
+      }
+      if (!form.professional_user_id || (!editingId && !selectedProfessional)) {
+        toast.error("Selecione um profissional responsável válido.");
+        return;
+      }
+      if (requiresExplicitCareAssignment && !canAssignPatientCare) {
+        toast.error("Este profissional ainda não está atribuído ao paciente.");
+        return;
+      }
       if (!form.starts_at) {
         toast.error("Informe a data e horario.");
         return;
@@ -4408,8 +4518,8 @@ export default function Agendamentos() {
         billingModePayload.billing_mode = form.billing_mode || "per_session";
       }
 
-	      const payload = {
-	        patient_id: Number(form.patient_id),
+      const payload = {
+        patient_id: Number(form.patient_id),
         professional_user_id: form.professional_user_id
           ? Number(form.professional_user_id)
           : null,
@@ -4433,13 +4543,16 @@ export default function Agendamentos() {
           || (shouldUseEditReasonAsMonthlyRescheduleException ? editReason : null),
         cycle_reschedule_exception_justified: !!form.cycle_reschedule_exception_justified,
         cycle_reschedule_exception_reason: normalizeText(form.cycle_reschedule_exception_reason),
-	        session_replacement_credit_id: form.session_replacement_credit_id
-	          ? Number(form.session_replacement_credit_id)
-	          : null,
-	        patient_credit_id: selectedPatientCreditId,
-	        is_no_charge: !editingId && !isSchedulingReplacement ? !!form.is_no_charge : false,
-		        ...billingModePayload,
-		      };
+        session_replacement_credit_id: form.session_replacement_credit_id
+          ? Number(form.session_replacement_credit_id)
+          : null,
+        patient_credit_id: selectedPatientCreditId,
+        is_no_charge: !editingId && !isSchedulingReplacement ? !!form.is_no_charge : false,
+        ...billingModePayload,
+      };
+      if (!editingId) {
+        payload.assign_patient_care = requiresExplicitCareAssignment;
+      }
       if (shouldSendPriceOverride) {
         payload.price_override_cents = sessionPriceCents;
       }
@@ -4475,6 +4588,7 @@ export default function Agendamentos() {
           service_type: payload.service_type,
           service_id: payload.service_id,
           status: payload.status,
+          assign_patient_care: payload.assign_patient_care,
           starts_at: recurrenceStartsAt.toISOString(),
           duration_minutes: durationMinutes,
           repeat_interval: repeatInterval,
@@ -4760,6 +4874,7 @@ export default function Agendamentos() {
       }
     },
 	    [
+	      canAssignPatientCare,
 		      closeDrawer,
 		      allowBrokenTimeScheduling,
 		      allowWeekendScheduling,
@@ -4768,8 +4883,9 @@ export default function Agendamentos() {
       editingIntent,
 	      filteredSessions,
 		      form,
-			      formLocalSpecialSummary,
-			      isSaving,
+		      formLocalSpecialSummary,
+		      isPatientProfessionalsLoading,
+		      isSaving,
 		      isSchedulingReplacement,
 	      loadPendingSessions,
       loadOperationalAlerts,
@@ -4783,7 +4899,10 @@ export default function Agendamentos() {
 	      repeatWeeks,
 		      repeatWeekdays,
 		      resetForm,
-      sessionPriceCents,
+	      patientProfessionalsError,
+	      requiresExplicitCareAssignment,
+	      sessionPriceCents,
+	      selectedProfessional,
 				      selectedMonthKey,
 				      selectedReplacementBillingMode,
 				      showReplacementCycleWarning,
@@ -6517,9 +6636,22 @@ export default function Agendamentos() {
                           <option value="" disabled hidden>
                             Selecionar
                           </option>
+                          {isPatientProfessionalsLoading && (
+                            <option value="" disabled>Validando profissionais...</option>
+                          )}
+                          {!isPatientProfessionalsLoading && patientProfessionalsError && (
+                            <option value="" disabled>Não foi possível validar profissionais</option>
+                          )}
+                          {!isPatientProfessionalsLoading
+                            && !patientProfessionalsError
+                            && form.patient_id
+                            && professionalOptions.length === 0 && (
+                            <option value="" disabled>Nenhum profissional atribuído</option>
+                          )}
                           {professionalOptions.map((professional) => (
                             <option key={professional.id} value={professional.id}>
                               {professional.name}
+                              {professional.is_assigned === false ? " — atribuir ao confirmar" : ""}
                             </option>
                           ))}
                         </SelectionNativeField>
@@ -7224,7 +7356,7 @@ export default function Agendamentos() {
 		                    recurrenceSelectedOccurrences.length === 0
 		                  }
 	                >
-	                  {recurrencePreview.is_submitting ? "Salvando..." : "Confirmar agendamento"}
+	                  {recurrenceConfirmationLabel(recurrencePreview)}
 	                </PrimaryButton>
               </ModalActions>
             </RecurrencePreviewCard>
