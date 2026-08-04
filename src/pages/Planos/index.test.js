@@ -167,7 +167,7 @@ describe("Planos no contêiner do App Shell", () => {
     expect(source).toMatch(/change-plan\/cancel/);
   });
 
-  it("preserva a atribuição explícita entre os modais ao agendar um plano sem responsável", async () => {
+  it("falha fechado e entrega a atribuição explícita ao cliente HTTP quando o vínculo não foi confirmado", async () => {
     const patientPlan = {
       id: 41,
       patient_id: 11,
@@ -222,7 +222,7 @@ describe("Planos no contêiner do App Shell", () => {
             id: 36,
             name: "Leonardo",
             clinic_professional_id: 99,
-            is_assigned: false,
+            is_assigned: null,
           }],
         });
       }
@@ -241,6 +241,9 @@ describe("Planos no contêiner do App Shell", () => {
       .closest("aside");
     const professionalSelect = await within(scheduleDrawer).findByLabelText("Profissional *");
     await within(scheduleDrawer).findByRole("option", { name: "Leonardo" });
+    expect(axios.get).toHaveBeenCalledWith("/schedule/references/professionals", {
+      params: { patient_id: 11 },
+    });
     fireEvent.change(professionalSelect, { target: { value: "36" } });
     fireEvent.change(within(scheduleDrawer).getByLabelText("Data da primeira sessão *"), {
       target: { value: "2030-02-04" },
@@ -265,21 +268,30 @@ describe("Planos no contêiner do App Shell", () => {
       name: "Atribuir e agendar sessões",
     }));
 
-    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
-      "/session-series/plan-bulk",
-      expect.objectContaining({
-        assign_patient_care: true,
-        clinic_professional_id: 99,
-        series: [expect.objectContaining({
-          patient_id: 11,
-          patient_plan_id: 41,
-          professional_user_id: 36,
-          starts_at: "2030-02-04T08:00:00",
-          weekdays: [1],
-          included_cycle_weeks: [1, 2, 3, 4],
-        })],
-      }),
-    ));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(1));
+    const [requestUrl, requestPayload] = axios.post.mock.calls[0];
+    expect(requestUrl).toBe("/session-series/plan-bulk");
+    expect(requestPayload).toEqual(expect.objectContaining({
+      assign_patient_care: true,
+      clinic_professional_id: 99,
+      series: [expect.objectContaining({
+        patient_id: 11,
+        patient_plan_id: 41,
+        professional_user_id: 36,
+        starts_at: "2030-02-04T08:00:00",
+        weekdays: [1],
+        included_cycle_weeks: [1, 2, 3, 4],
+      })],
+    }));
+    expect(Object.keys(requestPayload).sort()).toEqual([
+      "assign_patient_care",
+      "clinic_professional_id",
+      "series",
+    ]);
+    expect(requestPayload.series.every((item) => (
+      !Object.prototype.hasOwnProperty.call(item, "assign_patient_care")
+      && !Object.prototype.hasOwnProperty.call(item, "clinic_professional_id")
+    ))).toBe(true);
   });
 
   it("não remonta a antiga sidebar interna nem cria um segundo main", () => {
