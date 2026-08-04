@@ -101,7 +101,7 @@ function PersonActionsMenu({ personName, children }) {
       {open && (
         <ActionsMenuPopover
           aria-label={`Opções de ${personName}`}
-          onClickCapture={(event) => {
+          onClick={(event) => {
             if (event.target.closest("button:not(:disabled)")) setOpen(false);
           }}
         >
