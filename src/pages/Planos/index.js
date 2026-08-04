@@ -919,6 +919,7 @@ export default function Planos() {
   const [schedPlan, setSchedPlan] = useState(null); // the PatientPlan being scheduled
   const [schedForm, setSchedForm] = useState(EMPTY_SCHED);
   const [schedConfirmOpen, setSchedConfirmOpen] = useState(false);
+  const [schedConfirmation, setSchedConfirmation] = useState(null);
 
   // Post-creation prompt: ask user to schedule after vincular
   const [schedPrompt, setSchedPrompt] = useState(null); // PatientPlan object
@@ -1181,8 +1182,6 @@ export default function Planos() {
     ) || null,
     [patientProfessionals, schedForm.professional_user_id],
   );
-  const schedRequiresCareAssignment = selectedSchedProfessional?.is_assigned === false;
-
   const selectedPlanChangeProfessional = useMemo(
     () => patientProfessionals.find(
       (item) => String(item.id) === String(planChangeForm.professional_user_id),
@@ -1190,8 +1189,8 @@ export default function Planos() {
     [patientProfessionals, planChangeForm.professional_user_id],
   );
   const planChangeRequiresCareAssignment = selectedPlanChangeProfessional?.is_assigned === false;
-  const scheduleConfirmationLabel = schedRequiresCareAssignment
-    ? "Atribuir e criar agenda"
+  const scheduleConfirmationLabel = schedConfirmation?.requiresCareAssignment === true
+    ? "Atribuir e agendar sessões"
     : "Confirmar lançamento";
   const planChangeConfirmationLabel = planChangeRequiresCareAssignment
     ? "Atribuir e alterar plano"
@@ -1957,6 +1956,7 @@ export default function Planos() {
       included_cycle_weeks: resetAgendaForNewSeries ? [] : getPlanIncludedCycleWeeks(pp),
     });
     setSchedConfirmOpen(false);
+    setSchedConfirmation(null);
     setSchedDrawerOpen(true);
     setSchedPrompt(null);
     loadPatientProfessionals(pp.patient_id);
@@ -1965,6 +1965,7 @@ export default function Planos() {
   const closeSchedDrawer = useCallback(() => {
     setSchedDrawerOpen(false);
     setSchedConfirmOpen(false);
+    setSchedConfirmation(null);
     setSchedPlan(null);
     setSchedForm(EMPTY_SCHED);
   }, []);
@@ -2092,37 +2093,75 @@ export default function Planos() {
         return;
       }
 
+      const professionalUserId = selectedSchedProfessional?.id;
+      const clinicProfessionalId = selectedSchedProfessional?.clinic_professional_id;
+      if (
+        !Number.isSafeInteger(professionalUserId)
+        || professionalUserId <= 0
+        || !Number.isSafeInteger(clinicProfessionalId)
+        || clinicProfessionalId <= 0
+      ) {
+        toast.error("Selecione um profissional ativo da clínica.");
+        return;
+      }
+
+      setSchedConfirmation({
+        professionalUserId,
+        clinicProfessionalId,
+        professionalName: selectedSchedProfessional.name,
+        requiresCareAssignment: selectedSchedProfessional.is_assigned !== true,
+        date: schedForm.date,
+        durationMinutes: Number(schedForm.duration_minutes) || 60,
+        includedCycleWeeks,
+        dayTimeEntries: schedDayTimeEntries.map((entry) => ({
+          weekday: entry.weekday,
+          shortLabel: entry.shortLabel,
+          time: entry.time,
+          startsAt: buildDateTimeWithHour(
+            schedForm.date,
+            entry.time,
+            allowBrokenTimeScheduling,
+          ),
+        })),
+      });
       setSchedConfirmOpen(true);
 
     },
-    [schedPlan, schedForm, schedWeekdayLimit, schedDayTimeEntries],
+    [
+      schedPlan,
+      schedForm,
+      schedWeekdayLimit,
+      schedDayTimeEntries,
+      selectedSchedProfessional,
+      allowBrokenTimeScheduling,
+    ],
   );
 
   const handleSchedConfirm = useCallback(async () => {
-    if (!schedPlan || isSaving) return;
+    if (!schedPlan || !schedConfirmation || isSaving) return;
 
     const sp = schedPlan.ServicePlan;
     const serviceId = sp?.service_id || schedPlan.service_id;
-    const includedCycleWeeks = normalizeIncludedCycleWeeks(
-      getSelectedCycleWeeks(schedForm.included_cycle_weeks),
-    );
-    const series = schedDayTimeEntries.map((entry) => ({
+    const series = schedConfirmation.dayTimeEntries.map((entry) => ({
       patient_id: schedPlan.patient_id,
       patient_plan_id: schedPlan.id,
       service_id: serviceId,
-      professional_user_id: Number(schedForm.professional_user_id),
-	      starts_at: buildDateTimeWithHour(schedForm.date, entry.time, allowBrokenTimeScheduling),
-      duration_minutes: Number(schedForm.duration_minutes) || 60,
+      professional_user_id: schedConfirmation.professionalUserId,
+      starts_at: entry.startsAt,
+      duration_minutes: schedConfirmation.durationMinutes,
       repeat_interval: 1,
       weekdays: [entry.weekday],
-      included_cycle_weeks: includedCycleWeeks,
+      included_cycle_weeks: schedConfirmation.includedCycleWeeks,
       billing_mode: "covered_by_plan",
-      assign_patient_care: schedRequiresCareAssignment,
     }));
 
     setIsSaving(true);
     try {
-      const res = await axios.post("/session-series/plan-bulk", { series });
+      const res = await axios.post("/session-series/plan-bulk", {
+        assign_patient_care: schedConfirmation.requiresCareAssignment,
+        clinic_professional_id: schedConfirmation.clinicProfessionalId,
+        series,
+      });
       const count = res.data?.total_created ?? res.data?.total_sessions ?? "—";
       const skipped = Number(res.data?.total_skipped_by_availability || res.data?.total_skipped || 0);
       toast.success(skipped > 0
@@ -2138,17 +2177,14 @@ export default function Planos() {
       setIsSaving(false);
     }
   }, [
-	    schedPlan,
-	    schedForm,
-	    schedDayTimeEntries,
-	    allowBrokenTimeScheduling,
-	    closeSchedDrawer,
+    schedPlan,
+    closeSchedDrawer,
     isSaving,
     loadPatientPlans,
     patientPlanId,
-	    loadPatientPlanDetail,
-	    schedRequiresCareAssignment,
-	  ]);
+    loadPatientPlanDetail,
+    schedConfirmation,
+  ]);
 
   const openPlanChange = useCallback(() => {
     if (!ppDetailPlan) return;
@@ -3505,7 +3541,7 @@ export default function Planos() {
         </PromptOverlay>
       )}
 
-      {schedConfirmOpen && schedPlan && (
+      {schedConfirmOpen && schedPlan && schedConfirmation && (
         <PromptOverlay>
           <PromptCard>
             <PromptTitle>Confirmar agenda</PromptTitle>
@@ -3525,27 +3561,36 @@ export default function Planos() {
               <ScheduleConfirmLine>
                 <span>Profissional</span>
                 <strong>
-                  {selectedSchedProfessional?.name || "-"}
+                  {schedConfirmation.professionalName || "-"}
                 </strong>
               </ScheduleConfirmLine>
               <ScheduleConfirmLine>
                 <span>Início</span>
-                <strong>{formatDateBR(schedForm.date)}</strong>
+                <strong>{formatDateBR(schedConfirmation.date)}</strong>
               </ScheduleConfirmLine>
               <ScheduleConfirmLine>
                 <span>Dias</span>
                 <strong>
-                  {schedDayTimeEntries.map((entry) => `${entry.shortLabel} ${formatHourLabel(entry.time)}`).join(" · ")}
+                  {schedConfirmation.dayTimeEntries
+                    .map((entry) => `${entry.shortLabel} ${formatHourLabel(entry.time)}`)
+                    .join(" · ")}
                 </strong>
               </ScheduleConfirmLine>
             </ScheduleConfirmSummary>
-            {schedRequiresCareAssignment && (
+            {schedConfirmation.requiresCareAssignment === true && (
               <PromptCopy>
                 Ao confirmar, este profissional será atribuído explicitamente ao paciente.
               </PromptCopy>
             )}
             <PromptActions>
-              <GhostButton type="button" onClick={() => setSchedConfirmOpen(false)} disabled={isSaving}>
+              <GhostButton
+                type="button"
+                onClick={() => {
+                  setSchedConfirmOpen(false);
+                  setSchedConfirmation(null);
+                }}
+                disabled={isSaving}
+              >
                 Voltar
               </GhostButton>
               <PrimaryButton type="button" onClick={handleSchedConfirm} disabled={isSaving}>

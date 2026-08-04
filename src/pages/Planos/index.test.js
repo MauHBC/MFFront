@@ -9,6 +9,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { createMemoryHistory } from "history";
 import { Router, Route } from "react-router-dom";
@@ -155,14 +156,130 @@ describe("Planos no contêiner do App Shell", () => {
     expect(source).toMatch(/service_plan_id:\s*Number\(ppForm\.service_plan_id\)/);
     expect(source).toMatch(/is_no_charge:\s*ppForm\.is_no_charge === true/);
     expect(source).toMatch(/billing_mode:\s*"covered_by_plan"/);
-    expect(source).toMatch(/assign_patient_care:\s*schedRequiresCareAssignment/);
-    expect(source).toMatch(/Atribuir e criar agenda/);
+    expect(source).toMatch(/assign_patient_care:\s*schedConfirmation\.requiresCareAssignment/);
+    expect(source).toMatch(/clinic_professional_id:\s*schedConfirmation\.clinicProfessionalId/);
+    expect(source).toMatch(/Atribuir e agendar sessões/);
     expect(source).toMatch(/schedule\/references\/professionals/);
     expect(source).toMatch(/expected_effective_on:\s*planChangePreview\.data\.effective_on/);
     expect(source).toMatch(/preview_token:\s*planChangePreview\.data\.preview_token/);
     expect(source).toMatch(/expected_version:\s*Number\(planChangeForm\.expected_version\)/);
     expect(source).toMatch(/future-sessions-removal-preview/);
     expect(source).toMatch(/change-plan\/cancel/);
+  });
+
+  it("preserva a atribuição explícita entre os modais ao agendar um plano sem responsável", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      starts_at: "2030-02-01",
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: {
+        id: 31,
+        name: "Mensal 1x",
+        service_id: 7,
+        sessions_per_week: 1,
+      },
+      agenda_summary: {
+        status: "not_configured",
+        can_configure_agenda: true,
+        can_manage_agenda: false,
+        primary_action: "configure_new_agenda",
+        future_sessions_count: 0,
+      },
+    };
+    listPatientPlans.mockResolvedValue({ data: [patientPlan] });
+    listServicePlans.mockResolvedValue({ data: [patientPlan.ServicePlan] });
+    axios.get.mockImplementation((url) => {
+      if (url === "/services") {
+        return Promise.resolve({ data: [{ id: 7, name: "Fisioterapia", is_active: true }] });
+      }
+      if (url === "/patients") return Promise.resolve({ data: [patientPlan.Patient] });
+      if (url === "/users") return Promise.resolve({ data: [] });
+      if (url === "/unit-scheduling-policy") {
+        return Promise.resolve({ data: { allow_broken_time_scheduling: false } });
+      }
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({
+          data: {
+            header_summary: { patient_name: "Ana Silva" },
+            plan_data_summary: { service_plan_name: "Mensal 1x" },
+            agenda_summary: {
+              status: "not_configured",
+              can_configure_agenda: true,
+              can_manage_agenda: false,
+              primary_action: "configure_new_agenda",
+              future_sessions_count: 0,
+            },
+          },
+        });
+      }
+      if (url === "/schedule/references/professionals") {
+        return Promise.resolve({
+          data: [{
+            id: 36,
+            name: "Leonardo",
+            clinic_professional_id: 99,
+            is_assigned: false,
+          }],
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    axios.post.mockResolvedValue({ data: { total_created: 4, total_skipped: 0 } });
+
+    renderPlans();
+    fireEvent.click(await screen.findByRole("button", { name: "Detalhes" }));
+    expect(await screen.findByRole("heading", { name: "Administração do plano mensal" }))
+      .toBeInTheDocument();
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith("/patient-plans/41/admin-summary"));
+    fireEvent.click(screen.getByRole("tab", { name: "Agenda" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Configurar.*agenda/i }));
+    const scheduleDrawer = screen.getByRole("heading", { name: "Agendar Sessões do Plano" })
+      .closest("aside");
+    const professionalSelect = await within(scheduleDrawer).findByLabelText("Profissional *");
+    await within(scheduleDrawer).findByRole("option", { name: "Leonardo" });
+    fireEvent.change(professionalSelect, { target: { value: "36" } });
+    fireEvent.change(within(scheduleDrawer).getByLabelText("Data da primeira sessão *"), {
+      target: { value: "2030-02-04" },
+    });
+    fireEvent.click(within(scheduleDrawer).getByRole("button", { name: "Seg" }));
+    fireEvent.click(within(scheduleDrawer).getByRole("button", { name: "Toda semana" }));
+    const saveButton = within(scheduleDrawer).getByRole("button", { name: "Salvar" });
+    fireEvent.submit(saveButton.closest("form"));
+
+    const confirmation = (await screen.findByRole("heading", { name: "Confirmar agenda" }))
+      .parentElement;
+    expect(within(confirmation).getByText("Leonardo")).toBeInTheDocument();
+    expect(within(confirmation).getByText(/será atribuído explicitamente ao paciente/i))
+      .toBeInTheDocument();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Voltar" }));
+    expect(axios.post).not.toHaveBeenCalled();
+
+    fireEvent.submit(saveButton.closest("form"));
+    const reopenedConfirmation = (await screen.findByRole("heading", { name: "Confirmar agenda" }))
+      .parentElement;
+    fireEvent.click(within(reopenedConfirmation).getByRole("button", {
+      name: "Atribuir e agendar sessões",
+    }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/session-series/plan-bulk",
+      expect.objectContaining({
+        assign_patient_care: true,
+        clinic_professional_id: 99,
+        series: [expect.objectContaining({
+          patient_id: 11,
+          patient_plan_id: 41,
+          professional_user_id: 36,
+          starts_at: "2030-02-04T08:00:00",
+          weekdays: [1],
+          included_cycle_weeks: [1, 2, 3, 4],
+        })],
+      }),
+    ));
   });
 
   it("não remonta a antiga sidebar interna nem cria um segundo main", () => {
