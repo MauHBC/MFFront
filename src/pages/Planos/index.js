@@ -853,6 +853,9 @@ export default function Planos() {
   const [servicesError, setServicesError] = useState("");
   const [patients, setPatients] = useState([]);
   const [professionals, setProfessionals] = useState([]);
+  const [patientProfessionals, setPatientProfessionals] = useState([]);
+  const [patientProfessionalsLoading, setPatientProfessionalsLoading] = useState(false);
+  const [patientProfessionalsError, setPatientProfessionalsError] = useState("");
   const [servicePlans, setServicePlans] = useState([]);
 
   // Services tab
@@ -981,6 +984,28 @@ export default function Planos() {
       setIsPatientPlansLoading(false);
     }
   }, [ppFilterStatus]);
+
+  const loadPatientProfessionals = useCallback(async (patientId) => {
+    setPatientProfessionals([]);
+    setPatientProfessionalsError("");
+    if (!patientId) return;
+    setPatientProfessionalsLoading(true);
+    try {
+      const response = await axios.get("/schedule/references/professionals", {
+        params: { patient_id: patientId },
+      });
+      setPatientProfessionals((Array.isArray(response.data) ? response.data : []).filter(
+        (professional) => Number.isSafeInteger(Number(professional.clinic_professional_id))
+          && Number(professional.clinic_professional_id) > 0,
+      ));
+    } catch (error) {
+      setPatientProfessionalsError(
+        error?.response?.data?.error || "Não foi possível validar os profissionais.",
+      );
+    } finally {
+      setPatientProfessionalsLoading(false);
+    }
+  }, []);
 
   const loadPatientPlanDetail = useCallback(async (id) => {
     if (!id) return null;
@@ -1149,6 +1174,28 @@ export default function Planos() {
       && hasRequiredTimes
       && hasRequiredCycleWeeks;
   }, [schedForm, schedWeekdayLimit]);
+
+  const selectedSchedProfessional = useMemo(
+    () => patientProfessionals.find(
+      (item) => String(item.id) === String(schedForm.professional_user_id),
+    ) || null,
+    [patientProfessionals, schedForm.professional_user_id],
+  );
+  const schedRequiresCareAssignment = selectedSchedProfessional?.is_assigned === false;
+
+  const selectedPlanChangeProfessional = useMemo(
+    () => patientProfessionals.find(
+      (item) => String(item.id) === String(planChangeForm.professional_user_id),
+    ) || null,
+    [patientProfessionals, planChangeForm.professional_user_id],
+  );
+  const planChangeRequiresCareAssignment = selectedPlanChangeProfessional?.is_assigned === false;
+  const scheduleConfirmationLabel = schedRequiresCareAssignment
+    ? "Atribuir e criar agenda"
+    : "Confirmar lançamento";
+  const planChangeConfirmationLabel = planChangeRequiresCareAssignment
+    ? "Atribuir e alterar plano"
+    : "Confirmar alteração";
 
   // ---- Services handlers ----
 
@@ -1912,7 +1959,8 @@ export default function Planos() {
     setSchedConfirmOpen(false);
     setSchedDrawerOpen(true);
     setSchedPrompt(null);
-  }, []);
+    loadPatientProfessionals(pp.patient_id);
+  }, [loadPatientProfessionals]);
 
   const closeSchedDrawer = useCallback(() => {
     setSchedDrawerOpen(false);
@@ -2069,6 +2117,7 @@ export default function Planos() {
       weekdays: [entry.weekday],
       included_cycle_weeks: includedCycleWeeks,
       billing_mode: "covered_by_plan",
+      assign_patient_care: schedRequiresCareAssignment,
     }));
 
     setIsSaving(true);
@@ -2097,8 +2146,9 @@ export default function Planos() {
     isSaving,
     loadPatientPlans,
     patientPlanId,
-    loadPatientPlanDetail,
-  ]);
+	    loadPatientPlanDetail,
+	    schedRequiresCareAssignment,
+	  ]);
 
   const openPlanChange = useCallback(() => {
     if (!ppDetailPlan) return;
@@ -2127,7 +2177,8 @@ export default function Planos() {
     setPlanChangeConfirmOpen(false);
     setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
     setPlanChangeOpen(true);
-  }, [activeServicePlans, ppAdminSummary, ppDetailPlan]);
+    loadPatientProfessionals(ppDetailPlan.patient_id);
+  }, [activeServicePlans, loadPatientProfessionals, ppAdminSummary, ppDetailPlan]);
 
   const closePlanChange = useCallback(() => {
     setPlanChangeOpen(false);
@@ -2294,6 +2345,7 @@ export default function Planos() {
         professional_user_id: Number(planChangeForm.professional_user_id),
         expected_effective_on: planChangePreview.data.effective_on,
         preview_token: planChangePreview.data.preview_token,
+        assign_patient_care: planChangeRequiresCareAssignment,
         ...(planChangeForm.pending_change_id ? {
           pending_change_id: Number(planChangeForm.pending_change_id),
           expected_version: Number(planChangeForm.expected_version),
@@ -2331,6 +2383,7 @@ export default function Planos() {
     planChangeForm,
     planChangePreview,
     ppDetailPlan,
+    planChangeRequiresCareAssignment,
     activeServicePlans,
     loadPlanChangePreview,
   ]);
@@ -3472,7 +3525,7 @@ export default function Planos() {
               <ScheduleConfirmLine>
                 <span>Profissional</span>
                 <strong>
-                  {professionals.find((item) => String(item.id) === String(schedForm.professional_user_id))?.name || "-"}
+                  {selectedSchedProfessional?.name || "-"}
                 </strong>
               </ScheduleConfirmLine>
               <ScheduleConfirmLine>
@@ -3486,12 +3539,17 @@ export default function Planos() {
                 </strong>
               </ScheduleConfirmLine>
             </ScheduleConfirmSummary>
+            {schedRequiresCareAssignment && (
+              <PromptCopy>
+                Ao confirmar, este profissional será atribuído explicitamente ao paciente.
+              </PromptCopy>
+            )}
             <PromptActions>
               <GhostButton type="button" onClick={() => setSchedConfirmOpen(false)} disabled={isSaving}>
                 Voltar
               </GhostButton>
               <PrimaryButton type="button" onClick={handleSchedConfirm} disabled={isSaving}>
-                {isSaving ? "Lançando..." : "Confirmar lançamento"}
+                {isSaving ? "Lançando..." : scheduleConfirmationLabel}
               </PrimaryButton>
             </PromptActions>
           </PromptCard>
@@ -3527,6 +3585,9 @@ export default function Planos() {
             <PromptCopy>
               {planChangePreviewPresentation.confirmation_text}
               {ppPendingPlanChange ? " Esta confirmação substitui explicitamente a troca futura anterior." : ""}
+              {planChangeRequiresCareAssignment
+                ? " O profissional será atribuído explicitamente ao paciente."
+                : ""}
             </PromptCopy>
             <PromptActions>
               <GhostButton type="button" onClick={() => setPlanChangeConfirmOpen(false)} disabled={isSaving}>
@@ -3537,7 +3598,7 @@ export default function Planos() {
                 onClick={confirmPlanChange}
                 disabled={isSaving || !planChangePreviewPresentation.ready}
               >
-                {isSaving ? "Alterando..." : "Confirmar alteração"}
+                {isSaving ? "Alterando..." : planChangeConfirmationLabel}
               </PrimaryButton>
             </PromptActions>
           </PromptCard>
@@ -3913,7 +3974,13 @@ export default function Planos() {
                 onChange={handlePlanChangeField}
               >
                 <option value="">Selecione um profissional</option>
-                {professionals.map((professional) => (
+                {patientProfessionalsLoading && (
+                  <option value="" disabled>Validando profissionais...</option>
+                )}
+                {!patientProfessionalsLoading && patientProfessionalsError && (
+                  <option value="" disabled>{patientProfessionalsError}</option>
+                )}
+                {patientProfessionals.map((professional) => (
                   <option key={professional.id} value={professional.id}>
                     {professional.name}
                   </option>
@@ -4022,7 +4089,13 @@ export default function Planos() {
                 onChange={handleSchedChange}
               >
                 <option value="">Selecione um profissional</option>
-                {professionals.map((pr) => (
+                {patientProfessionalsLoading && (
+                  <option value="" disabled>Validando profissionais...</option>
+                )}
+                {!patientProfessionalsLoading && patientProfessionalsError && (
+                  <option value="" disabled>{patientProfessionalsError}</option>
+                )}
+                {patientProfessionals.map((pr) => (
                   <option key={pr.id} value={pr.id}>
                     {pr.name}
                   </option>

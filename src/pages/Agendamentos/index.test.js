@@ -644,9 +644,7 @@ describe("Agendamentos - editar agendamento", () => {
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
 
-    const assignmentOption = await screen.findByText(
-      "Profissional Teste — atribuir ao confirmar",
-    );
+    const assignmentOption = await screen.findByText("Profissional Teste");
     fireEvent.change(container.querySelector('select[name="professional_user_id"]'), {
       target: { value: assignmentOption.value },
     });

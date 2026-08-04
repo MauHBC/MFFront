@@ -100,7 +100,7 @@ export default function PatientsNew() {
   const clinicalRecordsModule = authorization.context?.modules?.find(
     (module) => module.module_key === "clinical_records",
   );
-  const requiresResponsibleProfessional = authorization.status === "ready"
+  const showsResponsibleProfessional = authorization.status === "ready"
     && patientsModule?.scope_level === "clinic";
   const canAssignPatientCare = authorization.status === "ready"
     && (
@@ -148,13 +148,13 @@ export default function PatientsNew() {
   });
 
   useEffect(() => {
-    if (!requiresResponsibleProfessional || !canAssignPatientCare) {
+    if (!showsResponsibleProfessional || !canAssignPatientCare) {
       setProfessionals([]);
       return undefined;
     }
     let active = true;
     setIsProfessionalsLoading(true);
-    axios.get("/schedule/references/professionals")
+    axios.get("/patient-care-assignments/professionals")
       .then((response) => {
         if (!active) return;
         setProfessionals((Array.isArray(response.data) ? response.data : []).filter(
@@ -169,7 +169,7 @@ export default function PatientsNew() {
         if (active) setIsProfessionalsLoading(false);
       });
     return () => { active = false; };
-  }, [canAssignPatientCare, requiresResponsibleProfessional]);
+  }, [canAssignPatientCare, showsResponsibleProfessional]);
 
   const handleChange = useCallback((event) => {
     const { name, value, type, checked } = event.target;
@@ -227,12 +227,8 @@ export default function PatientsNew() {
         attentionLevelRef.current?.focus();
         return;
       }
-      if (requiresResponsibleProfessional && !canAssignPatientCare) {
+      if (form.clinic_professional_id && !canAssignPatientCare) {
         toast.error("Você não possui autorização para definir o profissional responsável.");
-        return;
-      }
-      if (requiresResponsibleProfessional && !form.clinic_professional_id) {
-        toast.error("Selecione o profissional responsável.");
         return;
       }
 
@@ -287,7 +283,7 @@ export default function PatientsNew() {
           ? clean(form.address_state).toUpperCase()
           : null,
         address_zip: clean(form.address_zip),
-        ...(requiresResponsibleProfessional
+        ...(showsResponsibleProfessional && form.clinic_professional_id
           ? { clinic_professional_id: Number(form.clinic_professional_id) }
           : {}),
       };
@@ -311,7 +307,7 @@ export default function PatientsNew() {
       canAssignPatientCare,
       form,
       history,
-      requiresResponsibleProfessional,
+      showsResponsibleProfessional,
     ],
   );
 
@@ -340,18 +336,17 @@ export default function PatientsNew() {
           <Form onSubmit={handleSubmit}>
             <SectionTitle>Dados pessoais</SectionTitle>
             <FormGrid>
-              {requiresResponsibleProfessional && (
+              {showsResponsibleProfessional && (
                 <Field>
-                  Profissional responsável *
+                  Profissional responsável (opcional)
                   <select
                     name="clinic_professional_id"
                     value={form.clinic_professional_id}
                     onChange={handleChange}
-                    required
                     disabled={isProfessionalsLoading || !canAssignPatientCare}
                   >
                     <option value="">
-                      {isProfessionalsLoading ? "Carregando..." : "Selecionar"}
+                      {isProfessionalsLoading ? "Carregando..." : "Sem profissional responsável"}
                     </option>
                     {professionals.map((professional) => (
                       <option

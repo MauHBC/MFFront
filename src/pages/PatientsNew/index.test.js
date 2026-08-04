@@ -96,7 +96,7 @@ describe("PatientsNew", () => {
     });
   });
 
-  it("exige e envia profissional responsável no cadastro administrativo", async () => {
+  it("permite cadastro administrativo sem profissional responsável", async () => {
     mockAuthorization = {
       status: "ready",
       context: {
@@ -114,6 +114,9 @@ describe("PatientsNew", () => {
     });
     renderPage();
 
+    expect(await screen.findByLabelText("Profissional responsável (opcional)"))
+      .toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText("Nome completo *"), {
       target: { value: "Paciente administrativo" },
     });
@@ -121,11 +124,39 @@ describe("PatientsNew", () => {
       target: { value: "medium" },
     });
     fireEvent.submit(screen.getByRole("button", { name: "Salvar paciente" }).closest("form"));
-    expect(toast.error).toHaveBeenCalledWith("Selecione o profissional responsável.");
-    expect(axios.post).not.toHaveBeenCalled();
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/patients",
+      expect.not.objectContaining({ clinic_professional_id: expect.anything() }),
+    ));
+  });
 
-    const responsibleSelect = await screen.findByLabelText("Profissional responsável *");
+  it("lista profissionais canônicos e envia o responsável opcional selecionado", async () => {
+    mockAuthorization = {
+      status: "ready",
+      context: {
+        is_administrator: true,
+        modules: [{ module_key: "patients", scope_level: "clinic" }],
+      },
+      hasCapability: jest.fn(() => true),
+    };
+    axios.get.mockResolvedValue({
+      data: [{
+        id: 30,
+        name: "Profissional responsável",
+        clinic_professional_id: 300,
+      }],
+    });
+    renderPage();
+
+    const responsibleSelect = await screen.findByLabelText("Profissional responsável (opcional)");
     await waitFor(() => expect(responsibleSelect).not.toBeDisabled());
+    expect(axios.get).toHaveBeenCalledWith("/patient-care-assignments/professionals");
+    fireEvent.change(screen.getByLabelText("Nome completo *"), {
+      target: { value: "Paciente com responsável" },
+    });
+    fireEvent.change(screen.getByLabelText("Atenção do paciente *"), {
+      target: { value: "medium" },
+    });
     fireEvent.change(responsibleSelect, {
       target: { value: "300" },
     });

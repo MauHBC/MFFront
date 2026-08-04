@@ -155,6 +155,9 @@ describe("Planos no contêiner do App Shell", () => {
     expect(source).toMatch(/service_plan_id:\s*Number\(ppForm\.service_plan_id\)/);
     expect(source).toMatch(/is_no_charge:\s*ppForm\.is_no_charge === true/);
     expect(source).toMatch(/billing_mode:\s*"covered_by_plan"/);
+    expect(source).toMatch(/assign_patient_care:\s*schedRequiresCareAssignment/);
+    expect(source).toMatch(/Atribuir e criar agenda/);
+    expect(source).toMatch(/schedule\/references\/professionals/);
     expect(source).toMatch(/expected_effective_on:\s*planChangePreview\.data\.effective_on/);
     expect(source).toMatch(/preview_token:\s*planChangePreview\.data\.preview_token/);
     expect(source).toMatch(/expected_version:\s*Number\(planChangeForm\.expected_version\)/);

@@ -1888,7 +1888,13 @@ export default function Agendamentos() {
     const source = !editingId && form.patient_id ? patientProfessionals : professionals;
     return source
       .filter((professional) => (
-        editingId || professional.is_assigned === true || canAssignPatientCare
+        editingId
+        || professional.is_assigned === true
+        || (
+          canAssignPatientCare
+          && Number.isSafeInteger(Number(professional.clinic_professional_id))
+          && Number(professional.clinic_professional_id) > 0
+        )
       ))
       .map((professional) => ({
         id: professional.id,
@@ -6651,7 +6657,6 @@ export default function Agendamentos() {
                           {professionalOptions.map((professional) => (
                             <option key={professional.id} value={professional.id}>
                               {professional.name}
-                              {professional.is_assigned === false ? " — atribuir ao confirmar" : ""}
                             </option>
                           ))}
                         </SelectionNativeField>
