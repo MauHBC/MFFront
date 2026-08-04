@@ -17,6 +17,7 @@ import {
   loadTeamReadModel,
   previewProfessionalInactivation,
   resetTeamAccountPassword,
+  setTeamProfessionalState,
   unassignAuthorizationProfile,
   updateAuthorizationProfile,
   updateTeamPerson,
@@ -39,6 +40,7 @@ jest.mock("../../services/team", () => ({
   loadTeamReadModel: jest.fn(),
   previewProfessionalInactivation: jest.fn(),
   resetTeamAccountPassword: jest.fn(),
+  setTeamProfessionalState: jest.fn(),
   unassignAuthorizationProfile: jest.fn(),
   updateAuthorizationProfile: jest.fn(),
   updateTeamPerson: jest.fn(),
@@ -140,6 +142,7 @@ describe("Equipe", () => {
     unassignAuthorizationProfile.mockReset();
     updateAuthorizationProfile.mockReset();
     resetTeamAccountPassword.mockReset();
+    setTeamProfessionalState.mockReset();
     unblockTeamAccount.mockReset();
     createTeamPerson.mockResolvedValue({ id: 30 });
     createTeamAccount.mockResolvedValue({ user_id: 11, status: "active" });
@@ -158,6 +161,7 @@ describe("Equipe", () => {
     unassignAuthorizationProfile.mockResolvedValue(null);
     updateAuthorizationProfile.mockResolvedValue({ id: 22 });
     resetTeamAccountPassword.mockResolvedValue({ user_id: 10 });
+    setTeamProfessionalState.mockResolvedValue({ id: 103, is_active: true });
     unblockTeamAccount.mockResolvedValue({ user_id: 10, status: "active" });
   });
 
@@ -187,6 +191,37 @@ describe("Equipe", () => {
       name: "Eduarda",
       isProfessional: true,
     })));
+  });
+
+  it("ativa a atuação profissional de uma pessoa existente sem confundir com perfil", async () => {
+    loadTeamReadModel.mockResolvedValue({
+      ...model,
+      people: [
+        ...model.people,
+        {
+          id: 4,
+          name: "Davi",
+          email: "davi@clinica.test",
+          phone: null,
+          is_active: true,
+          professional: null,
+          account: null,
+        },
+      ],
+    });
+    render(<Equipe />);
+    const personName = await screen.findByText("Davi");
+    const personRow = personName.closest("li") || personName.parentElement?.parentElement;
+    fireEvent.click(within(personRow).getByRole("button", {
+      name: "Ativar atuação profissional",
+    }));
+    expect(await screen.findByRole("button", {
+      name: "Ativando atuação...",
+    })).toBeDisabled();
+    await waitFor(() => expect(setTeamProfessionalState).toHaveBeenCalledWith(4, true));
+    await waitFor(() => expect(screen.getByRole("button", {
+      name: "Ativar atuação profissional",
+    })).not.toBeDisabled());
   });
 
   it("valida campos obrigatórios junto ao campo e não envia", async () => {

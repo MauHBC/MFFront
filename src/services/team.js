@@ -50,6 +50,11 @@ export const activateTeamPerson = (personId) => api.patch(
   `/team/people/${personId}/activate`,
 ).then(data);
 
+export const setTeamProfessionalState = (personId, isActive) => api.patch(
+  `/team/people/${personId}/professional`,
+  { is_active: isActive === true },
+).then(data);
+
 export const deactivateTeamPerson = (personId) => api.patch(
   `/team/people/${personId}/deactivate`,
   { confirmed: true },

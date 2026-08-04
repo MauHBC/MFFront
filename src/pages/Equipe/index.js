@@ -12,6 +12,7 @@ import {
   createTeamPerson,
   loadTeamReadModel,
   resetTeamAccountPassword,
+  setTeamProfessionalState,
   unassignAuthorizationProfile,
   updateAuthorizationProfile,
   updateTeamPerson,
@@ -563,6 +564,7 @@ export default function Equipe() {
   const [inactivationEditor, setInactivationEditor] = useState(null);
   const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [activatingPersonId, setActivatingPersonId] = useState(null);
+  const [activatingProfessionalId, setActivatingProfessionalId] = useState(null);
   const [actionError, setActionError] = useState("");
 
   const load = useCallback(async () => {
@@ -709,6 +711,23 @@ export default function Equipe() {
       setActionError(getUserFacingApiError(error, "Não foi possível reativar a pessoa."));
     } finally {
       setActivatingPersonId(null);
+    }
+  };
+
+  const activateProfessional = async (personId) => {
+    if (activatingProfessionalId) return;
+    setActionError("");
+    setActivatingProfessionalId(personId);
+    try {
+      await setTeamProfessionalState(personId, true);
+      await load();
+    } catch (error) {
+      setActionError(getUserFacingApiError(
+        error,
+        "Não foi possível ativar a atuação profissional.",
+      ));
+    } finally {
+      setActivatingProfessionalId(null);
     }
   };
 
@@ -1031,6 +1050,17 @@ export default function Equipe() {
                       </RowActionButton>
                     )}
                     {renderAccountActions(person)}
+                    {person.isPerson && person.isActive && !person.isProfessional && (
+                      <RowActionButton
+                        type="button"
+                        onClick={() => activateProfessional(person.id)}
+                        disabled={activatingProfessionalId === person.id}
+                      >
+                        {activatingProfessionalId === person.id
+                          ? "Ativando atuação..."
+                          : "Ativar atuação profissional"}
+                      </RowActionButton>
+                    )}
                     {canInactivate(person) && (
                       <RowActionButton type="button" onClick={() => setInactivationEditor(person)}>
                         Inativar

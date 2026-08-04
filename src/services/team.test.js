@@ -13,6 +13,7 @@ import {
   loadTeamReadModel,
   previewProfessionalInactivation,
   resetTeamAccountPassword,
+  setTeamProfessionalState,
   unassignAuthorizationProfile,
   updateAuthorizationProfile,
   updateTeamPerson,
@@ -105,6 +106,15 @@ describe("team read service", () => {
       phone: null,
     });
     expect(api.patch).toHaveBeenCalledWith("/team/people/4/activate");
+  });
+
+  it("ativa a atuação profissional pelo contrato tenant-scoped", async () => {
+    api.patch.mockResolvedValueOnce({ data: { id: 12, is_active: true } });
+    await setTeamProfessionalState(4, true);
+    expect(api.patch).toHaveBeenCalledWith("/team/people/4/professional", {
+      is_active: true,
+    });
+    expect(JSON.stringify(api.patch.mock.calls)).not.toContain("clinic_id");
   });
 
   it("consulta auditoria somente com filtros permitidos e sem tenant", async () => {
