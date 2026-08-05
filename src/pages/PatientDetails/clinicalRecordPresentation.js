@@ -54,3 +54,36 @@ export function formatClinicalRecordMeta(record) {
     record?.created_at || record?.createdAt,
   )} · ${formatClinicalRecordAuthor(record)}`;
 }
+
+export function formatClinicalCaseAuthor(clinicalCase) {
+  const authorUser = value(clinicalCase, "createdByUser", "created_by_user");
+  const person = value(authorUser, "TeamPerson", "team_person");
+  const professional = value(person, "ClinicProfessional", "clinic_professional");
+
+  if (!authorUser || !person) {
+    return "Autoria não identificada · CREFITO não informado";
+  }
+
+  const name = String(person.name || "").trim() || "Autoria não identificada";
+  const region = String(value(
+    professional,
+    "registration_region",
+    "registrationRegion",
+  ) || "").trim();
+  const number = String(value(
+    professional,
+    "registration_number",
+    "registrationNumber",
+  ) || "").trim();
+  const registration = region && number
+    ? `CREFITO ${region}/${number}`
+    : "CREFITO não informado";
+
+  return `${name} · ${registration}`;
+}
+
+export function formatClinicalCaseMeta(clinicalCase) {
+  return `Adicionado em ${formatClinicalRecordDateTime(
+    clinicalCase?.created_at || clinicalCase?.createdAt,
+  )} · ${formatClinicalCaseAuthor(clinicalCase)}`;
+}

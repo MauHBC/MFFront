@@ -13,6 +13,7 @@ import {
 } from "react-icons/fa";
 
 import DataLoadingState from "../../components/DataLoadingState";
+import ClinicalSignatureConfirmModal from "../../components/ClinicalSignatureConfirmModal";
 import axios from "../../services/axios";
 import {
   createPatientClinicalCase,
@@ -48,7 +49,20 @@ import {
   maskBirthDateInput,
 } from "../../utils/birthDate";
 import { getPatientDisplayName } from "../../utils/patientSearch";
-import { formatClinicalRecordMeta } from "./clinicalRecordPresentation";
+import {
+  addSignedClinicalAddendum,
+  finalizeClinicalRecord,
+  getClinicalSigningIdentity,
+} from "../../services/clinicalRecords";
+import {
+  getClinicalRecordSaveErrorMessage,
+  saveClinicalRecordFlow,
+  upsertSavedClinicalRecord,
+} from "../../services/clinicalRecordSaveFlow";
+import {
+  formatClinicalCaseMeta,
+  formatClinicalRecordMeta,
+} from "./clinicalRecordPresentation";
 
 const TABS = {
   resumo: "resumo",
@@ -780,6 +794,12 @@ export default function PatientDetails() {
     buildQuickEvolutionForm(),
   );
   const [isSavingQuickEvolution, setIsSavingQuickEvolution] = useState(false);
+  const [quickEvolutionSignatureConfirmOpen, setQuickEvolutionSignatureConfirmOpen] =
+    useState(false);
+  const [quickEvolutionSignatureError, setQuickEvolutionSignatureError] = useState("");
+  const [signingIdentity, setSigningIdentity] = useState({ status: "idle", data: null });
+  const [addendumModal, setAddendumModal] = useState(null);
+  const [isSavingAddendum, setIsSavingAddendum] = useState(false);
   const [clinicalReferences, setClinicalReferences] = useState([]);
   const [selectedClinicalReference, setSelectedClinicalReference] = useState(null);
   const [clinicalReferenceDeleteTarget, setClinicalReferenceDeleteTarget] = useState(null);
@@ -806,10 +826,25 @@ export default function PatientDetails() {
   const [editingSection, setEditingSection] = useState(null);
   const [isSavingSection, setIsSavingSection] = useState(false);
   const [editForm, setEditForm] = useState(() => buildPatientForm(null));
+  const isClinicalIdentityRequired = Boolean(quickEvolutionModal || addendumModal);
 
   useEffect(() => {
     setActiveTab(getStoredPatientDetailsTab(id));
   }, [id]);
+
+  useEffect(() => {
+    if (!isClinicalIdentityRequired) return undefined;
+    let active = true;
+    setSigningIdentity({ status: "loading", data: null });
+    getClinicalSigningIdentity()
+      .then((data) => {
+        if (active) setSigningIdentity({ status: "ready", data });
+      })
+      .catch(() => {
+        if (active) setSigningIdentity({ status: "error", data: null });
+      });
+    return () => { active = false; };
+  }, [isClinicalIdentityRequired]);
 
   useEffect(() => {
     storePatientDetailsTab(id, activeTab);
@@ -1174,6 +1209,7 @@ export default function PatientDetails() {
 
   const openQuickEvolutionEditModal = useCallback((evaluation) => {
     if (!evaluation?.id || evaluation.record_type !== "session") return;
+    if (evaluation.clinical_state !== "draft") return;
     setQuickEvolutionEditTarget(evaluation);
     setQuickEvolutionForm(buildQuickEvolutionFormFromEvaluation(evaluation));
     setQuickEvolutionModal(true);
@@ -1186,6 +1222,8 @@ export default function PatientDetails() {
 
   const closeQuickEvolutionModal = useCallback(() => {
     if (isSavingQuickEvolution) return;
+    setQuickEvolutionSignatureConfirmOpen(false);
+    setQuickEvolutionSignatureError("");
     setQuickEvolutionModal(false);
     setQuickEvolutionEditTarget(null);
     setQuickEvolutionForm(buildQuickEvolutionForm());
@@ -1206,14 +1244,24 @@ export default function PatientDetails() {
     }));
   }, []);
 
-  const handleSaveQuickEvolution = useCallback(async () => {
+  const requestQuickEvolutionSignature = useCallback(() => {
+    if (!signingIdentity.data?.eligible_to_sign) {
+      toast.error("Verifique sua identidade profissional antes de assinar.");
+      return;
+    }
+    setQuickEvolutionSignatureError("");
+    setQuickEvolutionSignatureConfirmOpen(true);
+  }, [signingIdentity.data]);
+
+  const handleSaveQuickEvolution = useCallback(async (shouldFinalize = false) => {
+    if (isSavingQuickEvolution) return;
     const evolutionText = cleanText(quickEvolutionForm.evolution_text);
     if (!evolutionText || evolutionText.length < 2) {
       toast.error("Informe o texto da evolução.");
       return;
     }
-
     setIsSavingQuickEvolution(true);
+    if (shouldFinalize) setQuickEvolutionSignatureError("");
     try {
       const payload = {
         patient_id: id,
@@ -1229,33 +1277,102 @@ export default function PatientDetails() {
         pain_notes: cleanText(quickEvolutionForm.pain_notes),
       };
 
-      if (quickEvolutionEditTarget?.id) {
-        await axios.put(`/evaluations/${quickEvolutionEditTarget.id}`, {
-          clinical_case_id: payload.clinical_case_id,
-          summary_text: payload.evolution_text,
-          plan_text: payload.conduct_text,
-          pain_scale: payload.pain_scale,
-          pain_notes: payload.pain_notes,
-          created_at: payload.evolution_date,
-        });
-        toast.success("Evolução atualizada.");
+      const result = await saveClinicalRecordFlow({
+        shouldSign: shouldFinalize,
+        saveDraft: async () => {
+          let saved;
+          if (quickEvolutionEditTarget?.id) {
+            const response = await axios.put(`/evaluations/${quickEvolutionEditTarget.id}`, {
+              clinical_case_id: payload.clinical_case_id,
+              summary_text: payload.evolution_text,
+              plan_text: payload.conduct_text,
+              pain_scale: payload.pain_scale,
+              pain_notes: payload.pain_notes,
+              created_at: payload.evolution_date,
+              version: quickEvolutionEditTarget.version,
+            });
+            saved = response.data;
+          } else {
+            const response = await axios.post("/evaluations/quick-evolution", payload);
+            saved = response.data;
+          }
+          setEvaluations((current) => upsertSavedClinicalRecord(current, saved));
+          setQuickEvolutionEditTarget((current) => (
+            Number(current?.id) === Number(saved?.id)
+              ? { ...current, ...saved }
+              : current
+          ));
+          return saved;
+        },
+        finalizeDraft: ({ recordId, version }) => (
+          finalizeClinicalRecord("evaluation", recordId, version)
+        ),
+      });
+      if (shouldFinalize) {
+        setEvaluations((current) => upsertSavedClinicalRecord(current, result.finalized));
+        toast.success("Evolução salva e assinada.");
       } else {
-        await axios.post("/evaluations/quick-evolution", payload);
-        toast.success("Evolução registrada.");
+        toast.success("Rascunho salvo.");
       }
+      setQuickEvolutionSignatureConfirmOpen(false);
+      setQuickEvolutionSignatureError("");
       setQuickEvolutionModal(false);
       setQuickEvolutionEditTarget(null);
       setQuickEvolutionForm(buildQuickEvolutionForm());
       await reloadEvaluations();
     } catch (error) {
-      toast.error(
-        error?.response?.data?.error ||
-          "Não foi possível registrar a evolução.",
+      const message = getClinicalRecordSaveErrorMessage(
+        error,
+        "Não foi possível registrar a evolução.",
       );
+      if (shouldFinalize) setQuickEvolutionSignatureError(message);
+      else toast.error(message);
     } finally {
       setIsSavingQuickEvolution(false);
     }
-  }, [id, quickEvolutionEditTarget, quickEvolutionForm, reloadEvaluations]);
+  }, [
+    id,
+    isSavingQuickEvolution,
+    quickEvolutionEditTarget,
+    quickEvolutionForm,
+    reloadEvaluations,
+  ]);
+
+  const openAddendumModal = useCallback((evaluation) => {
+    setAddendumModal({ evaluation, reason: "", content: "" });
+  }, []);
+
+  const saveAddendum = useCallback(async () => {
+    if (!addendumModal || isSavingAddendum) return;
+    if (addendumModal.reason.trim().length < 3 || addendumModal.content.trim().length < 2) {
+      toast.error("Informe o motivo e o conteúdo do adendo.");
+      return;
+    }
+    if (!signingIdentity.data?.eligible_to_sign) {
+      toast.error("Verifique sua identidade profissional antes de criar o adendo.");
+      return;
+    }
+    setIsSavingAddendum(true);
+    try {
+      await addSignedClinicalAddendum("evaluation", addendumModal.evaluation.id, {
+        version: addendumModal.evaluation.version,
+        reason: addendumModal.reason.trim(),
+        content: { text: addendumModal.content.trim() },
+      });
+      toast.success("Adendo salvo.");
+      setAddendumModal(null);
+      await reloadEvaluations();
+    } catch (error) {
+      toast.error(error?.response?.data?.error || "Não foi possível salvar o adendo.");
+    } finally {
+      setIsSavingAddendum(false);
+    }
+  }, [
+    addendumModal,
+    isSavingAddendum,
+    reloadEvaluations,
+    signingIdentity.data,
+  ]);
 
   const reloadClinicalCases = useCallback(async () => {
     if (!id) return;
@@ -1843,6 +1960,18 @@ export default function PatientDetails() {
             const createdAt = formatClinicalRecordMeta(evaluation);
             const clinicalCase = getEvaluationClinicalCase(evaluation);
             const isSession = evaluation.record_type === "session";
+            const signature = evaluation.clinical_signature;
+            const revisions = evaluation.clinical_revisions || [];
+            const isFinalized = evaluation.clinical_state === "finalized";
+            let recordStatus = "legacy";
+            let recordStatusLabel = "Não assinado";
+            if (isFinalized) {
+              recordStatus = "signed";
+              recordStatusLabel = "Assinado";
+            } else if (evaluation.clinical_state === "draft") {
+              recordStatus = "draft";
+              recordStatusLabel = "Rascunho";
+            }
 
             return (
               <TimelineItem
@@ -1855,15 +1984,20 @@ export default function PatientDetails() {
 	                    <TimelineCardContent>
 	                      <TimelineCardHeader>
 	                        <TimelineCardMeta>
+                              <ClinicalRecordTags>
+	                            <RecordTypePill $type={evaluation.record_type}>
+	                              Evolução
+	                            </RecordTypePill>
+                                <RecordStatusPill $status={recordStatus}>
+                                  {recordStatusLabel}
+                                </RecordStatusPill>
+	                            {showCaseLabel && (
+	                              <CaseLinkLabel>
+	                                {clinicalCase?.title || "Não organizados"}
+	                              </CaseLinkLabel>
+	                            )}
+                              </ClinicalRecordTags>
 	                          <TimelineDate>{createdAt}</TimelineDate>
-	                          <RecordTypePill $type={evaluation.record_type}>
-	                            {typeLabel}
-	                          </RecordTypePill>
-	                          {showCaseLabel && (
-	                            <CaseLinkLabel>
-	                              {clinicalCase?.title || "Não organizados"}
-	                            </CaseLinkLabel>
-	                          )}
 	                        </TimelineCardMeta>
 	                      </TimelineCardHeader>
 	                      {summary && (
@@ -1881,21 +2015,39 @@ export default function PatientDetails() {
 	                      {painLabel && (
 	                        <TimelinePainLine>{painLabel}</TimelinePainLine>
 	                      )}
+                          {(recordStatus === "legacy" || (isFinalized && !signature)) && (
+                            <LegacySignatureNotice>
+                              Registro antigo sem assinatura eletrônica retroativa.
+                            </LegacySignatureNotice>
+                          )}
+                          {revisions.map((revision) => (
+                            <ClinicalAddendumBlock key={revision.id}>
+                              <strong>Adendo</strong>
+                              <span>{revision.content?.text || "Conteúdo registrado em anexo estruturado."}</span>
+                              <small>Motivo: {revision.reason}</small>
+                              <small>Registrado em {formatDateTime(revision.created_at)}.</small>
+                            </ClinicalAddendumBlock>
+                          ))}
 	                    </TimelineCardContent>
 	                  ) : (
 	                    <TimelineCardLink to={`/pacientes/${id}/avaliacoes/${evaluation.id}`}>
 	                    <TimelineCardHeader>
 	                      <TimelineCardMeta>
+                            <ClinicalRecordTags>
+                              <RecordTypePill $type={evaluation.record_type}>
+                                Avaliação
+                              </RecordTypePill>
+                              <RecordStatusPill $status={recordStatus}>
+                                {recordStatusLabel}
+                              </RecordStatusPill>
+                              {showCaseLabel && (
+                                <CaseLinkLabel>
+                                  {clinicalCase?.title || "Não organizados"}
+                                </CaseLinkLabel>
+                              )}
+                            </ClinicalRecordTags>
 	                        <TimelineDate>{createdAt}</TimelineDate>
-                        <RecordTypePill $type={evaluation.record_type}>
-                          {typeLabel}
-                        </RecordTypePill>
-                        {showCaseLabel && (
-                          <CaseLinkLabel>
-                            {clinicalCase?.title || "Não organizados"}
-                          </CaseLinkLabel>
-                        )}
-                      </TimelineCardMeta>
+	                      </TimelineCardMeta>
                     </TimelineCardHeader>
                     <TimelineCardTitle>{title}</TimelineCardTitle>
                     {summary && summary !== title && (
@@ -1914,12 +2066,22 @@ export default function PatientDetails() {
 	                  )}
 	                  {isSession && (
 	                    <TimelineCardActions>
-	                      <TimelineEditButton
-	                        type="button"
-	                        onClick={() => openQuickEvolutionEditModal(evaluation)}
-	                      >
-	                        Editar
-	                      </TimelineEditButton>
+	                      {evaluation.clinical_state === "draft" && (
+                            <TimelineEditButton
+                              type="button"
+                              onClick={() => openQuickEvolutionEditModal(evaluation)}
+                            >
+                              Editar rascunho
+                            </TimelineEditButton>
+                          )}
+                          {isFinalized && (
+                            <TimelineEditButton
+                              type="button"
+                              onClick={() => openAddendumModal(evaluation)}
+                            >
+                              Adicionar adendo
+                            </TimelineEditButton>
+                          )}
 	                    </TimelineCardActions>
 	                  )}
 	                </TimelineCard>
@@ -1929,12 +2091,8 @@ export default function PatientDetails() {
         </TimelineList>
       );
     },
-	    [id, openQuickEvolutionEditModal],
+	    [id, openAddendumModal, openQuickEvolutionEditModal],
 	  );
-
-  const quickEvolutionSaveLabel = quickEvolutionEditTarget
-    ? "Salvar alterações"
-    : "Salvar evolução";
 
 		  return (
     <PageWrapper $paddingTop="0" $paddingBottom="60px">
@@ -2316,9 +2474,14 @@ export default function PatientDetails() {
 	              <>
 	                <ProntuarioSectionHeader>
 	                  <div>
-		                    <ProntuarioSectionTitle>
-		                      {selectedRecordCase ? selectedRecordCase.title : "Casos clínicos"}
-		                    </ProntuarioSectionTitle>
+			                    <ProntuarioSectionTitle>
+			                      {selectedRecordCase ? selectedRecordCase.title : "Casos clínicos"}
+			                    </ProntuarioSectionTitle>
+			                    {selectedRecordCase && (
+			                      <ClinicalCaseMeta>
+			                        {formatClinicalCaseMeta(selectedRecordCase)}
+			                      </ClinicalCaseMeta>
+			                    )}
 		                  </div>
 	                  {patient && (
 		                    <TimelineActions>
@@ -2371,9 +2534,9 @@ export default function PatientDetails() {
 	                              <CaseOverviewHeader>
 	                                <div>
 	                                  <CaseOverviewTitle>{clinicalCase.title}</CaseOverviewTitle>
-	                                  <ClinicalCaseMeta>
-	                                    Início: {formatDate(clinicalCase.started_on)}
-	                                  </ClinicalCaseMeta>
+		                                  <ClinicalCaseMeta>
+		                                    Início: {formatDate(clinicalCase.started_on)}
+		                                  </ClinicalCaseMeta>
 	                                </div>
 	                                <ClinicalCaseStatusPill $status={clinicalCase.status}>
 	                                  {CLINICAL_CASE_STATUS_LABELS[clinicalCase.status] || "Ativo"}
@@ -2402,9 +2565,9 @@ export default function PatientDetails() {
 	                              <CaseOverviewHeader>
 	                                <div>
 	                                  <CaseOverviewTitle>{clinicalCase.title}</CaseOverviewTitle>
-	                                  <ClinicalCaseMeta>
-	                                    Início: {formatDate(clinicalCase.started_on)}
-	                                  </ClinicalCaseMeta>
+		                                  <ClinicalCaseMeta>
+		                                    Início: {formatDate(clinicalCase.started_on)}
+		                                  </ClinicalCaseMeta>
 	                                </div>
 	                                <ClinicalCaseStatusPill $status={clinicalCase.status}>
 	                                  {CLINICAL_CASE_STATUS_LABELS[clinicalCase.status] ||
@@ -3264,6 +3427,30 @@ export default function PatientDetails() {
                 </IconButton>
               </ModalHeader>
               <ModalBody>
+                <SigningIdentityPanel $eligible={signingIdentity.data?.eligible_to_sign === true}>
+                  {signingIdentity.status === "loading" && <span>Verificando identidade profissional…</span>}
+                  {signingIdentity.status === "ready" && signingIdentity.data?.eligible_to_sign && (
+                    <>
+                      <strong>{signingIdentity.data.name}</strong>
+                      <span>
+                        CREFITO-{signingIdentity.data.registration_region} nº
+                        {" "}{signingIdentity.data.registration_number} · identidade verificada
+                      </span>
+                    </>
+                  )}
+                  {signingIdentity.status === "ready" && !signingIdentity.data?.eligible_to_sign && (
+                    <>
+                      <strong>Assinatura indisponível</strong>
+                      <span>
+                        O vínculo precisa estar ativo e a identidade de fisioterapeuta, com nome
+                        profissional e CREFITO, deve ser verificada administrativamente.
+                      </span>
+                    </>
+                  )}
+                  {signingIdentity.status === "error" && (
+                    <span>Não foi possível validar a identidade profissional.</span>
+                  )}
+                </SigningIdentityPanel>
                 <QuickEvolutionForm>
 		                  <QuickEvolutionTopGrid>
 		                    <CaseContextHeader>
@@ -3345,11 +3532,103 @@ export default function PatientDetails() {
                 </CardButton>
                 <CardButton
                   type="button"
-                  $primary
-                  onClick={handleSaveQuickEvolution}
+                  onClick={() => handleSaveQuickEvolution(false)}
                   disabled={isSavingQuickEvolution}
                 >
-		                  {isSavingQuickEvolution ? "Salvando..." : quickEvolutionSaveLabel}
+                  {isSavingQuickEvolution ? "Salvando..." : "Salvar rascunho"}
+                </CardButton>
+                <CardButton
+                  type="button"
+                  $primary
+                  onClick={requestQuickEvolutionSignature}
+                  disabled={isSavingQuickEvolution || !signingIdentity.data?.eligible_to_sign}
+                >
+                  {isSavingQuickEvolution ? "Assinando..." : "Salvar e assinar"}
+                </CardButton>
+              </ModalFooter>
+            </ModalCard>
+          </ModalOverlay>
+        )}
+        <ClinicalSignatureConfirmModal
+          open={quickEvolutionSignatureConfirmOpen}
+          loading={isSavingQuickEvolution}
+          error={quickEvolutionSignatureError}
+          onCancel={() => {
+            setQuickEvolutionSignatureConfirmOpen(false);
+            setQuickEvolutionSignatureError("");
+          }}
+          onConfirm={() => handleSaveQuickEvolution(true)}
+        />
+        {addendumModal && (
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <div>
+                  <ModalTitle>Adicionar adendo</ModalTitle>
+                  <ModalSubtitle>
+                    O conteúdo original será preservado integralmente.
+                  </ModalSubtitle>
+                </div>
+                <IconButton
+                  type="button"
+                  onClick={() => setAddendumModal(null)}
+                  aria-label="Fechar"
+                  disabled={isSavingAddendum}
+                >
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                <SigningIdentityPanel $eligible={signingIdentity.data?.eligible_to_sign === true}>
+                  {signingIdentity.data?.eligible_to_sign ? (
+                    <span>
+                      {signingIdentity.data.name} — CREFITO-
+                      {signingIdentity.data.registration_region} nº
+                      {" "}{signingIdentity.data.registration_number}
+                    </span>
+                  ) : (
+                    <span>Identidade profissional ativa e verificada obrigatória.</span>
+                  )}
+                </SigningIdentityPanel>
+                <QuickEvolutionField>
+                  <FieldLabel>Motivo do adendo</FieldLabel>
+                  <InlineInput
+                    value={addendumModal.reason}
+                    onChange={(event) => setAddendumModal((current) => ({
+                      ...current,
+                      reason: event.target.value,
+                    }))}
+                    disabled={isSavingAddendum}
+                  />
+                </QuickEvolutionField>
+                <QuickEvolutionField $primary>
+                  <FieldLabel>Conteúdo do adendo</FieldLabel>
+                  <InlineTextarea
+                    value={addendumModal.content}
+                    onChange={(event) => setAddendumModal((current) => ({
+                      ...current,
+                      content: event.target.value,
+                    }))}
+                    rows={5}
+                    disabled={isSavingAddendum}
+                  />
+                </QuickEvolutionField>
+              </ModalBody>
+              <ModalFooter>
+                <CardButton
+                  type="button"
+                  onClick={() => setAddendumModal(null)}
+                  disabled={isSavingAddendum}
+                >
+                  Cancelar
+                </CardButton>
+                <CardButton
+                  type="button"
+                  $primary
+                  onClick={saveAddendum}
+                  disabled={isSavingAddendum || !signingIdentity.data?.eligible_to_sign}
+                >
+                  {isSavingAddendum ? "Salvando..." : "Salvar adendo"}
                 </CardButton>
               </ModalFooter>
             </ModalCard>
@@ -5028,6 +5307,18 @@ const QuickEvolutionField = styled.label`
       : ""}
 `;
 
+const SigningIdentityPanel = styled.div`
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid ${(props) => (props.$eligible ? "rgba(62, 126, 77, 0.32)" : "rgba(173, 105, 42, 0.35)")};
+  border-radius: 10px;
+  background: ${(props) => (props.$eligible ? "#f3f9f3" : "#fff8ef")};
+  color: #45513f;
+  line-height: 1.45;
+`;
+
 const FieldLabel = styled.span`
   color: #2d3629;
   font-size: 0.86rem;
@@ -5434,10 +5725,41 @@ const TimelineCardHeader = styled.div`
 `;
 
 const TimelineCardMeta = styled.div`
+  display: grid;
+  gap: 6px;
+`;
+
+const ClinicalRecordTags = styled.div`
   display: flex;
   align-items: center;
   gap: 7px;
   flex-wrap: wrap;
+`;
+
+const RecordStatusPill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid
+    ${(props) => {
+    if (props.$status === "signed") return "rgba(79, 124, 66, 0.24)";
+    if (props.$status === "draft") return "rgba(168, 63, 63, 0.24)";
+    return "rgba(167, 122, 68, 0.3)";
+  }};
+  background: ${(props) => {
+    if (props.$status === "signed") return "rgba(79, 124, 66, 0.1)";
+    if (props.$status === "draft") return "rgba(168, 63, 63, 0.1)";
+    return "#fff8ef";
+  }};
+  color: ${(props) => {
+    if (props.$status === "signed") return "#4f7c42";
+    if (props.$status === "draft") return "#a83f3f";
+    return "#6b5235";
+  }};
+  padding: 4px 9px;
+  font-size: 0.76rem;
+  font-weight: 900;
 `;
 
 const TimelineDate = styled.span`
@@ -5497,6 +5819,27 @@ const TimelinePainLine = styled.div`
   padding: 5px 9px;
   font-size: 0.8rem;
   font-weight: 800;
+`;
+
+const LegacySignatureNotice = styled.div`
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #a77a44;
+  background: #fff8ef;
+  color: #6b5235;
+  line-height: 1.45;
+`;
+
+const ClinicalAddendumBlock = styled.div`
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(106, 121, 92, 0.22);
+  border-radius: 9px;
+  background: #fff;
+  color: #45513f;
+  line-height: 1.45;
 `;
 
 const CaseStatusSelect = styled(InlineSelect)`

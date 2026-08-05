@@ -5,7 +5,16 @@ import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
 import DataLoadingState from "../../components/DataLoadingState";
+import ClinicalSignatureConfirmModal from "../../components/ClinicalSignatureConfirmModal";
 import { listPatientClinicalCases } from "../../services/patientClinicalCases";
+import {
+  finalizeClinicalRecord,
+  getClinicalSigningIdentity,
+} from "../../services/clinicalRecords";
+import {
+  getClinicalRecordSaveErrorMessage,
+  saveClinicalRecordFlow,
+} from "../../services/clinicalRecordSaveFlow";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { LinkGhostButton, PrimaryButton } from "../../components/AppButton";
 import {
@@ -159,6 +168,17 @@ export default function PatientEvaluationNew() {
   const [activeSectionId, setActiveSectionId] = useState(null);
   const [answers, setAnswers] = useState({});
   const [loadError, setLoadError] = useState("");
+  const [signingIdentity, setSigningIdentity] = useState(null);
+  const [signatureConfirmOpen, setSignatureConfirmOpen] = useState(false);
+  const [signatureError, setSignatureError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    getClinicalSigningIdentity()
+      .then((data) => { if (active) setSigningIdentity(data); })
+      .catch(() => { if (active) setSigningIdentity(null); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     async function loadTemplates() {
@@ -552,67 +572,118 @@ export default function PatientEvaluationNew() {
     return payloads;
   }, [answers, definition, orderedSections]);
 
-	  const handleSubmit = useCallback(
-    async (event) => {
-      event.preventDefault();
+  const saveEvaluation = useCallback(async (shouldSign) => {
+      if (isSaving) return;
       if (!selectedTemplate?.id) {
         toast.error("Selecione um formulario.");
         return;
       }
-      if (!validateRequired()) return;
+      if (shouldSign && !validateRequired()) return;
+      if (shouldSign) {
+        if (!signingIdentity?.eligible_to_sign) {
+          toast.error("Verifique sua identidade profissional antes de assinar.");
+          return;
+        }
+      }
 
       setIsSaving(true);
+      if (shouldSign) setSignatureError("");
       try {
         const summary = resolveSummary(definition, answers);
-	        const evaluationResponse = await axios.post("/evaluations", {
-	          patient_id: Number(patientId),
-	          clinical_case_id: selectedClinicalCaseId
-	            ? Number(selectedClinicalCaseId)
-	            : null,
-	          evaluation_phase: requestedPhase,
-	          status: "done",
-	          summary_text: summary.summary_text,
-	          plan_text: summary.plan_text,
-	        });
-        const evaluationId = evaluationResponse.data?.id;
-        const instanceResponse = await axios.post("/form-instances", {
-          evaluation_id: evaluationId,
-          form_template_id: definition.templateId,
-        });
-        const instanceId = instanceResponse.data?.id;
+        await saveClinicalRecordFlow({
+          shouldSign,
+          saveDraft: async () => {
+            const evaluationResponse = await axios.post("/evaluations", {
+              patient_id: Number(patientId),
+              clinical_case_id: selectedClinicalCaseId
+                ? Number(selectedClinicalCaseId)
+                : null,
+              evaluation_phase: requestedPhase,
+              status: "done",
+              summary_text: summary.summary_text,
+              plan_text: summary.plan_text,
+            });
+            const saved = evaluationResponse.data;
+            const instanceResponse = await axios.post("/form-instances", {
+              evaluation_id: saved.id,
+              form_template_id: definition.templateId,
+            });
+            const instanceId = instanceResponse.data?.id;
 
-        const answerPayloads = buildAnswersPayload();
-        await Promise.all(
-          answerPayloads.map((payload) =>
-            axios.post("/form-answers", {
-              ...payload,
-              form_instance_id: instanceId,
-            }),
+            const answerPayloads = buildAnswersPayload();
+            await Promise.all(
+              answerPayloads.map((payload) =>
+                axios.post("/form-answers", {
+                  ...payload,
+                  form_instance_id: instanceId,
+                }),
+              ),
+            );
+            return saved;
+          },
+          finalizeDraft: ({ recordId, version }) => (
+            finalizeClinicalRecord("evaluation", recordId, version)
           ),
-        );
-
-        toast.success("Formulario enviado com sucesso.");
+        });
+        if (shouldSign) {
+          setSignatureConfirmOpen(false);
+          setSignatureError("");
+          toast.success("Avaliação salva e assinada.");
+        } else {
+          toast.success("Rascunho salvo.");
+        }
         history.push(`/pacientes/${patientId}`);
       } catch (error) {
-        const message =
-          error?.response?.data?.error || "Não foi possível salvar o formulário.";
-        toast.error(message);
+        const message = getClinicalRecordSaveErrorMessage(
+          error,
+          "Não foi possível salvar o formulário.",
+        );
+        if (shouldSign) setSignatureError(message);
+        else toast.error(message);
       } finally {
         setIsSaving(false);
       }
-    },
-    [
+    }, [
       answers,
       buildAnswersPayload,
-	      definition,
-	      history,
-	      patientId,
-	      requestedPhase,
-	      selectedTemplate,
-	      selectedClinicalCaseId,
-	      validateRequired,
+	    definition,
+	    history,
+      isSaving,
+	    patientId,
+	    requestedPhase,
+	    selectedTemplate,
+	    selectedClinicalCaseId,
+	    signingIdentity,
+	    validateRequired,
+    ]);
+
+  const handleSubmit = useCallback(
+    (event) => {
+      event.preventDefault();
+      const shouldSign = event.nativeEvent?.submitter?.value === "sign";
+      if (shouldSign) {
+        if (!selectedTemplate?.id) {
+          toast.error("Selecione um formulario.");
+          return;
+        }
+        if (!validateRequired()) return;
+        if (!signingIdentity?.eligible_to_sign) {
+          toast.error("Verifique sua identidade profissional antes de assinar.");
+          return;
+        }
+        setSignatureError("");
+        setSignatureConfirmOpen(true);
+        return;
+      }
+      saveEvaluation(false);
+    },
+    [
+      saveEvaluation,
+      selectedTemplate,
+      signingIdentity,
+      validateRequired,
     ],
-	  );
+  );
 
   const headerTitle = useMemo(() => {
     const baseTitle = requestedPhase ? "Reavaliação" : "Novo registro";
@@ -661,9 +732,20 @@ export default function PatientEvaluationNew() {
               <SubmitButton
                 type="submit"
                 form={evaluationFormId}
+                name="saveAction"
+                value="draft"
                 disabled={isSaving}
               >
-                {isSaving ? <ButtonSpinner /> : "Finalizar"}
+	                {isSaving ? <ButtonSpinner /> : "Salvar rascunho"}
+              </SubmitButton>
+              <SubmitButton
+                type="submit"
+                form={evaluationFormId}
+                name="saveAction"
+                value="sign"
+                disabled={isSaving || !signingIdentity?.eligible_to_sign}
+              >
+	                {isSaving ? <ButtonSpinner /> : "Salvar e assinar"}
               </SubmitButton>
             </ActionButtonGroup>
           </HeaderActions>
@@ -772,6 +854,16 @@ export default function PatientEvaluationNew() {
           </Form>
         )}
       </PageContent>
+      <ClinicalSignatureConfirmModal
+        open={signatureConfirmOpen}
+        loading={isSaving}
+        error={signatureError}
+        onCancel={() => {
+          setSignatureConfirmOpen(false);
+          setSignatureError("");
+        }}
+        onConfirm={() => saveEvaluation(true)}
+      />
     </PageWrapper>
   );
 }

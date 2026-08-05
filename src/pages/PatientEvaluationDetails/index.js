@@ -4,7 +4,13 @@ import styled from "styled-components";
 import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
+import {
+  addSignedClinicalAddendum,
+  finalizeClinicalRecord,
+  getClinicalSigningIdentity,
+} from "../../services/clinicalRecords";
 import DataLoadingState from "../../components/DataLoadingState";
+import ClinicalSignatureConfirmModal from "../../components/ClinicalSignatureConfirmModal";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { LinkGhostButton, PrimaryButton } from "../../components/AppButton";
 import {
@@ -13,6 +19,11 @@ import {
   ModuleTitle,
   ModuleSubtitle,
 } from "../../components/AppModuleShell";
+import {
+  getClinicalRecordSaveErrorMessage,
+  getSavedClinicalRecordVersion,
+  saveClinicalRecordFlow,
+} from "../../services/clinicalRecordSaveFlow";
 
 const formatDate = (value) => {
   if (!value) return "--/--/----";
@@ -40,6 +51,13 @@ const mapFromList = (raw, keyField, valueField) => {
 const pickText = (value) => {
   if (typeof value !== "string") return "";
   return value.trim();
+};
+
+const formatSignatureDateTime = (value) => {
+  if (!value) return "--/--/---- às --:--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--/--/---- às --:--";
+  return date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 };
 
 const normalizeLabel = (value) =>
@@ -468,6 +486,22 @@ export default function PatientEvaluationDetails() {
   const [painNotes, setPainNotes] = useState("");
   const [createdAt, setCreatedAt] = useState("");
   const [sections, setSections] = useState([]);
+  const [clinicalState, setClinicalState] = useState("legacy");
+  const [recordVersion, setRecordVersion] = useState(1);
+  const [revisions, setRevisions] = useState([]);
+  const [signingIdentity, setSigningIdentity] = useState(null);
+  const [signatureConfirmOpen, setSignatureConfirmOpen] = useState(false);
+  const [signatureError, setSignatureError] = useState("");
+  const [addendum, setAddendum] = useState(null);
+  const [isSavingAddendum, setIsSavingAddendum] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getClinicalSigningIdentity()
+      .then((data) => { if (active) setSigningIdentity(data); })
+      .catch(() => { if (active) setSigningIdentity(null); });
+    return () => { active = false; };
+  }, []);
 
   const loadData = useCallback(async () => {
     if (!evaluationId) return;
@@ -487,6 +521,9 @@ export default function PatientEvaluationDetails() {
       setPainScale(evalData.pain_scale ?? evalData.painScale ?? null);
       setPainNotes(pickText(evalData.pain_notes || evalData.painNotes));
       setCreatedAt(formatDate(evalData.created_at || evalData.createdAt));
+      setClinicalState(evalData.clinical_state || "legacy");
+      setRecordVersion(Number(evalData.version || 1));
+      setRevisions(Array.isArray(evalData.clinical_revisions) ? evalData.clinical_revisions : []);
 
       const instanceResponse = await axios.get(
         `/form-instances?evaluation_id=${evaluationId}`,
@@ -620,42 +657,79 @@ export default function PatientEvaluationDetails() {
   }, []);
 
   const startEditing = useCallback(() => {
+    if (clinicalState !== "draft") return;
     setDraftAnswers(answers);
     setIsEditing(true);
-  }, [answers]);
+  }, [answers, clinicalState]);
 
   const cancelEditing = useCallback(() => {
     setDraftAnswers(answers);
     setIsEditing(false);
   }, [answers]);
 
-  const handleSave = useCallback(async () => {
+  const requestSignature = useCallback(() => {
+    if (!signingIdentity?.eligible_to_sign) {
+      toast.error("Verifique sua identidade profissional antes de assinar.");
+      return;
+    }
+    setSignatureError("");
+    setSignatureConfirmOpen(true);
+  }, [signingIdentity]);
+
+  const handleSave = useCallback(async (shouldSign = false) => {
+    if (isSaving) return;
     if (!definition || !formInstanceId) return;
     setIsSaving(true);
+    if (shouldSign) setSignatureError("");
     try {
       const summary = resolveSummary(definition, draftAnswers);
-      await axios.put(`/evaluations/${evaluationId}`, {
-        clinical_case_id: selectedClinicalCaseId ? Number(selectedClinicalCaseId) : null,
-        summary_text: summary.summary_text,
-        plan_text: summary.plan_text,
-      });
+      const result = await saveClinicalRecordFlow({
+        shouldSign,
+        saveDraft: async () => {
+          const evaluationResponse = await axios.put(`/evaluations/${evaluationId}`, {
+            clinical_case_id: selectedClinicalCaseId ? Number(selectedClinicalCaseId) : null,
+            summary_text: summary.summary_text,
+            plan_text: summary.plan_text,
+            version: recordVersion,
+          });
+          const saved = evaluationResponse.data;
+          setRecordVersion(getSavedClinicalRecordVersion(saved));
 
-      await Promise.all(rawAnswers.map((answer) => axios.delete(`/form-answers/${answer.id}`)));
-      const payloads = buildAnswersPayload(definition, draftAnswers);
-      await Promise.all(
-        payloads.map((payload) =>
-          axios.post("/form-answers", {
-            ...payload,
-            form_instance_id: formInstanceId,
-          }),
+          await Promise.all(rawAnswers.map((answer) => axios.delete(`/form-answers/${answer.id}`)));
+          const payloads = buildAnswersPayload(definition, draftAnswers);
+          await Promise.all(
+            payloads.map((payload) =>
+              axios.post("/form-answers", {
+                ...payload,
+                form_instance_id: formInstanceId,
+              }),
+            ),
+          );
+          return saved;
+        },
+        finalizeDraft: ({ version }) => (
+          finalizeClinicalRecord("evaluation", evaluationId, version)
         ),
-      );
-
-      toast.success("Registro atualizado.");
+      });
+      if (shouldSign) {
+        if (result.finalized?.version) {
+          setRecordVersion(getSavedClinicalRecordVersion(result.finalized));
+        }
+        setSignatureConfirmOpen(false);
+        setSignatureError("");
+        toast.success("Avaliação salva e assinada.");
+      } else {
+        toast.success("Rascunho salvo.");
+      }
       setIsEditing(false);
       await loadData();
     } catch (error) {
-      toast.error(error?.response?.data?.error || "Não foi possível salvar o registro.");
+      const message = getClinicalRecordSaveErrorMessage(
+        error,
+        "Não foi possível salvar o registro.",
+      );
+      if (shouldSign) setSignatureError(message);
+      else toast.error(message);
     } finally {
       setIsSaving(false);
     }
@@ -664,9 +738,45 @@ export default function PatientEvaluationDetails() {
     draftAnswers,
     evaluationId,
     formInstanceId,
+    isSaving,
     loadData,
     rawAnswers,
+    recordVersion,
     selectedClinicalCaseId,
+  ]);
+
+  const saveAddendum = useCallback(async () => {
+    if (!addendum || isSavingAddendum) return;
+    if (addendum.reason.trim().length < 3 || addendum.content.trim().length < 2) {
+      toast.error("Informe o motivo e o conteúdo do adendo.");
+      return;
+    }
+    if (!signingIdentity?.eligible_to_sign) {
+      toast.error("Verifique sua identidade profissional antes de criar o adendo.");
+      return;
+    }
+    setIsSavingAddendum(true);
+    try {
+      await addSignedClinicalAddendum("evaluation", evaluationId, {
+        version: recordVersion,
+        reason: addendum.reason.trim(),
+        content: { text: addendum.content.trim() },
+      });
+      toast.success("Adendo salvo.");
+      setAddendum(null);
+      await loadData();
+    } catch (error) {
+      toast.error(error?.response?.data?.error || "Não foi possível salvar o adendo.");
+    } finally {
+      setIsSavingAddendum(false);
+    }
+  }, [
+    addendum,
+    evaluationId,
+    isSavingAddendum,
+    loadData,
+    recordVersion,
+    signingIdentity,
   ]);
 
   const renderReadOnlyBlock = useCallback((block) => {
@@ -863,7 +973,7 @@ export default function PatientEvaluationDetails() {
             </CaseContextTitle>
             <ActionButtonGroup>
               <CancelButton to={`/pacientes/${patientId}`}>Voltar</CancelButton>
-              {isEditing ? (
+              {isEditing && (
                 <>
                   <CancelButton
                     as="button"
@@ -875,19 +985,99 @@ export default function PatientEvaluationDetails() {
                   </CancelButton>
                   <SubmitButton
                     type="button"
-                    onClick={handleSave}
+                    onClick={() => handleSave(false)}
                     disabled={isSaving}
                   >
-                    {isSaving ? "Salvando..." : "Salvar"}
+                    {isSaving ? "Salvando..." : "Salvar rascunho"}
+                  </SubmitButton>
+                  <SubmitButton
+                    type="button"
+                    onClick={requestSignature}
+                    disabled={isSaving || !signingIdentity?.eligible_to_sign}
+                  >
+                    {isSaving ? "Assinando..." : "Salvar e assinar"}
                   </SubmitButton>
                 </>
-              ) : (
-                <SubmitButton type="button" onClick={startEditing}>
-                  Editar
+              )}
+              {!isEditing && clinicalState === "draft" && (
+                <>
+                  <SubmitButton type="button" onClick={startEditing}>Editar rascunho</SubmitButton>
+                  <SubmitButton
+                    type="button"
+                    onClick={requestSignature}
+                    disabled={!signingIdentity?.eligible_to_sign}
+                  >
+                    Salvar e assinar
+                  </SubmitButton>
+                </>
+              )}
+              {!isEditing && clinicalState === "finalized" && (
+                <SubmitButton
+                  type="button"
+                  onClick={() => setAddendum({ reason: "", content: "" })}
+                >
+                  Adicionar adendo
                 </SubmitButton>
               )}
             </ActionButtonGroup>
           </HeaderActions>
+        )}
+
+        {!isLoading && clinicalState === "legacy" && (
+          <LegacyNotice>Registro antigo sem assinatura eletrônica retroativa.</LegacyNotice>
+        )}
+
+        {!isLoading && revisions.map((revision) => (
+          <AddendumBlock key={revision.id}>
+            <strong>Adendo</strong>
+            <span>{revision.content?.text || "Conteúdo complementar registrado."}</span>
+            <small>Motivo: {revision.reason}</small>
+            <small>Registrado em {formatSignatureDateTime(revision.created_at)}.</small>
+          </AddendumBlock>
+        ))}
+
+        {!isLoading && addendum && (
+          <AddendumEditor>
+            <strong>Novo adendo</strong>
+            <label htmlFor="clinical-addendum-reason">
+              Motivo
+              <input
+                id="clinical-addendum-reason"
+                value={addendum.reason}
+                onChange={(event) => setAddendum((current) => ({
+                  ...current,
+                  reason: event.target.value,
+                }))}
+                disabled={isSavingAddendum}
+              />
+            </label>
+            <label htmlFor="clinical-addendum-content">
+              Conteúdo
+              <textarea
+                id="clinical-addendum-content"
+                value={addendum.content}
+                onChange={(event) => setAddendum((current) => ({
+                  ...current,
+                  content: event.target.value,
+                }))}
+                rows={5}
+                disabled={isSavingAddendum}
+              />
+            </label>
+            <div>
+              <CancelButton
+                as="button"
+                type="button"
+                onClick={() => setAddendum(null)}
+                disabled={isSavingAddendum}
+              >
+                Cancelar
+              </CancelButton>
+              <SubmitButton type="button" onClick={saveAddendum} disabled={isSavingAddendum}>
+                {isSavingAddendum ? "Salvando..." : "Salvar adendo"}
+              </SubmitButton>
+            </div>
+          </AddendumEditor>
         )}
 
         {isLoading && (
@@ -996,9 +1186,67 @@ export default function PatientEvaluationDetails() {
           </>
         )}
       </PageContent>
+      <ClinicalSignatureConfirmModal
+        open={signatureConfirmOpen}
+        loading={isSaving}
+        error={signatureError}
+        onCancel={() => {
+          setSignatureConfirmOpen(false);
+          setSignatureError("");
+        }}
+        onConfirm={() => handleSave(true)}
+      />
     </PageWrapper>
   );
 }
+
+const LegacyNotice = styled.div`
+  margin: 16px 0;
+  padding: 12px 14px;
+  border-left: 3px solid #a77a44;
+  background: #fff8ef;
+  color: #6b5235;
+`;
+
+const AddendumBlock = styled.div`
+  display: grid;
+  gap: 5px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(106, 121, 92, 0.24);
+  border-radius: 9px;
+  background: #fff;
+`;
+
+const AddendumEditor = styled.div`
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid rgba(106, 121, 92, 0.3);
+  border-radius: 10px;
+
+  label {
+    display: grid;
+    gap: 6px;
+    font-weight: 700;
+  }
+
+  input,
+  textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid rgba(106, 121, 92, 0.32);
+    border-radius: 8px;
+    font: inherit;
+  }
+
+  > div {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+`;
 
 const Header = styled(ModuleHeader)`
   display: flex;
