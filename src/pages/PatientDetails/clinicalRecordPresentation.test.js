@@ -1,4 +1,6 @@
 import {
+  formatClinicalCaseAuthor,
+  formatClinicalCaseMeta,
   formatClinicalRecordAuthor,
   formatClinicalRecordDateTime,
   formatClinicalRecordMeta,
@@ -47,5 +49,70 @@ describe("clinical record presentation", () => {
       "Profissional não identificado · CREFITO não informado",
     );
     expect(formatClinicalRecordDateTime(null)).toBe("--/--/---- --:--");
+  });
+
+  it("apresenta a data e a identidade canônica de quem criou o caso clínico", () => {
+    const clinicalCase = {
+      created_at: new Date(2026, 7, 5, 12, 0, 0).toISOString(),
+      created_by: 8,
+      createdByUser: {
+        id: 8,
+        TeamPerson: {
+          name: "MHBC",
+          ClinicProfessional: {
+            registration_region: "15",
+            registration_number: "123456789F",
+          },
+        },
+      },
+    };
+
+    expect(formatClinicalCaseMeta(clinicalCase)).toContain("Adicionado em 05/08/2026");
+    expect(formatClinicalCaseMeta(clinicalCase)).toContain(
+      "MHBC · CREFITO 15/123456789F",
+    );
+  });
+
+  it("mantém o criador original após edição posterior", () => {
+    const clinicalCase = {
+      created_at: new Date(2026, 7, 5, 12, 0, 0).toISOString(),
+      updated_by: 99,
+      updatedByUser: {
+        TeamPerson: { name: "Pessoa que editou" },
+      },
+      createdByUser: {
+        TeamPerson: {
+          name: "Pessoa criadora",
+          ClinicProfessional: {
+            registration_region: "15",
+            registration_number: "111-F",
+          },
+        },
+      },
+    };
+
+    expect(formatClinicalCaseAuthor(clinicalCase)).toBe(
+      "Pessoa criadora · CREFITO 15/111-F",
+    );
+  });
+
+  it("não usa usuário autenticado como fallback e trata legado de modo neutro", () => {
+    const legacyCase = {
+      created_at: "2026-08-05T15:00:00.000Z",
+      currentUser: {
+        TeamPerson: {
+          name: "Usuário atual",
+          ClinicProfessional: {
+            registration_region: "15",
+            registration_number: "999-F",
+          },
+        },
+      },
+    };
+
+    expect(formatClinicalCaseAuthor(legacyCase)).toBe(
+      "Autoria não identificada · CREFITO não informado",
+    );
+    expect(formatClinicalCaseMeta(legacyCase)).not.toContain("Usuário atual");
   });
 });
