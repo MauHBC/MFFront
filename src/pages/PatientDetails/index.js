@@ -48,6 +48,7 @@ import {
   maskBirthDateInput,
 } from "../../utils/birthDate";
 import { getPatientDisplayName } from "../../utils/patientSearch";
+import { formatClinicalRecordMeta } from "./clinicalRecordPresentation";
 
 const TABS = {
   resumo: "resumo",
@@ -1839,9 +1840,7 @@ export default function PatientDetails() {
             const conduct = getEvaluationConduct(evaluation);
             const painLabel = getEvaluationPainLabel(evaluation);
             const title = templateTitle || summary || typeLabel;
-            const createdAt = formatDate(
-              evaluation.created_at || evaluation.createdAt,
-            );
+            const createdAt = formatClinicalRecordMeta(evaluation);
             const clinicalCase = getEvaluationClinicalCase(evaluation);
             const isSession = evaluation.record_type === "session";
 
