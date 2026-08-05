@@ -137,6 +137,13 @@ Os contratos visuais específicos de pessoas, contas, perfis, inativação e
 auditoria da área Equipe estão em
 [team-read-only-module.md](team-read-only-module.md).
 
+Pessoa, atuação profissional, conta e perfil continuam entidades distintas. A
+identidade profissional é cadastrada e editada em drawer próprio, por um único
+comando transacional do backend; a interface não ativa a atuação em uma
+requisição separada. CREFITO não concede permissão nem substitui o vínculo
+canônico da conta com a pessoa e a clínica. Profissionais existentes sem dados
+de identidade permanecem pendentes até revisão administrativa manual.
+
 ### Estados de autorização e contenção responsiva da Equipe
 
 O `AuthorizationContext` diferencia ausência de sessão (`401`), acesso negado

@@ -13,6 +13,7 @@ import {
   loadTeamReadModel,
   previewProfessionalInactivation,
   resetTeamAccountPassword,
+  saveTeamProfessionalIdentity,
   setTeamProfessionalState,
   unassignAuthorizationProfile,
   updateAuthorizationProfile,
@@ -115,6 +116,25 @@ describe("team read service", () => {
       is_active: true,
     });
     expect(JSON.stringify(api.patch.mock.calls)).not.toContain("clinic_id");
+  });
+
+  it("salva identidade e ativação profissional em um único payload tenant-scoped", async () => {
+    api.put.mockResolvedValueOnce({ data: { id: 12, is_active: true } });
+    await saveTeamProfessionalIdentity(4, {
+      action: "save_pending",
+      activate: true,
+      profession: "physiotherapist",
+      registrationRegion: "15",
+      registrationNumber: "12345-f",
+    });
+    expect(api.put).toHaveBeenCalledWith("/team/people/4/professional-identity", {
+      action: "save_pending",
+      activate: true,
+      profession: "physiotherapist",
+      registration_region: "15",
+      registration_number: "12345-f",
+    });
+    expect(JSON.stringify(api.put.mock.calls)).not.toContain("clinic_id");
   });
 
   it("consulta auditoria somente com filtros permitidos e sem tenant", async () => {

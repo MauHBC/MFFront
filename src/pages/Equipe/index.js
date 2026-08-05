@@ -14,7 +14,6 @@ import {
   createTeamPerson,
   loadTeamReadModel,
   resetTeamAccountPassword,
-  setTeamProfessionalState,
   unassignAuthorizationProfile,
   updateAuthorizationProfile,
   updateTeamPerson,
@@ -37,6 +36,7 @@ import {
 import { GhostButton, PrimaryButton, RowActionButton } from "../../components/AppButton";
 import { colors, layout } from "../../styles/tokens";
 import AccountAccessDrawer, { validateAccountAccessForm } from "./AccountAccessDrawer";
+import ProfessionalIdentityDrawer from "./ProfessionalIdentityDrawer";
 import ProfessionalInactivationDrawer from "./ProfessionalInactivationDrawer";
 import TeamAuditHistory from "./TeamAuditHistory";
 
@@ -178,6 +178,13 @@ export function buildTeamPresentation(model) {
       isProfessional: Boolean(person.professional),
       professionalId: person.professional ? Number(person.professional.id) : null,
       professionalActive: person.professional?.is_active === true,
+      professionalIdentity: person.professional ? {
+        profession: person.professional.profession,
+        registrationRegion: person.professional.registration_region,
+        registrationNumber: person.professional.registration_number,
+        verificationStatus: person.professional.identity_verification_status || "pending",
+        verifiedAt: person.professional.identity_verified_at,
+      } : null,
       account: person.account ? {
         id: person.account.id,
         login: accountState?.login_identifier || person.account.email || null,
@@ -614,9 +621,9 @@ export default function Equipe() {
   const [assignmentEditor, setAssignmentEditor] = useState(null);
   const [accountEditor, setAccountEditor] = useState(null);
   const [inactivationEditor, setInactivationEditor] = useState(null);
+  const [professionalIdentityEditor, setProfessionalIdentityEditor] = useState(null);
   const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [activatingPersonId, setActivatingPersonId] = useState(null);
-  const [activatingProfessionalId, setActivatingProfessionalId] = useState(null);
   const [actionError, setActionError] = useState("");
 
   const load = useCallback(async () => {
@@ -763,23 +770,6 @@ export default function Equipe() {
       setActionError(getUserFacingApiError(error, "Não foi possível reativar a pessoa."));
     } finally {
       setActivatingPersonId(null);
-    }
-  };
-
-  const activateProfessional = async (personId) => {
-    if (activatingProfessionalId) return;
-    setActionError("");
-    setActivatingProfessionalId(personId);
-    try {
-      await setTeamProfessionalState(personId, true);
-      await load();
-    } catch (error) {
-      setActionError(getUserFacingApiError(
-        error,
-        "Não foi possível ativar a atuação profissional.",
-      ));
-    } finally {
-      setActivatingProfessionalId(null);
     }
   };
 
@@ -1104,15 +1094,14 @@ export default function Equipe() {
                           </RowActionButton>
                         )}
                         {renderAccountActions(person)}
-                        {person.isPerson && person.isActive && !person.isProfessional && (
+                        {person.isPerson && person.isActive && (
                           <RowActionButton
                             type="button"
-                            onClick={() => activateProfessional(person.id)}
-                            disabled={activatingProfessionalId === person.id}
+                            onClick={() => setProfessionalIdentityEditor(person)}
                           >
-                            {activatingProfessionalId === person.id
-                              ? "Ativando atuação..."
-                              : "Ativar atuação profissional"}
+                            {person.isProfessional
+                              ? "Dados profissionais"
+                              : "Cadastrar como profissional"}
                           </RowActionButton>
                         )}
                         {canInactivate(person) && (
@@ -1211,6 +1200,13 @@ export default function Equipe() {
           targets={presentation.people.filter(({ isPerson }) => isPerson)}
           onClose={() => setInactivationEditor(null)}
           onCompleted={load}
+        />
+      )}
+      {professionalIdentityEditor && (
+        <ProfessionalIdentityDrawer
+          person={professionalIdentityEditor}
+          onClose={() => setProfessionalIdentityEditor(null)}
+          onSaved={load}
         />
       )}
       <UnsavedChangesDialog

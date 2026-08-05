@@ -17,7 +17,7 @@ import {
   loadTeamReadModel,
   previewProfessionalInactivation,
   resetTeamAccountPassword,
-  setTeamProfessionalState,
+  saveTeamProfessionalIdentity,
   unassignAuthorizationProfile,
   updateAuthorizationProfile,
   updateTeamPerson,
@@ -40,7 +40,7 @@ jest.mock("../../services/team", () => ({
   loadTeamReadModel: jest.fn(),
   previewProfessionalInactivation: jest.fn(),
   resetTeamAccountPassword: jest.fn(),
-  setTeamProfessionalState: jest.fn(),
+  saveTeamProfessionalIdentity: jest.fn(),
   unassignAuthorizationProfile: jest.fn(),
   updateAuthorizationProfile: jest.fn(),
   updateTeamPerson: jest.fn(),
@@ -149,7 +149,7 @@ describe("Equipe", () => {
     unassignAuthorizationProfile.mockReset();
     updateAuthorizationProfile.mockReset();
     resetTeamAccountPassword.mockReset();
-    setTeamProfessionalState.mockReset();
+    saveTeamProfessionalIdentity.mockReset();
     unblockTeamAccount.mockReset();
     createTeamPerson.mockResolvedValue({ id: 30 });
     createTeamAccount.mockResolvedValue({ user_id: 11, status: "active" });
@@ -168,7 +168,7 @@ describe("Equipe", () => {
     unassignAuthorizationProfile.mockResolvedValue(null);
     updateAuthorizationProfile.mockResolvedValue({ id: 22 });
     resetTeamAccountPassword.mockResolvedValue({ user_id: 10 });
-    setTeamProfessionalState.mockResolvedValue({ id: 103, is_active: true });
+    saveTeamProfessionalIdentity.mockResolvedValue({ id: 103, is_active: true });
     unblockTeamAccount.mockResolvedValue({ user_id: 10, status: "active" });
   });
 
@@ -200,7 +200,7 @@ describe("Equipe", () => {
     })));
   });
 
-  it("ativa a atuação profissional de uma pessoa existente sem confundir com perfil", async () => {
+  it("cadastra atuação e identidade profissional em um único comando", async () => {
     loadTeamReadModel.mockResolvedValue({
       ...model,
       people: [
@@ -219,19 +219,23 @@ describe("Equipe", () => {
     render(<Equipe />);
     const personRow = await openActionsFor("Davi");
     fireEvent.click(within(personRow).getByRole("button", {
-      name: "Ativar atuação profissional",
+      name: "Cadastrar como profissional",
     }));
-    await waitFor(() => expect(setTeamProfessionalState).toHaveBeenCalledWith(4, true));
-    expect(within(await openActionsFor("Davi")).getByRole("button", {
-      name: "Ativando atuação...",
-    })).toBeDisabled();
-    await waitFor(() => expect(screen.queryByRole("button", {
-      name: "Ativando atuação...",
-    })).not.toBeInTheDocument());
-    const reloadedRow = await openActionsFor("Davi");
-    expect(within(reloadedRow).getByRole("button", {
-      name: "Ativar atuação profissional",
-    })).not.toBeDisabled();
+    const drawer = screen.getByRole("dialog", { name: "Cadastrar como profissional" });
+    fireEvent.change(within(drawer).getByLabelText("Região do CREFITO"), {
+      target: { value: "15" },
+    });
+    fireEvent.change(within(drawer).getByLabelText("Número do CREFITO"), {
+      target: { value: "12345-F" },
+    });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Cadastrar profissional" }));
+    await waitFor(() => expect(saveTeamProfessionalIdentity).toHaveBeenCalledWith(4, {
+      action: "save_pending",
+      activate: true,
+      profession: "physiotherapist",
+      registrationRegion: "15",
+      registrationNumber: "12345-F",
+    }));
   });
 
   it("valida campos obrigatórios junto ao campo e não envia", async () => {
