@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import { FaTimes } from "react-icons/fa";
+import { toast } from "react-toastify";
 import {
   AppDrawer,
   DrawerBackdrop,
@@ -20,6 +21,17 @@ const STATUS_LABELS = Object.freeze({
   pending: "Pendente",
   verified: "Verificado",
 });
+
+const normalizedIdentityValues = (values) => ({
+  profession: values.profession || "",
+  registrationRegion: (values.registrationRegion || "").trim(),
+  registrationNumber: (values.registrationNumber || "").trim().toUpperCase(),
+});
+
+const identityValuesChanged = (values, initialValues) => (
+  JSON.stringify(normalizedIdentityValues(values))
+  !== JSON.stringify(normalizedIdentityValues(initialValues))
+);
 
 export const validateProfessionalIdentity = (values) => {
   const errors = {};
@@ -40,14 +52,22 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
   const requiresActivation = !person.isProfessional || person.professionalActive !== true;
   const creating = !person.isProfessional;
   const verified = identity.verificationStatus === "verified";
-  const [values, setValues] = useState({
+  const initialValues = {
     profession: identity.profession || "physiotherapist",
     registrationRegion: identity.registrationRegion || "",
     registrationNumber: identity.registrationNumber || "",
-  });
+  };
+  const [values, setValues] = useState(initialValues);
   const [errors, setErrors] = useState({});
-  const [submitting, setSubmitting] = useState(false);
+  const [submittingAction, setSubmittingAction] = useState(null);
   const [apiError, setApiError] = useState("");
+  const submittingRef = useRef(false);
+  const submitting = Boolean(submittingAction);
+  const hasChanges = identityValuesChanged(values, initialValues);
+  const requiresVerification = !verified || hasChanges;
+  const statusLabel = verified && hasChanges
+    ? "Alterações ainda não verificadas"
+    : STATUS_LABELS[identity.verificationStatus] || "Pendente";
 
   const update = (field, value) => {
     setValues((current) => ({ ...current, [field]: value }));
@@ -56,24 +76,35 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
   };
 
   const submit = async (action) => {
-    if (submitting) return;
+    if (submittingRef.current) return;
     const validationErrors = validateProfessionalIdentity(values);
     if (Object.keys(validationErrors).length) {
       setErrors(validationErrors);
       return;
     }
-    setSubmitting(true);
+    submittingRef.current = true;
+    setSubmittingAction(action);
     setApiError("");
+    let succeeded = false;
     try {
-      await saveTeamProfessionalIdentity(person.id, {
+      const savedPerson = await saveTeamProfessionalIdentity(person.id, {
         action,
         activate: requiresActivation,
         profession: values.profession,
         registrationRegion: values.registrationRegion.trim(),
         registrationNumber: values.registrationNumber.trim(),
       });
-      await onSaved();
-      onClose();
+      await onSaved(savedPerson);
+      if (action === "verify") {
+        toast.success("Dados profissionais verificados com sucesso.");
+      } else if (creating) {
+        toast.success("Profissional cadastrado. A verificação permanece pendente.");
+      } else if (verified) {
+        toast.success("Dados profissionais salvos e verificação definida como pendente.");
+      } else {
+        toast.success("Dados profissionais salvos como pendentes.");
+      }
+      succeeded = true;
     } catch (error) {
       const duplicate = error?.response?.data?.error
         === "PROFESSIONAL_REGISTRATION_ALREADY_EXISTS";
@@ -81,8 +112,10 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
         ? "Este registro profissional já está cadastrado para outra pessoa da clínica."
         : getUserFacingApiError(error, "Não foi possível salvar os dados profissionais."));
     } finally {
-      setSubmitting(false);
+      submittingRef.current = false;
+      if (!succeeded) setSubmittingAction(null);
     }
+    if (succeeded) onClose();
   };
 
   const close = () => {
@@ -93,6 +126,8 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
     ? "Cadastrar profissional"
     : "Reativar profissional";
   if (submitting) activationButtonLabel = "Salvando...";
+  let pendingButtonLabel = verified ? "Salvar e tornar pendente" : "Salvar como pendente";
+  if (submittingAction === "save_pending") pendingButtonLabel = "Salvando...";
 
   return (
     <>
@@ -114,7 +149,7 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
         <DrawerBody>
           <StatusText>
             {person.name} · situação:{" "}
-            <strong>{STATUS_LABELS[identity.verificationStatus] || "Pendente"}</strong>
+            <strong>{statusLabel}</strong>
           </StatusText>
           <FieldLabel htmlFor="professional-profession">Profissão</FieldLabel>
           <FieldSelect
@@ -154,6 +189,12 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
             Preencher estes dados não os torna verificados. A confirmação administrativa
             fica registrada na auditoria e não concede perfil ou permissão.
           </Notice>
+          {verified && hasChanges && (
+            <Notice role="status">
+              Os dados modificados ainda não estão verificados. Confirme a verificação
+              para validar os novos dados ou salve como pendente.
+            </Notice>
+          )}
           {requiresActivation && (
             <Notice>
               Ao salvar, a atuação profissional será {creating ? "criada" : "reativada"}
@@ -178,15 +219,19 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
                   onClick={() => submit("save_pending")}
                   disabled={submitting}
                 >
-                  {verified ? "Salvar e tornar pendente" : "Salvar como pendente"}
+                  {pendingButtonLabel}
                 </GhostButton>
-                <PrimaryButton
-                  type="button"
-                  onClick={() => submit("verify")}
-                  disabled={submitting}
-                >
-                  Confirmar verificação
-                </PrimaryButton>
+                {requiresVerification && (
+                  <PrimaryButton
+                    type="button"
+                    onClick={() => submit("verify")}
+                    disabled={submitting}
+                  >
+                    {submittingAction === "verify"
+                      ? "Confirmando..."
+                      : "Confirmar verificação"}
+                  </PrimaryButton>
+                )}
               </>
             )}
           </DrawerFooter>
