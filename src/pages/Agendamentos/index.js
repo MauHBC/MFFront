@@ -4600,6 +4600,7 @@ export default function Agendamentos() {
           service_id: payload.service_id,
           status: payload.status,
           assign_patient_care: payload.assign_patient_care,
+          clinic_professional_id: payload.clinic_professional_id,
           starts_at: recurrenceStartsAt.toISOString(),
           duration_minutes: durationMinutes,
           repeat_interval: repeatInterval,

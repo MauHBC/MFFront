@@ -1183,6 +1183,7 @@ describe("Agendamentos - editar agendamento", () => {
   });
 
   it("envia semana sim semana nao no preview e preserva repeat_interval na confirmacao", async () => {
+    mockProfessionalAssigned = false;
     previewSchedulingOccurrences.mockResolvedValue({
       data: {
         occurrences_preview: [
@@ -1236,10 +1237,12 @@ describe("Agendamentos - editar agendamento", () => {
         repeat_interval: 2,
         occurrence_count: 4,
 	        weekdays: [1, 4],
-	        billing_mode: "per_session",
+        billing_mode: "per_session",
         price_override_cents: 10000,
-	      }),
-	    ));
+        assign_patient_care: true,
+        clinic_professional_id: 300,
+      }),
+    ));
     expect(await screen.findByText("Semana sim, semana não · primeira semana ativa · 4 sessões"))
       .toBeInTheDocument();
     expect(screen.getByText(/06\/07\/2026/)).toBeInTheDocument();
@@ -1247,16 +1250,18 @@ describe("Agendamentos - editar agendamento", () => {
     expect(screen.getByText(/20\/07\/2026/)).toBeInTheDocument();
     expect(screen.getByText(/23\/07\/2026/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    fireEvent.click(screen.getByRole("button", { name: "Atribuir e agendar" }));
 
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/session-series",
       expect.objectContaining({
 	        repeat_interval: 2,
 	        occurrence_count: 4,
-	        billing_mode: "per_session",
+        billing_mode: "per_session",
         price_override_cents: 10000,
-	      }),
+        assign_patient_care: true,
+        clinic_professional_id: 300,
+      }),
 	    ));
     const seriesPayload = axios.post.mock.calls.find(([url]) => url === "/session-series")[1];
     expect(seriesPayload).not.toHaveProperty("patient_plan_id");
