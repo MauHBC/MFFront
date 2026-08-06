@@ -168,6 +168,12 @@ export const resumePatientPlan = (id, payload = {}) =>
 export const cancelPatientPlan = (id, payload = {}) =>
   api.post(`/patient-plans/${id}/cancel`, payload);
 
+export const unschedulePatientPlanCancellation = (id, payload = {}) =>
+  api.post(`/patient-plans/${id}/cancel/unschedule`, payload);
+
+export const getPatientPlanHistory = (id, params = {}) =>
+  api.get(`/patient-plans/${id}/history`, { params });
+
 export const listBillingCycles = (params) =>
   api.get('/billing-cycles', { params });
 
@@ -227,6 +233,8 @@ export default {
   previewResumePatientPlan,
   resumePatientPlan,
   cancelPatientPlan,
+  unschedulePatientPlanCancellation,
+  getPatientPlanHistory,
   listBillingCycles,
   getCoveragePreview,
 };

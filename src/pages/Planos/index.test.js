@@ -18,6 +18,7 @@ import {
   listPatientPlans,
   listServicePlans,
   listServicePrices,
+  getPatientPlanHistory,
 } from "../../services/financial";
 import axios from "../../services/axios";
 
@@ -42,6 +43,8 @@ jest.mock("../../services/financial", () => ({
   previewResumePatientPlan: jest.fn(),
   resumePatientPlan: jest.fn(),
   cancelPatientPlan: jest.fn(),
+  unschedulePatientPlanCancellation: jest.fn(),
+  getPatientPlanHistory: jest.fn(),
 }));
 
 function renderPlans(pathname = "/planos") {
@@ -99,6 +102,9 @@ describe("Planos no contêiner do App Shell", () => {
           sessions_per_week: 2,
         },
       }],
+    });
+    getPatientPlanHistory.mockResolvedValue({
+      data: { events: [], page_info: { has_more: false, next_cursor: null } },
     });
   });
 
@@ -165,6 +171,143 @@ describe("Planos no contêiner do App Shell", () => {
     expect(source).toMatch(/expected_version:\s*Number\(planChangeForm\.expected_version\)/);
     expect(source).toMatch(/future-sessions-removal-preview/);
     expect(source).toMatch(/change-plan\/cancel/);
+    expect(source).toMatch(/getPatientPlanHistory/);
+    expect(source).toMatch(/expected_pause_version/);
+    expect(source).toMatch(/Desprogramar cancelamento/);
+  });
+
+  it("renderiza a linha do tempo paginada sem expor JSON bruto", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: { id: 31, name: "Mensal 2x", sessions_per_week: 2 },
+      agenda_summary: { status: "not_configured", future_sessions_count: 0 },
+    };
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") return Promise.resolve({ data: {} });
+      if (url === "/services") return Promise.resolve({ data: [] });
+      if (url === "/patients") return Promise.resolve({ data: [patientPlan.Patient] });
+      if (url === "/users") return Promise.resolve({ data: [] });
+      if (url === "/unit-scheduling-policy") return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: {} });
+    });
+    getPatientPlanHistory
+      .mockResolvedValueOnce({
+        data: {
+          events: [
+            {
+              id: 12,
+              sequence: 12,
+              type: "commercial_change_applied",
+              label: "Alteração comercial aplicada",
+              occurred_at: "2026-08-06T12:00:00.000Z",
+              origin: "automatic",
+              actor: null,
+              changes: [{
+                field: "change_status",
+                label: "Status da alteração",
+                before: "pending",
+                after: "applied",
+              }],
+              legacy: { is_legacy: false, is_incomplete: false },
+            },
+            {
+              id: 11,
+              sequence: 11,
+              type: "pause_ended",
+              label: "Pausa encerrada automaticamente",
+              occurred_at: "2026-08-05T12:00:00.000Z",
+              origin: "automatic",
+              actor: null,
+              changes: [{
+                field: "pause_status",
+                label: "Status da pausa",
+                before: "active",
+                after: "ended",
+              }],
+              legacy: { is_legacy: false, is_incomplete: false },
+            },
+          ],
+          page_info: { has_more: true, next_cursor: "cursor-11" },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          events: [{
+            id: 3,
+            sequence: 3,
+            type: "legacy_pause_snapshot",
+            label: "Registro legado de pausa",
+            occurred_at: "2026-07-01T12:00:00.000Z",
+            origin: "backfill",
+            actor: null,
+            changes: [],
+            legacy: { is_legacy: true, is_incomplete: true },
+          }],
+          page_info: { has_more: false, next_cursor: null },
+        },
+      });
+
+    renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("tab", { name: "Histórico" }));
+
+    const applied = await screen.findByText("Alteração comercial aplicada");
+    const endedPause = screen.getByText("Pausa encerrada automaticamente");
+    expect(applied.compareDocumentPosition(endedPause))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByText(/Pendente → Aplicada/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Sistema/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText(/\{"/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Carregar eventos anteriores" }));
+    expect(await screen.findByText("Registro legado de pausa")).toBeInTheDocument();
+    expect(screen.getByText(/evidência histórica incompleta/)).toBeInTheDocument();
+    expect(getPatientPlanHistory).toHaveBeenLastCalledWith("41", {
+      limit: 20,
+      cursor: "cursor-11",
+    });
+  });
+
+  it("só exibe o estado vazio quando a API confirma ausência de eventos", async () => {
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") {
+        return Promise.resolve({ data: { id: 41, status: "active", patient_id: 11 } });
+      }
+      if (url === "/patient-plans/41/admin-summary") return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: {} });
+    });
+    getPatientPlanHistory.mockResolvedValueOnce({
+      data: { events: [], page_info: { has_more: false, next_cursor: null } },
+    });
+
+    renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("tab", { name: "Histórico" }));
+    expect(await screen.findByText("Nenhum evento registrado para este plano."))
+      .toBeInTheDocument();
+  });
+
+  it("exibe erro de autorização ou carregamento sem declarar histórico vazio", async () => {
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") {
+        return Promise.resolve({ data: { id: 41, status: "active", patient_id: 11 } });
+      }
+      if (url === "/patient-plans/41/admin-summary") return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: {} });
+    });
+    getPatientPlanHistory.mockRejectedValueOnce({
+      response: { status: 403, data: { error: "Acesso negado ao histórico." } },
+    });
+
+    renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("tab", { name: "Histórico" }));
+
+    expect(await screen.findByText("Acesso negado ao histórico.")).toBeInTheDocument();
+    expect(screen.queryByText("Nenhum evento registrado para este plano."))
+      .not.toBeInTheDocument();
   });
 
   it("falha fechado e entrega a atribuição explícita ao cliente HTTP quando o vínculo não foi confirmado", async () => {

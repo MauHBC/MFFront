@@ -49,6 +49,8 @@ import {
   previewResumePatientPlan,
   resumePatientPlan,
   cancelPatientPlan,
+  unschedulePatientPlanCancellation,
+  getPatientPlanHistory,
 } from "../../services/financial";
 import axios from "../../services/axios";
 import {
@@ -205,6 +207,31 @@ const formatDateTimeBR = (value) => {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+};
+
+const HISTORY_STATUS_LABELS = {
+  active: "Ativo",
+  paused: "Pausado",
+  canceled: "Cancelado",
+  scheduled: "Programada",
+  ended: "Encerrada",
+  pending: "Pendente",
+  replaced: "Substituída",
+  applied: "Aplicada",
+};
+
+const formatPlanHistoryValue = (field, value) => {
+  if (value === null || value === undefined || value === "") return "Não informado";
+  if (field === "price_cents") return formatPrice(Number(value));
+  if (typeof value === "boolean") return value ? "Sim" : "Não";
+  if (Array.isArray(value)) return value.join(", ");
+  if (["starts_on", "ends_on", "resumes_on", "cancellation_effective_on", "effective_on"].includes(field)) {
+    return formatDateBR(value);
+  }
+  if (["status", "pause_status", "change_status"].includes(field)) {
+    return HISTORY_STATUS_LABELS[String(value)] || String(value);
+  }
+  return String(value);
 };
 
 const daysInMonth = (year, month) => new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -413,11 +440,6 @@ const mapBadgeTone = (tone) => {
   if (tone === "danger") return "canceled";
   if (tone === "warning") return "paused";
   return tone || "neutral";
-};
-
-const formatAgendaWeekdays = (value) => {
-  const text = formatWeekdayList(value);
-  return text === "-" ? "—" : text;
 };
 
 const formatCycleWeeksForPlanInfo = (label, weeks = null) => {
@@ -894,6 +916,15 @@ export default function Planos() {
   const [ppCancelForm, setPpCancelForm] = useState(EMPTY_CANCEL);
   const [ppDetailPlan, setPpDetailPlan] = useState(null);
   const [ppAdminSummary, setPpAdminSummary] = useState(null);
+  const [ppHistoryEvents, setPpHistoryEvents] = useState([]);
+  const [ppHistoryPageInfo, setPpHistoryPageInfo] = useState({
+    has_more: false,
+    next_cursor: null,
+  });
+  const [ppHistoryLoading, setPpHistoryLoading] = useState(false);
+  const [ppHistoryLoadingMore, setPpHistoryLoadingMore] = useState(false);
+  const [ppHistoryError, setPpHistoryError] = useState("");
+  const [ppHistoryLoaded, setPpHistoryLoaded] = useState(false);
   const [ppDetailLoading, setPpDetailLoading] = useState(false);
   const [ppDetailError, setPpDetailError] = useState("");
   const [ppDetailEditing, setPpDetailEditing] = useState(false);
@@ -1012,10 +1043,14 @@ export default function Planos() {
     if (!id) return null;
     setPpDetailLoading(true);
     setPpDetailError("");
+    setPpHistoryLoading(true);
+    setPpHistoryError("");
+    setPpHistoryLoaded(false);
     try {
-      const [detailResult, adminResult] = await Promise.allSettled([
+      const [detailResult, adminResult, historyResult] = await Promise.allSettled([
         axios.get(`/patient-plans/${id}`),
         axios.get(`/patient-plans/${id}/admin-summary`),
+        getPatientPlanHistory(id, { limit: 20 }),
       ]);
 
       if (detailResult.status === "rejected") {
@@ -1025,17 +1060,71 @@ export default function Planos() {
       const detail = detailResult.value?.data || null;
       setPpDetailPlan(detail);
       setPpAdminSummary(adminResult.status === "fulfilled" ? adminResult.value?.data || null : null);
+      if (historyResult.status === "fulfilled") {
+        const historyPayload = historyResult.value?.data || {};
+        setPpHistoryEvents(Array.isArray(historyPayload.events) ? historyPayload.events : []);
+        setPpHistoryPageInfo({
+          has_more: historyPayload.page_info?.has_more === true,
+          next_cursor: historyPayload.page_info?.next_cursor || null,
+        });
+        setPpHistoryError("");
+        setPpHistoryLoaded(true);
+      } else {
+        setPpHistoryEvents([]);
+        setPpHistoryPageInfo({ has_more: false, next_cursor: null });
+        setPpHistoryError(
+          historyResult.reason?.response?.data?.error || "Erro ao carregar o histórico do plano.",
+        );
+        setPpHistoryLoaded(false);
+      }
       return detail;
     } catch (err) {
       const message = err?.response?.data?.error || "Erro ao carregar detalhes do plano.";
       setPpDetailError(message);
       setPpDetailPlan(null);
       setPpAdminSummary(null);
+      setPpHistoryEvents([]);
+      setPpHistoryPageInfo({ has_more: false, next_cursor: null });
+      setPpHistoryError("");
+      setPpHistoryLoaded(false);
       return null;
     } finally {
       setPpDetailLoading(false);
+      setPpHistoryLoading(false);
     }
   }, []);
+
+  const loadMorePatientPlanHistory = useCallback(async () => {
+    if (
+      !patientPlanId
+      || !ppHistoryPageInfo.next_cursor
+      || ppHistoryLoadingMore
+    ) return;
+    setPpHistoryLoadingMore(true);
+    setPpHistoryError("");
+    try {
+      const response = await getPatientPlanHistory(patientPlanId, {
+        limit: 20,
+        cursor: ppHistoryPageInfo.next_cursor,
+      });
+      const payload = response.data || {};
+      const incoming = Array.isArray(payload.events) ? payload.events : [];
+      setPpHistoryEvents((current) => {
+        const byId = new Map(current.map((event) => [event.id, event]));
+        incoming.forEach((event) => byId.set(event.id, event));
+        return [...byId.values()].sort((left, right) => Number(right.sequence) - Number(left.sequence));
+      });
+      setPpHistoryPageInfo({
+        has_more: payload.page_info?.has_more === true,
+        next_cursor: payload.page_info?.next_cursor || null,
+      });
+      setPpHistoryLoaded(true);
+    } catch (error) {
+      setPpHistoryError(error?.response?.data?.error || "Erro ao carregar mais eventos.");
+    } finally {
+      setPpHistoryLoadingMore(false);
+    }
+  }, [patientPlanId, ppHistoryLoadingMore, ppHistoryPageInfo.next_cursor]);
 
   useEffect(() => {
     loadBaseData();
@@ -1081,6 +1170,11 @@ export default function Planos() {
     if (!patientPlanId) {
       setPpDetailPlan(null);
       setPpAdminSummary(null);
+      setPpHistoryEvents([]);
+      setPpHistoryPageInfo({ has_more: false, next_cursor: null });
+      setPpHistoryError("");
+      setPpHistoryLoaded(false);
+      setPpHistoryLoading(false);
       setPpDetailError("");
       setPpDetailLoading(false);
       setPpDetailEditing(false);
@@ -1678,6 +1772,7 @@ export default function Planos() {
           ends_on: ppPauseEditForm.is_indefinite ? null : ppPauseEditForm.ends_on,
           is_indefinite: ppPauseEditForm.is_indefinite,
           reason: ppPauseEditForm.reason.trim() || null,
+          expected_version: Number(activePause.version || 1),
         });
         toast.success("Pausa atualizada.");
         closePpPauseEditModal();
@@ -1793,6 +1888,7 @@ export default function Planos() {
       try {
         await resumePatientPlan(ppResumePlan.id, {
           resumes_on: ppResumeForm.resumes_on,
+          expected_pause_version: Number(getPatientPlanActivePause(ppResumePlan)?.version || 1),
         });
         toast.success("Plano retomado.");
         closePpResumeModal();
@@ -1819,9 +1915,14 @@ export default function Planos() {
   const handlePpCancel = useCallback((pp) => {
     if (isSaving || ppPausePlan || ppPauseEditPlan || ppResumePlan || ppCancelPlan) return;
     setPpCancelPlan(pp);
+    const hasFutureCancellation = pp?.cancellation_effective_on
+      && String(pp.cancellation_effective_on).slice(0, 10) > todayDateOnly();
     setPpCancelForm({
       ...EMPTY_CANCEL,
-      effectiveDate: todayDateOnly(),
+      effectiveDate: hasFutureCancellation
+        ? String(pp.cancellation_effective_on).slice(0, 10)
+        : todayDateOnly(),
+      reason: hasFutureCancellation ? String(pp.cancellation_reason || "") : "",
     });
   }, [isSaving, ppPausePlan, ppPauseEditPlan, ppResumePlan, ppCancelPlan]);
 
@@ -1854,6 +1955,7 @@ export default function Planos() {
         await cancelPatientPlan(ppCancelPlan.id, {
           effective_date: effectiveDate,
           cancellation_reason: ppCancelForm.reason.trim(),
+          expected_version: Number(ppCancelPlan.cancellation_version || 0),
         });
         toast.success(effectiveDate === todayDateOnly()
           ? "Vínculo cancelado."
@@ -1869,6 +1971,29 @@ export default function Planos() {
     },
     [ppCancelPlan, ppCancelForm, isSaving, closePpCancelModal, loadPatientPlans, patientPlanId, loadPatientPlanDetail],
   );
+
+  const handleUnscheduleCancellation = useCallback(async () => {
+    if (!ppDetailPlan?.id || isSaving) return;
+    // Confirmação nativa mantém a ação destrutiva explícita sem introduzir outro fluxo visual.
+    // eslint-disable-next-line no-alert
+    const confirmed = window.confirm(
+      "Desprogramar este cancelamento? A operação só continuará se agenda e financeiro puderem ser restaurados com evidência exata.",
+    );
+    if (!confirmed) return;
+    setIsSaving(true);
+    try {
+      await unschedulePatientPlanCancellation(ppDetailPlan.id, {
+        expected_version: Number(ppDetailPlan.cancellation_version || 0),
+      });
+      toast.success("Cancelamento desprogramado.");
+      await loadPatientPlans();
+      await loadPatientPlanDetail(ppDetailPlan.id);
+    } catch (error) {
+      toast.error(error?.response?.data?.error || "Não foi possível desprogramar o cancelamento.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [isSaving, loadPatientPlanDetail, loadPatientPlans, ppDetailPlan]);
 
   const closeFutureRemovalModal = useCallback(() => {
     if (futureRemovalConfirming) return;
@@ -2588,6 +2713,11 @@ export default function Planos() {
 
   const ppDetailSummary = ppDetailPlan ? getPatientPlanSummary(ppDetailPlan) : null;
   const ppDetailStatus = ppDetailPlan ? getPatientPlanStatusInfo(ppDetailPlan) : null;
+  const ppDetailHasFutureCancellation = Boolean(
+    ppDetailPlan?.cancellation_effective_on
+    && String(ppDetailPlan.cancellation_effective_on).slice(0, 10) > todayDateOnly()
+    && ppDetailPlan?.status !== "canceled",
+  );
   const ppAdminHeader = ppAdminSummary?.header_summary || null;
   const ppAdminPlanData = ppAdminSummary?.plan_data_summary || null;
   const ppPendingPlanChange = ppAdminSummary?.pending_plan_change || null;
@@ -2767,12 +2897,6 @@ export default function Planos() {
       {!futureRemovalPreview && futureRemovalLoading ? "Carregando..." : "Remover lançamentos futuros"}
     </DangerButton>
   ) : null;
-  const ppDetailAgendaFallbackPattern = [
-    formatAgendaWeekdays(ppDetailAgendaSummary?.weekdays),
-    ppDetailAgendaSummary?.time ? `às ${ppDetailAgendaSummary.time}` : null,
-    ppDetailAgendaSummary?.included_cycle_weeks_label,
-  ].filter((item) => item && item !== "—").join(" · ") || "—";
-  const ppDetailAgendaPattern = ppDetailAgendaSummary?.pattern_summary || ppDetailAgendaFallbackPattern;
   const ppDetailAgendaHasActiveRecurrence = ppDetailAgendaStatus === "active_recurrence"
     && ppDetailFutureSessionsCount > 0;
   const ppDetailAgendaShortStatusLabel = ppDetailAgendaHasActiveRecurrence
@@ -2801,19 +2925,6 @@ export default function Planos() {
     ppDetailPlanFrequency && ppDetailPlanFrequency !== "-" ? ppDetailPlanFrequency : null,
     ppDetailAgendaWeekdaysText || null,
   ].filter(Boolean).join(" - ");
-  const ppDetailHasPreviousAgendaConfig = ppDetailAgendaStatus === "no_future_sessions"
-    && ppDetailAgendaPattern !== "—";
-  const ppDetailAgendaHistoryItems = [];
-  if (ppDetailHasPreviousAgendaConfig) {
-    ppDetailAgendaHistoryItems.push({
-      title: "Última configuração de agenda",
-      description: ppDetailAgendaPattern,
-      meta: ppDetailAgendaSummary?.series_starts_at
-        ? `Iniciada em ${formatDateBR(ppDetailAgendaSummary.series_starts_at)}`
-        : null,
-      note: "Sem recorrência ativa no momento.",
-    });
-  }
   const ppDetailPlanValue = ppAdminPlanData?.price_cents != null
     ? formatPrice(ppAdminPlanData.price_cents)
     : ppDetailSummary?.price || "-";
@@ -2824,33 +2935,6 @@ export default function Planos() {
     ppAdminPlanData?.anchor_day || ppDetailPlan?.anchor_day,
   );
   const ppDetailPlanNotes = String(ppAdminPlanData?.notes || ppDetailPlan?.notes || "").trim();
-  const ppDetailPlanHistoryItems = [];
-  const ppDetailPlanPauses = Array.isArray(ppDetailPlan?.pauses) ? ppDetailPlan.pauses : [];
-  ppDetailPlanPauses.forEach((pause) => {
-    if (!pause || !["active", "scheduled"].includes(pause.status)) return;
-    const pausePeriod = pause.is_indefinite || !pause.ends_on
-      ? `desde ${formatDateBR(pause.starts_on)}`
-      : `de ${formatDateBR(pause.starts_on)} a ${formatDateBR(pause.ends_on)}`;
-    ppDetailPlanHistoryItems.push({
-      title: pause.status === "scheduled" ? "Pausa programada" : "Pausa do plano",
-      description: pause.status === "scheduled"
-        ? `Pausa programada ${pausePeriod}.`
-        : `Plano pausado ${pausePeriod}.`,
-      meta: pause.reason ? `Motivo: ${pause.reason}` : null,
-    });
-  });
-  if (ppDetailPlan?.status === "canceled" || ppDetailPlan?.cancellation_effective_on) {
-    const cancellationDate = ppDetailPlan?.cancellation_effective_on
-      ? formatDateBR(ppDetailPlan.cancellation_effective_on)
-      : null;
-    ppDetailPlanHistoryItems.push({
-      title: "Cancelamento do plano",
-      description: cancellationDate
-        ? `Cancelamento ${String(ppDetailPlan.cancellation_effective_on).slice(0, 10) > todayDateOnly() ? "programado para" : "registrado em"} ${cancellationDate}.`
-        : "Plano cancelado.",
-      meta: ppDetailPlan?.cancellation_reason ? `Motivo: ${ppDetailPlan.cancellation_reason}` : null,
-    });
-  }
   const ppDetailPlanDataContent = (() => {
     if (isPpDetailDataLoading) {
       return (
@@ -3086,7 +3170,17 @@ export default function Planos() {
       </AgendaSimpleBlock>
     );
 
-    if (ppDetailAgendaHistoryItems.length > 0 || ppDetailPlanHistoryItems.length > 0) {
+    if (ppHistoryLoading) {
+      ppDetailAgendaHistoryContent = (
+        <PlanBlockLoading>
+          <DataLoadingState text="Carregando histórico..." compact />
+        </PlanBlockLoading>
+      );
+    } else if (ppHistoryError) {
+      ppDetailAgendaHistoryContent = (
+        <InlineAlert $tone="danger">{ppHistoryError}</InlineAlert>
+      );
+    } else if (ppHistoryLoaded && ppHistoryEvents.length > 0) {
       ppDetailAgendaHistoryContent = (
         <AgendaSimpleBlock $tone="warning">
           <AgendaBlockHeader>
@@ -3096,31 +3190,37 @@ export default function Planos() {
             </AgendaTitleGroup>
           </AgendaBlockHeader>
           <PlanHistorySections>
-            {ppDetailAgendaHistoryItems.length > 0 && (
-              <PlanHistorySection>
-                <PlanHistorySectionTitle>Configurações</PlanHistorySectionTitle>
-                {ppDetailAgendaHistoryItems.map((item) => (
-                  <PlanHistoryItem key={`${item.title}-${item.description}`}>
-                    <strong>{item.title}</strong>
-                    <span>{item.description}</span>
-                    {item.meta && <small>{item.meta}</small>}
-                    {item.note && <small>{item.note}</small>}
-                  </PlanHistoryItem>
-                ))}
-              </PlanHistorySection>
-            )}
-            {ppDetailPlanHistoryItems.length > 0 && (
-              <PlanHistorySection>
-                <PlanHistorySectionTitle>Pausas e cancelamentos</PlanHistorySectionTitle>
-                {ppDetailPlanHistoryItems.map((item) => (
-                  <PlanHistoryItem key={`${item.title}-${item.description}`}>
-                    <strong>{item.title}</strong>
-                    <span>{item.description}</span>
-                    {item.meta && <small>{item.meta}</small>}
-                  </PlanHistoryItem>
-                ))}
-              </PlanHistorySection>
-            )}
+            <PlanHistorySection>
+              <PlanHistorySectionTitle>Linha do tempo</PlanHistorySectionTitle>
+              {ppHistoryEvents.map((event) => (
+                <PlanHistoryItem key={event.id || `${event.type}-${event.sequence}`}>
+                  <strong>{event.label || "Evento do plano"}</strong>
+                  <span>
+                    {formatDateTimeBR(event.occurred_at)} · {event.actor?.name
+                      || (event.origin === "automatic" ? "Sistema" : "Responsável não identificado")}
+                  </span>
+                  {(Array.isArray(event.changes) ? event.changes : []).map((change) => (
+                    <small key={`${event.id}-${change.field}`}>
+                      {change.label}: {formatPlanHistoryValue(change.field, change.before)} → {formatPlanHistoryValue(change.field, change.after)}
+                    </small>
+                  ))}
+                  {event.legacy?.is_legacy && (
+                    <small>
+                      Registro legado{event.legacy?.is_incomplete ? " · evidência histórica incompleta" : ""}
+                    </small>
+                  )}
+                </PlanHistoryItem>
+              ))}
+              {ppHistoryPageInfo.has_more && (
+                <GhostButton
+                  type="button"
+                  onClick={loadMorePatientPlanHistory}
+                  disabled={ppHistoryLoadingMore}
+                >
+                  {ppHistoryLoadingMore ? "Carregando..." : "Carregar eventos anteriores"}
+                </GhostButton>
+              )}
+            </PlanHistorySection>
           </PlanHistorySections>
         </AgendaSimpleBlock>
       );
@@ -4353,6 +4453,15 @@ export default function Planos() {
                                 Gerenciar pausa
                               </GhostButton>
                             )}
+                            {!ppDetailEditing && ppDetailHasFutureCancellation && (
+                              <GhostButton
+                                type="button"
+                                onClick={handleUnscheduleCancellation}
+                                disabled={ppDetailEditing || isPpStatusActionBusy}
+                              >
+                                Desprogramar cancelamento
+                              </GhostButton>
+                            )}
                             {!ppDetailEditing && ppDetailPlan && ppDetailPlan.status !== "canceled" && (
                               <DangerButton
                                 type="button"
@@ -4360,7 +4469,7 @@ export default function Planos() {
                                 onClick={() => handlePpCancel(ppDetailPlan)}
                                 disabled={ppDetailEditing || isPpStatusActionBusy}
                               >
-                                Cancelar plano
+                                {ppDetailHasFutureCancellation ? "Alterar cancelamento" : "Cancelar plano"}
                               </DangerButton>
                             )}
                           </PlanDetailsActions>
@@ -4383,7 +4492,7 @@ export default function Planos() {
 
                   {ppDetailSection === PATIENT_PLAN_DETAIL_SECTIONS.history && (
                     <PlanDetailSection>
-                      {ppDetailAgendaHistoryContent || (
+                      {ppDetailAgendaHistoryContent || (ppHistoryLoaded && (
                         <AgendaSimpleBlock>
                           <AgendaBlockHeader>
                             <AgendaTitleGroup>
@@ -4391,10 +4500,10 @@ export default function Planos() {
                             </AgendaTitleGroup>
                           </AgendaBlockHeader>
                           <AgendaSummaryMessage>
-                            Nenhum evento de agenda, pausa ou cancelamento registrado para este plano.
+                            Nenhum evento registrado para este plano.
                           </AgendaSummaryMessage>
                         </AgendaSimpleBlock>
-                      )}
+                      ))}
                     </PlanDetailSection>
                   )}
 			                </PlanDetailPage>

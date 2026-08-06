@@ -577,6 +577,11 @@ Use este shell para módulos CRUD administrativos simples, com uma entidade prin
 **Template canônico:** `src/templates/StandardModuleTemplate.js`
 **Referência real:** `src/pages/Planos/index.js`
 
+Na Administração do plano mensal, a aba Histórico consome o endpoint paginado
+`GET /patient-plans/:id/history`. Ela não reconstrói pausas, cancelamentos ou
+trocas comerciais a partir do estado atual do vínculo e nunca renderiza os
+snapshots JSON internos.
+
 > Regra: novo módulo nasce do template, não de uma cópia de Planos ou Agendamentos.
 
 ### Composição obrigatória
