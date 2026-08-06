@@ -617,6 +617,73 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     ]);
   });
 
+  it("mantem pacote totalmente pago visivel no detalhe", async () => {
+    getFinancialRevenuePatientDetail.mockResolvedValueOnce({
+      data: {
+        patient: { id: 30, name: "Maria Silva" },
+        month: "2026-06",
+        summary: {
+          total: 100000,
+          received: 100000,
+          pending: 0,
+          creditAvailable: 0,
+        },
+        entries: [],
+        sessions: [],
+        payments: [],
+        credits: [],
+        series: [
+          {
+            id: 902,
+            clinic_id: 1,
+            patient_id: 30,
+            service_id: 10,
+            starts_at: "2026-06-12T09:00:00.000Z",
+            occurrence_count: 5,
+            Service: { id: 10, name: "Fisioterapia" },
+          },
+        ],
+        packages: [
+          {
+            id: "series-902",
+            sourceId: 902,
+            kind: "series",
+            series_id: 902,
+            service_id: 10,
+            service_name: "Fisioterapia",
+            reference_date: "2026-06-12T09:00:00.000Z",
+            total_sessions: 5,
+            used_sessions: 0,
+            contracted_amount_cents: 100000,
+            amount_cents: 100000,
+            paid_cents: 100000,
+            open_cents: 0,
+            financial_status: "paid",
+            entries: [],
+            sessions: [],
+          },
+        ],
+      },
+    });
+
+    renderFinanceiro();
+    await revealFinancialValues();
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    expect(await screen.findByText("Fisioterapia")).toBeInTheDocument();
+    expectChargeTableStructure("Fisioterapia", [
+      "12/06/2026",
+      "Fisioterapia",
+      "0/5",
+      "R$ 1.000,00",
+      "R$ 1.000,00",
+      "R$ 0,00",
+      "Pago",
+      "Sessões",
+    ]);
+  });
+
   it("nao transforma sessao sem FinancialEntry em cobranca pendente", async () => {
     getFinancialRevenuesSummary.mockResolvedValueOnce({
       data: {
@@ -681,6 +748,95 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(screen.getByText("A receber").nextSibling).toHaveTextContent("R$ 0,00");
     expect(screen.queryByText("Fisioterapia")).not.toBeInTheDocument();
     expect(screen.queryByText("R$ 200,00")).not.toBeInTheDocument();
+  });
+
+  it("zera o resumo e o valor a receber no mes seguinte ao inicio do pacote", async () => {
+    getFinancialRevenuesSummary.mockResolvedValue({
+      data: {
+        month: "2026-05",
+        summary: {
+          total: 40000,
+          received: 0,
+          pending: 40000,
+        },
+        patients: [
+          {
+            patient_id: 30,
+            patient_name: "Marcos Vinicius Forecchi Accioly",
+            total: 40000,
+            received: 0,
+            pending: 40000,
+            entries_count: 5,
+          },
+        ],
+      },
+    });
+    getFinancialRevenuePatientDetail.mockResolvedValue({
+      data: {
+        patient: { id: 30, name: "Marcos Vinicius Forecchi Accioly" },
+        month: "2026-05",
+        summary: {
+          total: 0,
+          received: 0,
+          pending: 0,
+          creditAvailable: 95000,
+        },
+        entries: [],
+        sessions: [],
+        payments: [],
+        credits: [],
+        series: [
+          {
+            id: 901,
+            clinic_id: 1,
+            patient_id: 30,
+            service_id: 10,
+            starts_at: "2026-04-15T09:00:00.000Z",
+            occurrence_count: 5,
+            Service: { id: 10, name: "Fisioterapia" },
+          },
+        ],
+        packages: [
+          {
+            id: "series-901",
+            sourceId: 901,
+            series_id: 901,
+            service_id: 10,
+            service_name: "Fisioterapia",
+            reference_date: "2026-04-15T09:00:00.000Z",
+            total_sessions: 5,
+            used_sessions: 0,
+            amount_cents: 40000,
+            paid_cents: 0,
+            open_cents: 40000,
+            entries: [{ entryId: 744, openCents: 40000 }],
+            sessions: [],
+          },
+        ],
+      },
+    });
+
+    renderFinanceiro();
+    await revealFinancialValues();
+    await userEvent.click(screen.getByRole("button", { name: "< Anterior" }));
+    await waitFor(() => {
+      expect(getFinancialRevenuesSummary).toHaveBeenCalledWith("2026-05", "month");
+    });
+    await screen.findByText("Marcos Vinicius Forecchi Accioly");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+
+    await waitFor(() => {
+      expect(getFinancialRevenuePatientDetail).toHaveBeenCalledWith("30", "2026-05", "month");
+      expect(screen.getByText("A receber").nextSibling).toHaveTextContent("R$ 0,00");
+    });
+    await waitFor(() => {
+      const summaryCard = screen.getByText("Resumo de cobrança").parentElement.parentElement;
+      expect(within(summaryCard).getByText("Sessões contratadas").nextSibling).toHaveTextContent("0");
+      expect(within(summaryCard).getByText("Valor").nextSibling).toHaveTextContent("R$ 0,00");
+      expect(within(summaryCard).getByText("Recebido").nextSibling).toHaveTextContent("R$ 0,00");
+      expect(within(summaryCard).getByText("Pendente").nextSibling).toHaveTextContent("R$ 0,00");
+    });
+    expect(screen.queryByText("Fisioterapia")).not.toBeInTheDocument();
   });
 
   it("mantem servicos avulsos no detalhe ao pesquisar pelo paciente", async () => {

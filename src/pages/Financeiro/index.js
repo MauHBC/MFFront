@@ -4679,7 +4679,6 @@ export default function Financeiro() {
           openCents: entryOpenCents,
         }));
         const packageEntries = normalizePackageEntries(backendPackage, fallbackEntries);
-        if (!packageEntries.length) return null;
 
         return {
           id: `series-${seriesId}`,
@@ -6345,12 +6344,31 @@ export default function Financeiro() {
     const displayAttendanceRows = useAggregatedRevenues
       ? aggregatedAttendanceByPatient
       : attendanceByPatient;
-    const displayAttendanceSummary = useAggregatedRevenues
+    let displayAttendanceSummary = useAggregatedRevenues
       ? aggregatedAttendanceSummary
       : attendanceSummary;
+    const currentPatientDetailSummary =
+      attendanceDrilldownPatientId
+      && attendanceDetailSummary?.patientId === Number(attendanceDrilldownPatientId)
+        ? attendanceDetailSummary.summary || null
+        : null;
+    if (currentPatientDetailSummary) {
+      displayAttendanceSummary = {
+        ...displayAttendanceSummary,
+        total: attendanceSelectedPatientPackages.reduce(
+          (sum, item) => sum + Number(item.totalSessions || 0),
+          0,
+        ),
+        expectedAmount: Number(currentPatientDetailSummary.total || 0),
+        paidAmount: Number(currentPatientDetailSummary.received || 0),
+        pendingAmount: Number(currentPatientDetailSummary.pending || 0),
+      };
+    }
     const isAttendanceInitialLoading = useAggregatedRevenues
       ? loadingRevenuesSummary
       : isAttendanceLoading && !hasAttendanceLoaded;
+    const isAttendanceSummaryLoading = isAttendanceInitialLoading
+      || (Boolean(attendanceDrilldownPatientId) && attendanceDetailSessions.isLoading);
     const isAttendanceRefreshing = isAttendanceLoading && hasAttendanceLoaded;
     const periodSuffix = attendancePeriodLabel ? ` - ${attendancePeriodLabel}` : "";
     const attendanceTitle = `Resumo por paciente${periodSuffix}`;
@@ -6646,7 +6664,7 @@ export default function Financeiro() {
       </AttendanceMetricsGrid>
     );
 
-    if (isAttendanceInitialLoading) {
+    if (isAttendanceSummaryLoading) {
       attendanceSummaryContent = (
         <BlockLoader>
           <Spinner />
