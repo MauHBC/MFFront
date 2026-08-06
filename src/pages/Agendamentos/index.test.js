@@ -620,6 +620,8 @@ describe("Agendamentos - editar agendamento", () => {
         billing_mode: "per_session",
         patient_credit_id: null,
         session_replacement_credit_id: null,
+        assign_patient_care: false,
+        clinic_professional_id: 300,
       }),
     ));
 
@@ -669,8 +671,77 @@ describe("Agendamentos - editar agendamento", () => {
         patient_id: 20,
         professional_user_id: 30,
         assign_patient_care: true,
+        clinic_professional_id: 300,
       }),
     ));
+  });
+
+  it("trata estado de atribuicao diferente de true como atribuicao explicita", async () => {
+    mockProfessionalAssigned = null;
+    const { container } = renderAgendamentos();
+
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "40" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-06-30" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+    expect(await screen.findByRole("button", { name: "Atribuir e agendar" }))
+      .toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Atribuir e agendar" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 20,
+        professional_user_id: 30,
+        assign_patient_care: true,
+        clinic_professional_id: 300,
+      }),
+    ));
+  });
+
+  it("voltar da revisao nao envia atribuicao nem agendamento", async () => {
+    mockProfessionalAssigned = false;
+    const { container } = renderAgendamentos();
+
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "40" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-06-30" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+    expect(await screen.findByRole("button", { name: "Atribuir e agendar" }))
+      .toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Voltar e editar" }));
+
+    expect(axios.post.mock.calls.some(([url]) => url === "/sessions")).toBe(false);
   });
 
   it("envia valor por sessao negociado apenas quando usuario altera manualmente", async () => {

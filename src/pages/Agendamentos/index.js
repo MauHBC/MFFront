@@ -1899,6 +1899,7 @@ export default function Agendamentos() {
       .map((professional) => ({
         id: professional.id,
         name: professional.name || professional.email || "Profissional",
+        clinic_professional_id: professional.clinic_professional_id,
         is_assigned: professional.is_assigned,
       }));
   }, [canAssignPatientCare, editingId, form.patient_id, patientProfessionals, professionals]);
@@ -1909,7 +1910,8 @@ export default function Agendamentos() {
     [form.professional_user_id, professionalOptions],
   );
   const requiresExplicitCareAssignment = !editingId
-    && selectedProfessional?.is_assigned === false;
+    && !!selectedProfessional
+    && selectedProfessional.is_assigned !== true;
 
   useEffect(() => {
     if (
@@ -4558,6 +4560,9 @@ export default function Agendamentos() {
       };
       if (!editingId) {
         payload.assign_patient_care = requiresExplicitCareAssignment;
+        if (selectedProfessional?.clinic_professional_id) {
+          payload.clinic_professional_id = Number(selectedProfessional.clinic_professional_id);
+        }
       }
       if (shouldSendPriceOverride) {
         payload.price_override_cents = sessionPriceCents;
