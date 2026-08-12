@@ -4540,28 +4540,6 @@ export default function Financeiro() {
     ) || null;
   }, [attendanceSelectedPatientPackages, selectedAttendancePackageId]);
 
-  const attendanceUnlinkedPatientRows = useMemo(() => {
-    if (!selectedAttendancePatientId) return [];
-    const linkedSessionIds = new Set();
-    attendanceSelectedPatientPackages.forEach((item) => {
-      item.sessions.forEach((session) => {
-        if (session?.id) linkedSessionIds.add(Number(session.id));
-      });
-    });
-
-    return attendanceSelectedPatientRows.filter((row) => {
-      if (row.isManualReceiptRow) return true;
-      if (row.isProjectedInstallmentRow) return true;
-      const rowId = Number(row.id || 0);
-      if (rowId && linkedSessionIds.has(rowId)) return false;
-      return !row.seriesId && !row.patientCreditId;
-    });
-  }, [
-    selectedAttendancePatientId,
-    attendanceSelectedPatientPackages,
-    attendanceSelectedPatientRows,
-  ]);
-
   const attendanceSelectedPatientReceipts = useMemo(() => {
     if (!selectedAttendancePatientId) return [];
 
@@ -7736,54 +7714,6 @@ export default function Financeiro() {
 	                      </AttendancePackageCard>
 	                    );
 	                  })}
-                {false && !attendanceDetailSessions.isLoading
-                  && !attendanceDetailSessions.error
-                  && attendanceUnlinkedPatientRows.length > 0 && (
-                    <AttendancePackageCard>
-                      <AttendancePackageHeader>
-                        <div>
-                          <AttendancePackageName>Sessões sem pacote vinculado</AttendancePackageName>
-                          <AttendancePackageMeta>
-                            Receitas por sessão encontradas no resumo, mas sem vínculo claro com pacote.
-                          </AttendancePackageMeta>
-                        </div>
-                      </AttendancePackageHeader>
-	                      <AttendancePackageSessionsScroll>
-                        <SimpleTable>
-                          <thead>
-                            <tr>
-                              <th>Data</th>
-                              <th>Profissional</th>
-                              <th>Status</th>
-                              <th>Financeiro</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {attendanceUnlinkedPatientRows.map((row) => {
-                              const linkedSession = Number(row.id || 0) ? sessionById.get(row.id) : null;
-                              const statusLabel = linkedSession
-                                ? formatPackageSessionStatus(linkedSession.status)
-                                : formatFinancialStatus(row.financialStatus);
-                              return (
-                                <tr key={row.id}>
-                                  <td>{formatSessionDateTimeBR(row.starts_at)}</td>
-                                  <td>{row.professionalName || "-"}</td>
-                                  <td>
-                                    <AttendanceStatusBadge $status={linkedSession?.status || row.financialStatus}>
-                                      {statusLabel}
-                                    </AttendanceStatusBadge>
-                                  </td>
-                                  <td>
-                                    {row.entry ? formatFinancialStatus(row.financialStatus) : "Sem cobrança gerada"}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </SimpleTable>
-	                      </AttendancePackageSessionsScroll>
-                    </AttendancePackageCard>
-                  )}
               </ModalBody>
               <ModalActions>
                 <SecondaryButton type="button" onClick={handleClosePackageSessions}>
@@ -8441,15 +8371,6 @@ export default function Financeiro() {
                           )}
                         </Field>
                       )}
-                      {false && paymentForm.entry_id
-                        && paymentPreview.originalInstallmentsCount <= 1
-                        && paymentForm.convert_entry_to_installments && (
-                          <Field>
-                            <MutedText>
-                              Ao confirmar, a cobrança vira parcelada. A 1ª parcela vence na data do recebimento e será baixada agora. As demais ficam para os meses seguintes.
-                            </MutedText>
-                          </Field>
-                        )}
                       {(paymentForm.entry_id || isScopedPayment) && (
                         <Field>
                           <Label htmlFor="payment-discount">Desconto</Label>
@@ -9888,14 +9809,6 @@ const AttendancePackageName = styled.strong`
   font-size: ${ATTENDANCE_UI.font.size.sm};
   line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
   font-weight: ${ATTENDANCE_UI.font.weight.semibold};
-`;
-
-const AttendancePackageMeta = styled.span`
-  display: block;
-  margin-top: 4px;
-  color: ${ATTENDANCE_UI.colors.textSecondary};
-  font-size: ${ATTENDANCE_UI.font.size.sm};
-  line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
 `;
 
 const AttendancePackageSummary = styled.div`
