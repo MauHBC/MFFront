@@ -57,6 +57,10 @@ usa `main`.
 
 ## Documentos canônicos
 
+- Consulte a [governança documental local](docs/governanca-documentacao.md)
+  somente ao criar ou alterar documentação, quando
+  `DOCUMENTATION_IMPACT = UPDATE_REQUIRED` ou diante de conflito ou dúvida
+  documental.
 - [frontend-module-architecture.md](docs/frontend-module-architecture.md):
   landing, contextos e padrões dos módulos.
 - [regras-negocio.md](docs/regras-negocio.md): ponte para as regras oficiais do
