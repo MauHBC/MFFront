@@ -60,7 +60,9 @@ import ClinicExpenseCategoryModal from "./components/ClinicExpenseCategoryModal"
 import ClinicExpenseCategoriesSection from "./components/ClinicExpenseCategoriesSection";
 import ClinicExpensesSection from "./components/ClinicExpensesSection";
 import ClinicExpensePaymentModal from "./components/ClinicExpensePaymentModal";
+import FinancialPaymentModal from "./components/FinancialPaymentModal";
 import FinancialOverviewSection from "./components/FinancialOverviewSection";
+import useFinancialPaymentFlow from "./hooks/useFinancialPaymentFlow";
 import {
   emptyFinancialRevenuesSummary,
   mapRevenuesSummaryPatientsToAttendanceRows,
@@ -108,63 +110,6 @@ const resolveGroupedFinancialStatus = (amountCents, paidCents, openCents) => {
   if (open <= 0) return "paid";
   if (paid > 0) return "partial";
   return "pending";
-};
-
-const splitCentsByBase = (totalCents, baseList = []) => {
-  const total = Math.max(0, Number(totalCents || 0));
-  if (total <= 0 || !baseList.length) return baseList.map(() => 0);
-
-  const normalizedBase = baseList.map((value) => Math.max(0, Number(value || 0)));
-  const baseTotal = normalizedBase.reduce((sum, value) => sum + value, 0);
-  if (baseTotal <= 0) {
-    const equal = Math.floor(total / normalizedBase.length);
-    const remainder = total - equal * normalizedBase.length;
-    return normalizedBase.map((_, index) => (index === normalizedBase.length - 1 ? equal + remainder : equal));
-  }
-
-  const result = [];
-  let distributed = 0;
-  normalizedBase.forEach((base, index) => {
-    if (index === normalizedBase.length - 1) {
-      result.push(total - distributed);
-      return;
-    }
-    const share = Math.floor((total * base) / baseTotal);
-    distributed += share;
-    result.push(share);
-  });
-  return result;
-};
-
-const buildScopedAllocationItems = (scopedEntries = [], amountCents = 0, discountCents = 0) => {
-  const entries = scopedEntries
-    .map((item) => ({
-      entry_id: Number(item.entryId || item.entry_id || 0),
-      openCents: Math.max(0, Number(item.openCents || item.open_cents || 0)),
-    }))
-    .filter((item) => item.entry_id > 0 && item.openCents > 0);
-
-  if (!entries.length) return [];
-
-  const discountSplit = splitCentsByBase(
-    Math.max(0, Number(discountCents || 0)),
-    entries.map((item) => item.openCents),
-  );
-  let remaining = Math.max(0, Number(amountCents || 0));
-
-  return entries
-    .map((item, index) => {
-      if (remaining <= 0) return null;
-      const targetOpen = Math.max(0, item.openCents - Math.max(0, Number(discountSplit[index] || 0)));
-      const amount = Math.min(targetOpen, remaining);
-      remaining -= amount;
-      if (amount <= 0) return null;
-      return {
-        entry_id: item.entry_id,
-        amount_cents: amount,
-      };
-    })
-    .filter(Boolean);
 };
 
 const formatCurrencyValue = (cents) => {
@@ -846,6 +791,7 @@ export default function Financeiro() {
   const [isClinicExpenseCategorySaving, setIsClinicExpenseCategorySaving] = useState(false);
   const [clinicExpenseCategoryUpdatingId, setClinicExpenseCategoryUpdatingId] = useState(null);
   const [clinicExpenseCategoryDeactivateTarget, setClinicExpenseCategoryDeactivateTarget] = useState(null);
+  // Estado legado preservado exclusivamente para a view dedicada de Recebimentos.
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isPaymentSaving, setIsPaymentSaving] = useState(false);
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
@@ -2835,6 +2781,7 @@ export default function Financeiro() {
     setMethodForm((prev) => ({ ...prev, [name]: value }));
   }, []);
 
+  // Contrato legado preservado para a view dedicada de Recebimentos desabilitada.
   const createStandalonePaymentAnchor = useCallback(
     async ({ patientId, referenceDate }) => {
       const normalizedReferenceDate =
@@ -2868,14 +2815,6 @@ export default function Financeiro() {
     );
     const amountCents = Math.round(amountValue * 100);
     const isSessionBatchPayment = Boolean(paymentModalContext?.sessionBatch);
-    const scopedPaymentEntries = Array.isArray(paymentModalContext?.scopedPayment?.entries)
-      ? paymentModalContext.scopedPayment.entries
-      : [];
-    const isScopedPayment = scopedPaymentEntries.length > 0;
-    const scopedPaymentOriginalTotalCents = scopedPaymentEntries.reduce(
-      (sum, item) => sum + Math.max(0, Number(item.openCents || item.open_cents || 0)),
-      0,
-    );
     const sessionBatchSessionIds = Array.isArray(paymentModalContext?.sessionBatch?.sessionIds)
       ? paymentModalContext.sessionBatch.sessionIds
       : [];
@@ -2910,7 +2849,6 @@ export default function Financeiro() {
       && (
         (!isSessionBatchPayment && paymentForm.entry_id && (discountCents > 0 || surchargeCents > 0))
         || (isSessionBatchPayment && batchDiscountCents > 0)
-        || (isScopedPayment && discountCents > 0)
       );
     const entryId = Number(paymentForm.entry_id || 0);
     const entryFinancial = entryId ? entryFinancialMap.get(entryId) : null;
@@ -2981,20 +2919,8 @@ export default function Financeiro() {
       toast.error("O desconto não pode ser maior que o valor original.");
       return;
     }
-    if (isScopedPayment && discountCents > scopedPaymentOriginalTotalCents) {
-      toast.error("O desconto nao pode ser maior que o valor original.");
-      return;
-    }
     if (isSessionBatchPayment && batchDiscountCents > batchOriginalTotalCents) {
       toast.error("O desconto do lote não pode ser maior que o valor original.");
-      return;
-    }
-    if (
-      isScopedPayment
-      && discountCents > 0
-      && effectiveAmountCents !== Math.max(0, scopedPaymentOriginalTotalCents - discountCents)
-    ) {
-      toast.error("Valor recebido deve ser igual ao total final com desconto.");
       return;
     }
     if (
@@ -3023,9 +2949,6 @@ export default function Financeiro() {
       let allocationMode = paymentForm.entry_id
         ? "entry"
         : paymentForm.allocation_mode || "none";
-      if (isScopedPayment) {
-        allocationMode = "manual";
-      }
       const hasOpenEntriesForSelectedPatient = entries.some((entry) => {
         if (entry.type !== "income" || Number(entry.patient_id) !== selectedPatientId) return false;
         const financial = entryFinancialMap.get(entry.id);
@@ -3039,18 +2962,16 @@ export default function Financeiro() {
       const paymentReferenceDate = isSimplifiedInstallmentPayment
         ? String(paymentModalContext?.installmentDueDate || "").slice(0, 10)
         : String(paymentForm.paid_at || "").slice(0, 10);
-      const allocationItems = isScopedPayment
-        ? buildScopedAllocationItems(scopedPaymentEntries, effectiveAmountCents, discountCents)
-        : Object.entries(paymentAllocations)
-          .map(([allocationEntryId, value]) => {
-            const parsed = parseCurrencyInputToNumber(value);
-            if (Number.isNaN(parsed) || parsed <= 0) return null;
-            return {
-              entry_id: Number(allocationEntryId),
-              amount_cents: Math.round(parsed * 100),
-            };
-          })
-          .filter(Boolean);
+      const allocationItems = Object.entries(paymentAllocations)
+        .map(([allocationEntryId, value]) => {
+          const parsed = parseCurrencyInputToNumber(value);
+          if (Number.isNaN(parsed) || parsed <= 0) return null;
+          return {
+            entry_id: Number(allocationEntryId),
+            amount_cents: Math.round(parsed * 100),
+          };
+        })
+        .filter(Boolean);
       const allocationTotal = allocationItems.reduce(
         (sum, item) => sum + Number(item.amount_cents || 0),
         0,
@@ -4281,36 +4202,30 @@ export default function Financeiro() {
     selectedBillingCyclesPatientRows,
   ]);
 
-  const openScopedPatientPaymentModal = useCallback((patient, scopedPayment) => {
-    const patientId = patient?.id ? String(patient.id) : String(scopedPayment?.patientId || "");
-    const patientName = patientId
-      ? getPatientDisplayName(patient) || scopedPayment?.patientName || "Paciente"
-      : scopedPayment?.patientName || "Paciente";
-    const totalOpenCents = Math.max(0, Number(scopedPayment?.totalOpenCents || 0));
+  const handleSharedPaymentSaved = useCallback(async ({ patientId }) => {
+    invalidateAttendanceDetailCacheForPatient(patientId);
+    await Promise.all([
+      loadRevenuesData(),
+      loadRevenuesSummary(),
+    ]);
+    if (attendanceDrilldownPatientId && Number(attendanceDrilldownPatientId) === patientId) {
+      await handleViewPatientSessions(patientId, { keepTab: true });
+    }
+    if (hasBillingCyclesLoaded) loadBillingCycles();
+  }, [
+    attendanceDrilldownPatientId,
+    handleViewPatientSessions,
+    hasBillingCyclesLoaded,
+    invalidateAttendanceDetailCacheForPatient,
+    loadBillingCycles,
+    loadRevenuesData,
+    loadRevenuesSummary,
+  ]);
 
-    setPaymentForm({
-      ...emptyPayment,
-      entry_id: null,
-      patient_id: patientId,
-      allocation_mode: "manual",
-      amount: totalOpenCents > 0 ? formatCurrencyInput(totalOpenCents / 100) : "",
-      discount: "",
-      paid_at: toDateInputValue(new Date()),
-    });
-    setPaymentAllocations({});
-    setPaymentModalContext({
-      fixedPatient: true,
-      patientName,
-      scopedPayment: {
-        ...scopedPayment,
-        patientId,
-        patientName,
-      },
-    });
-    setPaymentPatientQuery(patientName);
-    setIsPaymentPatientSearchFocused(false);
-    setIsPaymentOpen(true);
-  }, []);
+  const financialPaymentFlow = useFinancialPaymentFlow({
+    onPaymentSaved: handleSharedPaymentSaved,
+  });
+  const { openScopedPatientPaymentModal } = financialPaymentFlow;
 
   const openAttendanceScopedPaymentModal = useCallback(async () => {
     if (!attendanceSelectedPatientSummary) return;
@@ -4567,6 +4482,7 @@ export default function Financeiro() {
     return years;
   }, [billingCyclesPeriodYear]);
 
+  // Preview legado preservado para a view dedicada de Recebimentos desabilitada.
   const manualAllocationTotal = useMemo(() => {
     return Object.values(paymentAllocations).reduce((sum, value) => {
       const parsed = parseCurrencyInputToNumber(value);
@@ -4585,9 +4501,6 @@ export default function Financeiro() {
     const sessionBatchSessions = Array.isArray(paymentModalContext?.sessionBatch?.sessions)
       ? paymentModalContext.sessionBatch.sessions
       : [];
-    const scopedPaymentEntries = Array.isArray(paymentModalContext?.scopedPayment?.entries)
-      ? paymentModalContext.scopedPayment.entries
-      : [];
     const sessionBatchCount = sessionBatchSessions.length;
     const sessionBatchOriginalTotalCents = sessionBatchSessions.reduce(
       (sum, session) => sum + Math.max(0, Number(session.openCents || session.amountCents || 0)),
@@ -4596,10 +4509,6 @@ export default function Financeiro() {
     const sessionBatchTotalOpenCents = Math.max(
       0,
       Number(paymentModalContext?.sessionBatch?.totalOpenCents || sessionBatchOriginalTotalCents || 0),
-    );
-    const scopedPaymentTotalOpenCents = scopedPaymentEntries.reduce(
-      (sum, item) => sum + Math.max(0, Number(item.openCents || item.open_cents || 0)),
-      0,
     );
 
     const receivedCents =
@@ -4680,8 +4589,6 @@ export default function Financeiro() {
       }
     } else if (sessionBatchTotalOpenCents > 0) {
       baseCents = sessionBatchTotalOpenCents;
-    } else if (scopedPaymentTotalOpenCents > 0) {
-      baseCents = scopedPaymentTotalOpenCents;
     } else if (paymentForm.allocation_mode === "manual" && manualAllocationTotal > 0) {
       baseCents = manualAllocationTotal;
     }
@@ -4746,7 +4653,6 @@ export default function Financeiro() {
 
   const isSimplifiedInstallmentPayment = Boolean(paymentModalContext?.simplifiedInstallment);
   const isSessionBatchPayment = Boolean(paymentModalContext?.sessionBatch);
-  const isScopedPayment = Boolean(paymentModalContext?.scopedPayment);
   const selectedChargeAmountCents = useMemo(() => {
     if (!paymentForm.entry_id) return 0;
     const entryId = Number(paymentForm.entry_id);
@@ -6758,6 +6664,14 @@ export default function Financeiro() {
         </>
       )}
 
+      <FinancialPaymentModal
+        flow={financialPaymentFlow}
+        formatCurrency={formatCurrency}
+        paymentMethods={paymentMethods}
+        onRequestClose={requestModalDiscard}
+      />
+
+      {/* Modal legado preservado para SHOW_DEDICATED_PAYMENTS_VIEW. */}
       {isPaymentOpen && (
         <>
           <ModalOverlay>
@@ -6954,7 +6868,7 @@ export default function Financeiro() {
                           )}
                         </Field>
                       )}
-                      {(paymentForm.entry_id || isScopedPayment) && (
+                      {paymentForm.entry_id && (
                         <Field>
                           <Label htmlFor="payment-discount">Desconto</Label>
                           <CurrencyInputGroup>
@@ -7022,44 +6936,6 @@ export default function Financeiro() {
                         </PaymentPreviewRow>
                         <PaymentPreviewRow $balance={paymentPreview.openAfterCents > 0 || paymentPreview.creditAfterCents > 0}>
                           <span>{sessionBatchBalanceLabel}</span>
-                          <strong>
-                            {formatCurrency(
-                              paymentPreview.creditAfterCents > 0
-                                ? paymentPreview.creditAfterCents
-                                : paymentPreview.openAfterCents,
-                            )}
-                          </strong>
-                        </PaymentPreviewRow>
-                      </PaymentPreviewBox>
-                    )}
-                    {isScopedPayment && (
-                      <PaymentPreviewBox>
-                        <PaymentPreviewTitle>Resumo da operacao</PaymentPreviewTitle>
-                        <PaymentPreviewRow>
-                          <span>Valor original</span>
-                          <strong>{formatCurrency(paymentPreview.baseCents || 0)}</strong>
-                        </PaymentPreviewRow>
-                        {paymentPreview.discountCents > 0 && (
-                          <PaymentPreviewRow>
-                            <span>Desconto</span>
-                            <strong>- {formatCurrency(paymentPreview.discountCents)}</strong>
-                          </PaymentPreviewRow>
-                        )}
-                        <PaymentPreviewDivider />
-                        <PaymentPreviewRow $total>
-                          <span>Total final</span>
-                          <strong>{formatCurrency(paymentPreview.finalChargedCents || 0)}</strong>
-                        </PaymentPreviewRow>
-                        <PaymentPreviewRow>
-                          <span>Valor recebido</span>
-                          <strong>{formatCurrency(paymentPreview.receivedCents)}</strong>
-                        </PaymentPreviewRow>
-                        <PaymentPreviewRow $balance={paymentPreview.openAfterCents > 0 || paymentPreview.creditAfterCents > 0}>
-                          <span>
-                            {paymentPreview.creditAfterCents > 0
-                              ? "Saldo em credito"
-                              : "Valor pendente"}
-                          </span>
                           <strong>
                             {formatCurrency(
                               paymentPreview.creditAfterCents > 0
