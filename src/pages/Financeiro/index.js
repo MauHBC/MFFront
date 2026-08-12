@@ -27,7 +27,6 @@ import {
   getFinancialRevenuesSummary,
   getFinancialRevenuePatientDetail,
   createFinancialEntry,
-  listFinancialCategories,
   listFinancialPayments,
   listPaymentMethods,
   listClinicExpenses,
@@ -78,18 +77,6 @@ import {
 import { formatExpenseAlertCount } from "./helpers/expenseDueAlerts";
 import { formatClinicExpenseStatus, getClinicExpenseStatus } from "./helpers/expenseStatus";
 
-const emptyEntry = {
-  type: "income",
-  description: "",
-  category_id: "",
-  patient_id: "",
-  service_id: "",
-  amount: "",
-  reference_date: "",
-  due_date: "",
-  notes: "",
-};
-
 const emptyPayment = {
   entry_id: null,
   patient_id: "",
@@ -109,33 +96,8 @@ const emptyPayment = {
 const hasFilledText = (value) => String(value || "").trim() !== "";
 
 const STANDALONE_PAYMENT_ANCHOR_DESCRIPTION = "Recebimento por sessão (sistema)";
-const LEGACY_STANDALONE_PAYMENT_ANCHOR_DESCRIPTION = "Recebimento avulso (sistema)";
 const STANDALONE_PAYMENT_ANCHOR_NOTE =
   "Entrada técnica automática para viabilizar recebimento por sessão.";
-const isManualReceiptEntry = (entry) =>
-  Boolean(entry && entry.type === "income" && !entry.session_id);
-
-const resolveManualReceiptLabel = (entry) => {
-  const description = String(entry?.description || "").trim();
-  if (
-    !description ||
-    description === STANDALONE_PAYMENT_ANCHOR_DESCRIPTION ||
-    description === LEGACY_STANDALONE_PAYMENT_ANCHOR_DESCRIPTION
-  ) {
-    return "Recebimento manual";
-  }
-  return description;
-};
-
-const resolveManualReceiptStatus = (amountCents, allocatedCents) => {
-  const amount = Number(amountCents || 0);
-  const allocated = Number(allocatedCents || 0);
-  const remaining = Math.max(0, amount - allocated);
-
-  if (allocated <= 0) return "credit";
-  if (remaining <= 0) return "paid";
-  return "partial";
-};
 
 const resolveGroupedFinancialStatus = (amountCents, paidCents, openCents) => {
   const amount = Number(amountCents || 0);
@@ -377,7 +339,6 @@ const resolveInstallmentAgreement = (
 };
 
 const SHOW_CLINIC_EXPENSES = true;
-const SHOW_MANUAL_ENTRIES = false;
 // Mantemos a view antiga disponivel no codigo, mas fora da navegacao para simplificar a UX.
 const SHOW_DEDICATED_PAYMENTS_VIEW = false;
 
@@ -720,7 +681,6 @@ export default function Financeiro() {
   const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
   const [hasAttendanceLoaded, setHasAttendanceLoaded] = useState(false);
   const [entries, setEntries] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [patients, setPatients] = useState([]);
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [services, setServices] = useState([]);
@@ -740,17 +700,6 @@ export default function Financeiro() {
   );
   const [attendanceSeries, setAttendanceSeries] = useState([]);
   const [attendanceSessions, setAttendanceSessions] = useState([]);
-  const [filters, setFilters] = useState(() => {
-    const range = getCurrentMonthRange();
-    return {
-      status: "all",
-      type: "all",
-      start: range.start,
-      end: range.end,
-      search: "",
-    };
-  });
-
   const [clinicExpensesMonth, setClinicExpensesMonth] = useState(() =>
     toMonthInputValue(new Date()),
   );
@@ -880,9 +829,7 @@ export default function Financeiro() {
     error: "",
   });
 
-  const [isEntryOpen, setIsEntryOpen] = useState(false);
   const [discardModalClose, setDiscardModalClose] = useState(null);
-  const [entryForm, setEntryForm] = useState(emptyEntry);
   const [isClinicExpenseOpen, setIsClinicExpenseOpen] = useState(false);
   const [clinicExpenseForm, setClinicExpenseForm] = useState(() => createEmptyClinicExpense());
   const [editingClinicExpenseId, setEditingClinicExpenseId] = useState(null);
@@ -942,11 +889,6 @@ export default function Financeiro() {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
-
-  const categoryMap = useMemo(
-    () => new Map(categories.map((item) => [item.id, item])),
-    [categories],
-  );
 
   const patientMap = useMemo(
     () => new Map(patients.map((item) => [item.id, item])),
@@ -1179,42 +1121,6 @@ export default function Financeiro() {
     return map;
   }, [entries, paidByEntryId]);
 
-  const filteredEntries = useMemo(() => {
-    const search = normalizeSearchText(filters.search);
-    return entries.filter((entry) => {
-      const entryStatus = entryFinancialMap.get(entry.id)?.status || entry.status;
-      if (filters.status !== "all" && entryStatus !== filters.status) return false;
-      if (filters.type !== "all" && entry.type !== filters.type) return false;
-
-      if (filters.start) {
-        const startDate = new Date(filters.start);
-        const entryDate = new Date(entry.reference_date);
-        if (entryDate < startDate) return false;
-      }
-      if (filters.end) {
-        const endDate = new Date(filters.end);
-        const entryDate = new Date(entry.reference_date);
-        if (entryDate > endDate) return false;
-      }
-
-      if (search) {
-        const category = entry.category_id ? categoryMap.get(entry.category_id) : null;
-        const patient = entry.patient_id ? patientMap.get(entry.patient_id) : null;
-        const haystack = normalizeSearchText([
-          entry.description,
-          entryStatus,
-          category?.name,
-          getPatientDisplayName(patient),
-        ]
-          .filter(Boolean)
-          .join(" "));
-        if (!haystack.includes(search)) return false;
-      }
-
-      return true;
-    });
-  }, [entries, filters, categoryMap, patientMap, entryFinancialMap]);
-
   const clinicExpenses = useMemo(() => {
     const periodMonth = parseMonthInputValue(clinicExpensesMonth);
     const range = clinicExpensesPeriodMode === "year" && periodMonth
@@ -1288,29 +1194,6 @@ export default function Financeiro() {
     if (clinicExpensesPeriodMode === "year") return String(parsed.year);
     return formatMonthYear(new Date(parsed.year, parsed.month - 1, 1));
   }, [clinicExpensesMonth, clinicExpensesPeriodMode]);
-
-  const summary = useMemo(() => {
-    const data = {
-      incomePaid: 0,
-      incomePending: 0,
-      expenseTotal: 0,
-      net: 0,
-    };
-
-    filteredEntries.forEach((entry) => {
-      const amount = Number(entry.amount_cents || 0);
-      if (entry.type === "income") {
-        const status = entryFinancialMap.get(entry.id)?.status || entry.status;
-        if (status === "paid") data.incomePaid += amount;
-        else data.incomePending += amount;
-      } else {
-        data.expenseTotal += amount;
-      }
-    });
-
-    data.net = data.incomePaid - data.expenseTotal;
-    return data;
-  }, [filteredEntries, entryFinancialMap]);
 
   const creditBalanceByPatient = useMemo(() => {
     const map = new Map();
@@ -1467,7 +1350,6 @@ export default function Financeiro() {
       setLoadingRevenues(true);
       const [
         entriesResponse,
-        categoriesResponse,
         paymentMethodsResponse,
         patientsResponse,
         servicesResponse,
@@ -1477,7 +1359,6 @@ export default function Financeiro() {
         sessionSeriesResponse,
       ] = await Promise.all([
         listFinancialEntries(),
-        listFinancialCategories(),
         listPaymentMethods(),
         axios.get("/patients"),
         axios.get("/services"),
@@ -1488,7 +1369,6 @@ export default function Financeiro() {
       ]);
 
       setEntries(entriesResponse.data || []);
-      setCategories(categoriesResponse.data || []);
       setPaymentMethods(paymentMethodsResponse.data || []);
       setPatients(patientsResponse.data || []);
       setServices(servicesResponse.data || []);
@@ -1654,15 +1534,7 @@ export default function Financeiro() {
     }
   }, [activeSection, receitasView, loadBillingCycles]);
 
-  const openEntryModal = useCallback(() => {
-    setEntryForm(emptyEntry);
-    setIsEntryOpen(true);
-  }, []);
-
-  const closeEntryModal = useCallback(() => {
-    setIsEntryOpen(false);
-  }, []);
-
+  // eslint-disable-next-line no-unused-vars -- Preservado para a visão dedicada de Recebimentos.
   const openPaymentModal = useCallback((entry, options = null) => {
     const dueInstallment = options?.installment || null;
     const hasInstallmentTarget = Boolean(dueInstallment);
@@ -1772,16 +1644,6 @@ export default function Financeiro() {
     />
   ), [requestModalDiscard]);
 
-  const entryModalHasInput = Boolean(
-    hasFilledText(entryForm.description)
-    || hasFilledText(entryForm.category_id)
-    || hasFilledText(entryForm.patient_id)
-    || hasFilledText(entryForm.service_id)
-    || hasFilledText(entryForm.amount)
-    || hasFilledText(entryForm.reference_date)
-    || hasFilledText(entryForm.due_date)
-    || hasFilledText(entryForm.notes),
-  );
   const clinicExpenseModalHasInput = Boolean(
     editingClinicExpenseId
     || hasFilledText(clinicExpenseForm.description)
@@ -1856,11 +1718,6 @@ export default function Financeiro() {
       document.removeEventListener("keydown", handleEscape);
     };
   }, [creditUseModalContext, isPaymentOpen, closeCreditUseModal, closePaymentModal]);
-
-  const handleEntryChange = useCallback((event) => {
-    const { name, value } = event.target;
-    setEntryForm((prev) => ({ ...prev, [name]: value }));
-  }, []);
 
   const openClinicExpenseModal = useCallback((expense = null) => {
     if (expense?.id) {
@@ -2380,11 +2237,6 @@ export default function Financeiro() {
       ...prev,
       [name]: formatCurrencyInput(prev[name]),
     }));
-  }, []);
-
-  const handleFilterChange = useCallback((event) => {
-    const { name, value } = event.target;
-    setFilters((prev) => ({ ...prev, [name]: value }));
   }, []);
 
   const handlePaymentFilterChange = useCallback((event) => {
@@ -2983,45 +2835,6 @@ export default function Financeiro() {
     setMethodForm((prev) => ({ ...prev, [name]: value }));
   }, []);
 
-  const handleSaveEntry = useCallback(async () => {
-    const amountValue = Number(entryForm.amount.replace(",", "."));
-    if (!entryForm.reference_date) {
-      toast.error("Informe a data de referencia.");
-      return;
-    }
-    if (!entryForm.type) {
-      toast.error("Selecione o tipo do lançamento.");
-      return;
-    }
-    if (Number.isNaN(amountValue) || amountValue <= 0) {
-      toast.error("Informe um valor valido.");
-      return;
-    }
-
-    try {
-      const payload = {
-        type: entryForm.type,
-        description: entryForm.description.trim() || null,
-        category_id: normalizeId(entryForm.category_id),
-        patient_id: normalizeId(entryForm.patient_id),
-        service_id: normalizeId(entryForm.service_id),
-        amount_cents: Math.round(amountValue * 100),
-        currency: "BRL",
-        reference_date: entryForm.reference_date,
-        due_date: entryForm.due_date || null,
-        notes: entryForm.notes.trim() || null,
-      };
-
-      await createFinancialEntry(payload);
-      toast.success("Lancamento criado.");
-      closeEntryModal();
-      loadRevenuesData();
-      loadRevenuesSummary();
-    } catch (error) {
-      toast.error("Não foi possível salvar o lançamento.");
-    }
-  }, [entryForm, closeEntryModal, loadRevenuesData, loadRevenuesSummary]);
-
   const createStandalonePaymentAnchor = useCallback(
     async ({ patientId, referenceDate }) => {
       const normalizedReferenceDate =
@@ -3373,6 +3186,7 @@ export default function Financeiro() {
     hasBillingCyclesLoaded,
   ]);
 
+  // eslint-disable-next-line no-unused-vars -- Preservado para a visão dedicada de Recebimentos.
   const handleApplyCreditToEntry = useCallback(
     async (entryId) => {
       try {
@@ -3625,122 +3439,6 @@ export default function Financeiro() {
     patientMap,
   ]);
 
-  const attendanceManualPaymentRows = useMemo(() => {
-    if (!SHOW_MANUAL_ENTRIES) return [];
-    const startDate = attendanceFilters.start
-      ? parseDateInputBoundary(attendanceFilters.start, "start")
-      : null;
-    const endDate = attendanceFilters.end
-      ? parseDateInputBoundary(attendanceFilters.end, "end")
-      : null;
-    const hasStart = !!startDate && !Number.isNaN(startDate.getTime());
-    const hasEnd = !!endDate && !Number.isNaN(endDate.getTime());
-    const selectedPatientId = normalizeId(attendanceFilters.patient_id);
-    const selectedProfessionalId = normalizeId(attendanceFilters.professional_id);
-    const search = normalizeSearchText(attendanceFilters.search);
-
-    const matchesFinancial = (statusValue) => {
-      const normalizedStatus = String(statusValue || "pending").toLowerCase();
-      if (attendanceFilters.financial === "pending") {
-        return normalizedStatus === "pending" || normalizedStatus === "credit";
-      }
-      if (attendanceFilters.financial === "partial") return normalizedStatus === "partial";
-      if (attendanceFilters.financial === "paid") return normalizedStatus === "paid";
-      return true;
-    };
-
-    return payments
-      .map((payment) => {
-        if (String(payment.origin || "").toLowerCase() === "session_batch") return null;
-        const paymentEntryId = Number(payment.entry_id || 0) || null;
-        const entry = paymentEntryId ? entryMap.get(paymentEntryId) : null;
-        if (entry && !isManualReceiptEntry(entry)) return null;
-        if (selectedProfessionalId) return null;
-
-        const patientId = Number(payment.patient_id || entry?.patient_id || 0) || null;
-        if (!patientId) return null;
-        if (selectedPatientId && patientId !== selectedPatientId) return null;
-
-        const paidAt = new Date(payment.paid_at || 0);
-        if (Number.isNaN(paidAt.getTime())) return null;
-        if (hasStart && paidAt < startDate) return null;
-        if (hasEnd && paidAt > endDate) return null;
-
-        const patient = patientMap.get(patientId) || null;
-        const paymentMethod = payment.payment_method_id
-          ? paymentMethodMap.get(payment.payment_method_id)
-          : null;
-        const allocatedCents = allocatedByPaymentId.get(payment.id) || 0;
-        const status = resolveManualReceiptStatus(payment.amount_cents, allocatedCents);
-        if (!matchesFinancial(status)) return null;
-
-        const noteParts = [
-          payment.note,
-          entry?.notes && entry.notes !== STANDALONE_PAYMENT_ANCHOR_NOTE ? entry.notes : null,
-        ].filter(Boolean);
-        const row = {
-          id: `manual-payment-${payment.id}`,
-          starts_at: payment.paid_at,
-          patientId,
-          patientName: getPatientDisplayName(patient),
-          professionalId: null,
-          professionalName: "-",
-          serviceName: resolveManualReceiptLabel(entry),
-          recurrence: "-",
-          amountCents: Number(payment.amount_cents || 0),
-          paidCents: allocatedCents,
-          openCents: Math.max(0, Number(payment.amount_cents || 0) - allocatedCents),
-          entry,
-          financialStatus: status,
-          payment,
-          paymentCount: 1,
-          totalReceivedCents: Number(payment.amount_cents || 0),
-          paymentMethod: paymentMethod?.name || "-",
-          isInstallmentPlan: false,
-          installmentCount: 0,
-          installmentUnitCents: 0,
-          installmentAgreementTotalCents: 0,
-          paidInstallments: 0,
-          nextOpenInstallment: null,
-          installments: [],
-          isManualReceiptRow: true,
-          manualUsageLabel: formatPaymentUsage(payment, allocatedCents),
-          manualNote: noteParts.join(" | ") || "-",
-        };
-
-        if (search && !attendanceDrilldownPatientId) {
-          const haystack = normalizeSearchText([
-            row.patientName,
-            row.serviceName,
-            row.paymentMethod,
-            row.manualUsageLabel,
-            row.manualNote,
-          ]
-            .filter(Boolean)
-            .join(" "));
-          if (!haystack.includes(search)) return null;
-        }
-
-        return row;
-      })
-      .filter(Boolean)
-      .sort((a, b) => new Date(a.starts_at || 0) - new Date(b.starts_at || 0));
-  }, [
-    attendanceFilters.end,
-    attendanceFilters.financial,
-    attendanceFilters.patient_id,
-    attendanceFilters.professional_id,
-    attendanceFilters.search,
-    attendanceFilters.start,
-    attendanceDrilldownPatientId,
-    allocatedByPaymentId,
-    entryMap,
-    formatPaymentUsage,
-    patientMap,
-    paymentMethodMap,
-    payments,
-  ]);
-
   const attendanceSessionRows = useMemo(() => {
     const startDate = attendanceFilters.start
       ? new Date(`${attendanceFilters.start}T00:00:00`)
@@ -3905,10 +3603,9 @@ export default function Financeiro() {
       });
     });
 
-    return [...attendanceVisibleRows, ...supplementalRows, ...attendanceManualPaymentRows]
+    return [...attendanceVisibleRows, ...supplementalRows]
       .sort((a, b) => new Date(a.starts_at || 0) - new Date(b.starts_at || 0));
   }, [
-    attendanceManualPaymentRows,
     attendanceFilters.end,
     attendanceFilters.financial,
     attendanceFilters.patient_id,
@@ -3984,19 +3681,6 @@ export default function Financeiro() {
       map.set(row.patientId, base);
     });
 
-    attendanceManualPaymentRows.forEach((row) => {
-      if (!row.patientId || map.has(row.patientId)) return;
-      map.set(row.patientId, {
-        patientId: row.patientId,
-        patientName: row.patientName,
-        sessions: 0,
-        totalCents: 0,
-        openCents: 0,
-        paidCents: 0,
-        lastSession: row.starts_at,
-      });
-    });
-
     return Array.from(map.values())
       .map((item) => {
         return {
@@ -4006,7 +3690,6 @@ export default function Financeiro() {
       })
       .sort((a, b) => collator.compare(a.patientName || "", b.patientName || ""));
   }, [
-    attendanceManualPaymentRows,
     attendanceVisibleCredits,
     attendanceVisibleRows,
     creditBalanceByPatient,
@@ -5191,41 +4874,6 @@ export default function Financeiro() {
     [loadPaymentMethodsData],
   );
 
-  const handleExportCsv = useCallback(() => {
-    if (!filteredEntries.length) {
-      toast.info("Nao ha dados para exportar.");
-      return;
-    }
-
-    const rows = [
-      ["Data", "Tipo", "Descricao", "Categoria", "Paciente", "Valor", "Status"],
-      ...filteredEntries.map((entry) => {
-        const category = entry.category_id ? categoryMap.get(entry.category_id) : null;
-        const patient = entry.patient_id ? patientMap.get(entry.patient_id) : null;
-        const value = (Number(entry.amount_cents || 0) / 100).toFixed(2);
-        return [
-          entry.reference_date || "",
-          entry.type === "income" ? "Receita" : "Despesa",
-          entry.description || "",
-          category?.name || "",
-          patient ? getPatientDisplayName(patient) : "",
-          value,
-          entry.status || "",
-        ];
-      }),
-    ];
-
-    const escapeCell = (value) => `"${String(value).replace(/"/g, '""')}"`;
-    const csv = rows.map((row) => row.map(escapeCell).join(";")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `financeiro_${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }, [filteredEntries, categoryMap, patientMap]);
-
   const handleExportPayments = useCallback(() => {
     if (!payments.length) {
       toast.info("Nao ha pagamentos para exportar.");
@@ -5402,226 +5050,6 @@ export default function Financeiro() {
       onDeactivate={openClinicExpenseCategoryDeactivateModal}
       updatingId={clinicExpenseCategoryUpdatingId}
     />
-  );
-
-  const renderEntries = () => (
-    <Section>
-      <SectionHeader>
-        <div>
-          <SectionTitle>Lancamentos manuais</SectionTitle>
-          <SectionSubtitle>Ajustes e receitas/despesas fora dos atendimentos.</SectionSubtitle>
-        </div>
-        <HeaderActions>
-          <GhostButton type="button" onClick={handleExportCsv}>
-            Exportar CSV
-          </GhostButton>
-          <PrimaryButton type="button" onClick={openEntryModal}>
-            <FaPlus />
-            Novo lançamento
-          </PrimaryButton>
-        </HeaderActions>
-      </SectionHeader>
-
-      {loadingRevenues ? (
-        <SectionLoader>
-          <Spinner />
-          Carregando lançamentos...
-        </SectionLoader>
-      ) : (
-        <>
-          <SummaryGrid>
-            <SummaryCard>
-              <SummaryLabel>Recebido</SummaryLabel>
-              <SummaryValue>{formatCurrency(summary.incomePaid)}</SummaryValue>
-            </SummaryCard>
-            <SummaryCard>
-              <SummaryLabel>A receber</SummaryLabel>
-              <SummaryValue>{formatCurrency(summary.incomePending)}</SummaryValue>
-            </SummaryCard>
-            <SummaryCard>
-              <SummaryLabel>Despesas</SummaryLabel>
-              <SummaryValue>{formatCurrency(summary.expenseTotal)}</SummaryValue>
-            </SummaryCard>
-            <SummaryCard>
-              <SummaryLabel>Saldo</SummaryLabel>
-              <SummaryValue>{formatCurrency(summary.net)}</SummaryValue>
-            </SummaryCard>
-          </SummaryGrid>
-
-          <FiltersRow>
-            <FilterField>
-              <Label htmlFor="filter-status">Status</Label>
-              <Select
-                id="filter-status"
-                name="status"
-                value={filters.status}
-                onChange={handleFilterChange}
-              >
-                <option value="all">Todos</option>
-                <option value="pending">Pendente</option>
-                <option value="partial">Parcial</option>
-                <option value="paid">Pago</option>
-              </Select>
-            </FilterField>
-            <FilterField>
-              <Label htmlFor="filter-type">Tipo</Label>
-              <Select
-                id="filter-type"
-                name="type"
-                value={filters.type}
-                onChange={handleFilterChange}
-              >
-                <option value="all">Todos</option>
-                <option value="income">Receita</option>
-                <option value="expense">Despesa</option>
-              </Select>
-            </FilterField>
-            <FilterField>
-              <Label htmlFor="filter-start">De</Label>
-              <Input
-                id="filter-start"
-                type="date"
-                name="start"
-                value={filters.start}
-                onChange={handleFilterChange}
-              />
-            </FilterField>
-            <FilterField>
-              <Label htmlFor="filter-end">Ate</Label>
-              <Input
-                id="filter-end"
-                type="date"
-                name="end"
-                value={filters.end}
-                onChange={handleFilterChange}
-              />
-            </FilterField>
-            <FilterField>
-              <Label htmlFor="filter-search">Busca</Label>
-              <Input
-                id="filter-search"
-                name="search"
-                placeholder="Paciente, descricao, categoria..."
-                value={filters.search}
-                onChange={handleFilterChange}
-              />
-            </FilterField>
-          </FiltersRow>
-
-          {filteredEntries.length === 0 ? (
-            <EmptyState>Sem lançamentos cadastrados.</EmptyState>
-          ) : (
-            <EntriesTable>
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Descricao</th>
-                  <th>Categoria</th>
-                  <th>Paciente</th>
-                  <th>Valor</th>
-	                  <th>Status</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredEntries.map((entry) => {
-                  const category = entry.category_id ? categoryMap.get(entry.category_id) : null;
-                  const patient = entry.patient_id ? patientMap.get(entry.patient_id) : null;
-                  const financial = entryFinancialMap.get(entry.id);
-                  const status = financial?.status || entry.status;
-                  const openCents = financial?.open ?? 0;
-                  const availableCreditCents = creditBalanceByPatient.get(entry.patient_id) || 0;
-                  const installmentCount = Math.max(
-                    1,
-                    Number(entry.installments_count || financial?.installments?.length || 1),
-                  );
-                  const installmentList = Array.isArray(financial?.installments)
-                    ? financial.installments
-                    : [];
-                  const firstInstallment = installmentCount > 1
-                    ? installmentList.find(
-                      (item) =>
-                        Number(item.installment_number || 0) === 1
-                        && String(item.status || "").toLowerCase() !== "canceled",
-                    ) || installmentList.find(
-                      (item) => String(item.status || "").toLowerCase() !== "canceled",
-                    ) || null
-                    : null;
-                  const firstInstallmentOpenCents = installmentCount > 1
-                    ? Math.max(0, Number(firstInstallment?.open_amount_cents ?? openCents ?? 0))
-                    : 0;
-                  const hideActionsForInstallmentAgreement = Boolean(
-                    installmentCount > 1
-                    && status === "partial"
-                    && firstInstallmentOpenCents <= 0,
-                  );
-                  return (
-                    <tr key={entry.id}>
-                      <td>{entry.reference_date || "-"}</td>
-                      <td>{entry.description || "-"}</td>
-                      <td>{category?.name || "-"}</td>
-                      <td>{patient ? getPatientDisplayName(patient) : "-"}</td>
-                      <td>
-                        <CellStack>
-                          <strong>{formatCurrency(entry.amount_cents)}</strong>
-                          {openCents > 0 && entry.type === "income" && (
-                            <MutedText>Em aberto: {formatCurrency(openCents)}</MutedText>
-                          )}
-                        </CellStack>
-                      </td>
-                      <td>
-                        <FinancialStatusPill $status={status}>{formatFinancialStatus(status)}</FinancialStatusPill>
-                      </td>
-                      <td>
-                        <RowActions>
-                          {entry.type === "income"
-                            && status !== "canceled"
-                            && status !== "paid"
-                            && !hideActionsForInstallmentAgreement && (
-                              <ActionMenu onToggle={handleActionMenuToggle}>
-                                <ActionMenuTrigger>Ações</ActionMenuTrigger>
-                                <ActionMenuList>
-                                  {status !== "paid" && openCents > 0 && availableCreditCents > 0 && (
-                                    <ActionMenuItem
-                                      type="button"
-                                      onClick={(event) => {
-                                        closeActionMenu(event);
-                                        handleApplyCreditToEntry(entry.id);
-                                      }}
-                                    >
-                                      Usar crédito
-                                    </ActionMenuItem>
-                                  )}
-                                  {status !== "paid" && (
-                                    <ActionMenuItem
-                                      type="button"
-                                      onClick={(event) => {
-                                        closeActionMenu(event);
-                                        openPaymentModal(
-                                          entry,
-                                          installmentCount > 1 && firstInstallmentOpenCents > 0
-                                            ? { open_amount_cents: firstInstallmentOpenCents }
-                                            : null,
-                                        );
-                                      }}
-                                    >
-                                      Registrar recebimento
-                                    </ActionMenuItem>
-                                  )}
-                                </ActionMenuList>
-                              </ActionMenu>
-                            )}
-                        </RowActions>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </EntriesTable>
-          )}
-        </>
-      )}
-    </Section>
   );
 
   const renderAttendance = () => {
@@ -6705,15 +6133,6 @@ export default function Financeiro() {
             Recebimentos
           </TabButton>
         )}
-        {SHOW_MANUAL_ENTRIES && (
-          <TabButton
-            type="button"
-            $active={receitasView === "manuais"}
-            onClick={() => setReceitasView("manuais")}
-          >
-            Lancamentos manuais
-          </TabButton>
-        )}
         <TabButton
           type="button"
           $active={receitasView === "mensalidades"}
@@ -6730,8 +6149,6 @@ export default function Financeiro() {
 
     if (SHOW_DEDICATED_PAYMENTS_VIEW && receitasView === "recebimentos") {
       receitasContent = renderPayments();
-    } else if (receitasView === "manuais" && SHOW_MANUAL_ENTRIES) {
-      receitasContent = renderEntries();
     } else if (receitasView === "mensalidades") {
       receitasContent = renderMensalidades();
     }
@@ -7084,130 +6501,6 @@ export default function Financeiro() {
             </ModalCard>
           </ModalOverlay>
           <ProtectedBackdrop onClick={closeBillingCycleSessionsPreview} />
-        </>
-      )}
-
-      {isEntryOpen && (
-        <>
-          <ModalOverlay>
-            <ModalCard>
-              <ModalHeader>
-                <div>
-                  <ModalTitle>Novo lançamento</ModalTitle>
-                  <ModalSubtitle>Preencha os dados do lançamento.</ModalSubtitle>
-                </div>
-                <IconButton type="button" onClick={closeEntryModal}>
-                  <FaTimes />
-                </IconButton>
-              </ModalHeader>
-              <ModalBody>
-                <FormGrid>
-                  <Field>
-                    <Label htmlFor="entry-type">Tipo</Label>
-                    <Select
-                      id="entry-type"
-                      name="type"
-                      value={entryForm.type}
-                      onChange={handleEntryChange}
-                    >
-                      <option value="income">Receita</option>
-                      <option value="expense">Despesa</option>
-                    </Select>
-                  </Field>
-                  <Field>
-                    <Label htmlFor="entry-amount">Valor</Label>
-                    <Input
-                      id="entry-amount"
-                      name="amount"
-                      value={entryForm.amount}
-                      onChange={handleEntryChange}
-                      placeholder="0,00"
-                    />
-                  </Field>
-                  <Field>
-                    <Label htmlFor="entry-date">Data de referencia</Label>
-                    <Input
-                      id="entry-date"
-                      type="date"
-                      name="reference_date"
-                      value={entryForm.reference_date}
-                      onChange={handleEntryChange}
-                    />
-                  </Field>
-                  <Field>
-                    <Label htmlFor="entry-due">Vencimento</Label>
-                    <Input
-                      id="entry-due"
-                      type="date"
-                      name="due_date"
-                      value={entryForm.due_date}
-                      onChange={handleEntryChange}
-                    />
-                  </Field>
-                  <Field>
-                    <Label htmlFor="entry-category">Categoria</Label>
-                    <Select
-                      id="entry-category"
-                      name="category_id"
-                      value={entryForm.category_id}
-                      onChange={handleEntryChange}
-                    >
-                      <option value="">Selecione</option>
-                      {categories.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <Field>
-                    <Label htmlFor="entry-patient">Paciente</Label>
-                    <Select
-                      id="entry-patient"
-                      name="patient_id"
-                      value={entryForm.patient_id}
-                      onChange={handleEntryChange}
-                    >
-                      <option value="">Selecione</option>
-                      {patients.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {getPatientDisplayName(item)}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                </FormGrid>
-                <Field>
-                  <Label htmlFor="entry-description">Descricao</Label>
-                  <Input
-                    id="entry-description"
-                    name="description"
-                    value={entryForm.description}
-                    onChange={handleEntryChange}
-                  />
-                </Field>
-                <Field>
-                  <Label htmlFor="entry-notes">Observações</Label>
-                  <TextArea
-                    id="entry-notes"
-                    name="notes"
-                    rows="3"
-                    value={entryForm.notes}
-                    onChange={handleEntryChange}
-                  />
-                </Field>
-              </ModalBody>
-              <ModalActions>
-                <SecondaryButton type="button" onClick={closeEntryModal}>
-                  Cancelar
-                </SecondaryButton>
-                <PrimaryButton type="button" onClick={handleSaveEntry}>
-                  Salvar
-                </PrimaryButton>
-              </ModalActions>
-            </ModalCard>
-          </ModalOverlay>
-          <ProtectedBackdrop onClick={closeEntryModal} $hasInput={entryModalHasInput} />
         </>
       )}
 
@@ -8245,12 +7538,6 @@ const ActionMenuItem = styled.button`
   &:hover {
     background: #e8eee0;
   }
-`;
-
-const CellStack = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 `;
 
 const MutedText = styled.span`
