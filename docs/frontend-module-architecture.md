@@ -157,6 +157,22 @@ próprio wrapper rolável. Os ancestrais de grid e a página admitem encolhiment
 com `min-width: 0`; por isso a rolagem horizontal permanece no wrapper da tabela
 e não se propaga ao documento ou ao App Shell.
 
+### Fronteira compartilhada de recebimentos no Financeiro
+
+Os recebimentos ativos por sessão e por Mensalidades compartilham a fronteira
+`src/pages/Financeiro/hooks/useFinancialPaymentFlow.js` e o componente
+`src/pages/Financeiro/components/FinancialPaymentModal.js`. O hook concentra o
+estado e o preview do modal, validações, descontos, alocação proporcional e a
+criação do payment anchor e do pagamento; o componente concentra a apresentação
+desse fluxo. A página fornece os dados e o callback de recarga, sem transferir
+roteamento ou orquestração global para essa fronteira.
+
+Detalhes, cache, crédito e preview específicos de sessão permanecem no fluxo de
+sessões. Filtros, agrupamento, resolução de BillingCycle, preview de sessões e
+renderização de Mensalidades permanecem no fluxo de Mensalidades. A visão
+dedicada de Recebimentos continua desabilitada intencionalmente e fora dessa
+capacidade compartilhada ativa.
+
 ---
 
 ## App Shell autenticado
