@@ -60,12 +60,6 @@ import {
   listPatientCredits,
 } from "../../services/financial";
 import {
-  createSpecialSchedulingEvent,
-  inactivateSpecialSchedulingEvent,
-  listSpecialSchedulingEvents,
-  updateSpecialSchedulingEvent,
-} from "../../services/scheduling";
-import {
   getPatientDisplayName,
   getPatientSearchText,
   normalizeSearchText,
@@ -219,42 +213,6 @@ const buildScopedAllocationItems = (scopedEntries = [], amountCents = 0, discoun
     .filter(Boolean);
 };
 
-const HOLIDAY_SOURCE_OPTIONS = [
-  { value: "national", label: "Feriado nacional" },
-  { value: "state", label: "Feriado estadual" },
-  { value: "city", label: "Feriado municipal" },
-  { value: "optional_point", label: "Ponto facultativo" },
-];
-
-const HOLIDAY_SOURCE_LABELS = HOLIDAY_SOURCE_OPTIONS.reduce((acc, option) => {
-  acc[option.value] = option.label;
-  return acc;
-}, {});
-
-const HOLIDAY_SOURCE_SET = new Set(HOLIDAY_SOURCE_OPTIONS.map((option) => option.value));
-
-const HOLIDAY_SCHEDULING_OPTIONS = [
-  {
-    value: "block",
-    label: "Clínica não funciona e a agenda fica bloqueada",
-    help: "Mantem o comportamento atual de bloqueio e avisos de feriado na agenda.",
-  },
-  {
-    value: "open",
-    label: "Clinica funciona normalmente",
-    help: "O feriado fica apenas informativo e a agenda continua liberada.",
-  },
-];
-
-const emptyHolidayForm = {
-  name: "",
-  date: "",
-  source_type: "national",
-  state_code: "",
-  city_name: "",
-  scheduling_mode: "block",
-};
-
 const formatCurrencyValue = (cents) => {
   const value = Number(cents || 0) / 100;
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -325,55 +283,6 @@ const formatMonthYear = (value) => {
   });
   return label ? label.charAt(0).toUpperCase() + label.slice(1) : "";
 };
-
-const formatHolidayDate = (value) => {
-  if (!value) return "-";
-  const parsed = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString("pt-BR");
-};
-
-const formatHolidayLocation = (item) => {
-  if (!item) return "";
-  if (item.source_type === "city") {
-    const city = String(item.city_name || "").trim();
-    const state = String(item.state_code || "").trim().toUpperCase();
-    if (city && state) return `${city}/${state}`;
-    if (city) return city;
-  }
-  if (item.source_type === "state") {
-    const state = String(item.state_code || "").trim().toUpperCase();
-    if (state) return state;
-  }
-  return "";
-};
-
-const getHolidaySchedulingMode = (item) =>
-  item?.affects_scheduling === false ? "open" : "block";
-
-const getHolidaySchedulingPayload = (mode) => {
-  if (mode === "open") {
-    return {
-      behavior_type: "INFO",
-      affects_scheduling: false,
-    };
-  }
-
-  return {
-    behavior_type: "BLOCK",
-    affects_scheduling: true,
-  };
-};
-
-const getHolidaySchedulingLabel = (item) =>
-  getHolidaySchedulingMode(item) === "open"
-    ? "Clinica funciona"
-    : "Clinica fechada";
-
-const getHolidaySchedulingDescription = (item) =>
-  getHolidaySchedulingMode(item) === "open"
-    ? "Agenda liberada"
-    : "Agenda bloqueada";
 
 const closeActionMenu = (event) => {
   const container = event.currentTarget.closest("details");
@@ -854,13 +763,6 @@ export default function Financeiro() {
   const [attendanceSeries, setAttendanceSeries] = useState([]);
   const [recurringExpenses, setRecurringExpenses] = useState([]);
   const [attendanceSessions, setAttendanceSessions] = useState([]);
-  const [holidays, setHolidays] = useState([]);
-  const [isHolidayLoading, setIsHolidayLoading] = useState(false);
-  const [isHolidaySaving, setIsHolidaySaving] = useState(false);
-  const [holidayUpdatingId, setHolidayUpdatingId] = useState(null);
-  const [isHolidayOpen, setIsHolidayOpen] = useState(false);
-  const [holidayForm, setHolidayForm] = useState(emptyHolidayForm);
-
   const [filters, setFilters] = useState(() => {
     const range = getCurrentMonthRange();
     return {
@@ -1512,17 +1414,6 @@ export default function Financeiro() {
     return "Parte usada, parte em crédito";
   }, []);
 
-  const holidayRows = useMemo(
-    () =>
-      [...holidays].sort((first, second) => {
-        const firstDate = String(first.start_date || "");
-        const secondDate = String(second.start_date || "");
-        if (firstDate !== secondDate) return firstDate.localeCompare(secondDate);
-        return String(first.name || "").localeCompare(String(second.name || ""));
-      }),
-    [holidays],
-  );
-
   const getClinicExpensesPeriodParams = useCallback((periodMode = clinicExpensesPeriodMode) => (
     periodMode === "year"
       ? { year: String(parseMonthInputValue(clinicExpensesMonth)?.year || new Date().getFullYear()) }
@@ -1825,19 +1716,6 @@ export default function Financeiro() {
     attendanceFilters.status,
   ]);
 
-  const loadHolidays = useCallback(async () => {
-    try {
-      setIsHolidayLoading(true);
-      const response = await listSpecialSchedulingEvents({});
-      const items = Array.isArray(response.data) ? response.data : [];
-      setHolidays(items.filter((item) => HOLIDAY_SOURCE_SET.has(item.source_type)));
-    } catch (error) {
-      toast.error("Não foi possível carregar os feriados.");
-    } finally {
-      setIsHolidayLoading(false);
-    }
-  }, []);
-
   const ensureRevenueOperationalData = useCallback(async () => {
     await Promise.all([
       loadRevenuesData(),
@@ -1861,12 +1739,6 @@ export default function Financeiro() {
     loadAttendance,
     receitasView,
   ]);
-
-  useEffect(() => {
-    if (activeSection === "holidays") {
-      loadHolidays();
-    }
-  }, [activeSection, loadHolidays]);
 
   useEffect(() => {
     if (activeSection === "receitas" && receitasView === "mensalidades") {
@@ -2050,13 +1922,6 @@ export default function Financeiro() {
     || hasFilledText(recurringForm.amount)
     || hasFilledText(recurringForm.notes),
   );
-  const holidayModalHasInput = Boolean(
-    hasFilledText(holidayForm.name)
-    || hasFilledText(holidayForm.date)
-    || hasFilledText(holidayForm.state_code)
-    || hasFilledText(holidayForm.city_name),
-  );
-
   const openCreditModal = useCallback((patient = null) => {
     const patientId = patient?.id ? String(patient.id) : "";
     const patientName = patientId ? getPatientDisplayName(patient) : "";
@@ -3206,128 +3071,6 @@ export default function Financeiro() {
       detailsEl.style.setProperty("--action-menu-left", `${left}px`);
     });
   }, []);
-
-  const openHolidayModal = useCallback(() => {
-    setHolidayForm(emptyHolidayForm);
-    setIsHolidayOpen(true);
-  }, []);
-
-  const closeHolidayModal = useCallback(() => {
-    if (isHolidaySaving) return;
-    setIsHolidayOpen(false);
-  }, [isHolidaySaving]);
-
-  const handleHolidayChange = useCallback((event) => {
-    const { name, value } = event.target;
-    setHolidayForm((prev) => {
-      const next = { ...prev, [name]: value };
-      if (name === "source_type") {
-        if (value !== "state" && value !== "city") {
-          next.state_code = "";
-        }
-        if (value !== "city") {
-          next.city_name = "";
-        }
-      }
-      if (name === "state_code") {
-        next.state_code = String(value || "").toUpperCase().slice(0, 2);
-      }
-      return next;
-    });
-  }, []);
-
-  const handleSaveHoliday = useCallback(async () => {
-    if (!holidayForm.name.trim()) {
-      toast.error("Informe o nome do feriado.");
-      return;
-    }
-    if (!holidayForm.date) {
-      toast.error("Informe a data do feriado.");
-      return;
-    }
-    if (holidayForm.source_type === "state" && !holidayForm.state_code.trim()) {
-      toast.error("Informe a UF do feriado estadual.");
-      return;
-    }
-    if (holidayForm.source_type === "city") {
-      if (!holidayForm.state_code.trim()) {
-        toast.error("Informe a UF do feriado municipal.");
-        return;
-      }
-      if (!holidayForm.city_name.trim()) {
-        toast.error("Informe a cidade do feriado municipal.");
-        return;
-      }
-    }
-
-    try {
-      setIsHolidaySaving(true);
-      await createSpecialSchedulingEvent({
-        source_type: holidayForm.source_type,
-        name: holidayForm.name.trim(),
-        description: null,
-        start_date: holidayForm.date,
-        end_date: holidayForm.date,
-        all_day: true,
-        start_time: null,
-        end_time: null,
-        professional_id: null,
-        state_code: holidayForm.state_code.trim() || null,
-        city_name: holidayForm.city_name.trim() || null,
-        ...getHolidaySchedulingPayload(holidayForm.scheduling_mode),
-      });
-      toast.success("Feriado adicionado.");
-      setHolidayForm(emptyHolidayForm);
-      setIsHolidayOpen(false);
-      await loadHolidays();
-    } catch (error) {
-      toast.error(getUserFacingApiError(error, "Não foi possível salvar o feriado."));
-    } finally {
-      setIsHolidaySaving(false);
-    }
-  }, [holidayForm, loadHolidays]);
-
-  const handleDeleteHoliday = useCallback(
-    async (holiday) => {
-      if (!holiday?.id) return;
-      try {
-        await inactivateSpecialSchedulingEvent(holiday.id);
-        toast.success("Feriado excluido.");
-        await loadHolidays();
-      } catch (error) {
-        toast.error(getUserFacingApiError(error, "Não foi possível excluir o feriado."));
-      }
-    },
-    [loadHolidays],
-  );
-
-  const handleToggleHolidayScheduling = useCallback(
-    async (holiday) => {
-      if (!holiday?.id) return;
-      const currentMode = getHolidaySchedulingMode(holiday);
-      const nextMode = currentMode === "block" ? "open" : "block";
-
-      try {
-        setHolidayUpdatingId(holiday.id);
-        await updateSpecialSchedulingEvent(holiday.id, {
-          ...getHolidaySchedulingPayload(nextMode),
-        });
-        toast.success(
-          nextMode === "block"
-            ? "Feriado configurado para bloquear a agenda."
-            : "Feriado configurado como informativo.",
-        );
-        await loadHolidays();
-      } catch (error) {
-        toast.error(
-          getUserFacingApiError(error, "Não foi possível atualizar o comportamento do feriado."),
-        );
-      } finally {
-        setHolidayUpdatingId(null);
-      }
-    },
-    [loadHolidays],
-  );
 
   const openCategoryModal = useCallback((category = null) => {
     if (category) {
@@ -7583,102 +7326,6 @@ export default function Financeiro() {
     );
   };
 
-  const renderHolidays = () => {
-    let content = (
-      <SimpleTable>
-        <thead>
-          <tr>
-            <th>Nome</th>
-            <th>Data</th>
-            <th>Tipo</th>
-            <th>Funcionamento</th>
-            <th>Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-          {holidayRows.map((holiday) => {
-            const location = formatHolidayLocation(holiday);
-            const schedulingMode = getHolidaySchedulingMode(holiday);
-            const isUpdatingThisHoliday = holidayUpdatingId === holiday.id;
-            return (
-              <tr key={holiday.id}>
-                <td>
-                  <CellStack>
-                    <span>{holiday.name || "Feriado"}</span>
-                    {location ? <MutedText>{location}</MutedText> : null}
-                  </CellStack>
-                </td>
-                <td>{formatHolidayDate(holiday.start_date)}</td>
-                <td>{HOLIDAY_SOURCE_LABELS[holiday.source_type] || holiday.source_type || "-"}</td>
-                <td>
-                  <CellStack>
-                    <HolidaySchedulingBadge $mode={schedulingMode}>
-                      {getHolidaySchedulingLabel(holiday)}
-                    </HolidaySchedulingBadge>
-                    <MutedText>{getHolidaySchedulingDescription(holiday)}</MutedText>
-                  </CellStack>
-                </td>
-                <td>
-                  <RowActions>
-                    <SmallButton
-                      type="button"
-                      onClick={() => handleToggleHolidayScheduling(holiday)}
-                      disabled={isUpdatingThisHoliday}
-                    >
-                      {schedulingMode === "block" ? "Liberar agenda" : "Bloquear agenda"}
-                    </SmallButton>
-                    <SmallButton
-                      type="button"
-                      onClick={() => handleDeleteHoliday(holiday)}
-                      disabled={isUpdatingThisHoliday}
-                    >
-                      Excluir
-                    </SmallButton>
-                  </RowActions>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </SimpleTable>
-    );
-
-    if (isHolidayLoading) {
-      content = (
-        <SectionLoader>
-          <Spinner />
-          Carregando feriados...
-        </SectionLoader>
-      );
-    } else if (holidayRows.length === 0) {
-      content = <EmptyState>Sem feriados cadastrados.</EmptyState>;
-    }
-
-    return (
-      <Section>
-        <SectionHeader>
-          <div>
-            <SectionTitle>Feriados</SectionTitle>
-            <SectionSubtitle>
-              Defina os feriados e se a clinica vai funcionar ou bloquear a agenda em cada data.
-            </SectionSubtitle>
-          </div>
-          <HeaderActions>
-            <GhostButton type="button" onClick={loadHolidays}>
-              Atualizar
-            </GhostButton>
-            <PrimaryButton type="button" onClick={openHolidayModal}>
-              <FaPlus />
-              Novo feriado
-            </PrimaryButton>
-          </HeaderActions>
-        </SectionHeader>
-
-        {content}
-      </Section>
-    );
-  };
-
   // eslint-disable-next-line no-unused-vars
   const renderPrices = () => {
     let content = (
@@ -7890,7 +7537,6 @@ export default function Financeiro() {
     "clinic-expenses": "Despesas da clínica",
     methods: "Configurações",
     "clinic-expense-categories": "Configurações",
-    holidays: "Feriados",
     recurring: "Despesas fixas",
     reports: "Relatórios",
     categories: "Categorias",
@@ -7956,7 +7602,6 @@ export default function Financeiro() {
             {SHOW_FINANCIAL_MANAGEMENT && activeSection === "recurring" && renderRecurring()}
             {SHOW_FINANCIAL_MANAGEMENT && activeSection === "categories" && renderCategories()}
             {activeSection === "methods" && renderMethods()}
-            {activeSection === "holidays" && renderHolidays()}
             {SHOW_FINANCIAL_REPORTS && activeSection === "reports" && renderReports()}
           </>
       </FinanceContent>
@@ -9270,118 +8915,6 @@ export default function Financeiro() {
         </>
       )}
 
-      {isHolidayOpen && (
-        <>
-          <ModalOverlay>
-            <ModalCard>
-              <ModalHeader>
-                <div>
-                  <ModalTitle>Novo feriado</ModalTitle>
-                  <ModalSubtitle>
-                    Informe o feriado e como a agenda da clinica deve se comportar nessa data.
-                  </ModalSubtitle>
-                </div>
-                <IconButton type="button" onClick={closeHolidayModal}>
-                  <FaTimes />
-                </IconButton>
-              </ModalHeader>
-              <ModalBody>
-                <FormGrid>
-                  <Field>
-                    <Label htmlFor="holiday-name">Nome</Label>
-                    <Input
-                      id="holiday-name"
-                      name="name"
-                      placeholder="Ex.: Tiradentes"
-                      value={holidayForm.name}
-                      onChange={handleHolidayChange}
-                    />
-                  </Field>
-                  <Field>
-                    <Label htmlFor="holiday-date">Data</Label>
-                    <Input
-                      id="holiday-date"
-                      type="date"
-                      name="date"
-                      value={holidayForm.date}
-                      onChange={handleHolidayChange}
-                    />
-                  </Field>
-                  <Field>
-                    <Label htmlFor="holiday-source">Tipo</Label>
-                    <Select
-                      id="holiday-source"
-                      name="source_type"
-                      value={holidayForm.source_type}
-                      onChange={handleHolidayChange}
-                    >
-                      {HOLIDAY_SOURCE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <Field>
-                    <Label htmlFor="holiday-scheduling-mode">Funcionamento da clinica</Label>
-                    <Select
-                      id="holiday-scheduling-mode"
-                      name="scheduling_mode"
-                      value={holidayForm.scheduling_mode}
-                      onChange={handleHolidayChange}
-                    >
-                      {HOLIDAY_SCHEDULING_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </Select>
-                    <MutedText>
-                      {HOLIDAY_SCHEDULING_OPTIONS.find(
-                        (option) => option.value === holidayForm.scheduling_mode,
-                      )?.help || ""}
-                    </MutedText>
-                  </Field>
-                  {(holidayForm.source_type === "state" || holidayForm.source_type === "city") && (
-                    <Field>
-                      <Label htmlFor="holiday-state">UF</Label>
-                      <Input
-                        id="holiday-state"
-                        name="state_code"
-                        placeholder="SP"
-                        maxLength={2}
-                        value={holidayForm.state_code}
-                        onChange={handleHolidayChange}
-                      />
-                    </Field>
-                  )}
-                  {holidayForm.source_type === "city" && (
-                    <Field>
-                      <Label htmlFor="holiday-city">Cidade</Label>
-                      <Input
-                        id="holiday-city"
-                        name="city_name"
-                        placeholder="Sao Paulo"
-                        value={holidayForm.city_name}
-                        onChange={handleHolidayChange}
-                      />
-                    </Field>
-                  )}
-                </FormGrid>
-              </ModalBody>
-              <ModalActions>
-                <SecondaryButton type="button" onClick={closeHolidayModal} disabled={isHolidaySaving}>
-                  Cancelar
-                </SecondaryButton>
-                <PrimaryButton type="button" onClick={handleSaveHoliday} disabled={isHolidaySaving}>
-                  {isHolidaySaving ? <ButtonSpinner /> : "Adicionar feriado"}
-                </PrimaryButton>
-              </ModalActions>
-            </ModalCard>
-          </ModalOverlay>
-          <ProtectedBackdrop onClick={closeHolidayModal} $hasInput={holidayModalHasInput} />
-        </>
-      )}
       <UnsavedChangesDialog
         open={Boolean(discardModalClose)}
         onKeepEditing={keepModalEditing}
@@ -9662,17 +9195,6 @@ const TypePill = styled.span`
   font-weight: 700;
   background: ${(props) => (props.$type === "income" ? "#e3f1e0" : "#f7e7dc")};
   color: ${(props) => (props.$type === "income" ? "#4f6b45" : "#9a6a3a")};
-`;
-
-const HolidaySchedulingBadge = styled.span`
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  background: ${(props) => (props.$mode === "open" ? "#e3f1e0" : "#f7e7dc")};
-  color: ${(props) => (props.$mode === "open" ? "#4f6b45" : "#9a6a3a")};
 `;
 
 const ColorRow = styled.div`
