@@ -386,7 +386,6 @@ const resolveInstallmentAgreement = (
 
 const SHOW_CLINIC_EXPENSES = true;
 const SHOW_FINANCIAL_MANAGEMENT = false;
-const SHOW_FINANCIAL_REPORTS = false;
 const SHOW_MANUAL_ENTRIES = false;
 // Mantemos a view antiga disponivel no codigo, mas fora da navegacao para simplificar a UX.
 const SHOW_DEDICATED_PAYMENTS_VIEW = false;
@@ -1670,7 +1669,7 @@ export default function Financeiro() {
   }, [activeSection, loadPaymentMethodsData]);
 
   useEffect(() => {
-    if (["categories", "prices", "recurring", "reports"].includes(activeSection)) {
+    if (["categories", "prices", "recurring"].includes(activeSection)) {
       loadManagementData();
     }
   }, [activeSection, loadManagementData]);
@@ -5333,46 +5332,6 @@ export default function Financeiro() {
     });
   }, [filteredPayments, paymentAllocationList]);
 
-  const reportIndicators = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const data = {
-      totalOpen: 0,
-      totalCredit: 0,
-      totalReceived: 0,
-      unpaidSessions: 0,
-      overdueCharges: 0,
-    };
-
-    entries.forEach((entry) => {
-      if (entry.type !== "income") return;
-      const financial = entryFinancialMap.get(entry.id);
-      const open = financial?.open ?? 0;
-      const status = financial?.status || entry.status;
-      data.totalOpen += open;
-      if (status !== "paid" && entry.due_date) {
-        const dueDate = new Date(entry.due_date);
-        if (!Number.isNaN(dueDate.getTime()) && dueDate < today) {
-          data.overdueCharges += 1;
-        }
-      }
-    });
-
-    creditBalanceByPatient.forEach((value) => {
-      data.totalCredit += value;
-    });
-
-    payments.forEach((payment) => {
-      data.totalReceived += Number(payment.amount_cents || 0);
-    });
-
-    data.unpaidSessions = attendanceRows.filter(
-      (row) => row.entry && row.financialStatus !== "paid",
-    ).length;
-
-    return data;
-  }, [attendanceRows, creditBalanceByPatient, entries, entryFinancialMap, payments]);
-
   const handleSaveCategory = useCallback(async () => {
     if (!categoryForm.name.trim()) {
       toast.error("Informe o nome da categoria.");
@@ -7448,60 +7407,6 @@ export default function Financeiro() {
     );
   };
 
-  const renderReports = () => (
-    <Section>
-      <SectionHeader>
-        <div>
-          <SectionTitle>Relatorios</SectionTitle>
-          <SectionSubtitle>Exporte dados para analise.</SectionSubtitle>
-        </div>
-      </SectionHeader>
-      {loadingManagement ? (
-        <SectionLoader>
-          <Spinner />
-          Carregando relatorios...
-        </SectionLoader>
-      ) : (
-        <ReportGrid>
-          <ReportCard>
-            <h4>Total em aberto</h4>
-            <p>{formatCurrency(reportIndicators.totalOpen)}</p>
-          </ReportCard>
-          <ReportCard>
-            <h4>Credito disponivel</h4>
-            <p>{formatCurrency(reportIndicators.totalCredit)}</p>
-          </ReportCard>
-          <ReportCard>
-            <h4>Total recebido</h4>
-            <p>{formatCurrency(reportIndicators.totalReceived)}</p>
-          </ReportCard>
-          <ReportCard>
-            <h4>Sessões não quitadas</h4>
-            <p>{reportIndicators.unpaidSessions}</p>
-          </ReportCard>
-          <ReportCard>
-            <h4>Cobrancas vencidas</h4>
-            <p>{reportIndicators.overdueCharges}</p>
-          </ReportCard>
-          <ReportCard>
-            <h4>Lancamentos filtrados</h4>
-            <p>Exporta os lançamentos atuais com os filtros selecionados.</p>
-            <GhostButton type="button" onClick={handleExportCsv}>
-              Exportar CSV
-            </GhostButton>
-          </ReportCard>
-          <ReportCard>
-            <h4>Pagamentos</h4>
-            <p>Lista completa de pagamentos confirmados.</p>
-            <GhostButton type="button" onClick={() => handleExportPayments()}>
-              Exportar CSV
-            </GhostButton>
-          </ReportCard>
-        </ReportGrid>
-      )}
-    </Section>
-  );
-
   const previewCycle = billingCycleSessionsPreview.cycle;
   const previewPatientName = previewCycle?.Patient ? getPatientDisplayName(previewCycle.Patient) : "-";
   const previewPlanName = previewCycle?.ServicePlan?.name || "-";
@@ -7516,7 +7421,6 @@ export default function Financeiro() {
     methods: "Configurações",
     "clinic-expense-categories": "Configurações",
     recurring: "Despesas fixas",
-    reports: "Relatórios",
     categories: "Categorias",
   };
   const currentSectionTitle = sectionTitleByKey[activeSection] || "Financeiro";
@@ -7580,7 +7484,6 @@ export default function Financeiro() {
             {SHOW_FINANCIAL_MANAGEMENT && activeSection === "recurring" && renderRecurring()}
             {SHOW_FINANCIAL_MANAGEMENT && activeSection === "categories" && renderCategories()}
             {activeSection === "methods" && renderMethods()}
-            {SHOW_FINANCIAL_REPORTS && activeSection === "reports" && renderReports()}
           </>
       </FinanceContent>
 
@@ -10273,31 +10176,6 @@ const AttendanceEmptyState = styled(EmptyState)`
   border: 1px dashed ${ATTENDANCE_UI.colors.borderStrong};
   border-radius: ${ATTENDANCE_UI.radius.md};
   color: ${ATTENDANCE_UI.colors.textTertiary};
-`;
-
-const ReportGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
-`;
-
-const ReportCard = styled.div`
-  padding: 18px;
-  border-radius: 16px;
-  background: #f5f7f1;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-
-  h4 {
-    margin: 0 0 8px;
-    font-size: 16px;
-    color: #2b2b2b;
-  }
-
-  p {
-    margin: 0 0 14px;
-    color: #6b6b6b;
-    font-size: 14px;
-  }
 `;
 
 const ModalOverlay = styled.div`
