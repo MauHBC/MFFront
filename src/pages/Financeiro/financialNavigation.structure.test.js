@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 
 const source = fs.readFileSync(path.join(__dirname, "index.js"), "utf8");
+const routesSource = fs.readFileSync(path.join(__dirname, "../../routes/index.js"), "utf8");
 
 describe("Financeiro - navegação por rota", () => {
   it("remove a antiga navegação principal e mantém somente as tabs de Configurações", () => {
@@ -30,5 +31,22 @@ describe("Financeiro - navegação por rota", () => {
     expect(source).toContain('pathname === "/financeiro/configuracoes"');
     expect(source).toContain('pathname === "/financeiro/configuracoes/formas-pagamento"');
     expect(source).toContain('pathname === "/financeiro/configuracoes/categorias-despesas"');
+  });
+
+  it("protege Configurações com nível manage e capacidade finance.configure", () => {
+    const settingsRouteStart = routesSource.indexOf('"/financeiro/configuracoes"');
+    const settingsRoute = routesSource.slice(settingsRouteStart, settingsRouteStart + 650);
+
+    expect(settingsRouteStart).toBeGreaterThanOrEqual(0);
+    expect(settingsRoute).toContain('minimumAccessLevel="manage"');
+    expect(settingsRoute).toContain('requiredCapability="finance.configure"');
+    expect(settingsRoute).toContain('requiredModule="finance"');
+  });
+
+  it("preserva Recebimentos dedicado como desabilitado intencional", () => {
+    expect(source).toContain("Mantemos a view antiga disponivel no codigo");
+    expect(source).toContain("const SHOW_DEDICATED_PAYMENTS_VIEW = false;");
+    expect(source).toContain("SHOW_DEDICATED_PAYMENTS_VIEW && receitasView === \"recebimentos\"");
+    expect(source).toContain("const renderPayments = () => (");
   });
 });
