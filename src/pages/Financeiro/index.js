@@ -10,7 +10,6 @@ import {
 } from "react-icons/fa";
 import { toast } from "react-toastify";
 
-import Loading from "../../components/Loading";
 import { FinancialStatusPill } from "../../components/AppFinancialStatus";
 import { NAVIGATION_BADGE_EVENT } from "../../components/AppShell/navigation";
 import {
@@ -46,16 +45,9 @@ import {
   createFinancialPayment,
   applyCreditToFinancialEntry,
   applyScopedFinancialCredit,
-  createFinancialCategory,
   createPaymentMethod,
   listServicePrices,
-  createServicePrice,
-  updateFinancialCategory,
   updatePaymentMethod,
-  updateServicePrice,
-  listFinancialRecurringExpenses,
-  createFinancialRecurringExpense,
-  updateFinancialRecurringExpense,
   listBillingCycles,
   listPatientCredits,
 } from "../../services/financial";
@@ -385,7 +377,6 @@ const resolveInstallmentAgreement = (
 };
 
 const SHOW_CLINIC_EXPENSES = true;
-const SHOW_FINANCIAL_MANAGEMENT = false;
 const SHOW_MANUAL_ENTRIES = false;
 // Mantemos a view antiga disponivel no codigo, mas fora da navegacao para simplificar a UX.
 const SHOW_DEDICATED_PAYMENTS_VIEW = false;
@@ -473,17 +464,6 @@ const ATTENDANCE_UI = {
       bold: 700,
     },
   },
-};
-
-const slugifyCode = (value) => {
-  if (!value) return "";
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
 };
 
 const toDateInputValue = (date) => date.toISOString().slice(0, 10);
@@ -737,7 +717,6 @@ export default function Financeiro() {
   const [loadingExpenses, setLoadingExpenses] = useState(false);
   const [loadingExpenseCategories, setLoadingExpenseCategories] = useState(false);
   const [loadingPaymentMethods, setLoadingPaymentMethods] = useState(false);
-  const [loadingManagement, setLoadingManagement] = useState(false);
   const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
   const [hasAttendanceLoaded, setHasAttendanceLoaded] = useState(false);
   const [entries, setEntries] = useState([]);
@@ -760,7 +739,6 @@ export default function Financeiro() {
     emptyFinancialRevenuesSummary(toMonthInputValue(new Date())),
   );
   const [attendanceSeries, setAttendanceSeries] = useState([]);
-  const [recurringExpenses, setRecurringExpenses] = useState([]);
   const [attendanceSessions, setAttendanceSessions] = useState([]);
   const [filters, setFilters] = useState(() => {
     const range = getCurrentMonthRange();
@@ -930,31 +908,9 @@ export default function Financeiro() {
   const [isPaymentPatientSearchFocused, setIsPaymentPatientSearchFocused] = useState(false);
   const [creditUseModalContext, setCreditUseModalContext] = useState(null);
   const [isCreditUseSaving, setIsCreditUseSaving] = useState(false);
-  const [isCategoryOpen, setIsCategoryOpen] = useState(false);
-  const [categoryForm, setCategoryForm] = useState({ name: "", type: "income", color: "" });
-  const [editingCategoryId, setEditingCategoryId] = useState(null);
   const [isMethodOpen, setIsMethodOpen] = useState(false);
   const [methodForm, setMethodForm] = useState({ name: "" });
   const [editingMethodId, setEditingMethodId] = useState(null);
-  const [isServiceOpen, setIsServiceOpen] = useState(false);
-  const [isServiceSaving, setIsServiceSaving] = useState(false);
-  const [serviceForm, setServiceForm] = useState({
-    name: "",
-    price: "",
-    color: "",
-    is_active: true,
-    default_duration_minutes: 60,
-  });
-  const [editingServiceId, setEditingServiceId] = useState(null);
-  const [isRecurringOpen, setIsRecurringOpen] = useState(false);
-  const [editingRecurringId, setEditingRecurringId] = useState(null);
-  const [recurringForm, setRecurringForm] = useState({
-    name: "",
-    category_id: "",
-    amount: "",
-    day_of_month: "1",
-    notes: "",
-  });
 
 
   useEffect(() => {
@@ -1594,47 +1550,6 @@ export default function Financeiro() {
     }
   }, []);
 
-  const loadManagementData = useCallback(async () => {
-    try {
-      setLoadingManagement(true);
-      const [
-        entriesResponse,
-        categoriesResponse,
-        paymentMethodsResponse,
-        patientsResponse,
-        servicesResponse,
-        servicePricesResponse,
-        paymentsResponse,
-        recurringResponse,
-        patientCreditsResponse,
-      ] = await Promise.all([
-        listFinancialEntries(),
-        listFinancialCategories(),
-        listPaymentMethods(),
-        axios.get("/patients"),
-        axios.get("/services"),
-        listServicePrices(),
-        listFinancialPayments(),
-        listFinancialRecurringExpenses(),
-        listPatientCredits(),
-      ]);
-
-      setEntries(entriesResponse.data || []);
-      setCategories(categoriesResponse.data || []);
-      setPaymentMethods(paymentMethodsResponse.data || []);
-      setPatients(patientsResponse.data || []);
-      setServices(servicesResponse.data || []);
-      setServicePrices(servicePricesResponse.data || []);
-      setPayments(paymentsResponse.data || []);
-      setRecurringExpenses(recurringResponse.data || []);
-      setPatientCredits(patientCreditsResponse.data || []);
-    } catch (error) {
-      toast.error("Nao foi possivel carregar o financeiro.");
-    } finally {
-      setLoadingManagement(false);
-    }
-  }, []);
-
   useEffect(() => {
     if (activeSection === "overview") loadOverviewData();
   }, [activeSection, loadOverviewData]);
@@ -1667,12 +1582,6 @@ export default function Financeiro() {
   useEffect(() => {
     if (activeSection === "methods") loadPaymentMethodsData();
   }, [activeSection, loadPaymentMethodsData]);
-
-  useEffect(() => {
-    if (["categories", "prices", "recurring"].includes(activeSection)) {
-      loadManagementData();
-    }
-  }, [activeSection, loadManagementData]);
 
   const loadBillingCycles = useCallback(async () => {
     try {
@@ -1902,25 +1811,7 @@ export default function Financeiro() {
     || hasFilledText(paymentForm.adjustment_reason)
     || hasFilledText(paymentForm.note),
   );
-  const categoryModalHasInput = Boolean(
-    editingCategoryId
-    || hasFilledText(categoryForm.name)
-    || hasFilledText(categoryForm.color),
-  );
   const methodModalHasInput = Boolean(editingMethodId || hasFilledText(methodForm.name));
-  const serviceModalHasInput = Boolean(
-    editingServiceId
-    || hasFilledText(serviceForm.name)
-    || hasFilledText(serviceForm.price)
-    || hasFilledText(serviceForm.color),
-  );
-  const recurringModalHasInput = Boolean(
-    editingRecurringId
-    || hasFilledText(recurringForm.name)
-    || hasFilledText(recurringForm.category_id)
-    || hasFilledText(recurringForm.amount)
-    || hasFilledText(recurringForm.notes),
-  );
   const openCreditModal = useCallback((patient = null) => {
     const patientId = patient?.id ? String(patient.id) : "";
     const patientName = patientId ? getPatientDisplayName(patient) : "";
@@ -3071,26 +2962,6 @@ export default function Financeiro() {
     });
   }, []);
 
-  const openCategoryModal = useCallback((category = null) => {
-    if (category) {
-      setCategoryForm({
-        name: category.name || "",
-        type: category.type || "income",
-        color: category.color || "",
-      });
-      setEditingCategoryId(category.id);
-    } else {
-      setCategoryForm({ name: "", type: "income", color: "" });
-      setEditingCategoryId(null);
-    }
-    setIsCategoryOpen(true);
-  }, []);
-
-  const closeCategoryModal = useCallback(() => {
-    setIsCategoryOpen(false);
-    setEditingCategoryId(null);
-  }, []);
-
   const openMethodModal = useCallback((method = null) => {
     if (method) {
       setMethodForm({ name: method.name || "" });
@@ -3107,54 +2978,9 @@ export default function Financeiro() {
     setEditingMethodId(null);
   }, []);
 
-  const openServiceModal = useCallback(
-    (service = null) => {
-      if (service) {
-        const price = servicePriceMap.get(service.id);
-        setServiceForm({
-          name: service.name || "",
-          price: price ? (Number(price.price_cents || 0) / 100).toFixed(2) : "",
-          color: service.color || "#6a795c",
-          is_active: service.is_active ?? true,
-          default_duration_minutes: service.default_duration_minutes || 60,
-        });
-        setEditingServiceId(service.id);
-      } else {
-        setServiceForm({
-          name: "",
-          price: "",
-          color: "#6a795c",
-          is_active: true,
-          default_duration_minutes: 60,
-        });
-        setEditingServiceId(null);
-      }
-      setIsServiceOpen(true);
-    },
-    [servicePriceMap],
-  );
-
-  const closeServiceModal = useCallback(() => {
-    setIsServiceOpen(false);
-    setEditingServiceId(null);
-  }, []);
-
-  const handleCategoryChange = useCallback((event) => {
-    const { name, value } = event.target;
-    setCategoryForm((prev) => ({ ...prev, [name]: value }));
-  }, []);
-
   const handleMethodChange = useCallback((event) => {
     const { name, value } = event.target;
     setMethodForm((prev) => ({ ...prev, [name]: value }));
-  }, []);
-
-  const handleServiceChange = useCallback((event) => {
-    const { name, value, type, checked } = event.target;
-    setServiceForm((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : value,
-    }));
   }, []);
 
   const handleSaveEntry = useCallback(async () => {
@@ -5332,31 +5158,6 @@ export default function Financeiro() {
     });
   }, [filteredPayments, paymentAllocationList]);
 
-  const handleSaveCategory = useCallback(async () => {
-    if (!categoryForm.name.trim()) {
-      toast.error("Informe o nome da categoria.");
-      return;
-    }
-    try {
-      const payload = {
-        name: categoryForm.name.trim(),
-        type: categoryForm.type,
-        color: categoryForm.color.trim() || null,
-      };
-      if (editingCategoryId) {
-        await updateFinancialCategory(editingCategoryId, payload);
-        toast.success("Categoria atualizada.");
-      } else {
-        await createFinancialCategory(payload);
-        toast.success("Categoria criada.");
-      }
-      closeCategoryModal();
-      loadManagementData();
-    } catch (error) {
-      toast.error("Não foi possível salvar a categoria.");
-    }
-  }, [categoryForm, closeCategoryModal, loadManagementData, editingCategoryId]);
-
   const handleSaveMethod = useCallback(async () => {
     if (!methodForm.name.trim()) {
       toast.error("Informe o nome da forma de pagamento.");
@@ -5378,91 +5179,6 @@ export default function Financeiro() {
     }
   }, [methodForm, closeMethodModal, loadPaymentMethodsData, editingMethodId]);
 
-  const handleSaveService = useCallback(async () => {
-    if (!serviceForm.name.trim()) {
-      toast.error("Informe o nome do serviço.");
-      return;
-    }
-
-    const priceValue = serviceForm.price
-      ? Number(serviceForm.price.replace(",", "."))
-      : null;
-
-    if (priceValue !== null && (Number.isNaN(priceValue) || priceValue <= 0)) {
-      toast.error("Informe um valor valido.");
-      return;
-    }
-
-    setIsServiceSaving(true);
-    try {
-      let serviceId = editingServiceId;
-      const payload = {
-        name: serviceForm.name.trim(),
-        color: serviceForm.color.trim() || null,
-        is_active: !!serviceForm.is_active,
-        default_duration_minutes: Number(serviceForm.default_duration_minutes) || 60,
-      };
-
-      if (editingServiceId) {
-        await axios.put(`/services/${editingServiceId}`, payload);
-        toast.success("Servico atualizado.");
-      } else {
-        const existingCodes = new Set(services.map((service) => service.code));
-        const baseCode = slugifyCode(serviceForm.name) || "servico";
-        let code = baseCode;
-        let counter = 2;
-        while (existingCodes.has(code)) {
-          code = `${baseCode}_${counter}`;
-          counter += 1;
-        }
-        const response = await axios.post("/services", { ...payload, code });
-        serviceId = response?.data?.id || null;
-        toast.success("Servico criado.");
-      }
-
-      if (serviceId && priceValue !== null) {
-        const existingPrice = servicePriceMap.get(serviceId);
-        const pricePayload = {
-          service_id: serviceId,
-          price_cents: Math.round(priceValue * 100),
-          currency: "BRL",
-          is_active: true,
-        };
-        if (existingPrice) {
-          await updateServicePrice(existingPrice.id, pricePayload);
-        } else {
-          await createServicePrice(pricePayload);
-        }
-      }
-
-      closeServiceModal();
-      loadManagementData();
-    } catch (error) {
-      toast.error("Não foi possível salvar o serviço.");
-    } finally {
-      setIsServiceSaving(false);
-    }
-  }, [
-    serviceForm,
-    closeServiceModal,
-    loadManagementData,
-    editingServiceId,
-    services,
-    servicePriceMap,
-  ]);
-
-  const handleToggleCategory = useCallback(
-    async (category) => {
-      try {
-        await updateFinancialCategory(category.id, { is_active: !category.is_active });
-        loadManagementData();
-      } catch (error) {
-        toast.error("Não foi possível atualizar a categoria.");
-      }
-    },
-    [loadManagementData],
-  );
-
   const handleToggleMethod = useCallback(
     async (method) => {
       try {
@@ -5473,117 +5189,6 @@ export default function Financeiro() {
       }
     },
     [loadPaymentMethodsData],
-  );
-
-  const handleToggleService = useCallback(
-    async (service) => {
-      try {
-        await axios.put(`/services/${service.id}`, { is_active: !service.is_active });
-        loadManagementData();
-      } catch (error) {
-        toast.error("Não foi possível atualizar o serviço.");
-      }
-    },
-    [loadManagementData],
-  );
-
-  const handleDeleteService = useCallback(
-    async (service) => {
-      try {
-        await axios.delete(`/services/${service.id}`);
-        toast.success("Servico excluido.");
-        loadManagementData();
-      } catch (error) {
-        toast.error("Não foi possível excluir o serviço.");
-      }
-    },
-    [loadManagementData],
-  );
-
-  const openRecurringModal = useCallback((item = null) => {
-    if (item) {
-      setRecurringForm({
-        name: item.name || "",
-        category_id: item.category_id ? String(item.category_id) : "",
-        amount: (Number(item.amount_cents || 0) / 100).toFixed(2),
-        day_of_month: String(item.day_of_month || 1),
-        notes: item.notes || "",
-      });
-      setEditingRecurringId(item.id);
-    } else {
-      setRecurringForm({
-        name: "",
-        category_id: "",
-        amount: "",
-        day_of_month: "1",
-        notes: "",
-      });
-      setEditingRecurringId(null);
-    }
-    setIsRecurringOpen(true);
-  }, []);
-
-  const closeRecurringModal = useCallback(() => {
-    setIsRecurringOpen(false);
-    setEditingRecurringId(null);
-  }, []);
-
-  const handleRecurringChange = useCallback((event) => {
-    const { name, value } = event.target;
-    setRecurringForm((prev) => ({ ...prev, [name]: value }));
-  }, []);
-
-  const handleSaveRecurring = useCallback(async () => {
-    const amountValue = Number(recurringForm.amount.replace(",", "."));
-    const dayValue = Number(recurringForm.day_of_month);
-    if (!recurringForm.name.trim()) {
-      toast.error("Informe o nome da despesa fixa.");
-      return;
-    }
-    if (Number.isNaN(amountValue) || amountValue <= 0) {
-      toast.error("Informe um valor valido.");
-      return;
-    }
-    if (Number.isNaN(dayValue) || dayValue < 1 || dayValue > 31) {
-      toast.error("Informe um dia valido.");
-      return;
-    }
-
-    const payload = {
-      name: recurringForm.name.trim(),
-      category_id: normalizeId(recurringForm.category_id),
-      amount_cents: Math.round(amountValue * 100),
-      currency: "BRL",
-      day_of_month: dayValue,
-      notes: recurringForm.notes.trim() || null,
-      is_active: true,
-    };
-
-    try {
-      if (editingRecurringId) {
-        await updateFinancialRecurringExpense(editingRecurringId, payload);
-        toast.success("Despesa fixa atualizada.");
-      } else {
-        await createFinancialRecurringExpense(payload);
-        toast.success("Despesa fixa criada.");
-      }
-      closeRecurringModal();
-      loadManagementData();
-    } catch (error) {
-      toast.error("Não foi possível salvar a despesa fixa.");
-    }
-  }, [recurringForm, editingRecurringId, closeRecurringModal, loadManagementData]);
-
-  const handleToggleRecurring = useCallback(
-    async (item) => {
-      try {
-        await updateFinancialRecurringExpense(item.id, { is_active: !item.is_active });
-        loadManagementData();
-      } catch (error) {
-        toast.error("Não foi possível atualizar a despesa fixa.");
-      }
-    },
-    [loadManagementData],
   );
 
   const handleExportCsv = useCallback(() => {
@@ -7134,76 +6739,6 @@ export default function Financeiro() {
     return receitasContent;
   };
 
-  const renderCategories = () => {
-    let content = (
-      <SimpleTable>
-        <thead>
-          <tr>
-            <th>Nome</th>
-            <th>Tipo</th>
-            <th>Ativo</th>
-            <th>Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-          {categories.map((category) => (
-            <tr key={category.id}>
-              <td>
-                <ColorRow>
-                  <ColorDot style={{ background: category.color || "#d7dfd0" }} />
-                  {category.name}
-                </ColorRow>
-              </td>
-              <td>
-                <TypePill $type={category.type}>
-                  {category.type === "income" ? "Receita" : "Despesa"}
-                </TypePill>
-              </td>
-              <td>{category.is_active ? "Sim" : "Nao"}</td>
-              <td>
-                <RowActions>
-                  <SmallButton type="button" onClick={() => openCategoryModal(category)}>
-                    Editar
-                  </SmallButton>
-                  <SmallButton type="button" onClick={() => handleToggleCategory(category)}>
-                    {category.is_active ? "Desativar" : "Ativar"}
-                  </SmallButton>
-                </RowActions>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </SimpleTable>
-    );
-
-    if (loadingManagement) {
-      content = (
-        <SectionLoader>
-          <Spinner />
-          Carregando categorias...
-        </SectionLoader>
-      );
-    } else if (categories.length === 0) {
-      content = <EmptyState>Sem categorias cadastradas.</EmptyState>;
-    }
-
-    return (
-      <Section>
-        <SectionHeader>
-          <div>
-            <SectionTitle>Categorias</SectionTitle>
-            <SectionSubtitle>Organize receitas e despesas.</SectionSubtitle>
-          </div>
-          <PrimaryButton type="button" onClick={openCategoryModal}>
-            <FaPlus />
-            Nova categoria
-          </PrimaryButton>
-        </SectionHeader>
-        {content}
-      </Section>
-    );
-  };
-
   const renderMethods = () => {
     let content = (
       <SimpleTable>
@@ -7263,150 +6798,6 @@ export default function Financeiro() {
     );
   };
 
-  // eslint-disable-next-line no-unused-vars
-  const renderPrices = () => {
-    let content = (
-      <SimpleTable>
-        <thead>
-          <tr>
-            <th>Servico</th>
-            <th>Valor</th>
-            <th>Ativo</th>
-            <th>Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-          {services.map((service) => {
-            const price = servicePriceMap.get(service.id);
-            return (
-              <tr key={service.id}>
-                <td>
-                  <CellStack>
-                    <ColorRow>
-                      {service.color ? <ColorDot style={{ background: service.color }} /> : null}
-                      <span>{service.name}</span>
-                    </ColorRow>
-                    {service.code ? <MutedText>{service.code}</MutedText> : null}
-                  </CellStack>
-                </td>
-                <td>{price ? formatCurrency(price.price_cents) : "Sem preco"}</td>
-                <td>{service.is_active ? "Sim" : "Nao"}</td>
-                <td>
-                  <RowActions>
-                    <SmallButton type="button" onClick={() => openServiceModal(service)}>
-                      Editar
-                    </SmallButton>
-                    <SmallButton type="button" onClick={() => handleToggleService(service)}>
-                      {service.is_active ? "Desativar" : "Ativar"}
-                    </SmallButton>
-                    <SmallButton type="button" onClick={() => handleDeleteService(service)}>
-                      Excluir
-                    </SmallButton>
-                  </RowActions>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </SimpleTable>
-    );
-
-    if (loadingManagement) {
-      content = (
-        <SectionLoader>
-          <Spinner />
-          Carregando serviços...
-        </SectionLoader>
-      );
-    } else if (services.length === 0) {
-      content = <EmptyState>Sem serviços cadastrados.</EmptyState>;
-    }
-
-    return (
-      <Section>
-        <SectionHeader>
-          <div>
-            <SectionTitle>Servicos</SectionTitle>
-            <SectionSubtitle>Gerencie serviços, valores e disponibilidade.</SectionSubtitle>
-          </div>
-          <PrimaryButton type="button" onClick={() => openServiceModal()}>
-            <FaPlus />
-            Novo serviço
-          </PrimaryButton>
-        </SectionHeader>
-        {content}
-      </Section>
-    );
-  };
-
-  const renderRecurring = () => {
-    let content = (
-      <SimpleTable>
-        <thead>
-          <tr>
-            <th>Nome</th>
-            <th>Categoria</th>
-            <th>Valor</th>
-            <th>Dia</th>
-            <th>Ativo</th>
-            <th>Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-          {recurringExpenses.map((item) => {
-            const category = item.category_id ? categoryMap.get(item.category_id) : null;
-            return (
-              <tr key={item.id}>
-                <td>{item.name}</td>
-                <td>{category?.name || "-"}</td>
-                <td>{formatCurrency(item.amount_cents)}</td>
-                <td>{item.day_of_month}</td>
-                <td>{item.is_active ? "Sim" : "Nao"}</td>
-                <td>
-                  <RowActions>
-                    <SmallButton type="button" onClick={() => openRecurringModal(item)}>
-                      Editar
-                    </SmallButton>
-                    <SmallButton type="button" onClick={() => handleToggleRecurring(item)}>
-                      {item.is_active ? "Desativar" : "Ativar"}
-                    </SmallButton>
-                  </RowActions>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </SimpleTable>
-    );
-
-    if (loadingManagement) {
-      content = (
-        <SectionLoader>
-          <Spinner />
-          Carregando despesas fixas...
-        </SectionLoader>
-      );
-    } else if (recurringExpenses.length === 0) {
-      content = <EmptyState>Sem despesas fixas cadastradas.</EmptyState>;
-    }
-
-    return (
-      <Section>
-        <SectionHeader>
-          <div>
-            <SectionTitle>Despesas fixas</SectionTitle>
-            <SectionSubtitle>Controle despesas recorrentes mensais.</SectionSubtitle>
-          </div>
-          <PrimaryButton type="button" onClick={() => openRecurringModal()}>
-            <FaPlus />
-            Nova despesa fixa
-          </PrimaryButton>
-        </SectionHeader>
-        {content}
-      </Section>
-    );
-  };
-
   const previewCycle = billingCycleSessionsPreview.cycle;
   const previewPatientName = previewCycle?.Patient ? getPatientDisplayName(previewCycle.Patient) : "-";
   const previewPlanName = previewCycle?.ServicePlan?.name || "-";
@@ -7420,8 +6811,6 @@ export default function Financeiro() {
     "clinic-expenses": "Despesas da clínica",
     methods: "Configurações",
     "clinic-expense-categories": "Configurações",
-    recurring: "Despesas fixas",
-    categories: "Categorias",
   };
   const currentSectionTitle = sectionTitleByKey[activeSection] || "Financeiro";
   const showFinancialPrivacyToggle = ["overview", "receitas", "clinic-expenses"].includes(activeSection);
@@ -7481,8 +6870,6 @@ export default function Financeiro() {
             {activeSection === "receitas" && renderReceitas()}
             {SHOW_CLINIC_EXPENSES && activeSection === "clinic-expenses" && renderClinicExpenses()}
             {activeSection === "clinic-expense-categories" && renderClinicExpenseCategories()}
-            {SHOW_FINANCIAL_MANAGEMENT && activeSection === "recurring" && renderRecurring()}
-            {SHOW_FINANCIAL_MANAGEMENT && activeSection === "categories" && renderCategories()}
             {activeSection === "methods" && renderMethods()}
           </>
       </FinanceContent>
@@ -8483,68 +7870,6 @@ export default function Financeiro() {
         </>
       )}
 
-      {isCategoryOpen && (
-        <>
-          <ModalOverlay>
-            <ModalCard>
-              <ModalHeader>
-                <div>
-                  <ModalTitle>{editingCategoryId ? "Editar categoria" : "Nova categoria"}</ModalTitle>
-                  <ModalSubtitle>Organize os lançamentos.</ModalSubtitle>
-                </div>
-                <IconButton type="button" onClick={closeCategoryModal}>
-                  <FaTimes />
-                </IconButton>
-              </ModalHeader>
-              <ModalBody>
-                <FormGrid>
-                  <Field>
-                    <Label htmlFor="category-name">Nome</Label>
-                    <Input
-                      id="category-name"
-                      name="name"
-                      value={categoryForm.name}
-                      onChange={handleCategoryChange}
-                    />
-                  </Field>
-                  <Field>
-                    <Label htmlFor="category-type">Tipo</Label>
-                    <Select
-                      id="category-type"
-                      name="type"
-                      value={categoryForm.type}
-                      onChange={handleCategoryChange}
-                    >
-                      <option value="income">Receita</option>
-                      <option value="expense">Despesa</option>
-                    </Select>
-                  </Field>
-                  <Field>
-                    <Label htmlFor="category-color">Cor (opcional)</Label>
-                    <Input
-                      id="category-color"
-                      name="color"
-                      value={categoryForm.color}
-                      onChange={handleCategoryChange}
-                      placeholder="#6a795c"
-                    />
-                  </Field>
-                </FormGrid>
-              </ModalBody>
-              <ModalActions>
-                <SecondaryButton type="button" onClick={closeCategoryModal}>
-                  Cancelar
-                </SecondaryButton>
-                <PrimaryButton type="button" onClick={handleSaveCategory}>
-                  Salvar
-                </PrimaryButton>
-              </ModalActions>
-            </ModalCard>
-          </ModalOverlay>
-          <ProtectedBackdrop onClick={closeCategoryModal} $hasInput={categoryModalHasInput} />
-        </>
-      )}
-
       {isMethodOpen && (
         <>
           <ModalOverlay>
@@ -8580,162 +7905,6 @@ export default function Financeiro() {
             </ModalCard>
           </ModalOverlay>
           <ProtectedBackdrop onClick={closeMethodModal} $hasInput={methodModalHasInput} />
-        </>
-      )}
-
-      {isServiceOpen && (
-        <>
-          <ModalOverlay>
-            <ModalCard>
-              <ModalHeader>
-                <div>
-                  <ModalTitle>{editingServiceId ? "Editar serviço" : "Novo serviço"}</ModalTitle>
-                  <ModalSubtitle>Gerencie nome, valor e disponibilidade.</ModalSubtitle>
-                </div>
-                <IconButton
-                  type="button"
-                  onClick={() => {
-                    if (!isServiceSaving) closeServiceModal();
-                  }}
-                >
-                  <FaTimes />
-                </IconButton>
-              </ModalHeader>
-              <ModalBody>
-                <FormGrid>
-                  <Field>
-                    <Label htmlFor="service-name">Nome</Label>
-                    <Input
-                      id="service-name"
-                      name="name"
-                      value={serviceForm.name}
-                      onChange={handleServiceChange}
-                    />
-                  </Field>
-                  <Field>
-                    <Label htmlFor="service-price">Valor padrao</Label>
-                    <Input
-                      id="service-price"
-                      name="price"
-                      value={serviceForm.price}
-                      onChange={handleServiceChange}
-                      placeholder="0,00"
-                    />
-                  </Field>
-                  <Field>
-                    <Label htmlFor="service-color">Cor (opcional)</Label>
-                    <ColorInput
-                      id="service-color"
-                      name="color"
-                      type="color"
-                      value={serviceForm.color || "#6a795c"}
-                      onChange={handleServiceChange}
-                    />
-                  </Field>
-                </FormGrid>
-                <Loading isLoading={isServiceSaving} />
-              </ModalBody>
-              <ModalActions>
-                <SecondaryButton type="button" onClick={closeServiceModal} disabled={isServiceSaving}>
-                  Cancelar
-                </SecondaryButton>
-                <PrimaryButton type="button" onClick={handleSaveService} disabled={isServiceSaving}>
-                  {isServiceSaving ? "Salvando..." : "Salvar"}
-                </PrimaryButton>
-              </ModalActions>
-            </ModalCard>
-          </ModalOverlay>
-          <ProtectedBackdrop $hasInput={serviceModalHasInput} onClick={() => {
-            if (!isServiceSaving) closeServiceModal();
-          }} />
-        </>
-      )}
-
-      {isRecurringOpen && (
-        <>
-          <ModalOverlay>
-            <ModalCard>
-              <ModalHeader>
-                <div>
-                  <ModalTitle>{editingRecurringId ? "Editar despesa fixa" : "Nova despesa fixa"}</ModalTitle>
-                  <ModalSubtitle>Informe os dados da despesa mensal.</ModalSubtitle>
-                </div>
-                <IconButton type="button" onClick={closeRecurringModal}>
-                  <FaTimes />
-                </IconButton>
-              </ModalHeader>
-              <ModalBody>
-                <FormGrid>
-                  <Field>
-                    <Label htmlFor="recurring-name">Nome</Label>
-                    <Input
-                      id="recurring-name"
-                      name="name"
-                      value={recurringForm.name}
-                      onChange={handleRecurringChange}
-                    />
-                  </Field>
-                  <Field>
-                    <Label htmlFor="recurring-amount">Valor</Label>
-                    <Input
-                      id="recurring-amount"
-                      name="amount"
-                      value={recurringForm.amount}
-                      onChange={handleRecurringChange}
-                      placeholder="0,00"
-                    />
-                  </Field>
-                  <Field>
-                    <Label htmlFor="recurring-day">Dia do mes</Label>
-                    <Input
-                      id="recurring-day"
-                      name="day_of_month"
-                      type="number"
-                      min="1"
-                      max="31"
-                      value={recurringForm.day_of_month}
-                      onChange={handleRecurringChange}
-                    />
-                  </Field>
-                  <Field>
-                    <Label htmlFor="recurring-category">Categoria</Label>
-                    <Select
-                      id="recurring-category"
-                      name="category_id"
-                      value={recurringForm.category_id}
-                      onChange={handleRecurringChange}
-                    >
-                      <option value="">Selecione</option>
-                      {categories.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                </FormGrid>
-                <Field>
-                  <Label htmlFor="recurring-notes">Observações</Label>
-                  <TextArea
-                    id="recurring-notes"
-                    name="notes"
-                    rows="3"
-                    value={recurringForm.notes}
-                    onChange={handleRecurringChange}
-                  />
-                </Field>
-              </ModalBody>
-              <ModalActions>
-                <SecondaryButton type="button" onClick={closeRecurringModal}>
-                  Cancelar
-                </SecondaryButton>
-                <PrimaryButton type="button" onClick={handleSaveRecurring}>
-                  Salvar
-                </PrimaryButton>
-              </ModalActions>
-            </ModalCard>
-          </ModalOverlay>
-          <ProtectedBackdrop onClick={closeRecurringModal} $hasInput={recurringModalHasInput} />
         </>
       )}
 
@@ -9008,30 +8177,6 @@ const PatientSummaryRow = styled.tr`
         }
       `
       : ""}
-`;
-
-const TypePill = styled.span`
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  background: ${(props) => (props.$type === "income" ? "#e3f1e0" : "#f7e7dc")};
-  color: ${(props) => (props.$type === "income" ? "#4f6b45" : "#9a6a3a")};
-`;
-
-const ColorRow = styled.div`
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-`;
-
-const ColorDot = styled.span`
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
 `;
 
 const RowActions = styled.div`
@@ -10533,16 +9678,6 @@ const CurrencyInput = styled(Input)`
   &:focus {
     outline: none;
   }
-`;
-
-const ColorInput = styled.input`
-  width: 100%;
-  height: 44px;
-  padding: 6px;
-  border-radius: 10px;
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  background: #fff;
-  cursor: pointer;
 `;
 
 const Select = styled.select`
