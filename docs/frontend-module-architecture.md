@@ -148,8 +148,20 @@ permanece visível apenas na área correspondente, sem derrubar o perfil ou outr
 regras de negócio devem ser consultados nas fontes indicadas em
 [regras-negocio.md](regras-negocio.md), sem serem reproduzidos no Frontend.
 
-Lacuna atual: os controles clínicos de escrita ainda precisam de revisão
-permission-aware para usuários com acesso somente leitura.
+Os controles do Prontuário seguem a autorização oficial também dentro da
+página: leitura exige o nível e a capacidade de leitura; rascunhos e demais
+mutations exigem nível de edição e capacidade de escrita; assinatura e adendo
+exigem adicionalmente a capacidade de finalização. Sem a combinação aplicável,
+a interface preserva a apresentação dos dados e oculta os acionadores de
+escrita. A edição dos campos clínicos na seção Dados também depende da permissão
+adequada de Pacientes, sem ampliar a edição das demais seções cadastrais.
+
+`eligible_to_sign` comprova a identidade profissional para o fluxo de
+assinatura, mas não concede nem substitui `clinical_records.finalize`. Esses
+gates de UI melhoram a experiência e reduzem ações sabidamente recusadas; o
+Backend permanece responsável pelo enforcement final das autorizações e regras
+de domínio. As regras autoritativas continuam nas fontes do MFBackend
+encaminhadas por [regras-negocio.md](regras-negocio.md).
 
 Os contratos visuais específicos de pessoas, contas, perfis, inativação e
 auditoria da área Equipe estão em
