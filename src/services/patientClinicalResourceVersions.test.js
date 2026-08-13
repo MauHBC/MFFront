@@ -20,7 +20,8 @@ describe("clinical resource version transport", () => {
 
     expect(api.patch).toHaveBeenCalledWith(
       "/patient-clinical-cases/11/status",
-      { status: "resolved", version: 2 },
+      { status: "resolved", version: 2, reason: undefined },
+      { headers: { "Idempotency-Key": expect.stringMatching(/^case-status-/) } },
     );
   });
 
