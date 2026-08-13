@@ -15,6 +15,7 @@ Consulte principalmente:
 - `../MFBackend/docs/regras-negocio/financeiro.md`
 - `../MFBackend/docs/regras-negocio/planos-mensais.md`
 - `../MFBackend/docs/regras-negocio/pacientes.md`
+- `../MFBackend/docs/regras-negocio/caso-clinico.md`
 - `../MFBackend/docs/regras-negocio/despesas-clinica.md`
 
 O frontend implementa a experiencia visual e deve preservar os contratos do
