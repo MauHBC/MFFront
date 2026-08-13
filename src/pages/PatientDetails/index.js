@@ -18,6 +18,7 @@ import { useAuthorization } from "../../contexts/AuthorizationContext";
 import axios from "../../services/axios";
 import {
   createPatientClinicalCase,
+  getPatientClinicalCaseHistory,
   listPatientClinicalCases,
   updatePatientClinicalCase,
   updatePatientClinicalCaseStatus,
@@ -62,6 +63,7 @@ import {
 } from "../../services/clinicalRecordSaveFlow";
 import {
   formatClinicalCaseMeta,
+  formatClinicalRecordDateTime,
   formatClinicalRecordMeta,
 } from "./clinicalRecordPresentation";
 
@@ -259,7 +261,6 @@ const CLINICAL_CASE_STATUS_LABELS = CLINICAL_CASE_STATUSES.reduce(
 const buildClinicalCaseForm = (clinicalCase = null) => ({
   title: clinicalCase?.title || "",
   chief_complaint: clinicalCase?.chief_complaint || "",
-  status: clinicalCase?.status || "active",
   started_on: clinicalCase?.started_on || "",
   diagnosis_hypothesis: clinicalCase?.diagnosis_hypothesis || "",
   current_plan: clinicalCase?.current_plan || "",
@@ -801,6 +802,8 @@ export default function PatientDetails() {
   const [isSavingClinicalCase, setIsSavingClinicalCase] = useState(false);
   const [isUpdatingClinicalCaseStatus, setIsUpdatingClinicalCaseStatus] =
     useState(false);
+  const [clinicalCaseHistory, setClinicalCaseHistory] = useState({});
+  const [clinicalCaseActionModal, setClinicalCaseActionModal] = useState(null);
   const [quickEvolutionModal, setQuickEvolutionModal] = useState(false);
   const [quickEvolutionEditTarget, setQuickEvolutionEditTarget] = useState(null);
   const [quickEvolutionForm, setQuickEvolutionForm] = useState(() =>
@@ -842,10 +845,7 @@ export default function PatientDetails() {
   const previousPatientIdRef = useRef(id);
   const skipActiveTabPersistenceRef = useRef(false);
   const skipRecordCasePersistenceRef = useRef(false);
-  const isClinicalIdentityRequired = Boolean(
-    (quickEvolutionModal && canFinalizeClinicalRecords)
-    || (addendumModal && canFinalizeClinicalRecords),
-  );
+  const isClinicalIdentityRequired = canReadClinicalRecords;
 
   useEffect(() => {
     skipActiveTabPersistenceRef.current = true;
@@ -865,6 +865,8 @@ export default function PatientDetails() {
     setQuickEvolutionSignatureError("");
     setSigningIdentity({ status: "idle", data: null });
     setAddendumModal(null);
+    setClinicalCaseActionModal(null);
+    setClinicalCaseHistory({});
     setSelectedClinicalReference(null);
     setClinicalReferenceDeleteTarget(null);
     setClinicalReferenceEditReturn(null);
@@ -876,7 +878,7 @@ export default function PatientDetails() {
     if (!isClinicalIdentityRequired) return undefined;
     let active = true;
     setSigningIdentity({ status: "loading", data: null });
-    getClinicalSigningIdentity()
+    Promise.resolve(getClinicalSigningIdentity())
       .then((data) => {
         if (active) setSigningIdentity({ status: "ready", data });
       })
@@ -1084,6 +1086,7 @@ export default function PatientDetails() {
       (clinicalCase) => String(clinicalCase.id) === String(recordCaseFilter),
     ) || null;
   }, [clinicalCases, recordCaseFilter]);
+
 	  useEffect(() => {
 	    setExpandedCaseSummaryFields({});
 	    setActiveCaseDetailSection("chief_complaint");
@@ -1507,10 +1510,14 @@ export default function PatientDetails() {
   }, [canWriteClinicalRecords]);
 
   const openClinicalCaseEditModal = useCallback((clinicalCase) => {
-    if (!canWriteClinicalRecords) return;
+    if (
+      !canWriteClinicalRecords
+      || clinicalCase?.clinical_state !== "draft"
+      || Number(clinicalCase?.created_by) !== Number(signingIdentity.data?.user_id)
+    ) return;
     setClinicalCaseForm(buildClinicalCaseForm(clinicalCase));
     setClinicalCaseModal({ mode: "edit", item: clinicalCase });
-  }, [canWriteClinicalRecords]);
+  }, [canWriteClinicalRecords, signingIdentity.data]);
 
   const closeClinicalCaseModal = useCallback(() => {
     if (isSavingClinicalCase) return;
@@ -1545,7 +1552,6 @@ export default function PatientDetails() {
       patient_id: id,
       title,
       chief_complaint: cleanText(clinicalCaseForm.chief_complaint),
-      status: clinicalCaseForm.status,
       started_on: cleanText(clinicalCaseForm.started_on),
 	      diagnosis_hypothesis: cleanText(clinicalCaseForm.diagnosis_hypothesis),
 	      current_plan: cleanText(clinicalCaseForm.current_plan),
@@ -1594,14 +1600,23 @@ export default function PatientDetails() {
     reloadClinicalCases,
   ]);
 
-  const handleClinicalCaseStatusChange = useCallback(async (clinicalCase, status) => {
-    if (!clinicalCase?.id || clinicalCase.status === status) return;
+  const reloadClinicalCaseHistory = useCallback(async (clinicalCaseId) => {
+    if (!clinicalCaseId) return;
+    const result = await getPatientClinicalCaseHistory(clinicalCaseId);
+    setClinicalCaseHistory((current) => ({ ...current, [clinicalCaseId]: result?.events || [] }));
+  }, []);
+
+  const handleClinicalCaseStatusChange = useCallback(async (
+    clinicalCase, status, reason,
+  ) => {
+    if (!clinicalCase?.id || clinicalCase.status === status) return false;
     setIsUpdatingClinicalCaseStatus(true);
     try {
       const response = await updatePatientClinicalCaseStatus(
         clinicalCase.id,
         status,
         clinicalCase.version,
+        reason,
       );
       if (response?.data?.id) {
         setClinicalCases((current) => current.map((item) => (
@@ -1611,15 +1626,75 @@ export default function PatientDetails() {
         await reloadClinicalCases();
       }
       toast.success("Status do caso atualizado.");
+      await reloadClinicalCaseHistory(clinicalCase.id);
+      return true;
     } catch (error) {
-      toast.error(
-        error?.response?.data?.error ||
-          "Nao foi possivel atualizar o status do caso.",
-      );
+      toast.error(getClinicalRecordSaveErrorMessage(
+        error,
+        "Não foi possível atualizar o status do caso.",
+      ));
+      return false;
     } finally {
       setIsUpdatingClinicalCaseStatus(false);
     }
-  }, [reloadClinicalCases]);
+  }, [reloadClinicalCaseHistory, reloadClinicalCases]);
+
+  const consolidateClinicalCase = useCallback((clinicalCase) => {
+    if (!clinicalCase || !signingIdentity.data?.eligible_to_sign) return;
+    setClinicalCaseActionModal({ type: "consolidate", item: clinicalCase });
+  }, [signingIdentity.data]);
+
+  const saveClinicalCaseAction = useCallback(async () => {
+    const action = clinicalCaseActionModal;
+    if (!action || !signingIdentity.data?.eligible_to_sign) return;
+    const reason = String(action.reason || "").trim();
+    if (action.type !== "consolidate" && reason.length < 3) {
+      toast.error("Informe o motivo.");
+      return;
+    }
+    try {
+      if (action.type === "consolidate") {
+        const updated = await finalizeClinicalRecord(
+          "clinical_case", action.item.id, action.item.version,
+        );
+        setClinicalCases((current) => current.map((item) => (
+          Number(item.id) === Number(updated.id) ? updated : item
+        )));
+        await reloadClinicalCaseHistory(action.item.id);
+        toast.success("Caso clínico consolidado.");
+      } else if (action.type === "addendum") {
+        if (action.content.trim().length < 2) {
+          toast.error("Informe o conteúdo do adendo.");
+          return;
+        }
+        await addSignedClinicalAddendum("clinical_case", action.item.id, {
+          version: action.item.version,
+          reason,
+          content: { text: action.content.trim() },
+        });
+        await reloadClinicalCases();
+        await reloadClinicalCaseHistory(action.item.id);
+        toast.success("Adendo registrado.");
+      } else {
+        const updated = await handleClinicalCaseStatusChange(action.item, action.status, reason);
+        if (!updated) return;
+      }
+      setClinicalCaseActionModal(null);
+    } catch (error) {
+      toast.error(error?.response?.data?.error || "Não foi possível registrar a alteração.");
+    }
+  }, [
+    clinicalCaseActionModal,
+    handleClinicalCaseStatusChange,
+    reloadClinicalCaseHistory,
+    reloadClinicalCases,
+    signingIdentity.data,
+  ]);
+
+  useEffect(() => {
+    if (!selectedRecordCase?.id || !canReadClinicalRecords) return;
+    reloadClinicalCaseHistory(selectedRecordCase.id).catch(() => null);
+  }, [canReadClinicalRecords, reloadClinicalCaseHistory, selectedRecordCase?.id]);
 
   const reloadClinicalReferences = useCallback(async () => {
     if (!id) return;
@@ -2702,9 +2777,16 @@ export default function PatientDetails() {
 			                      {selectedRecordCase ? selectedRecordCase.title : "Casos clínicos"}
 			                    </ProntuarioSectionTitle>
 			                    {selectedRecordCase && (
-			                      <ClinicalCaseMeta>
-			                        {formatClinicalCaseMeta(selectedRecordCase)}
-			                      </ClinicalCaseMeta>
+			                      <>
+			                        <ClinicalCaseMeta>
+			                          {formatClinicalCaseMeta(selectedRecordCase)}
+			                        </ClinicalCaseMeta>
+			                        <ClinicalCaseStatusPill $status={selectedRecordCase.clinical_state}>
+			                          {selectedRecordCase.clinical_state === "draft" && "Rascunho"}
+			                          {selectedRecordCase.clinical_state === "finalized" && "Consolidado"}
+			                          {selectedRecordCase.clinical_state === "legacy" && "Legado"}
+			                        </ClinicalCaseStatusPill>
+			                      </>
 			                    )}
 		                  </div>
 	                  {patient && (
@@ -2717,25 +2799,89 @@ export default function PatientDetails() {
 		                          >
 		                            Voltar aos casos
 		                          </CardButton>
-		                          {canWriteClinicalRecords && <SubtleCardButton
+		                          {canWriteClinicalRecords
+		                            && selectedRecordCase.clinical_state === "draft"
+		                            && Number(selectedRecordCase.created_by)
+		                              === Number(signingIdentity.data?.user_id)
+		                            && <SubtleCardButton
 		                            type="button"
 		                            onClick={() => openClinicalCaseEditModal(selectedRecordCase)}
 		                          >
 		                            <FaPen /> Editar caso
 		                          </SubtleCardButton>}
+		                          {canFinalizeClinicalRecords
+		                            && selectedRecordCase.clinical_state === "draft"
+		                            && Number(selectedRecordCase.created_by)
+		                              === Number(signingIdentity.data?.user_id)
+		                            && signingIdentity.data?.eligible_to_sign && (
+		                            <SubtleCardButton
+		                              type="button"
+		                              onClick={() => consolidateClinicalCase(selectedRecordCase)}
+		                            >
+		                              Consolidar caso
+		                            </SubtleCardButton>
+		                          )}
+		                          {canFinalizeClinicalRecords
+		                            && ["finalized", "legacy"].includes(selectedRecordCase.clinical_state)
+		                            && signingIdentity.data?.eligible_to_sign && (
+		                            <>
+		                              <SubtleCardButton
+		                                type="button"
+		                                onClick={() => setClinicalCaseActionModal({
+		                                  type: "addendum", item: selectedRecordCase, reason: "", content: "",
+		                                })}
+		                              >
+		                                Adicionar adendo
+		                              </SubtleCardButton>
+		                              <SubtleCardButton
+		                                type="button"
+		                                onClick={() => setClinicalCaseActionModal({
+		                                  type: "status",
+		                                  item: selectedRecordCase,
+		                                  status: selectedRecordCase.status === "active" ? "resolved" : "active",
+		                                  reason: "",
+		                                })}
+		                              >
+		                                Alterar status
+		                              </SubtleCardButton>
+		                            </>
+		                          )}
 		                        </>
 		                      )}
-		                      {!selectedRecordCase && canWriteClinicalRecords && (
-	                        <ProntuarioActionButton
-	                          type="button"
-	                          onClick={openClinicalCaseCreateModal}
-	                        >
-	                          <FaPlus /> Caso clínico
-	                        </ProntuarioActionButton>
-		                      )}
+	                      {!selectedRecordCase && canWriteClinicalRecords && (
+	                        <>
+	                          <ProntuarioActionButton
+	                            type="button"
+	                            onClick={openClinicalCaseCreateModal}
+	                          >
+	                            <FaPlus /> Caso clínico
+	                          </ProntuarioActionButton>
+	                          <SubtleCardButton type="button" onClick={() => setIsCaseManagerOpen(true)}>
+	                            Gerenciar lifecycle
+	                          </SubtleCardButton>
+	                        </>
+	                      )}
 	                    </TimelineActions>
 	                  )}
 	                </ProntuarioSectionHeader>
+	                {selectedRecordCase && (
+	                  <ClinicalCaseDetails>
+	                    <strong>Histórico do caso</strong>
+	                    {(clinicalCaseHistory[selectedRecordCase.id] || []).length === 0 && (
+	                      <span>Nenhum evento posterior registrado.</span>
+	                    )}
+	                    {(clinicalCaseHistory[selectedRecordCase.id] || []).map((event, index) => (
+	                      <span key={`${event.type}-${event.id || index}`}>
+	                        {formatClinicalRecordDateTime(event.occurred_at)} · {event.author_name || "Autoria não identificada"}
+	                        {event.registration_region && event.registration_number
+	                          ? ` · CREFITO ${event.registration_region}/${event.registration_number}` : ""}
+	                        {event.type === "finalization" && " · Caso consolidado"}
+	                        {event.type === "addendum" && ` · Adendo — ${event.reason}: ${event.content?.text || ""}`}
+	                        {event.type === "status" && ` · ${CLINICAL_CASE_STATUS_LABELS[event.previous_status]} → ${CLINICAL_CASE_STATUS_LABELS[event.new_status]} — ${event.reason}`}
+	                      </span>
+	                    ))}
+	                  </ClinicalCaseDetails>
+	                )}
 	                {!selectedRecordCase && (
 	                  <>
 	                    {clinicalCases.length === 0 && (
@@ -3860,6 +4006,81 @@ export default function PatientDetails() {
             </ModalCard>
           </ModalOverlay>
         )}
+        {canFinalizeClinicalRecords && clinicalCaseActionModal && (
+          <ModalOverlay>
+            <ModalCard>
+              <ModalHeader>
+                <div>
+                  <ModalTitle>
+                    {clinicalCaseActionModal.type === "consolidate" && "Consolidar caso"}
+                    {clinicalCaseActionModal.type === "addendum" && "Adicionar adendo"}
+                    {clinicalCaseActionModal.type === "status" && "Alterar status"}
+                  </ModalTitle>
+                  <ModalSubtitle>
+                    <span>{clinicalCaseActionModal.item.title}</span>
+                  </ModalSubtitle>
+                </div>
+                <IconButton type="button" onClick={() => setClinicalCaseActionModal(null)} aria-label="Fechar">
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                <SigningIdentityPanel $eligible={signingIdentity.data?.eligible_to_sign === true}>
+                  {signingIdentity.data?.eligible_to_sign
+                    ? `${signingIdentity.data.name} — CREFITO-${signingIdentity.data.registration_region} nº ${signingIdentity.data.registration_number}`
+                    : "É necessária identidade profissional verificada e atribuição ativa."}
+                </SigningIdentityPanel>
+                {clinicalCaseActionModal.type === "consolidate" && (
+                  <p>Após a confirmação, o conteúdo clínico original não poderá mais ser editado diretamente.</p>
+                )}
+                {clinicalCaseActionModal.type === "status" && (
+                  <InlineSelect
+                    value={clinicalCaseActionModal.status}
+                    onChange={(event) => setClinicalCaseActionModal((current) => ({
+                      ...current, status: event.target.value,
+                    }))}
+                    aria-label="Novo status"
+                  >
+                    {CLINICAL_CASE_STATUSES.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </InlineSelect>
+                )}
+                {clinicalCaseActionModal.type !== "consolidate" && <InlineTextarea
+                  value={clinicalCaseActionModal.reason}
+                  onChange={(event) => setClinicalCaseActionModal((current) => ({
+                    ...current, reason: event.target.value,
+                  }))}
+                  rows={3}
+                  placeholder="Motivo obrigatório"
+                  aria-label="Motivo"
+                />}
+                {clinicalCaseActionModal.type === "addendum" && (
+                  <InlineTextarea
+                    value={clinicalCaseActionModal.content}
+                    onChange={(event) => setClinicalCaseActionModal((current) => ({
+                      ...current, content: event.target.value,
+                    }))}
+                    rows={5}
+                    placeholder="Conteúdo do adendo"
+                    aria-label="Conteúdo do adendo"
+                  />
+                )}
+              </ModalBody>
+              <ModalFooter>
+                <CardButton type="button" onClick={() => setClinicalCaseActionModal(null)}>Cancelar</CardButton>
+                <CardButton
+                  type="button"
+                  $primary
+                  onClick={saveClinicalCaseAction}
+                  disabled={!signingIdentity.data?.eligible_to_sign}
+                >
+                  Confirmar
+                </CardButton>
+              </ModalFooter>
+            </ModalCard>
+          </ModalOverlay>
+        )}
         {canWriteClinicalRecords && isCaseManagerOpen && (
           <ModalOverlay>
             <ModalCard>
@@ -3935,19 +4156,24 @@ export default function PatientDetails() {
                             </ClinicalCaseDetails>
                           )}
                           <ClinicalCaseActions>
-                            <SubtleCardButton
+                            {clinicalCase.clinical_state === "draft"
+                              && Number(clinicalCase.created_by) === Number(signingIdentity.data?.user_id)
+                              && <SubtleCardButton
                               type="button"
                               onClick={() => openClinicalCaseEditModal(clinicalCase)}
                             >
                               Editar
-                            </SubtleCardButton>
-                            <CaseStatusSelect
+                            </SubtleCardButton>}
+                            {["finalized", "legacy"].includes(clinicalCase.clinical_state)
+                              && signingIdentity.data?.eligible_to_sign && <CaseStatusSelect
                               value={clinicalCase.status}
                               onChange={(event) =>
-                                handleClinicalCaseStatusChange(
-                                  clinicalCase,
-                                  event.target.value,
-                                )
+                                setClinicalCaseActionModal({
+                                  type: "status",
+                                  item: clinicalCase,
+                                  status: event.target.value,
+                                  reason: "",
+                                })
                               }
                               disabled={isUpdatingClinicalCaseStatus}
                               aria-label={`Status do caso ${clinicalCase.title}`}
@@ -3957,7 +4183,7 @@ export default function PatientDetails() {
                                   {option.label}
                                 </option>
                               ))}
-                            </CaseStatusSelect>
+                            </CaseStatusSelect>}
                           </ClinicalCaseActions>
                         </ClinicalCaseCard>
                       ))}
@@ -3988,21 +4214,18 @@ export default function PatientDetails() {
                               "Sem queixa principal registrada."}
                           </ClinicalCaseDescription>
                           <ClinicalCaseActions>
-                            <SubtleCardButton
-                              type="button"
-                              onClick={() => openClinicalCaseEditModal(clinicalCase)}
-                            >
-                              Editar
-                            </SubtleCardButton>
-                            <SubtleCardButton
+                            {["finalized", "legacy"].includes(clinicalCase.clinical_state)
+                              && signingIdentity.data?.eligible_to_sign && <SubtleCardButton
                               type="button"
                               onClick={() =>
-                                handleClinicalCaseStatusChange(clinicalCase, "active")
+                                setClinicalCaseActionModal({
+                                  type: "status", item: clinicalCase, status: "active", reason: "",
+                                })
                               }
                               disabled={isUpdatingClinicalCaseStatus}
                             >
                               Reativar
-                            </SubtleCardButton>
+                            </SubtleCardButton>}
                           </ClinicalCaseActions>
                         </ClinicalCaseCard>
                       ))}
@@ -4061,22 +4284,6 @@ export default function PatientDetails() {
 	                            value={clinicalCaseForm.started_on}
 	                            onChange={handleClinicalCaseFieldChange}
 	                          />
-	                        </DataValue>
-	                      </DataRow>
-	                      <DataRow>
-	                        <DataLabel>Status</DataLabel>
-	                        <DataValue>
-	                          <InlineSelect
-	                            name="status"
-	                            value={clinicalCaseForm.status}
-	                            onChange={handleClinicalCaseFieldChange}
-	                          >
-	                            {CLINICAL_CASE_STATUSES.map((option) => (
-	                              <option key={option.value} value={option.value}>
-	                                {option.label}
-	                              </option>
-	                            ))}
-	                          </InlineSelect>
 	                        </DataValue>
 	                      </DataRow>
 	                    </DataList>

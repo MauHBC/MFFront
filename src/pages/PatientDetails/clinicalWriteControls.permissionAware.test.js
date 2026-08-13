@@ -16,6 +16,7 @@ import axios from "../../services/axios";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   createPatientClinicalCase,
+  getPatientClinicalCaseHistory,
   listPatientClinicalCases,
   updatePatientClinicalCase,
 } from "../../services/patientClinicalCases";
@@ -46,6 +47,7 @@ jest.mock("../../services/patientClinicalCases", () => ({
   listPatientClinicalCases: jest.fn(),
   updatePatientClinicalCase: jest.fn(),
   updatePatientClinicalCaseStatus: jest.fn(),
+  getPatientClinicalCaseHistory: jest.fn(),
 }));
 jest.mock("../../services/patientClinicalReferences", () => ({
   createPatientClinicalReference: jest.fn(),
@@ -84,6 +86,9 @@ const clinicalCase = {
   status: "active",
   chief_complaint: "Dor lombar mecânica",
   started_on: "2026-08-01",
+  clinical_state: "draft",
+  version: 2,
+  created_by: 7,
 };
 const evaluations = [
   {
@@ -130,6 +135,7 @@ const externalProfessional = {
 };
 const eligibleIdentity = {
   eligible_to_sign: true,
+  user_id: 7,
   name: "Dra. Beatriz",
   registration_region: "15",
   registration_number: "12345-F",
@@ -182,6 +188,7 @@ function configureRequests() {
   });
   axios.put.mockResolvedValue(response(patient));
   listPatientClinicalCases.mockResolvedValue(response([clinicalCase]));
+  getPatientClinicalCaseHistory.mockResolvedValue({ events: [] });
   listPatientClinicalReferences.mockResolvedValue(response([reference]));
   listPatientExternalProfessionals.mockResolvedValue(response([externalProfessional]));
   createPatientClinicalCase.mockResolvedValue(response({ id: 99 }));

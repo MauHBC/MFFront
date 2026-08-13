@@ -12,9 +12,11 @@ import axios from "../../services/axios";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   createPatientClinicalCase,
+  getPatientClinicalCaseHistory,
   listPatientClinicalCases,
   updatePatientClinicalCase,
 } from "../../services/patientClinicalCases";
+import { getClinicalSigningIdentity } from "../../services/clinicalRecords";
 import {
   createPatientClinicalReference,
   listPatientClinicalReferences,
@@ -33,6 +35,7 @@ jest.mock("../../services/patientClinicalCases", () => ({
   listPatientClinicalCases: jest.fn(),
   updatePatientClinicalCase: jest.fn(),
   updatePatientClinicalCaseStatus: jest.fn(),
+  getPatientClinicalCaseHistory: jest.fn(),
 }));
 jest.mock("../../services/patientClinicalReferences", () => ({
   createPatientClinicalReference: jest.fn(),
@@ -69,6 +72,8 @@ const clinicalCase = {
   chief_complaint: "Dor lombar",
   started_on: "2026-08-01",
   version: 2,
+  clinical_state: "draft",
+  created_by: 8,
 };
 const reference = {
   id: 51,
@@ -93,6 +98,14 @@ function configureRequests() {
   });
   axios.put.mockResolvedValue(response(patient));
   listPatientClinicalCases.mockResolvedValue(response([clinicalCase]));
+  getPatientClinicalCaseHistory.mockResolvedValue({ events: [] });
+  getClinicalSigningIdentity.mockResolvedValue({
+    eligible_to_sign: true,
+    user_id: 8,
+    name: "Dra. Ana",
+    registration_region: "ES",
+    registration_number: "1234",
+  });
   listPatientClinicalReferences.mockResolvedValue(response([reference]));
   listPatientExternalProfessionals.mockResolvedValue(response([]));
   createPatientClinicalCase.mockResolvedValue(response({ ...clinicalCase, id: 12, version: 1 }));
@@ -201,7 +214,7 @@ describe("PatientDetails clinical resource version propagation", () => {
 
   test("passes the loaded case version to the status mutation", () => {
     expect(patientDetailsSource).toMatch(
-      /updatePatientClinicalCaseStatus\(\s*clinicalCase\.id,\s*status,\s*clinicalCase\.version,\s*\)/,
+      /updatePatientClinicalCaseStatus\(\s*clinicalCase\.id,\s*status,\s*clinicalCase\.version,\s*reason,\s*\)/,
     );
   });
 
