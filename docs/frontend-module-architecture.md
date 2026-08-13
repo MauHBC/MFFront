@@ -133,6 +133,24 @@ Agenda usa somente as projeções reduzidas `/schedule/references/*`. A
 permissão de Agenda não libera os diretórios amplos de Pacientes ou Usuários;
 cada módulo e endpoint mantém seu próprio gate.
 
+#### Composição modular de `PatientDetails`
+
+A rota `/pacientes/:id` continua protegida por `patients/view`, mas a página
+compõe responsabilidades autorizadas de forma independente. O perfil cadastral
+depende somente de `patients`; Prontuário exige acesso de leitura a
+`clinical_records`; e Histórico/Frequência exige acesso a `schedule`.
+
+O bootstrap consulta cada área somente quando o `AuthorizationContext`
+comprova sua permissão. Ausência de permissão não dispara a request nem é
+representada como lista vazia. Se uma request autorizada falhar, o erro
+permanece visível apenas na área correspondente, sem derrubar o perfil ou outra
+área autorizada. O Backend continua sendo a autoridade final; contratos e
+regras de negócio devem ser consultados nas fontes indicadas em
+[regras-negocio.md](regras-negocio.md), sem serem reproduzidos no Frontend.
+
+Lacuna atual: os controles clínicos de escrita ainda precisam de revisão
+permission-aware para usuários com acesso somente leitura.
+
 Os contratos visuais específicos de pessoas, contas, perfis, inativação e
 auditoria da área Equipe estão em
 [team-read-only-module.md](team-read-only-module.md).
@@ -197,7 +215,7 @@ sidebar fixada usa `localStorage` e a chave
 |---|---|---|
 | Painel | Link direto | `/painel`; `/dashboard` é alias ativo |
 | Agenda | Expansível | Agenda: `/agendamentos`; Configurações: `/agendamentos/eventos` |
-| Pacientes | Link direto | `/pacientes` e subrotas protegidas |
+| Pacientes | Link direto | `/pacientes`; detalhes em `/pacientes/:id` e demais subrotas protegidas |
 | Planos | Expansível e sujeito a `isPlansModuleEnabled` | Pacientes com plano: `/planos?tab=patient-plans`; Planos mensais: `/planos?tab=service-plans`; Serviços: `/planos?tab=services`; detalhes: `/planos/pacientes/:patientPlanId` |
 | Financeiro | Expansível | `/financeiro/visao-geral`, `/financeiro/receitas`, `/financeiro/despesas` e `/financeiro/configuracoes` |
 | Sair | Ação | Executa `useLogout` no menu do usuário; não é rota |
