@@ -3,6 +3,10 @@
 Este documento é a fonte canônica para identificar, comparar, publicar e
 reverter o frontend compartilhado do Multifisio.
 
+O arquivo `release-win.sh` é legado e não deve ser usado como procedimento de
+publicação. Ele não substitui este runbook nem
+`scripts/deploy-production.sh`.
+
 ## Fonte da verdade
 
 O Nginx atende `espacocuidarvix.com.br` e `cmtrfisio.com.br` a partir de:
