@@ -156,6 +156,15 @@ a interface preserva a apresentação dos dados e oculta os acionadores de
 escrita. A edição dos campos clínicos na seção Dados também depende da permissão
 adequada de Pacientes, sem ampliar a edição das demais seções cadastrais.
 
+Casos clínicos e suas referências usam concorrência otimista (CAS). Os resources
+carregados expõem `version`; a criação não a exige, enquanto updates de caso ou
+referência, alteração de status do caso e exclusão de referência propagam a
+versão corrente. Após sucesso, o Frontend adota a representação e a nova versão
+canônicas retornadas pelo Backend. O conflito `409 CLINICAL_VERSION_CONFLICT`
+permanece visível e não é mascarado nem reexecutado automaticamente. As regras
+autoritativas do domínio permanecem no MFBackend, conforme
+[regras-negocio.md](regras-negocio.md).
+
 `eligible_to_sign` comprova a identidade profissional para o fluxo de
 assinatura, mas não concede nem substitui `clinical_records.finalize`. Esses
 gates de UI melhoram a experiência e reduzem ações sabidamente recusadas; o
