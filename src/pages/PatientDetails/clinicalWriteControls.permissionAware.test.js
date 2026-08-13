@@ -223,121 +223,93 @@ function clinicalInformationCard() {
   return title.parentElement.parentElement.parentElement;
 }
 
-describe("PatientDetails clinical write controls permission matrix characterization", () => {
+describe("PatientDetails clinical write controls permission matrix", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     window.sessionStorage.clear();
     configureRequests();
   });
 
-  test("read-only currently exposes evaluation, evolution, draft, signature, addendum and case controls", async () => {
+  test("read-only preserves clinical reading and hides every clinical mutation entry", async () => {
     authorize();
-    const history = renderPage();
+    renderPage();
     await waitForPatient();
+
+    expect(screen.queryByRole("button", { name: "Adicionar profissional" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Inativar" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Prontuário" }));
+    expect(await screen.findByRole("button", { name: /Lombar/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Caso clínico" })).not.toBeInTheDocument();
     await openCase();
 
-    expect(screen.getByRole("button", { name: "Editar caso" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Evolução" })).toBeInTheDocument();
-    const evaluationEntry = screen.getByRole("button", { name: "Avaliação" });
-    expect(evaluationEntry).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Editar rascunho" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Adicionar adendo" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar caso" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Evolução" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Avaliação" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar rascunho" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Adicionar adendo" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Salvar e assinar" })).not.toBeInTheDocument();
 
-    fireEvent.click(evaluationEntry);
-    expect(history.location.pathname).toBe("/pacientes/101/avaliacoes/nova");
+    fireEvent.click(screen.getByRole("tab", { name: "Referências" }));
+    expect(screen.queryByRole("button", { name: "Adicionar referência" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Guideline lombar/ }));
+    expect(screen.getByText("https://example.test/guideline")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Excluir" })).not.toBeInTheDocument();
+
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(createPatientClinicalCase).not.toHaveBeenCalled();
+    expect(createPatientClinicalReference).not.toHaveBeenCalled();
+    expect(createPatientExternalProfessional).not.toHaveBeenCalled();
+    expect(addSignedClinicalAddendum).not.toHaveBeenCalled();
   });
 
-  test("read-only with eligible identity can currently submit a draft and enables signing", async () => {
-    const authorization = authorize();
+  test("edit + write exposes draft and clinical mutations but hides signature and addendum", async () => {
+    authorize({
+      clinicalLevel: "edit",
+      capabilities: ["clinical_records.read", "clinical_records.write"],
+    });
     renderPage();
     await waitForPatient();
     await openCase();
+
+    expect(screen.getByRole("button", { name: "Evolução" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Avaliação" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Editar rascunho" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Adicionar adendo" })).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Evolução" }));
-
-    const evolution = document.querySelector('textarea[name="evolution_text"]');
-    fireEvent.change(evolution, {
-      target: { name: "evolution_text", value: "Evolução acionável em leitura" },
-    });
     expect(screen.getByRole("button", { name: "Salvar rascunho" })).toBeEnabled();
-    await waitFor(() => expect(
-      screen.getByRole("button", { name: "Salvar e assinar" }),
-    ).toBeEnabled());
-    expect(authorization.hasCapability("clinical_records.finalize")).toBe(false);
-
-    fireEvent.click(screen.getByRole("button", { name: "Salvar rascunho" }));
-    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
-      "/evaluations/quick-evolution",
-      expect.objectContaining({ evolution_text: "Evolução acionável em leitura" }),
-    ));
+    expect(screen.queryByRole("button", { name: "Salvar e assinar" })).not.toBeInTheDocument();
   });
 
-  test.each([
-    {
-      label: "edit + write without finalize",
-      clinicalLevel: "edit",
-      capabilities: ["clinical_records.read", "clinical_records.write"],
-      canFinalize: false,
-    },
-    {
-      label: "edit + write + finalize",
+  test("edit + write + finalize preserves signature and addendum with eligible identity", async () => {
+    authorize({
       clinicalLevel: "edit",
       capabilities: [
         "clinical_records.read",
         "clinical_records.write",
         "clinical_records.finalize",
       ],
-      canFinalize: true,
-    },
-  ])("$label keeps write controls available while current signing UI follows identity", async ({
-    clinicalLevel,
-    capabilities,
-    canFinalize,
-  }) => {
-    const authorization = authorize({ clinicalLevel, capabilities });
+    });
     renderPage();
     await waitForPatient();
     await openCase();
 
-    expect(screen.getByRole("button", { name: "Evolução" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Editar rascunho" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Adicionar adendo" })).toBeInTheDocument();
-    expect(authorization.hasCapability("clinical_records.finalize")).toBe(canFinalize);
-
     fireEvent.click(screen.getByRole("button", { name: "Evolução" }));
-    await waitFor(() => expect(
-      screen.getByRole("button", { name: "Salvar e assinar" }),
-    ).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Salvar e assinar" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Fechar" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar adendo" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Salvar adendo" })).toBeEnabled());
   });
 
-  test("addendum is currently exposed without correction.own and is actionable from identity alone", async () => {
-    const authorization = authorize({
+  test("edit + write exposes case, reference and external-professional mutation entries", async () => {
+    authorize({
       clinicalLevel: "edit",
       capabilities: ["clinical_records.read", "clinical_records.write"],
     });
-    renderPage();
-    await waitForPatient();
-    await openCase();
-
-    expect(authorization.hasCapability("clinical_records.correction.own")).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Adicionar adendo" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Salvar adendo" })).toBeEnabled());
-    fireEvent.change(screen.getByText("Motivo do adendo").parentElement.querySelector("input"), {
-      target: { value: "Complemento clínico" },
-    });
-    fireEvent.change(screen.getByText("Conteúdo do adendo").parentElement.querySelector("textarea"), {
-      target: { value: "Orientação complementar" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Salvar adendo" }));
-
-    await waitFor(() => expect(addSignedClinicalAddendum).toHaveBeenCalledWith(
-      "evaluation",
-      32,
-      expect.objectContaining({ version: 4 }),
-    ));
-  });
-
-  test("read-only currently exposes case, reference and external-professional mutation entries", async () => {
-    authorize();
     renderPage();
     await waitForPatient();
 
@@ -373,7 +345,7 @@ describe("PatientDetails clinical write controls permission matrix characterizat
       clinicalLevel: "edit",
       capabilities: ["clinical_records.read", "clinical_records.write"],
     }],
-  ])("clinical Data editing currently ignores the effective combination: %s", async (
+  ])("clinical Data editing requires the effective combination: %s", async (
     _label,
     scenario,
   ) => {
@@ -382,10 +354,14 @@ describe("PatientDetails clinical write controls permission matrix characterizat
     await waitForPatient();
     fireEvent.click(screen.getByRole("button", { name: "Dados" }));
 
-    expect(within(clinicalInformationCard()).getByRole("button", { name: "Editar" }))
-      .toBeInTheDocument();
-    expect(authorization.canAccessModule).not.toHaveBeenCalledWith("patients", "manage");
-    expect(authorization.canAccessModule).not.toHaveBeenCalledWith("clinical_records", "edit");
+    const editButton = within(clinicalInformationCard()).queryByRole("button", { name: "Editar" });
+    if (scenario.patientsLevel === "manage" && scenario.clinicalLevel === "edit") {
+      expect(editButton).toBeInTheDocument();
+    } else {
+      expect(editButton).not.toBeInTheDocument();
+    }
+    expect(authorization.canAccessModule).toHaveBeenCalledWith("patients", "manage");
+    expect(authorization.canAccessModule).toHaveBeenCalledWith("clinical_records", "edit");
     cleanup();
   });
 });

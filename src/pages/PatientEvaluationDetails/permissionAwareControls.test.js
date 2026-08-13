@@ -13,6 +13,7 @@ import { toast } from "react-toastify";
 
 import PatientEvaluationDetails from ".";
 import axios from "../../services/axios";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   addSignedClinicalAddendum,
   finalizeClinicalRecord,
@@ -23,6 +24,7 @@ jest.mock("../../services/axios", () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn(), delete: jest.fn() },
 }));
+jest.mock("../../contexts/AuthorizationContext", () => ({ useAuthorization: jest.fn() }));
 jest.mock("../../services/clinicalRecords", () => ({
   addSignedClinicalAddendum: jest.fn(),
   finalizeClinicalRecord: jest.fn(),
@@ -53,6 +55,21 @@ const identity = {
 };
 
 const response = (data) => Promise.resolve({ data });
+
+const LEVELS = { none: 0, view: 1, edit: 2, manage: 3 };
+
+function authorize({
+  clinicalLevel = "view",
+  capabilities = ["clinical_records.read"],
+} = {}) {
+  useAuthorization.mockReturnValue({
+    canAccessModule: jest.fn((moduleKey, minimum = "view") => (
+      moduleKey === "clinical_records"
+      && LEVELS[clinicalLevel] >= LEVELS[minimum]
+    )),
+    hasCapability: jest.fn((capability) => capabilities.includes(capability)),
+  });
+}
 
 function configureEvaluation({ clinicalState, eligible = true }) {
   getClinicalSigningIdentity.mockResolvedValue({ ...identity, eligible_to_sign: eligible });
@@ -103,38 +120,43 @@ async function waitForEvaluation() {
 describe("PatientEvaluationDetails permission characterization", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    authorize();
   });
 
-  test("draft read-only route currently exposes edit, draft save and identity-driven signature", async () => {
+  test("draft read-only route preserves reading and hides edit, persistence and signature", async () => {
     configureEvaluation({ clinicalState: "draft", eligible: true });
     renderDetails();
     await waitForEvaluation();
 
-    expect(screen.getByRole("button", { name: "Editar rascunho" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Salvar e assinar" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "Editar rascunho" }));
-    expect(screen.getByRole("button", { name: "Salvar rascunho" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Salvar e assinar" })).toBeEnabled();
+    expect(screen.getByText("Queixa")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar rascunho" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Salvar rascunho" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Salvar e assinar" })).not.toBeInTheDocument();
+    expect(getClinicalSigningIdentity).not.toHaveBeenCalled();
   });
 
-  test("finalized read-only route currently exposes an actionable addendum editor", async () => {
+  test("finalized read-only route hides addendum even with eligible identity", async () => {
     configureEvaluation({ clinicalState: "finalized", eligible: true });
     renderDetails();
     await waitForEvaluation();
 
-    fireEvent.click(screen.getByRole("button", { name: "Adicionar adendo" }));
-    expect(screen.getByText("Novo adendo")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Salvar adendo" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Adicionar adendo" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Salvar adendo" })).not.toBeInTheDocument();
   });
 
-  test("edit + write keeps draft actions applicable but current signature still follows identity only", async () => {
+  test("edit + write keeps draft actions but hides signature without finalize", async () => {
+    authorize({
+      clinicalLevel: "edit",
+      capabilities: ["clinical_records.read", "clinical_records.write"],
+    });
     configureEvaluation({ clinicalState: "draft", eligible: true });
     renderDetails();
     await waitForEvaluation();
 
     fireEvent.click(screen.getByRole("button", { name: "Editar rascunho" }));
     expect(screen.getByRole("button", { name: "Salvar rascunho" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Salvar e assinar" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Salvar e assinar" })).not.toBeInTheDocument();
+    expect(getClinicalSigningIdentity).not.toHaveBeenCalled();
   });
 
   test.each([
@@ -144,6 +166,14 @@ describe("PatientEvaluationDetails permission characterization", () => {
     eligible,
     disabled,
   ) => {
+    authorize({
+      clinicalLevel: "edit",
+      capabilities: [
+        "clinical_records.read",
+        "clinical_records.write",
+        "clinical_records.finalize",
+      ],
+    });
     configureEvaluation({ clinicalState: "draft", eligible });
     renderDetails();
     await waitForEvaluation();
@@ -153,6 +183,14 @@ describe("PatientEvaluationDetails permission characterization", () => {
   });
 
   test("addendum preserves the original-signer contract as a backend denial", async () => {
+    authorize({
+      clinicalLevel: "edit",
+      capabilities: [
+        "clinical_records.read",
+        "clinical_records.write",
+        "clinical_records.finalize",
+      ],
+    });
     configureEvaluation({ clinicalState: "finalized", eligible: true });
     const denial = new Error("SIGNED_RECORD_AUTHOR_REQUIRED");
     denial.response = { status: 403, data: { error: "SIGNED_RECORD_AUTHOR_REQUIRED" } };
@@ -180,6 +218,14 @@ describe("PatientEvaluationDetails permission characterization", () => {
   });
 
   test("authorized finalization uses confirmation and the saved record version", async () => {
+    authorize({
+      clinicalLevel: "edit",
+      capabilities: [
+        "clinical_records.read",
+        "clinical_records.write",
+        "clinical_records.finalize",
+      ],
+    });
     configureEvaluation({ clinicalState: "draft", eligible: true });
     renderDetails();
     await waitForEvaluation();

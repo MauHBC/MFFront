@@ -771,6 +771,12 @@ export default function PatientDetails() {
   const authorization = useAuthorization();
   const canReadClinicalRecords = authorization.canAccessModule("clinical_records", "view")
     && authorization.hasCapability("clinical_records.read");
+  const canWriteClinicalRecords = authorization.canAccessModule("clinical_records", "edit")
+    && authorization.hasCapability("clinical_records.write");
+  const canFinalizeClinicalRecords = authorization.canAccessModule("clinical_records", "edit")
+    && authorization.hasCapability("clinical_records.finalize");
+  const canEditClinicalPatientData = authorization.canAccessModule("patients", "manage")
+    && canWriteClinicalRecords;
   const canViewSchedule = authorization.canAccessModule("schedule", "view");
   const [activeTab, setActiveTab] = useState(() => getStoredPatientDetailsTab(id));
   const [activeProntuarioSection, setActiveProntuarioSection] = useState(
@@ -836,7 +842,10 @@ export default function PatientDetails() {
   const previousPatientIdRef = useRef(id);
   const skipActiveTabPersistenceRef = useRef(false);
   const skipRecordCasePersistenceRef = useRef(false);
-  const isClinicalIdentityRequired = Boolean(quickEvolutionModal || addendumModal);
+  const isClinicalIdentityRequired = Boolean(
+    (quickEvolutionModal && canFinalizeClinicalRecords)
+    || (addendumModal && canFinalizeClinicalRecords),
+  );
 
   useEffect(() => {
     skipActiveTabPersistenceRef.current = true;
@@ -1303,23 +1312,26 @@ export default function PatientDetails() {
   ), [recordCaseFilter]);
 
   const openQuickEvolutionModal = useCallback(() => {
+    if (!canWriteClinicalRecords) return;
     setQuickEvolutionEditTarget(null);
     setQuickEvolutionForm(buildQuickEvolutionForm(resolveDefaultCaseIdForRecord()));
     setQuickEvolutionModal(true);
-  }, [resolveDefaultCaseIdForRecord]);
+  }, [canWriteClinicalRecords, resolveDefaultCaseIdForRecord]);
 
   const openQuickEvolutionEditModal = useCallback((evaluation) => {
+    if (!canWriteClinicalRecords) return;
     if (!evaluation?.id || evaluation.record_type !== "session") return;
     if (evaluation.clinical_state !== "draft") return;
     setQuickEvolutionEditTarget(evaluation);
     setQuickEvolutionForm(buildQuickEvolutionFormFromEvaluation(evaluation));
     setQuickEvolutionModal(true);
-  }, []);
+  }, [canWriteClinicalRecords]);
 
   const openCaseEvaluationForm = useCallback(() => {
+    if (!canWriteClinicalRecords) return;
     if (!selectedRecordCase?.id) return;
     history.push(`/pacientes/${id}/avaliacoes/nova?case=${selectedRecordCase.id}`);
-  }, [history, id, selectedRecordCase]);
+  }, [canWriteClinicalRecords, history, id, selectedRecordCase]);
 
   const closeQuickEvolutionModal = useCallback(() => {
     if (isSavingQuickEvolution) return;
@@ -1346,15 +1358,17 @@ export default function PatientDetails() {
   }, []);
 
   const requestQuickEvolutionSignature = useCallback(() => {
+    if (!canFinalizeClinicalRecords) return;
     if (!signingIdentity.data?.eligible_to_sign) {
       toast.error("Verifique sua identidade profissional antes de assinar.");
       return;
     }
     setQuickEvolutionSignatureError("");
     setQuickEvolutionSignatureConfirmOpen(true);
-  }, [signingIdentity.data]);
+  }, [canFinalizeClinicalRecords, signingIdentity.data]);
 
   const handleSaveQuickEvolution = useCallback(async (shouldFinalize = false) => {
+    if (!canWriteClinicalRecords || (shouldFinalize && !canFinalizeClinicalRecords)) return;
     if (isSavingQuickEvolution) return;
     const evolutionText = cleanText(quickEvolutionForm.evolution_text);
     if (!evolutionText || evolutionText.length < 2) {
@@ -1432,6 +1446,8 @@ export default function PatientDetails() {
       setIsSavingQuickEvolution(false);
     }
   }, [
+    canFinalizeClinicalRecords,
+    canWriteClinicalRecords,
     id,
     isSavingQuickEvolution,
     quickEvolutionEditTarget,
@@ -1440,10 +1456,12 @@ export default function PatientDetails() {
   ]);
 
   const openAddendumModal = useCallback((evaluation) => {
+    if (!canFinalizeClinicalRecords) return;
     setAddendumModal({ evaluation, reason: "", content: "" });
-  }, []);
+  }, [canFinalizeClinicalRecords]);
 
   const saveAddendum = useCallback(async () => {
+    if (!canFinalizeClinicalRecords) return;
     if (!addendumModal || isSavingAddendum) return;
     if (addendumModal.reason.trim().length < 3 || addendumModal.content.trim().length < 2) {
       toast.error("Informe o motivo e o conteúdo do adendo.");
@@ -1470,6 +1488,7 @@ export default function PatientDetails() {
     }
   }, [
     addendumModal,
+    canFinalizeClinicalRecords,
     isSavingAddendum,
     reloadEvaluations,
     signingIdentity.data,
@@ -1482,14 +1501,16 @@ export default function PatientDetails() {
   }, [id]);
 
   const openClinicalCaseCreateModal = useCallback(() => {
+    if (!canWriteClinicalRecords) return;
     setClinicalCaseForm(buildClinicalCaseForm());
     setClinicalCaseModal({ mode: "create", item: null });
-  }, []);
+  }, [canWriteClinicalRecords]);
 
   const openClinicalCaseEditModal = useCallback((clinicalCase) => {
+    if (!canWriteClinicalRecords) return;
     setClinicalCaseForm(buildClinicalCaseForm(clinicalCase));
     setClinicalCaseModal({ mode: "edit", item: clinicalCase });
-  }, []);
+  }, [canWriteClinicalRecords]);
 
   const closeClinicalCaseModal = useCallback(() => {
     if (isSavingClinicalCase) return;
@@ -1583,14 +1604,16 @@ export default function PatientDetails() {
   }, [id]);
 
   const openClinicalReferenceCreateModal = useCallback(() => {
+    if (!canWriteClinicalRecords) return;
     setClinicalReferenceForm(buildClinicalReferenceForm());
     setClinicalReferenceModal({ mode: "create", item: null });
-  }, []);
+  }, [canWriteClinicalRecords]);
 
   const openClinicalReferenceEditModal = useCallback((reference) => {
+    if (!canWriteClinicalRecords) return;
     setClinicalReferenceForm(buildClinicalReferenceForm(reference));
     setClinicalReferenceModal({ mode: "edit", item: reference });
-  }, []);
+  }, [canWriteClinicalRecords]);
 
   const openClinicalReferenceDetailModal = useCallback((reference) => {
     setSelectedClinicalReference(reference);
@@ -1695,9 +1718,10 @@ export default function PatientDetails() {
   }, [openClinicalReferenceEditModal, selectedClinicalReference]);
 
   const handleOpenDeleteClinicalReference = useCallback(() => {
+    if (!canWriteClinicalRecords) return;
     if (!selectedClinicalReference) return;
     setClinicalReferenceDeleteTarget(selectedClinicalReference);
-  }, [selectedClinicalReference]);
+  }, [canWriteClinicalRecords, selectedClinicalReference]);
 
   const handleCancelDeleteClinicalReference = useCallback(() => {
     if (isDeletingClinicalReference) return;
@@ -1741,14 +1765,16 @@ export default function PatientDetails() {
   }, [id]);
 
   const openExternalProfessionalCreateModal = useCallback(() => {
+    if (!canWriteClinicalRecords) return;
     setExternalProfessionalForm(buildExternalProfessionalForm());
     setExternalProfessionalModal({ mode: "create", item: null });
-  }, []);
+  }, [canWriteClinicalRecords]);
 
   const openExternalProfessionalEditModal = useCallback((professional) => {
+    if (!canWriteClinicalRecords) return;
     setExternalProfessionalForm(buildExternalProfessionalForm(professional));
     setExternalProfessionalModal({ mode: "edit", item: professional });
-  }, []);
+  }, [canWriteClinicalRecords]);
 
   const closeExternalProfessionalModal = useCallback(() => {
     if (isSavingExternalProfessional) return;
@@ -1830,11 +1856,12 @@ export default function PatientDetails() {
 
   const startEditingSection = useCallback(
     (section) => {
+      if (section === EDIT_SECTIONS.clinical && !canEditClinicalPatientData) return;
       if (!patient || isSavingSection) return;
       setEditForm(buildPatientForm(patient));
       setEditingSection(section);
     },
-    [patient, isSavingSection],
+    [canEditClinicalPatientData, patient, isSavingSection],
   );
 
   const cancelEditingSection = useCallback(() => {
@@ -1877,6 +1904,7 @@ export default function PatientDetails() {
 
   const handleSaveSection = useCallback(async () => {
     if (!editingSection) return;
+    if (editingSection === EDIT_SECTIONS.clinical && !canEditClinicalPatientData) return;
 
     let payload = null;
 
@@ -1993,10 +2021,11 @@ export default function PatientDetails() {
     } finally {
       setIsSavingSection(false);
     }
-  }, [editForm, editingSection, id, patient]);
+  }, [canEditClinicalPatientData, editForm, editingSection, id, patient]);
 
 	  const renderSectionActions = useCallback(
     (section) => {
+      if (section === EDIT_SECTIONS.clinical && !canEditClinicalPatientData) return null;
       const isCurrentSection = editingSection === section;
       const disableEdit = Boolean(editingSection) || isSavingSection;
 
@@ -2036,6 +2065,7 @@ export default function PatientDetails() {
     },
     [
       cancelEditingSection,
+      canEditClinicalPatientData,
       editingSection,
       handleSaveSection,
       isSavingSection,
@@ -2165,9 +2195,9 @@ export default function PatientDetails() {
 	                    )}
 	                    </TimelineCardLink>
 	                  )}
-	                  {isSession && (
+                  {isSession && (canWriteClinicalRecords || canFinalizeClinicalRecords) && (
 	                    <TimelineCardActions>
-	                      {evaluation.clinical_state === "draft" && (
+	                      {canWriteClinicalRecords && evaluation.clinical_state === "draft" && (
                             <TimelineEditButton
                               type="button"
                               onClick={() => openQuickEvolutionEditModal(evaluation)}
@@ -2175,7 +2205,7 @@ export default function PatientDetails() {
                               Editar rascunho
                             </TimelineEditButton>
                           )}
-                          {isFinalized && (
+                          {canFinalizeClinicalRecords && isFinalized && (
                             <TimelineEditButton
                               type="button"
                               onClick={() => openAddendumModal(evaluation)}
@@ -2192,7 +2222,13 @@ export default function PatientDetails() {
         </TimelineList>
       );
     },
-	    [id, openAddendumModal, openQuickEvolutionEditModal],
+	    [
+        canFinalizeClinicalRecords,
+        canWriteClinicalRecords,
+        id,
+        openAddendumModal,
+        openQuickEvolutionEditModal,
+      ],
 	  );
 
 		  return (
@@ -2295,7 +2331,7 @@ export default function PatientDetails() {
                     <FaUserAlt /> Acompanhamento externo do tratamento
                   </CardTitle>
                 </CardHeaderInfo>
-                <CardActions>
+                {canWriteClinicalRecords && <CardActions>
                   <CardButton
                     type="button"
                     $primary
@@ -2303,7 +2339,7 @@ export default function PatientDetails() {
                   >
                     <FaPlus /> Adicionar profissional
                   </CardButton>
-                </CardActions>
+                </CardActions>}
               </CardHeader>
               {externalProfessionals.length === 0 && (
                 <EmptyState>Nenhum acompanhamento externo registrado.</EmptyState>
@@ -2353,7 +2389,7 @@ export default function PatientDetails() {
                           </ExternalProfessionalNotes>
                         )}
                       </ExternalProfessionalMain>
-                      <CardActions>
+                      {canWriteClinicalRecords && <CardActions>
                         <CardButton
                           type="button"
                           onClick={() => openExternalProfessionalEditModal(professional)}
@@ -2368,7 +2404,7 @@ export default function PatientDetails() {
                             Inativar
                           </CardButton>
                         )}
-                      </CardActions>
+                      </CardActions>}
                     </ExternalProfessionalItem>
                   ))}
                 </ExternalProfessionalList>
@@ -2633,7 +2669,7 @@ export default function PatientDetails() {
 		                  </div>
 	                  {patient && (
 		                    <TimelineActions>
-		                      {selectedRecordCase ? (
+		                      {selectedRecordCase && (
 		                        <>
 		                          <CardButton
 		                            type="button"
@@ -2641,21 +2677,22 @@ export default function PatientDetails() {
 		                          >
 		                            Voltar aos casos
 		                          </CardButton>
-		                          <SubtleCardButton
+		                          {canWriteClinicalRecords && <SubtleCardButton
 		                            type="button"
 		                            onClick={() => openClinicalCaseEditModal(selectedRecordCase)}
 		                          >
 		                            <FaPen /> Editar caso
-		                          </SubtleCardButton>
+		                          </SubtleCardButton>}
 		                        </>
-		                      ) : (
+		                      )}
+		                      {!selectedRecordCase && canWriteClinicalRecords && (
 	                        <ProntuarioActionButton
 	                          type="button"
 	                          onClick={openClinicalCaseCreateModal}
 	                        >
 	                          <FaPlus /> Caso clínico
 	                        </ProntuarioActionButton>
-	                      )}
+		                      )}
 	                    </TimelineActions>
 	                  )}
 	                </ProntuarioSectionHeader>
@@ -2776,7 +2813,7 @@ export default function PatientDetails() {
 				                      </CaseDetailsShell>
 				                    </CaseDetailsPanel>
 
-				                    <CaseActionButtonGroup>
+				                    {canWriteClinicalRecords && <CaseActionButtonGroup>
 				                      <CasePrimaryActionButton
 				                        type="button"
 				                        $primary
@@ -2791,7 +2828,7 @@ export default function PatientDetails() {
 				                      >
 				                        <FaPlus /> Avaliação
 				                      </CasePrimaryActionButton>
-				                    </CaseActionButtonGroup>
+				                    </CaseActionButtonGroup>}
 
 				                    {renderClinicalTimeline(filteredEvaluations, { showCaseLabel: false })}
 		                  </>
@@ -2808,12 +2845,12 @@ export default function PatientDetails() {
                       Materiais de apoio ao raciocínio clínico do caso.
                     </ProntuarioSectionDescription>
                   </div>
-                  <ProntuarioActionButton
+                  {canWriteClinicalRecords && <ProntuarioActionButton
                     type="button"
                     onClick={openClinicalReferenceCreateModal}
                   >
                     <FaPlus /> Adicionar referência
-                  </ProntuarioActionButton>
+                  </ProntuarioActionButton>}
                 </ProntuarioSectionHeader>
                 {clinicalReferences.length === 0 && (
                   <EmptyState>Nenhuma referência clínica cadastrada para este caso.</EmptyState>
@@ -3559,7 +3596,7 @@ export default function PatientDetails() {
             </InfoCard>
           </Section>
         )}
-        {quickEvolutionModal && (
+        {canWriteClinicalRecords && quickEvolutionModal && (
           <ModalOverlay>
             <ModalCard>
               <ModalHeader>
@@ -3576,7 +3613,7 @@ export default function PatientDetails() {
                 </IconButton>
               </ModalHeader>
               <ModalBody>
-                <SigningIdentityPanel $eligible={signingIdentity.data?.eligible_to_sign === true}>
+                {canFinalizeClinicalRecords && <SigningIdentityPanel $eligible={signingIdentity.data?.eligible_to_sign === true}>
                   {signingIdentity.status === "loading" && <span>Verificando identidade profissional…</span>}
                   {signingIdentity.status === "ready" && signingIdentity.data?.eligible_to_sign && (
                     <>
@@ -3599,7 +3636,7 @@ export default function PatientDetails() {
                   {signingIdentity.status === "error" && (
                     <span>Não foi possível validar a identidade profissional.</span>
                   )}
-                </SigningIdentityPanel>
+                </SigningIdentityPanel>}
                 <QuickEvolutionForm>
 		                  <QuickEvolutionTopGrid>
 		                    <CaseContextHeader>
@@ -3686,20 +3723,20 @@ export default function PatientDetails() {
                 >
                   {isSavingQuickEvolution ? "Salvando..." : "Salvar rascunho"}
                 </CardButton>
-                <CardButton
+                {canFinalizeClinicalRecords && <CardButton
                   type="button"
                   $primary
                   onClick={requestQuickEvolutionSignature}
                   disabled={isSavingQuickEvolution || !signingIdentity.data?.eligible_to_sign}
                 >
                   {isSavingQuickEvolution ? "Assinando..." : "Salvar e assinar"}
-                </CardButton>
+                </CardButton>}
               </ModalFooter>
             </ModalCard>
           </ModalOverlay>
         )}
         <ClinicalSignatureConfirmModal
-          open={quickEvolutionSignatureConfirmOpen}
+          open={canFinalizeClinicalRecords && quickEvolutionSignatureConfirmOpen}
           loading={isSavingQuickEvolution}
           error={quickEvolutionSignatureError}
           onCancel={() => {
@@ -3708,7 +3745,7 @@ export default function PatientDetails() {
           }}
           onConfirm={() => handleSaveQuickEvolution(true)}
         />
-        {addendumModal && (
+        {canFinalizeClinicalRecords && addendumModal && (
           <ModalOverlay>
             <ModalCard>
               <ModalHeader>
@@ -3783,7 +3820,7 @@ export default function PatientDetails() {
             </ModalCard>
           </ModalOverlay>
         )}
-        {isCaseManagerOpen && (
+        {canWriteClinicalRecords && isCaseManagerOpen && (
           <ModalOverlay>
             <ModalCard>
               <ModalHeader>
@@ -3936,7 +3973,7 @@ export default function PatientDetails() {
             </ModalCard>
           </ModalOverlay>
         )}
-        {clinicalCaseModal && (
+        {canWriteClinicalRecords && clinicalCaseModal && (
           <ModalOverlay>
             <ModalCard>
               <ModalHeader>
@@ -4151,7 +4188,7 @@ export default function PatientDetails() {
 	                  </DataRow>
 	                </DataList>
 	              </ModalBody>
-	              <ModalFooter>
+	              {canWriteClinicalRecords && <ModalFooter>
 	                <CardButton
 	                  type="button"
 	                  onClick={handleEditSelectedClinicalReference}
@@ -4164,11 +4201,11 @@ export default function PatientDetails() {
 	                >
 	                  Excluir
 	                </ReferenceDeleteButton>
-	              </ModalFooter>
+	              </ModalFooter>}
 	            </ModalCard>
 	          </ModalOverlay>
 	        )}
-	        {clinicalReferenceDeleteTarget && (
+	        {canWriteClinicalRecords && clinicalReferenceDeleteTarget && (
 	          <ModalOverlay>
 	            <ModalCard>
 	              <ModalHeader>
@@ -4212,7 +4249,7 @@ export default function PatientDetails() {
 	            </ModalCard>
 	          </ModalOverlay>
 	        )}
-	        {clinicalReferenceModal && (
+	        {canWriteClinicalRecords && clinicalReferenceModal && (
 	          <ModalOverlay>
             <ModalCard>
               <ModalHeader>
@@ -4319,7 +4356,7 @@ export default function PatientDetails() {
             </ModalCard>
           </ModalOverlay>
         )}
-        {externalProfessionalModal && (
+        {canWriteClinicalRecords && externalProfessionalModal && (
           <ModalOverlay>
             <ModalCard>
               <ModalHeader>

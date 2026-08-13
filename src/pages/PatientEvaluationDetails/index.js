@@ -24,6 +24,7 @@ import {
   getSavedClinicalRecordVersion,
   saveClinicalRecordFlow,
 } from "../../services/clinicalRecordSaveFlow";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 
 const formatDate = (value) => {
   if (!value) return "--/--/----";
@@ -467,6 +468,14 @@ const buildAnswersPayload = (definition, answers) => {
 
 export default function PatientEvaluationDetails() {
   const { id: patientId, evaluationId } = useParams();
+  const authorization = useAuthorization();
+  const hasClinicalRecordEditLevel = authorization.canAccessModule("clinical_records", "edit");
+  const canWriteClinicalRecords = hasClinicalRecordEditLevel
+    && authorization.hasCapability("clinical_records.write");
+  const canFinalizeClinicalRecords = hasClinicalRecordEditLevel
+    && authorization.hasCapability("clinical_records.finalize");
+  const canSaveAndFinalizeClinicalRecords = canWriteClinicalRecords
+    && canFinalizeClinicalRecords;
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -496,12 +505,16 @@ export default function PatientEvaluationDetails() {
   const [isSavingAddendum, setIsSavingAddendum] = useState(false);
 
   useEffect(() => {
+    if (!canFinalizeClinicalRecords) {
+      setSigningIdentity(null);
+      return undefined;
+    }
     let active = true;
     getClinicalSigningIdentity()
       .then((data) => { if (active) setSigningIdentity(data); })
       .catch(() => { if (active) setSigningIdentity(null); });
     return () => { active = false; };
-  }, []);
+  }, [canFinalizeClinicalRecords]);
 
   const loadData = useCallback(async () => {
     if (!evaluationId) return;
@@ -657,10 +670,11 @@ export default function PatientEvaluationDetails() {
   }, []);
 
   const startEditing = useCallback(() => {
+    if (!canWriteClinicalRecords) return;
     if (clinicalState !== "draft") return;
     setDraftAnswers(answers);
     setIsEditing(true);
-  }, [answers, clinicalState]);
+  }, [answers, canWriteClinicalRecords, clinicalState]);
 
   const cancelEditing = useCallback(() => {
     setDraftAnswers(answers);
@@ -668,15 +682,17 @@ export default function PatientEvaluationDetails() {
   }, [answers]);
 
   const requestSignature = useCallback(() => {
+    if (!canSaveAndFinalizeClinicalRecords) return;
     if (!signingIdentity?.eligible_to_sign) {
       toast.error("Verifique sua identidade profissional antes de assinar.");
       return;
     }
     setSignatureError("");
     setSignatureConfirmOpen(true);
-  }, [signingIdentity]);
+  }, [canSaveAndFinalizeClinicalRecords, signingIdentity]);
 
   const handleSave = useCallback(async (shouldSign = false) => {
+    if (!canWriteClinicalRecords || (shouldSign && !canSaveAndFinalizeClinicalRecords)) return;
     if (isSaving) return;
     if (!definition || !formInstanceId) return;
     setIsSaving(true);
@@ -734,6 +750,8 @@ export default function PatientEvaluationDetails() {
       setIsSaving(false);
     }
   }, [
+    canSaveAndFinalizeClinicalRecords,
+    canWriteClinicalRecords,
     definition,
     draftAnswers,
     evaluationId,
@@ -746,6 +764,7 @@ export default function PatientEvaluationDetails() {
   ]);
 
   const saveAddendum = useCallback(async () => {
+    if (!canFinalizeClinicalRecords) return;
     if (!addendum || isSavingAddendum) return;
     if (addendum.reason.trim().length < 3 || addendum.content.trim().length < 2) {
       toast.error("Informe o motivo e o conteúdo do adendo.");
@@ -772,6 +791,7 @@ export default function PatientEvaluationDetails() {
     }
   }, [
     addendum,
+    canFinalizeClinicalRecords,
     evaluationId,
     isSavingAddendum,
     loadData,
@@ -973,7 +993,7 @@ export default function PatientEvaluationDetails() {
             </CaseContextTitle>
             <ActionButtonGroup>
               <CancelButton to={`/pacientes/${patientId}`}>Voltar</CancelButton>
-              {isEditing && (
+              {canWriteClinicalRecords && isEditing && (
                 <>
                   <CancelButton
                     as="button"
@@ -990,28 +1010,28 @@ export default function PatientEvaluationDetails() {
                   >
                     {isSaving ? "Salvando..." : "Salvar rascunho"}
                   </SubmitButton>
-                  <SubmitButton
+                  {canSaveAndFinalizeClinicalRecords && <SubmitButton
                     type="button"
                     onClick={requestSignature}
                     disabled={isSaving || !signingIdentity?.eligible_to_sign}
                   >
                     {isSaving ? "Assinando..." : "Salvar e assinar"}
-                  </SubmitButton>
+                  </SubmitButton>}
                 </>
               )}
-              {!isEditing && clinicalState === "draft" && (
+              {!isEditing && clinicalState === "draft" && canWriteClinicalRecords && (
                 <>
                   <SubmitButton type="button" onClick={startEditing}>Editar rascunho</SubmitButton>
-                  <SubmitButton
+                  {canSaveAndFinalizeClinicalRecords && <SubmitButton
                     type="button"
                     onClick={requestSignature}
                     disabled={!signingIdentity?.eligible_to_sign}
                   >
                     Salvar e assinar
-                  </SubmitButton>
+                  </SubmitButton>}
                 </>
               )}
-              {!isEditing && clinicalState === "finalized" && (
+              {!isEditing && clinicalState === "finalized" && canFinalizeClinicalRecords && (
                 <SubmitButton
                   type="button"
                   onClick={() => setAddendum({ reason: "", content: "" })}
@@ -1036,7 +1056,7 @@ export default function PatientEvaluationDetails() {
           </AddendumBlock>
         ))}
 
-        {!isLoading && addendum && (
+        {!isLoading && canFinalizeClinicalRecords && addendum && (
           <AddendumEditor>
             <strong>Novo adendo</strong>
             <label htmlFor="clinical-addendum-reason">
@@ -1150,7 +1170,7 @@ export default function PatientEvaluationDetails() {
                           {shouldShowHelpText(block.helpText) && (
                             <small>{block.helpText}</small>
                           )}
-                          {isEditing
+                          {canWriteClinicalRecords && isEditing
                             ? renderEditableBlock(block, fieldId)
                             : renderReadOnlyBlock(block)}
                         </Field>
@@ -1187,7 +1207,7 @@ export default function PatientEvaluationDetails() {
         )}
       </PageContent>
       <ClinicalSignatureConfirmModal
-        open={signatureConfirmOpen}
+        open={canSaveAndFinalizeClinicalRecords && signatureConfirmOpen}
         loading={isSaving}
         error={signatureError}
         onCancel={() => {

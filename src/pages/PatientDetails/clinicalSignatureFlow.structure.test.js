@@ -30,8 +30,8 @@ describe("integração visual da assinatura clínica", () => {
   });
 
   test("digitação no adendo não recarrega a identidade profissional", () => {
-    expect(patientDetails).toContain(
-      "const isClinicalIdentityRequired = Boolean(quickEvolutionModal || addendumModal);",
+    expect(patientDetails).toMatch(
+      /const isClinicalIdentityRequired = Boolean\([\s\S]*?quickEvolutionModal[\s\S]*?addendumModal[\s\S]*?canFinalizeClinicalRecords[\s\S]*?\);/,
     );
     expect(patientDetails).toContain("}, [isClinicalIdentityRequired]);");
     expect(patientDetails).not.toContain("}, [addendumModal, quickEvolutionModal]);");
