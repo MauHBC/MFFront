@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useHistory, useParams } from "react-router-dom";
 import styled, { css } from "styled-components";
 import { toast } from "react-toastify";
@@ -826,10 +826,34 @@ export default function PatientDetails() {
   const [editingSection, setEditingSection] = useState(null);
   const [isSavingSection, setIsSavingSection] = useState(false);
   const [editForm, setEditForm] = useState(() => buildPatientForm(null));
+  const previousPatientIdRef = useRef(id);
+  const skipActiveTabPersistenceRef = useRef(false);
+  const skipRecordCasePersistenceRef = useRef(false);
   const isClinicalIdentityRequired = Boolean(quickEvolutionModal || addendumModal);
 
   useEffect(() => {
+    skipActiveTabPersistenceRef.current = true;
     setActiveTab(getStoredPatientDetailsTab(id));
+  }, [id]);
+
+  useEffect(() => {
+    if (previousPatientIdRef.current === id) return;
+    previousPatientIdRef.current = id;
+
+    setClinicalCaseModal(null);
+    setClinicalCaseForm(buildClinicalCaseForm());
+    setQuickEvolutionModal(false);
+    setQuickEvolutionEditTarget(null);
+    setQuickEvolutionForm(buildQuickEvolutionForm());
+    setQuickEvolutionSignatureConfirmOpen(false);
+    setQuickEvolutionSignatureError("");
+    setSigningIdentity({ status: "idle", data: null });
+    setAddendumModal(null);
+    setSelectedClinicalReference(null);
+    setClinicalReferenceDeleteTarget(null);
+    setClinicalReferenceEditReturn(null);
+    setClinicalReferenceModal(null);
+    setClinicalReferenceForm(buildClinicalReferenceForm());
   }, [id]);
 
   useEffect(() => {
@@ -847,14 +871,23 @@ export default function PatientDetails() {
   }, [isClinicalIdentityRequired]);
 
   useEffect(() => {
+    if (skipActiveTabPersistenceRef.current) {
+      skipActiveTabPersistenceRef.current = false;
+      return;
+    }
     storePatientDetailsTab(id, activeTab);
   }, [activeTab, id]);
 
   useEffect(() => {
+    skipRecordCasePersistenceRef.current = true;
     setRecordCaseFilter(getStoredPatientDetailsCase(id));
   }, [id]);
 
   useEffect(() => {
+    if (skipRecordCasePersistenceRef.current) {
+      skipRecordCasePersistenceRef.current = false;
+      return;
+    }
     storePatientDetailsCase(id, recordCaseFilter);
   }, [id, recordCaseFilter]);
 
