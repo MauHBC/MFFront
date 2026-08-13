@@ -14,6 +14,7 @@ import {
 
 import DataLoadingState from "../../components/DataLoadingState";
 import ClinicalSignatureConfirmModal from "../../components/ClinicalSignatureConfirmModal";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import axios from "../../services/axios";
 import {
   createPatientClinicalCase,
@@ -767,6 +768,10 @@ function buildPatientForm(patient) {
 export default function PatientDetails() {
   const { id } = useParams();
   const history = useHistory();
+  const authorization = useAuthorization();
+  const canReadClinicalRecords = authorization.canAccessModule("clinical_records", "view")
+    && authorization.hasCapability("clinical_records.read");
+  const canViewSchedule = authorization.canAccessModule("schedule", "view");
   const [activeTab, setActiveTab] = useState(() => getStoredPatientDetailsTab(id));
   const [activeProntuarioSection, setActiveProntuarioSection] = useState(
     PRONTUARIO_SECTIONS.records,
@@ -774,7 +779,9 @@ export default function PatientDetails() {
   const [recordCaseFilter, setRecordCaseFilter] = useState(() =>
     getStoredPatientDetailsCase(id),
   );
-  const [isLoading, setIsLoading] = useState(false);
+  const [profileLoad, setProfileLoad] = useState({ patientId: null, status: "idle", error: "" });
+  const [clinicalLoad, setClinicalLoad] = useState({ patientId: null, status: "idle", error: "" });
+  const [scheduleLoad, setScheduleLoad] = useState({ patientId: null, status: "idle", error: "" });
   const [patient, setPatient] = useState(null);
   const [evaluations, setEvaluations] = useState([]);
   const [clinicalCases, setClinicalCases] = useState([]);
@@ -892,94 +899,155 @@ export default function PatientDetails() {
   }, [id, recordCaseFilter]);
 
   useEffect(() => {
-    async function loadData() {
-      setIsLoading(true);
-      try {
-        const currentMonth = startOfMonth(new Date());
-        const sessionsFrom = addMonths(currentMonth, -5);
-        const sessionsTo = addMonths(currentMonth, 1);
-        const [
-          patientResponse,
-          evalResponse,
-          clinicalCasesResponse,
-          clinicalReferencesResponse,
-          sessionsResponse,
-          allSessionsResponse,
-          sessionSeriesResponse,
-          replacementCreditsResponse,
-          externalProfessionalsResponse,
-          operationalPolicyResponse,
-        ] = await Promise.all([
-          axios.get(`/patients/${id}`),
-          axios.get(`/evaluations?patient_id=${id}`),
-          listPatientClinicalCases({ patient_id: id }),
-          listPatientClinicalReferences({ patient_id: id }),
-          axios.get("/sessions", {
-            params: {
-              patient_id: id,
-              from: formatDateParam(sessionsFrom),
-              to: formatDateParam(sessionsTo),
-            },
-          }),
-          axios.get("/sessions", { params: { patient_id: id } }),
-          axios.get("/session-series", { params: { patient_id: id } }),
-          axios.get("/session-replacement-credits", { params: { patient_id: id } }),
-          listPatientExternalProfessionals({ patient_id: id }),
-          axios.get("/unit-scheduling-policy"),
-        ]);
-        setPatient(patientResponse.data);
+    if (!id) return undefined;
+    let active = true;
+    setPatient(null);
+    setProfileLoad({ patientId: id, status: "loading", error: "" });
+    axios.get(`/patients/${id}`)
+      .then((response) => {
+        if (!active) return;
+        setPatient(response.data);
+        setProfileLoad({ patientId: id, status: "ready", error: "" });
+      })
+      .catch((error) => {
+        if (!active) return;
+        const message = error?.response?.data?.error
+          || "Não foi possível carregar os dados do paciente.";
+        setProfileLoad({ patientId: id, status: "error", error: message });
+        toast.error(message);
+      });
+    return () => { active = false; };
+  }, [id]);
+
+  useEffect(() => {
+    setEvaluations([]);
+    setClinicalCases([]);
+    setClinicalReferences([]);
+    setExternalProfessionals([]);
+    if (!id || !canReadClinicalRecords) {
+      setClinicalLoad({ patientId: id, status: "unavailable", error: "" });
+      return undefined;
+    }
+
+    let active = true;
+    setClinicalLoad({ patientId: id, status: "loading", error: "" });
+    Promise.all([
+      axios.get(`/evaluations?patient_id=${id}`),
+      listPatientClinicalCases({ patient_id: id }),
+      listPatientClinicalReferences({ patient_id: id }),
+      listPatientExternalProfessionals({ patient_id: id }),
+    ])
+      .then(([
+        evalResponse,
+        clinicalCasesResponse,
+        clinicalReferencesResponse,
+        externalProfessionalsResponse,
+      ]) => {
+        if (!active) return;
         setEvaluations(Array.isArray(evalResponse.data) ? evalResponse.data : []);
-        setClinicalCases(
-          Array.isArray(clinicalCasesResponse.data)
-            ? clinicalCasesResponse.data
-            : [],
-        );
-        setClinicalReferences(
-          Array.isArray(clinicalReferencesResponse.data)
-            ? clinicalReferencesResponse.data
-            : [],
-        );
-        setFrequencySessions(
-          Array.isArray(sessionsResponse.data) ? sessionsResponse.data : [],
-        );
-        setPerSessionSessions(
-          Array.isArray(allSessionsResponse.data) ? allSessionsResponse.data : [],
-        );
-        setPerSessionSeries(
-          Array.isArray(sessionSeriesResponse.data) ? sessionSeriesResponse.data : [],
-        );
-        setReplacementCredits(
-          Array.isArray(replacementCreditsResponse.data) ? replacementCreditsResponse.data : [],
-        );
-        setExternalProfessionals(
-          Array.isArray(externalProfessionalsResponse.data)
-            ? externalProfessionalsResponse.data
-            : [],
-        );
+        setClinicalCases(Array.isArray(clinicalCasesResponse.data)
+          ? clinicalCasesResponse.data : []);
+        setClinicalReferences(Array.isArray(clinicalReferencesResponse.data)
+          ? clinicalReferencesResponse.data : []);
+        setExternalProfessionals(Array.isArray(externalProfessionalsResponse.data)
+          ? externalProfessionalsResponse.data : []);
+        setClinicalLoad({ patientId: id, status: "ready", error: "" });
+      })
+      .catch((error) => {
+        if (!active) return;
+        const message = error?.response?.data?.error
+          || "Não foi possível carregar o prontuário do paciente.";
+        setClinicalLoad({ patientId: id, status: "error", error: message });
+        toast.error(message);
+      });
+    return () => { active = false; };
+  }, [canReadClinicalRecords, id]);
+
+  useEffect(() => {
+    setFrequencySessions([]);
+    setPerSessionSessions([]);
+    setPerSessionSeries([]);
+    setReplacementCredits([]);
+    setOperationalPolicy(DEFAULT_OPERATIONAL_POLICY);
+    if (!id || !canViewSchedule) {
+      setScheduleLoad({ patientId: id, status: "unavailable", error: "" });
+      return undefined;
+    }
+
+    let active = true;
+    const currentMonth = startOfMonth(new Date());
+    const sessionsFrom = addMonths(currentMonth, -5);
+    const sessionsTo = addMonths(currentMonth, 1);
+    setScheduleLoad({ patientId: id, status: "loading", error: "" });
+    Promise.all([
+      axios.get("/sessions", {
+        params: {
+          patient_id: id,
+          from: formatDateParam(sessionsFrom),
+          to: formatDateParam(sessionsTo),
+        },
+      }),
+      axios.get("/sessions", { params: { patient_id: id } }),
+      axios.get("/session-series", { params: { patient_id: id } }),
+      axios.get("/session-replacement-credits", { params: { patient_id: id } }),
+      axios.get("/unit-scheduling-policy"),
+    ])
+      .then(([
+        sessionsResponse,
+        allSessionsResponse,
+        sessionSeriesResponse,
+        replacementCreditsResponse,
+        operationalPolicyResponse,
+      ]) => {
+        if (!active) return;
+        setFrequencySessions(Array.isArray(sessionsResponse.data) ? sessionsResponse.data : []);
+        setPerSessionSessions(Array.isArray(allSessionsResponse.data)
+          ? allSessionsResponse.data : []);
+        setPerSessionSeries(Array.isArray(sessionSeriesResponse.data)
+          ? sessionSeriesResponse.data : []);
+        setReplacementCredits(Array.isArray(replacementCreditsResponse.data)
+          ? replacementCreditsResponse.data : []);
         setOperationalPolicy({
           ...DEFAULT_OPERATIONAL_POLICY,
           ...(operationalPolicyResponse.data || {}),
         });
-      } catch (error) {
-        const message =
-          error?.response?.data?.error ||
-          "Não foi possível carregar os dados do paciente.";
+        setScheduleLoad({ patientId: id, status: "ready", error: "" });
+      })
+      .catch((error) => {
+        if (!active) return;
+        const message = error?.response?.data?.error
+          || "Não foi possível carregar o histórico de agenda do paciente.";
+        setScheduleLoad({ patientId: id, status: "error", error: message });
         toast.error(message);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    if (id) {
-      loadData();
-    }
-  }, [id]);
+      });
+    return () => { active = false; };
+  }, [canViewSchedule, id]);
 
   useEffect(() => {
     if (patient && !editingSection) {
       setEditForm(buildPatientForm(patient));
     }
   }, [patient, editingSection]);
+
+  const profileStatus = profileLoad.patientId === id ? profileLoad.status : "loading";
+  let clinicalStatus = "unavailable";
+  if (canReadClinicalRecords) {
+    clinicalStatus = clinicalLoad.patientId === id ? clinicalLoad.status : "loading";
+  }
+  let scheduleStatus = "unavailable";
+  if (canViewSchedule) {
+    scheduleStatus = scheduleLoad.patientId === id ? scheduleLoad.status : "loading";
+  }
+
+  useEffect(() => {
+    if (activeTab === TABS.prontuario && !canReadClinicalRecords) {
+      setActiveTab(canViewSchedule ? TABS.historico : TABS.dados);
+    } else if (activeTab === TABS.historico && !canViewSchedule) {
+      setActiveTab(canReadClinicalRecords ? TABS.resumo : TABS.dados);
+    } else if (activeTab === TABS.resumo && !canReadClinicalRecords) {
+      setActiveTab(canViewSchedule ? TABS.historico : TABS.dados);
+    }
+  }, [activeTab, canReadClinicalRecords, canViewSchedule]);
 
   const latestEval = evaluations[0] || null;
   const summaryText = latestEval?.summary_text || latestEval?.summaryText || "";
@@ -2143,33 +2211,33 @@ export default function PatientDetails() {
         <Header>
           <div>
             <HeaderTitle>
-              {getPatientDisplayName(patient)}
+              {profileStatus === "ready" ? getPatientDisplayName(patient) : "Paciente"}
             </HeaderTitle>
           </div>
         </Header>
 
-        <Tabs>
-          <TabButton
+        {profileStatus === "ready" && <Tabs>
+          {canReadClinicalRecords && <TabButton
             type="button"
             onClick={showResumo}
             $active={activeTab === TABS.resumo}
           >
             Resumo
-          </TabButton>
-          <TabButton
+          </TabButton>}
+          {canReadClinicalRecords && <TabButton
             type="button"
             onClick={showProntuario}
             $active={activeTab === TABS.prontuario}
           >
             Prontuário
-          </TabButton>
-          <TabButton
+          </TabButton>}
+          {canViewSchedule && <TabButton
             type="button"
             onClick={showHistorico}
             $active={activeTab === TABS.historico}
           >
             Histórico
-          </TabButton>
+          </TabButton>}
           <TabButton
             type="button"
             onClick={showDados}
@@ -2177,9 +2245,9 @@ export default function PatientDetails() {
           >
             Dados
           </TabButton>
-        </Tabs>
+        </Tabs>}
 
-        {isLoading && (
+        {profileStatus === "loading" && (
           <Section>
             <InfoCard>
               <DataLoadingState text="Carregando paciente..." />
@@ -2187,8 +2255,25 @@ export default function PatientDetails() {
           </Section>
         )}
 
-        {!isLoading && activeTab === TABS.resumo && (
+        {profileStatus === "error" && (
           <Section>
+            <InfoCard>
+              <EmptyState role="alert">{profileLoad.error}</EmptyState>
+            </InfoCard>
+          </Section>
+        )}
+
+        {profileStatus === "ready" && activeTab === TABS.resumo && (
+          <Section>
+            {clinicalStatus === "loading" && (
+              <InfoCard><DataLoadingState text="Carregando prontuário..." /></InfoCard>
+            )}
+            {clinicalStatus === "error" && (
+              <InfoCard>
+                <EmptyState role="alert">{clinicalLoad.error}</EmptyState>
+              </InfoCard>
+            )}
+            {clinicalStatus === "ready" && <>
             <InfoCard>
               <CardTitle>
                 <FaInfoCircle /> Resumo clinico
@@ -2289,6 +2374,16 @@ export default function PatientDetails() {
                 </ExternalProfessionalList>
               )}
             </InfoCard>
+            </>}
+            {canViewSchedule && scheduleStatus === "loading" && (
+              <InfoCard><DataLoadingState text="Carregando agenda..." /></InfoCard>
+            )}
+            {canViewSchedule && scheduleStatus === "error" && (
+              <InfoCard>
+                <EmptyState role="alert">{scheduleLoad.error}</EmptyState>
+              </InfoCard>
+            )}
+            {canViewSchedule && scheduleStatus === "ready" && (
             <InfoCard>
               <FrequencyHeader>
                 <CardTitle>
@@ -2326,11 +2421,21 @@ export default function PatientDetails() {
                 </ReplacementCreditList>
               )}
             </InfoCard>
+            )}
           </Section>
         )}
 
-        {!isLoading && activeTab === TABS.historico && (
+        {profileStatus === "ready" && activeTab === TABS.historico && (
           <Section>
+            {scheduleStatus === "loading" && (
+              <InfoCard><DataLoadingState text="Carregando agenda..." /></InfoCard>
+            )}
+            {scheduleStatus === "error" && (
+              <InfoCard>
+                <EmptyState role="alert">{scheduleLoad.error}</EmptyState>
+              </InfoCard>
+            )}
+            {scheduleStatus === "ready" && <>
             <InfoCard>
               <FrequencyHeader>
                 <CardTitle>
@@ -2477,11 +2582,21 @@ export default function PatientDetails() {
                 </PackageTableWrap>
               )}
             </InfoCard>
+            </>}
           </Section>
         )}
 
-        {!isLoading && activeTab === TABS.prontuario && (
+        {profileStatus === "ready" && activeTab === TABS.prontuario && (
           <Section>
+            {clinicalStatus === "loading" && (
+              <InfoCard><DataLoadingState text="Carregando prontuário..." /></InfoCard>
+            )}
+            {clinicalStatus === "error" && (
+              <InfoCard>
+                <EmptyState role="alert">{clinicalLoad.error}</EmptyState>
+              </InfoCard>
+            )}
+            {clinicalStatus === "ready" && <>
             <ProntuarioSubTabs role="tablist" aria-label="Seções do prontuário">
               <ProntuarioSubTabButton
                 type="button"
@@ -2729,10 +2844,11 @@ export default function PatientDetails() {
                 )}
               </>
             )}
+            </>}
           </Section>
         )}
 
-        {!isLoading && activeTab === TABS.dados && (
+        {profileStatus === "ready" && activeTab === TABS.dados && (
           <Section>
             <InfoCard>
               <CardTitle>

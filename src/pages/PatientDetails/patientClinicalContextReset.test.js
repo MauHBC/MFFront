@@ -10,6 +10,7 @@ import { listPatientClinicalCases } from "../../services/patientClinicalCases";
 import { listPatientClinicalReferences } from "../../services/patientClinicalReferences";
 import { listPatientExternalProfessionals } from "../../services/patientExternalProfessionals";
 import { getClinicalSigningIdentity } from "../../services/clinicalRecords";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 
 jest.mock("../../services/axios", () => ({
   __esModule: true,
@@ -41,6 +42,10 @@ jest.mock("../../services/clinicalRecords", () => ({
   addSignedClinicalAddendum: jest.fn(),
   finalizeClinicalRecord: jest.fn(),
   getClinicalSigningIdentity: jest.fn(),
+}));
+
+jest.mock("../../contexts/AuthorizationContext", () => ({
+  useAuthorization: jest.fn(),
 }));
 
 jest.mock("react-toastify", () => ({
@@ -180,6 +185,10 @@ describe("PatientDetails patient-scoped clinical context", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     window.sessionStorage.clear();
+    useAuthorization.mockReturnValue({
+      canAccessModule: () => true,
+      hasCapability: () => true,
+    });
     configureBootstrap();
   });
 
