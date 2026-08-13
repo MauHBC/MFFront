@@ -9,8 +9,8 @@ export const createPatientClinicalCase = (payload) =>
 export const updatePatientClinicalCase = (id, payload) =>
   api.put(`/patient-clinical-cases/${id}`, payload);
 
-export const updatePatientClinicalCaseStatus = (id, status) =>
-  api.patch(`/patient-clinical-cases/${id}/status`, { status });
+export const updatePatientClinicalCaseStatus = (id, status, version) =>
+  api.patch(`/patient-clinical-cases/${id}/status`, { status, version });
 
 export default {
   listPatientClinicalCases,

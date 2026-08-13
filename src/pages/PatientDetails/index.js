@@ -1556,15 +1556,29 @@ export default function PatientDetails() {
     setIsSavingClinicalCase(true);
     try {
       if (clinicalCaseModal?.mode === "edit" && clinicalCaseModal?.item?.id) {
-        await updatePatientClinicalCase(clinicalCaseModal.item.id, payload);
+        const response = await updatePatientClinicalCase(clinicalCaseModal.item.id, {
+          ...payload,
+          version: clinicalCaseModal.item.version,
+        });
+        if (response?.data?.id) {
+          setClinicalCases((current) => current.map((item) => (
+            Number(item.id) === Number(response.data.id) ? response.data : item
+          )));
+        } else {
+          await reloadClinicalCases();
+        }
         toast.success("Caso clinico atualizado.");
       } else {
-        await createPatientClinicalCase(payload);
+        const response = await createPatientClinicalCase(payload);
+        if (response?.data?.id) {
+          setClinicalCases((current) => [response.data, ...current]);
+        } else {
+          await reloadClinicalCases();
+        }
         toast.success("Caso clinico criado.");
       }
       setClinicalCaseModal(null);
       setClinicalCaseForm(buildClinicalCaseForm());
-      await reloadClinicalCases();
     } catch (error) {
       toast.error(
         error?.response?.data?.error ||
@@ -1584,9 +1598,19 @@ export default function PatientDetails() {
     if (!clinicalCase?.id || clinicalCase.status === status) return;
     setIsUpdatingClinicalCaseStatus(true);
     try {
-      await updatePatientClinicalCaseStatus(clinicalCase.id, status);
+      const response = await updatePatientClinicalCaseStatus(
+        clinicalCase.id,
+        status,
+        clinicalCase.version,
+      );
+      if (response?.data?.id) {
+        setClinicalCases((current) => current.map((item) => (
+          Number(item.id) === Number(response.data.id) ? response.data : item
+        )));
+      } else {
+        await reloadClinicalCases();
+      }
       toast.success("Status do caso atualizado.");
-      await reloadClinicalCases();
     } catch (error) {
       toast.error(
         error?.response?.data?.error ||
@@ -1666,16 +1690,30 @@ export default function PatientDetails() {
     setIsSavingClinicalReference(true);
     try {
       if (clinicalReferenceModal?.mode === "edit" && clinicalReferenceModal?.item?.id) {
-        await updatePatientClinicalReference(clinicalReferenceModal.item.id, payload);
+        const response = await updatePatientClinicalReference(clinicalReferenceModal.item.id, {
+          ...payload,
+          version: clinicalReferenceModal.item.version,
+        });
+        if (response?.data?.id) {
+          setClinicalReferences((current) => current.map((item) => (
+            Number(item.id) === Number(response.data.id) ? response.data : item
+          )));
+        } else {
+          await reloadClinicalReferences();
+        }
         toast.success("Referência atualizada.");
       } else {
-        await createPatientClinicalReference(payload);
+        const response = await createPatientClinicalReference(payload);
+        if (response?.data?.id) {
+          setClinicalReferences((current) => [response.data, ...current]);
+        } else {
+          await reloadClinicalReferences();
+        }
         toast.success("Referência adicionada.");
       }
       setClinicalReferenceModal(null);
       setClinicalReferenceForm(buildClinicalReferenceForm());
       setClinicalReferenceEditReturn(null);
-      await reloadClinicalReferences();
     } catch (error) {
       toast.error(
         error?.response?.data?.error ||
@@ -1695,9 +1733,11 @@ export default function PatientDetails() {
     if (!reference?.id) return false;
     setIsDeletingClinicalReference(true);
     try {
-      await removePatientClinicalReference(reference.id);
+      await removePatientClinicalReference(reference.id, reference.version);
+      setClinicalReferences((current) => current.filter(
+        (item) => Number(item.id) !== Number(reference.id),
+      ));
       toast.success("Referência excluída.");
-      await reloadClinicalReferences();
       return true;
     } catch (error) {
       toast.error(
@@ -1708,7 +1748,7 @@ export default function PatientDetails() {
     } finally {
       setIsDeletingClinicalReference(false);
     }
-  }, [reloadClinicalReferences]);
+  }, []);
 
   const handleEditSelectedClinicalReference = useCallback(() => {
     if (!selectedClinicalReference) return;
