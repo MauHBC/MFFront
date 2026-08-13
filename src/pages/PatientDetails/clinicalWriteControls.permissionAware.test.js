@@ -336,6 +336,30 @@ describe("PatientDetails clinical write controls permission matrix", () => {
     expect(screen.getByRole("button", { name: "Excluir" })).toBeInTheDocument();
   });
 
+  test("creates a case for the current patient without a client-controlled tenant", async () => {
+    authorize({
+      clinicalLevel: "edit",
+      capabilities: ["clinical_records.read", "clinical_records.write"],
+    });
+    renderPage();
+    await waitForPatient();
+
+    fireEvent.click(screen.getByRole("button", { name: "Prontuário" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Caso clínico" }));
+    fireEvent.change(screen.getByPlaceholderText(/Lombar, Joelho direito/), {
+      target: { value: "Cervical" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(createPatientClinicalCase).toHaveBeenCalledTimes(1));
+    const payload = createPatientClinicalCase.mock.calls[0][0];
+    expect(payload).toEqual(expect.objectContaining({
+      patient_id: "101",
+      title: "Cervical",
+    }));
+    expect(payload).not.toHaveProperty("clinic_id");
+  });
+
   test.each([
     ["patients view with clinical write", {
       patientsLevel: "view",
