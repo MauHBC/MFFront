@@ -291,11 +291,6 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
       toast.error("O desconto nao pode ser maior que o valor original.");
       return;
     }
-    if (discountCents > 0 && amountCents !== Math.max(0, originalTotalCents - discountCents)) {
-      toast.error("Valor recebido deve ser igual ao total final com desconto.");
-      return;
-    }
-
     const allocations = buildScopedAllocationItems(scopedEntries, amountCents, discountCents);
     if (!allocations.length) {
       toast.error("Informe as cobranças para alocar.");

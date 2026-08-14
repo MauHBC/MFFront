@@ -206,6 +206,10 @@ criação do payment anchor e do pagamento; o componente concentra a apresentaç
 desse fluxo. A página fornece os dados e o callback de recarga, sem transferir
 roteamento ou orquestração global para essa fronteira.
 
+O preview permite recebimento parcial com desconto: o saldo pendente é calculado
+sobre o total ajustado, enquanto o backend permanece a autoridade da alocação e
+da persistência final.
+
 Detalhes, cache, crédito e preview específicos de sessão permanecem no fluxo de
 sessões. Filtros, agrupamento, resolução de BillingCycle, preview de sessões e
 renderização de Mensalidades permanecem no fluxo de Mensalidades. A visão

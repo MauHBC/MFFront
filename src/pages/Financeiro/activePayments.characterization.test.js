@@ -228,18 +228,84 @@ describe("Financeiro - caracterização dos recebimentos publicados", () => {
     });
   });
 
-  it("recebe por sessão com desconto, aloca e cria a standalone payment anchor", async () => {
+  it("permite recebimento parcial com desconto e preserva o saldo pendente", async () => {
+    const oldestEntry = {
+      ...entry,
+      amount_cents: 80000,
+      status: "pending",
+      FinancialPaymentAllocations: [],
+    };
+    const newestEntry = {
+      ...oldestEntry,
+      id: 502,
+      session_id: 702,
+      reference_date: "2026-08-20",
+    };
+    const oldestPackage = {
+      ...patientDetail.packages[0],
+      contracted_amount_cents: 80000,
+      amount_cents: 80000,
+      paid_cents: 0,
+      open_cents: 80000,
+      financial_status: "pending",
+      entries: [{ entryId: 501, openCents: 80000 }],
+    };
+    const newestPackage = {
+      ...oldestPackage,
+      id: "series-902",
+      sourceId: 902,
+      series_id: 902,
+      reference_date: "2026-08-20T09:00:00.000Z",
+      entries: [{ entryId: 502, openCents: 80000 }],
+    };
+    const partialDiscountDetail = {
+      ...patientDetail,
+      summary: { total: 160000, received: 0, pending: 160000, creditAvailable: 0 },
+      entries: [oldestEntry, newestEntry],
+      payments: [],
+      series: [
+        ...patientDetail.series,
+        {
+          ...patientDetail.series[0],
+          id: 902,
+          starts_at: "2026-08-20T09:00:00.000Z",
+        },
+      ],
+      packages: [oldestPackage, newestPackage],
+    };
+    getFinancialRevenuePatientDetail.mockResolvedValue({ data: partialDiscountDetail });
+    getFinancialRevenuesSummary.mockResolvedValue({
+      data: {
+        month: "2026-08",
+        summary: { total: 160000, received: 0, pending: 160000 },
+        patients: [{
+          patient_id: 30,
+          patient_name: "Maria Silva",
+          total: 160000,
+          received: 0,
+          pending: 160000,
+          entries_count: 2,
+        }],
+      },
+    });
+    listFinancialEntries.mockResolvedValue({ data: [oldestEntry, newestEntry] });
+    listFinancialPayments.mockResolvedValue({ data: [] });
+
     renderFinanceiro();
     expect(await screen.findByText("Maria Silva")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Mostrar valores financeiros" }));
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
     expect(await screen.findByRole("button", { name: "Registrar recebimento" })).toBeInTheDocument();
-    expect(await screen.findByText("Fisioterapia")).toBeInTheDocument();
+    expect((await screen.findAllByText("Fisioterapia")).length).toBeGreaterThanOrEqual(2);
     await userEvent.click(screen.getByRole("button", { name: "Registrar recebimento" }));
 
     fireEvent.change(await screen.findByLabelText("Forma de pagamento"), { target: { value: "3" } });
-    fireEvent.change(screen.getByLabelText("Valor recebido"), { target: { value: "500,00" } });
-    fireEvent.change(screen.getByLabelText("Desconto"), { target: { value: "100,00" } });
+    fireEvent.change(screen.getByLabelText("Valor recebido"), { target: { value: "720,00" } });
+    fireEvent.change(screen.getByLabelText("Desconto"), { target: { value: "80,00" } });
     fireEvent.change(screen.getByLabelText("Data do recebimento"), { target: { value: "2026-08-15" } });
+    expect(screen.getByText("Valor original").parentElement).toHaveTextContent("R$ 1.600,00");
+    expect(screen.getByText("Total final").parentElement).toHaveTextContent("R$ 1.520,00");
+    expect(screen.getByText("Valor pendente").parentElement).toHaveTextContent("R$ 800,00");
     await userEvent.click(screen.getByRole("button", { name: "Confirmar recebimento" }));
 
     expect(toast.error).not.toHaveBeenCalled();
@@ -258,10 +324,10 @@ describe("Financeiro - caracterização dos recebimentos publicados", () => {
       entry_id: 990,
       patient_id: 30,
       payment_method_id: 3,
-      amount_cents: 50000,
+      amount_cents: 72000,
       allocation_mode: "manual",
-      allocations: [{ entry_id: 501, amount_cents: 50000 }],
-      discount_cents: 10000,
+      allocations: [{ entry_id: 501, amount_cents: 72000 }],
+      discount_cents: 8000,
     })));
   });
 
