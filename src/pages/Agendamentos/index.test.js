@@ -29,6 +29,7 @@ jest.mock("react-toastify", () => ({
     error: jest.fn(),
     info: jest.fn(),
     success: jest.fn(),
+    warning: jest.fn(),
   },
 }));
 
@@ -332,6 +333,39 @@ describe("Agendamentos - editar agendamento", () => {
     expect(screen.getByRole("button", { name: "Novo agendamento" })).toBeInTheDocument();
   });
 
+  it("mostra mensagem curta e mantem bloqueada a exclusao com impacto financeiro", async () => {
+    axios.post.mockResolvedValueOnce({
+      data: {
+        candidates: [{
+          ...baseSession,
+          can_delete: false,
+          blocked_reason: "Este agendamento já possui impacto financeiro ou operacional. Use Cancelar, Estornar ou ajuste financeiro apropriado.",
+        }],
+      },
+    });
+    const { container } = renderAgendamentos();
+
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dia" }));
+    const scheduledCard = await waitFor(() => {
+      const element = container.querySelector('[data-id="10"]');
+      expect(element).toBeTruthy();
+      return element;
+    });
+    fireEvent.click(scheduledCard.querySelector("button[aria-label]"));
+    fireEvent.click(await screen.findByRole("button", { name: "Remover da agenda" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apenas este agendamento" }));
+
+    expect(await screen.findByRole("heading", { name: "Revisar exclusão" }))
+      .toBeInTheDocument();
+    expect(screen.getByText("Agendamento com impacto no Financeiro."))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/Use Cancelar, Estornar/i)).not.toBeInTheDocument();
+    expect(screen.getByText("0 de 0 selecionados")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Selecionar todos" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Excluir selecionados" })).toBeDisabled();
+  });
+
   afterEach(() => {
     jest.useRealTimers();
   });
@@ -527,6 +561,45 @@ describe("Agendamentos - editar agendamento", () => {
         replacement_credit_reason: "Paciente avisou",
       }),
     ));
+    expect(toast.warning).not.toHaveBeenCalled();
+  });
+
+  it("avisa quando o backend preserva financeiro de sessao avulsa cancelada", async () => {
+    axios.put.mockResolvedValueOnce({
+      data: {
+        ...baseSession,
+        status: "canceled",
+        absence_reason: "Paciente avisou",
+        financial_regularization_pending: {
+          required: true,
+          code: "FIN-010",
+          message: "Financeiro preservado; nenhuma devolução, crédito ou estorno foi realizado.",
+        },
+      },
+    });
+    const { container } = renderAgendamentos();
+
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dia" }));
+    const scheduledCard = await waitFor(() => {
+      const element = container.querySelector('[data-id="10"]');
+      expect(element).toBeTruthy();
+      return element;
+    });
+    const statusButton = Array.from(scheduledCard.querySelectorAll("button"))
+      .find((button) => button.textContent.includes("Agendado"));
+    fireEvent.click(statusButton);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelamento/falta" }));
+    await screen.findByRole("heading", { name: "Cancelamento/falta" });
+    fireEvent.change(screen.getByPlaceholderText("Descreva o motivo"), {
+      target: { value: "Paciente avisou" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(
+      "Financeiro preservado; nenhuma devolução, crédito ou estorno foi realizado.",
+    ));
+    expect(toast.warning.mock.calls.flat().join(" ")).not.toMatch(/crédito gerado|estorno automático concluído/i);
   });
 
   it("registra falta pelo fluxo unificado sem mostrar reposicao", async () => {

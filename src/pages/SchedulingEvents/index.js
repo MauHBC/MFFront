@@ -306,7 +306,7 @@ export default function SchedulingEvents() {
 
     try {
       setIsHolidaySaving(true);
-      await createSpecialSchedulingEvent({
+      const response = await createSpecialSchedulingEvent({
         source_type: holidayForm.source_type,
         name: holidayForm.name.trim(),
         description: null,
@@ -320,6 +320,11 @@ export default function SchedulingEvents() {
         city_name: holidayForm.city_name.trim() || null,
         ...getHolidaySchedulingPayload(holidayForm.scheduling_mode),
       });
+      if (Number(response?.data?.financial_regularization_pending_sessions || 0) > 0) {
+        toast.warning(
+          "Financeiro preservado; nenhuma devolução, crédito ou estorno foi realizado.",
+        );
+      }
       toast.success("Feriado adicionado.");
       setHolidayForm(emptyHolidayForm);
       setIsHolidayOpen(false);

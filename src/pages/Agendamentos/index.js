@@ -920,12 +920,23 @@ const canSelectDeleteCandidate = (candidate, keepForReschedule, isPackageRemoval
   return candidate.can_delete !== false;
 };
 
+const FINANCIAL_DELETE_BLOCK_MESSAGE = "Agendamento com impacto no Financeiro.";
+
+const formatDeleteCandidateBlockReason = (reason) => {
+  const message = String(reason || "").trim();
+  if (!message) return null;
+  if (message.toLowerCase().includes("impacto financeiro ou operacional")) {
+    return FINANCIAL_DELETE_BLOCK_MESSAGE;
+  }
+  return message;
+};
+
 const getDeleteCandidateBlockReason = (candidate, keepForReschedule, isPackageRemoval) => {
   if (!candidate) return null;
   if (isPackageRemoval && keepForReschedule) {
-    return candidate.removal_blocked_reason || null;
+    return formatDeleteCandidateBlockReason(candidate.removal_blocked_reason);
   }
-  return candidate.blocked_reason || null;
+  return formatDeleteCandidateBlockReason(candidate.blocked_reason);
 };
 
 const getDeleteModalTitle = (session, step) => {
@@ -999,6 +1010,15 @@ const showAbsenceMonthlyPolicyNotice = (payload) => {
       `Paciente atingiu o limite mensal de faltas (${count}/${limit}). Avaliar horário fixo.`,
     );
   }
+};
+
+const showFinancialRegularizationPendingNotice = (payload) => {
+  const pending = payload?.financial_regularization_pending;
+  if (!pending?.required) return;
+  toast.warning(
+    pending.message
+      || "Financeiro preservado; nenhuma devolução, crédito ou estorno foi realizado.",
+  );
 };
 
 const resolveSchedulingErrorMessage = (error) => {
@@ -3948,6 +3968,7 @@ export default function Agendamentos() {
           updatedSession: response?.data,
         });
         showAbsenceMonthlyPolicyNotice(response?.data);
+        showFinancialRegularizationPendingNotice(response?.data);
 	        toast.success("Agendamento atualizado.");
 	        await reloadVisibleSessions();
 	        await loadPendingSessions();
@@ -11345,11 +11366,22 @@ const PopoverPatientName = styled.span`
 `;
 
 const DeleteBlockedReason = styled.small`
-  color: #b42318;
-  font-weight: 900;
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
+  && {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    padding: 5px 8px;
+    border: 1px solid #f2b8a8;
+    border-radius: 6px;
+    background: #fff4ef;
+    color: #9a3412;
+    font-weight: 800;
+    line-height: 1.35;
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
 `;
 
 const DeleteStatusPill = styled.span`
