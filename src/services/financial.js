@@ -96,8 +96,8 @@ export const deleteClinicExpense = (id) =>
 export const payClinicExpense = (id, payload) =>
   api.patch(`/clinic-expenses/${id}/pay`, payload);
 
-export const unpayClinicExpense = (id) =>
-  api.patch(`/clinic-expenses/${id}/unpay`);
+export const unpayClinicExpense = (id, payload) =>
+  api.patch(`/clinic-expenses/${id}/unpay`, payload);
 
 export const listFinancialPayments = (params) =>
   api.get('/financial-payments', { params });

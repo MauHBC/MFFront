@@ -2,6 +2,7 @@ import {
   getFinancialOverview,
   getFinancialRevenuePatientDetail,
   getFinancialRevenuesSummary,
+  unpayClinicExpense,
 } from "./financial";
 import api from "./axios";
 
@@ -9,12 +10,14 @@ jest.mock("./axios", () => ({
   __esModule: true,
   default: {
     get: jest.fn(),
+    patch: jest.fn(),
   },
 }));
 
 describe("financial service", () => {
   beforeEach(() => {
     api.get.mockReset();
+    api.patch.mockReset();
   });
 
   it("chama o endpoint de resumo financeiro por mes", () => {
@@ -62,6 +65,14 @@ describe("financial service", () => {
 
     expect(api.get).toHaveBeenCalledWith("/financial-revenues/patient-detail", {
       params: { patient_id: 30, year: "2026" },
+    });
+  });
+
+  it("envia o motivo ao desfazer o pagamento de uma despesa", () => {
+    unpayClinicExpense(102, { reason: "Pagamento registrado em duplicidade" });
+
+    expect(api.patch).toHaveBeenCalledWith("/clinic-expenses/102/unpay", {
+      reason: "Pagamento registrado em duplicidade",
     });
   });
 });

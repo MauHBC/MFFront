@@ -216,6 +216,15 @@ renderização de Mensalidades permanecem no fluxo de Mensalidades. A visão
 dedicada de Recebimentos continua desabilitada intencionalmente e fora dessa
 capacidade compartilhada ativa.
 
+### Despesas da clínica
+
+Em Despesas, a ação **Desfazer pagamento** solicita um motivo antes de reabrir
+a despesa. O Frontend bloqueia motivo vazio e não chama a API quando o usuário
+cancelar. Na confirmação, envia `PATCH /clinic-expenses/:id/unpay` com
+`{ reason }` e, após sucesso, recarrega a listagem para apresentar a despesa
+novamente como pendente. O Backend permanece responsável por validar e auditar
+o desfazimento.
+
 ---
 
 ## App Shell autenticado

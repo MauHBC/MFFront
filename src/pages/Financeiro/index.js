@@ -779,6 +779,8 @@ export default function Financeiro() {
   const [clinicExpenseForm, setClinicExpenseForm] = useState(() => createEmptyClinicExpense());
   const [editingClinicExpenseId, setEditingClinicExpenseId] = useState(null);
   const [clinicExpenseDeleteTarget, setClinicExpenseDeleteTarget] = useState(null);
+  const [clinicExpenseUnpayTarget, setClinicExpenseUnpayTarget] = useState(null);
+  const [clinicExpenseUnpayReason, setClinicExpenseUnpayReason] = useState("");
   const [isClinicExpenseSaving, setIsClinicExpenseSaving] = useState(false);
   const [clinicExpensePayingId, setClinicExpensePayingId] = useState(null);
   const [isClinicExpensePaymentOpen, setIsClinicExpensePaymentOpen] = useState(false);
@@ -1970,13 +1972,32 @@ export default function Financeiro() {
     }
   }, [clinicExpensePaymentForm, clinicExpensePayingId, loadClinicExpensesData]);
 
+  const openClinicExpenseUnpayModal = useCallback((entry) => {
+    if (!entry?.id) return;
+    setClinicExpenseUnpayTarget(entry);
+    setClinicExpenseUnpayReason("");
+  }, []);
+
+  const closeClinicExpenseUnpayModal = useCallback(() => {
+    if (clinicExpensePayingId) return;
+    setClinicExpenseUnpayTarget(null);
+    setClinicExpenseUnpayReason("");
+  }, [clinicExpensePayingId]);
+
   const handleUnpayClinicExpense = useCallback(
-    async (entry) => {
-      if (!entry?.id || clinicExpensePayingId) return;
+    async () => {
+      if (!clinicExpenseUnpayTarget?.id || clinicExpensePayingId) return;
+      const reason = clinicExpenseUnpayReason.trim();
+      if (!reason) {
+        toast.error("Informe o motivo para desfazer o pagamento.");
+        return;
+      }
       try {
-        setClinicExpensePayingId(entry.id);
-        await unpayClinicExpense(entry.id);
+        setClinicExpensePayingId(clinicExpenseUnpayTarget.id);
+        await unpayClinicExpense(clinicExpenseUnpayTarget.id, { reason });
         toast.success("Pagamento desfeito.");
+        setClinicExpenseUnpayTarget(null);
+        setClinicExpenseUnpayReason("");
         loadClinicExpensesData();
       } catch (error) {
         toast.error(getUserFacingApiError(error, "Não foi possível desfazer o pagamento."));
@@ -1984,7 +2005,7 @@ export default function Financeiro() {
         setClinicExpensePayingId(null);
       }
     },
-    [clinicExpensePayingId, loadClinicExpensesData],
+    [clinicExpensePayingId, clinicExpenseUnpayReason, clinicExpenseUnpayTarget, loadClinicExpensesData],
   );
 
   const openClinicExpenseDeleteModal = useCallback((entry) => {
@@ -4923,7 +4944,7 @@ export default function Financeiro() {
       handleClinicExpensesNextPeriod={handleClinicExpensesNextPeriod}
       handleClinicExpensesFilterChange={handleClinicExpensesFilterChange}
       openClinicExpensePaymentModal={openClinicExpensePaymentModal}
-      handleUnpayClinicExpense={handleUnpayClinicExpense}
+      openClinicExpenseUnpayModal={openClinicExpenseUnpayModal}
       openClinicExpenseModal={openClinicExpenseModal}
       openClinicExpenseDeleteModal={openClinicExpenseDeleteModal}
       getClinicExpenseObservation={getClinicExpenseObservation}
@@ -6472,6 +6493,60 @@ export default function Financeiro() {
           onClose={closeClinicExpensePaymentModal}
           onSave={handleSaveClinicExpensePayment}
         />
+      )}
+      {clinicExpenseUnpayTarget && (
+        <>
+          <ModalOverlay>
+            <CompactModalCard>
+              <ModalHeader>
+                <div>
+                  <ModalTitle>Desfazer pagamento</ModalTitle>
+                  <ModalSubtitle>Informe o motivo do estorno desta despesa.</ModalSubtitle>
+                </div>
+                <IconButton
+                  type="button"
+                  onClick={closeClinicExpenseUnpayModal}
+                  disabled={Boolean(clinicExpensePayingId)}
+                >
+                  <FaTimes />
+                </IconButton>
+              </ModalHeader>
+              <ModalBody>
+                <Field>
+                  <Label htmlFor="clinic-expense-unpay-reason">Motivo</Label>
+                  <TextArea
+                    id="clinic-expense-unpay-reason"
+                    value={clinicExpenseUnpayReason}
+                    onChange={(event) => setClinicExpenseUnpayReason(event.target.value)}
+                    rows={4}
+                    required
+                    autoFocus
+                  />
+                </Field>
+              </ModalBody>
+              <ModalActions>
+                <SecondaryButton
+                  type="button"
+                  onClick={closeClinicExpenseUnpayModal}
+                  disabled={Boolean(clinicExpensePayingId)}
+                >
+                  Cancelar
+                </SecondaryButton>
+                <PrimaryButton
+                  type="button"
+                  onClick={handleUnpayClinicExpense}
+                  disabled={Boolean(clinicExpensePayingId)}
+                >
+                  {clinicExpensePayingId ? "Salvando..." : "Confirmar estorno"}
+                </PrimaryButton>
+              </ModalActions>
+            </CompactModalCard>
+          </ModalOverlay>
+          <ProtectedBackdrop
+            onClick={closeClinicExpenseUnpayModal}
+            $hasInput={hasFilledText(clinicExpenseUnpayReason)}
+          />
+        </>
       )}
       {isClinicExpenseCategoryOpen && (
         <ClinicExpenseCategoryModal

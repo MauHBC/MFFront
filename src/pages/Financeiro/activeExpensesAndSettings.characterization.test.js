@@ -3,6 +3,7 @@ import "@testing-library/jest-dom";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
+import { toast } from "react-toastify";
 
 import Financeiro from "./index";
 import axios from "../../services/axios";
@@ -266,11 +267,67 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
     }));
   });
 
-  it("estorna o pagamento de uma despesa pelo comando publicado", async () => {
+  it("exige motivo, estorna o pagamento e recarrega a despesa como pendente", async () => {
+    listClinicExpenses
+      .mockResolvedValueOnce({
+        data: {
+          items: [paidExpense],
+          summary: {
+            total_cents: 15000,
+            pending_cents: 0,
+            paid_cents: 15000,
+            overdue_cents: 0,
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          items: [{
+            ...paidExpense,
+            status: "open",
+            paid_at: null,
+            paid_amount_cents: null,
+            payment_notes: null,
+          }],
+          summary: {
+            total_cents: 15000,
+            pending_cents: 15000,
+            paid_cents: 0,
+            overdue_cents: 0,
+          },
+        },
+      });
+
     renderFinanceiro("/financeiro/despesas");
     await screen.findByText("Internet");
     await openExpenseAction("Internet", "Desfazer pagamento");
-    await waitFor(() => expect(unpayClinicExpense).toHaveBeenCalledWith(102));
+
+    expect(screen.getByRole("heading", { name: "Desfazer pagamento" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Confirmar estorno" }));
+    expect(toast.error).toHaveBeenCalledWith("Informe o motivo para desfazer o pagamento.");
+    expect(unpayClinicExpense).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Motivo"), {
+      target: { value: "  Pagamento registrado em duplicidade  " },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Confirmar estorno" }));
+
+    await waitFor(() => expect(unpayClinicExpense).toHaveBeenCalledWith(102, {
+      reason: "Pagamento registrado em duplicidade",
+    }));
+    await waitFor(() => expect(within(screen.getByText("Internet").closest("tr"))
+      .getByText("Pendente")).toBeInTheDocument());
+  });
+
+  it("cancela o estorno sem chamar o backend", async () => {
+    renderFinanceiro("/financeiro/despesas");
+    await screen.findByText("Internet");
+    await openExpenseAction("Internet", "Desfazer pagamento");
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+
+    expect(unpayClinicExpense).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Desfazer pagamento" })).not.toBeInTheDocument();
   });
 
   it("exclui uma despesa pelo comando publicado", async () => {

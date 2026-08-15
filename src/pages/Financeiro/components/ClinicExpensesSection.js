@@ -25,7 +25,7 @@ export default function ClinicExpensesSection({
   handleClinicExpensesNextPeriod,
   handleClinicExpensesFilterChange,
   openClinicExpensePaymentModal,
-  handleUnpayClinicExpense,
+  openClinicExpenseUnpayModal,
   openClinicExpenseModal,
   openClinicExpenseDeleteModal,
   getClinicExpenseObservation,
@@ -202,7 +202,7 @@ export default function ClinicExpensesSection({
                                 type="button"
                                 onClick={(event) => {
                                   closeActionMenu(event);
-                                  handleUnpayClinicExpense(entry);
+                                  openClinicExpenseUnpayModal(entry);
                                 }}
                                 disabled={isPaying}
                               >
