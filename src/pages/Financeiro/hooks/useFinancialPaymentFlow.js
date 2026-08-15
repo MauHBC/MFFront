@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
+import { v4 as uuidv4 } from "uuid";
 
 import { getUserFacingApiError } from "../../../services/axios";
 import {
@@ -126,6 +127,8 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState(emptyPayment);
   const [context, setContext] = useState(null);
+  const paymentAttemptRef = useRef(null);
+  const savingRef = useRef(false);
 
   const openScopedPatientPaymentModal = useCallback((patient, scopedPayment) => {
     const patientId = patient?.id ? String(patient.id) : String(scopedPayment?.patientId || "");
@@ -148,10 +151,14 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
         patientName,
       },
     });
+    paymentAttemptRef.current = null;
     setIsOpen(true);
   }, []);
 
   const close = useCallback(() => {
+    if (savingRef.current) return;
+    paymentAttemptRef.current = null;
+    savingRef.current = false;
     setIsOpen(false);
     setIsSaving(false);
     setContext(null);
@@ -249,7 +256,7 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
   }, []);
 
   const save = useCallback(async () => {
-    if (isSaving) return;
+    if (savingRef.current || isSaving) return;
 
     const amountValue = parseCurrencyInputToNumber(form.amount);
     const discountValue = parseCurrencyInputToNumber(form.discount);
@@ -305,19 +312,44 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
       return;
     }
 
+    const referenceDate = String(form.paid_at || "").slice(0, 10);
+    const note = form.note.trim();
+    const adjustmentReason = note || "Ajuste aplicado no recebimento";
+    const hasAdjustment = discountCents > 0;
+    const logicalCommand = {
+      patient_id: patientId,
+      payment_method_id: paymentMethodId,
+      amount_cents: amountCents,
+      paid_at: referenceDate,
+      note: note || null,
+      allocation_mode: "manual",
+      allocations,
+      discount_cents: hasAdjustment ? discountCents : null,
+      surcharge_cents: hasAdjustment ? 0 : null,
+      adjustment_reason: hasAdjustment ? adjustmentReason : null,
+    };
+    const commandSignature = JSON.stringify(logicalCommand);
+    if (paymentAttemptRef.current?.commandSignature !== commandSignature) {
+      paymentAttemptRef.current = {
+        anchorId: null,
+        commandSignature,
+        idempotencyKey: uuidv4(),
+      };
+    }
+
+    savingRef.current = true;
     setIsSaving(true);
     try {
-      const referenceDate = String(form.paid_at || "").slice(0, 10);
-      const anchorId = await createStandalonePaymentAnchor({
-        patientId,
-        referenceDate,
-      });
-      const note = form.note.trim();
-      const adjustmentReason = note || "Ajuste aplicado no recebimento";
-      const hasAdjustment = discountCents > 0;
+      const attempt = paymentAttemptRef.current;
+      if (!attempt.anchorId) {
+        attempt.anchorId = await createStandalonePaymentAnchor({
+          patientId,
+          referenceDate,
+        });
+      }
 
       await createFinancialPayment({
-        entry_id: anchorId,
+        entry_id: attempt.anchorId,
         patient_id: patientId,
         payment_method_id: paymentMethodId,
         amount_cents: amountCents,
@@ -331,9 +363,10 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
         adjustment: hasAdjustment
           ? { discount_cents: discountCents, surcharge_cents: 0, reason: adjustmentReason }
           : undefined,
-      });
+      }, attempt.idempotencyKey);
 
       toast.success("Recebimento registrado.");
+      savingRef.current = false;
       close();
       await onPaymentSaved({ patientId });
     } catch (error) {
@@ -342,6 +375,7 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
         "Não foi possível registrar o recebimento. Tente novamente em instantes.",
       ));
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
   }, [close, context, createStandalonePaymentAnchor, form, isSaving, onPaymentSaved]);

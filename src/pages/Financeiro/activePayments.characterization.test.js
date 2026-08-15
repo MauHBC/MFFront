@@ -320,15 +320,18 @@ describe("Financeiro - caracterização dos recebimentos publicados", () => {
       due_date: "2026-08-15",
       notes: "Entrada técnica automática para viabilizar recebimento por sessão.",
     }));
-    await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledWith(expect.objectContaining({
-      entry_id: 990,
-      patient_id: 30,
-      payment_method_id: 3,
-      amount_cents: 72000,
-      allocation_mode: "manual",
-      allocations: [{ entry_id: 501, amount_cents: 72000 }],
-      discount_cents: 8000,
-    })));
+    await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entry_id: 990,
+        patient_id: 30,
+        payment_method_id: 3,
+        amount_cents: 72000,
+        allocation_mode: "manual",
+        allocations: [{ entry_id: 501, amount_cents: 72000 }],
+        discount_cents: 8000,
+      }),
+      expect.any(String),
+    ));
   });
 
   it("recebe mensalidade pelo mesmo contrato de anchor e alocação", async () => {
@@ -344,14 +347,17 @@ describe("Financeiro - caracterização dos recebimentos publicados", () => {
     await userEvent.click(screen.getByRole("button", { name: "Confirmar recebimento" }));
 
     await waitFor(() => expect(createFinancialEntry).toHaveBeenCalled());
-    await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledWith(expect.objectContaining({
-      entry_id: 990,
-      patient_id: 30,
-      payment_method_id: 3,
-      amount_cents: 70000,
-      allocation_mode: "manual",
-      allocations: [{ entry_id: 901, amount_cents: 70000 }],
-    })));
+    await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entry_id: 990,
+        patient_id: 30,
+        payment_method_id: 3,
+        amount_cents: 70000,
+        allocation_mode: "manual",
+        allocations: [{ entry_id: 901, amount_cents: 70000 }],
+      }),
+      expect.any(String),
+    ));
   });
 
   it("mantém lote, conversão em parcelas e Recebimentos dedicado fora da UI publicada", async () => {

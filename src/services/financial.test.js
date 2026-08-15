@@ -1,4 +1,5 @@
 import {
+  createFinancialPayment,
   getFinancialOverview,
   getFinancialRevenuePatientDetail,
   getFinancialRevenuesSummary,
@@ -11,6 +12,7 @@ jest.mock("./axios", () => ({
   default: {
     get: jest.fn(),
     patch: jest.fn(),
+    post: jest.fn(),
   },
 }));
 
@@ -18,6 +20,7 @@ describe("financial service", () => {
   beforeEach(() => {
     api.get.mockReset();
     api.patch.mockReset();
+    api.post.mockReset();
   });
 
   it("chama o endpoint de resumo financeiro por mes", () => {
@@ -74,5 +77,15 @@ describe("financial service", () => {
     expect(api.patch).toHaveBeenCalledWith("/clinic-expenses/102/unpay", {
       reason: "Pagamento registrado em duplicidade",
     });
+  });
+
+  it("envia Idempotency-Key ao criar recebimento", () => {
+    createFinancialPayment({ amount_cents: 12000 }, "payment-attempt-1234");
+
+    expect(api.post).toHaveBeenCalledWith(
+      "/financial-payments",
+      { amount_cents: 12000 },
+      { headers: { "Idempotency-Key": "payment-attempt-1234" } },
+    );
   });
 });

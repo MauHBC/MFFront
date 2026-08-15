@@ -210,6 +210,12 @@ O preview permite recebimento parcial com desconto: o saldo pendente é calculad
 sobre o total ajustado, enquanto o backend permanece a autoridade da alocação e
 da persistência final.
 
+Cada confirmação lógica mantém uma única `Idempotency-Key` e o mesmo payment
+anchor enquanto a requisição está pendente ou um erro ambíguo pode exigir retry.
+Duplo clique não abre outra tentativa material. Alterar o comando ou abrir uma
+nova operação gera nova chave e novo anchor; o serviço envia a chave somente no
+header do POST de `financial-payments`.
+
 Detalhes, cache, crédito e preview específicos de sessão permanecem no fluxo de
 sessões. Filtros, agrupamento, resolução de BillingCycle, preview de sessões e
 renderização de Mensalidades permanecem no fluxo de Mensalidades. A visão
