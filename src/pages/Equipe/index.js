@@ -1,5 +1,5 @@
 import React, {
-  useCallback, useEffect, useMemo, useRef, useState,
+  useCallback, useEffect, useMemo, useState,
 } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
@@ -34,6 +34,7 @@ import {
   UnsavedChangesDialog,
 } from "../../components/AppDrawer";
 import { GhostButton, PrimaryButton, RowActionButton } from "../../components/AppButton";
+import AppActionMenu from "../../components/AppActionMenu";
 import { colors, layout } from "../../styles/tokens";
 import AccountAccessDrawer, { validateAccountAccessForm } from "./AccountAccessDrawer";
 import ProfessionalIdentityDrawer from "./ProfessionalIdentityDrawer";
@@ -68,47 +69,10 @@ const ACCOUNT_STATUS_LABELS = {
 };
 
 function PersonActionsMenu({ personName, children }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const closeOnOutsideClick = (event) => {
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
-    };
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", closeOnOutsideClick);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutsideClick);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
-
   return (
-    <ActionsMenuRoot ref={rootRef}>
-      <ActionsMenuTrigger
-        type="button"
-        aria-label={`Ações de ${personName}`}
-        aria-haspopup="true"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-      >
-        Ações <span aria-hidden="true">•••</span>
-      </ActionsMenuTrigger>
-      {open && (
-        <ActionsMenuPopover
-          aria-label={`Opções de ${personName}`}
-          onClick={(event) => {
-            if (event.target.closest("button:not(:disabled)")) setOpen(false);
-          }}
-        >
-          {children}
-        </ActionsMenuPopover>
-      )}
-    </ActionsMenuRoot>
+    <AppActionMenu label={`Ações de ${personName}`}>
+      {children}
+    </AppActionMenu>
   );
 }
 
@@ -1291,44 +1255,6 @@ const PersonMain = styled.div`display: grid; gap: 3px; small { color: ${colors.s
 const Badges = styled.div`display: flex; gap: 6px; flex-wrap: wrap;`;
 const ProfileNames = styled.div`color: ${colors.softText}; font-size: 0.88rem;`;
 const RowActions = styled.div`display: flex; justify-content: flex-end;`;
-const ActionsMenuRoot = styled.div`
-  position: relative;
-`;
-const ActionsMenuTrigger = styled(RowActionButton)`
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-`;
-const ActionsMenuPopover = styled.div`
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 6px);
-  right: 0;
-  display: grid;
-  min-width: 220px;
-  padding: 6px;
-  border: 1px solid #d9ded5;
-  border-radius: 10px;
-  background: ${colors.white};
-  box-shadow: 0 12px 30px rgba(38, 49, 36, 0.16);
-
-  ${RowActionButton} {
-    display: inline-flex;
-    justify-content: flex-start;
-    align-items: center;
-    gap: 7px;
-    width: 100%;
-    border-color: transparent;
-    white-space: nowrap;
-  }
-
-  @media (max-width: 620px) {
-    right: auto;
-    left: 0;
-    min-width: min(260px, calc(100vw - 64px));
-  }
-`;
 const ProfileList = styled.div`display: grid; margin-top: 12px;`;
 const ProfileButton = styled.button`display: flex; justify-content: space-between; gap: 16px; width: 100%; padding: 14px 4px; border: 0; border-top: 1px solid #e8ebe5; background: transparent; text-align: left; cursor: pointer; span { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } small { color: ${colors.softText}; } &:hover { background: #f8f9f7; } &:focus-visible { outline: 3px solid rgba(106, 121, 92, 0.28); } @media (max-width: 620px) { flex-direction: column; }`;
 const ProfileRow = styled.div`display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; border-top: 1px solid #e8ebe5; ${ProfileButton} { border-top: 0; } @media (max-width: 620px) { grid-template-columns: 1fr; padding-bottom: 12px; }`;

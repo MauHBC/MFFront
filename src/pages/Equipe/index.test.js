@@ -218,7 +218,7 @@ describe("Equipe", () => {
     });
     render(<Equipe />);
     const personRow = await openActionsFor("Davi");
-    fireEvent.click(within(personRow).getByRole("button", {
+    fireEvent.click(within(personRow).getByRole("menuitem", {
       name: "Cadastrar como profissional",
     }));
     const drawer = screen.getByRole("dialog", { name: "Cadastrar como profissional" });
@@ -297,7 +297,7 @@ describe("Equipe", () => {
   it("edita somente os campos permitidos da pessoa", async () => {
     render(<Equipe />);
     const row = await openActionsFor("Ana");
-    fireEvent.click(within(row).getByRole("button", { name: "Editar" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "Editar" }));
     expect(screen.queryByLabelText(/Registrar também como profissional/)).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Ana editada" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
@@ -312,7 +312,7 @@ describe("Equipe", () => {
   it("reativa pessoa pelo contrato oficial", async () => {
     render(<Equipe />);
     const row = await openActionsFor("Caio");
-    fireEvent.click(within(row).getByRole("button", { name: "Reativar pessoa" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "Reativar pessoa" }));
     await waitFor(() => expect(activateTeamPerson).toHaveBeenCalledWith(3));
   });
 
@@ -328,16 +328,16 @@ describe("Equipe", () => {
   it("agrupa as ações de cada integrante em um único menu contextual", async () => {
     render(<Equipe />);
     const anaRow = (await screen.findByText("Ana")).closest("article");
-    expect(within(anaRow).queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
+    expect(within(anaRow).queryByRole("menuitem", { name: "Editar" })).not.toBeInTheDocument();
 
     fireEvent.click(within(anaRow).getByRole("button", { name: "Ações de Ana" }));
-    expect(within(anaRow).getByRole("button", { name: "Editar" })).toBeInTheDocument();
-    expect(within(anaRow).getByRole("button", { name: "Gerenciar perfis" })).toBeInTheDocument();
-    expect(within(anaRow).getByRole("button", { name: "Redefinir senha" })).toBeInTheDocument();
-    expect(within(anaRow).getByRole("button", { name: "Bloquear" })).toBeInTheDocument();
+    expect(within(anaRow).getByRole("menuitem", { name: "Editar" })).toBeInTheDocument();
+    expect(within(anaRow).getByRole("menuitem", { name: "Gerenciar perfis" })).toBeInTheDocument();
+    expect(within(anaRow).getByRole("menuitem", { name: "Redefinir senha" })).toBeInTheDocument();
+    expect(within(anaRow).getByRole("menuitem", { name: "Bloquear" })).toBeInTheDocument();
 
     fireEvent.mouseDown(document.body);
-    expect(within(anaRow).queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
+    expect(within(anaRow).queryByRole("menuitem", { name: "Editar" })).not.toBeInTheDocument();
   });
 
   it("cria acesso sem atribuir perfil e protege contra envio duplicado", async () => {
@@ -347,7 +347,7 @@ describe("Equipe", () => {
     }));
     render(<Equipe />);
     const row = await openActionsFor("Bia");
-    fireEvent.click(within(row).getByRole("button", { name: "Criar acesso" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "Criar acesso" }));
     const drawer = screen.getByRole("dialog", { name: "Criar acesso" });
     fireEvent.change(within(drawer).getByLabelText("E-mail de login"), {
       target: { value: " BIA@Example.Test " },
@@ -379,7 +379,7 @@ describe("Equipe", () => {
     });
     render(<Equipe />);
     const row = await openActionsFor("Bia");
-    fireEvent.click(within(row).getByRole("button", { name: "Criar acesso" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "Criar acesso" }));
     const drawer = screen.getByRole("dialog", { name: "Criar acesso" });
     fireEvent.change(within(drawer).getByLabelText("Senha inicial"), {
       target: { value: "Senha@123" },
@@ -396,7 +396,7 @@ describe("Equipe", () => {
   it("redefine senha com confirmação sem modificar perfis", async () => {
     render(<Equipe />);
     const row = await openActionsFor("Ana");
-    fireEvent.click(within(row).getByRole("button", { name: "Redefinir senha" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "Redefinir senha" }));
     const drawer = screen.getByRole("dialog", { name: "Redefinir senha" });
     fireEvent.change(within(drawer).getByLabelText("Nova senha"), {
       target: { value: "Nova@123" },
@@ -420,7 +420,7 @@ describe("Equipe", () => {
     });
     render(<Equipe />);
     const row = await openActionsFor("Ana");
-    fireEvent.click(within(row).getByRole("button", { name: "Bloquear" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "Bloquear" }));
     const drawer = screen.getByRole("dialog", { name: "Bloquear acesso" });
     const confirmation = within(drawer).getByLabelText(/Confirmo esta operação/);
     fireEvent.click(confirmation);
@@ -445,7 +445,7 @@ describe("Equipe", () => {
     loadTeamReadModel.mockResolvedValue(blockedModel);
     const { unmount } = render(<Equipe />);
     const blockedRow = await openActionsFor("Ana");
-    fireEvent.click(within(blockedRow).getByRole("button", { name: "Desbloquear" }));
+    fireEvent.click(within(blockedRow).getByRole("menuitem", { name: "Desbloquear" }));
     const drawer = screen.getByRole("dialog", { name: "Desbloquear acesso" });
     fireEvent.click(within(drawer).getByLabelText(/Confirmo esta operação/));
     fireEvent.click(within(drawer).getByRole("button", { name: "Desbloquear acesso" }));
@@ -486,7 +486,7 @@ describe("Equipe", () => {
     }));
     render(<Equipe />);
     const anaRow = await openActionsFor("Ana");
-    fireEvent.click(within(anaRow).getByRole("button", { name: "Inativar" }));
+    fireEvent.click(within(anaRow).getByRole("menuitem", { name: "Inativar" }));
     fireEvent.click(screen.getByLabelText(/Cancelar .* futuras/));
     fireEvent.change(screen.getByLabelText("Motivo"), {
       target: { value: "Encerramento aprovado" },
@@ -530,7 +530,7 @@ describe("Equipe", () => {
     });
     render(<Equipe />);
     const anaRow = await openActionsFor("Ana");
-    fireEvent.click(within(anaRow).getByRole("button", { name: "Inativar" }));
+    fireEvent.click(within(anaRow).getByRole("menuitem", { name: "Inativar" }));
     fireEvent.change(screen.getByLabelText("Profissional de destino"), { target: { value: "102" } });
     fireEvent.change(screen.getByLabelText("Motivo"), { target: { value: "Transferir carteira" } });
     fireEvent.click(screen.getByRole("button", { name: "Visualizar impactos" }));
@@ -574,7 +574,7 @@ describe("Equipe", () => {
     });
     render(<Equipe />);
     const row = await openActionsFor("Dora");
-    fireEvent.click(within(row).getByRole("button", { name: "Inativar" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "Inativar" }));
     const confirmButton = screen.getByRole("button", { name: /Confirmar inativa/ });
     expect(confirmButton).toBeDisabled();
     fireEvent.click(screen.getByLabelText(/Confirmo a inativa/));
@@ -590,7 +590,7 @@ describe("Equipe", () => {
     });
     render(<Equipe />);
     const row = await openActionsFor("Ana");
-    expect(within(row).queryByRole("button", { name: "Inativar" })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("menuitem", { name: "Inativar" })).not.toBeInTheDocument();
   });
 
   it("nega acesso direto sem carregar dados", () => {
@@ -670,7 +670,7 @@ describe("Equipe", () => {
   it("atribui e remove perfis somente para pessoa com conta", async () => {
     render(<Equipe />);
     const row = await openActionsFor("Ana");
-    fireEvent.click(within(row).getByRole("button", { name: "Gerenciar perfis" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "Gerenciar perfis" }));
     fireEvent.click(screen.getByLabelText(/Administrador/));
     fireEvent.click(screen.getByLabelText(/Atendimento/));
     fireEvent.click(screen.getByRole("button", { name: "Salvar atribuições" }));
@@ -753,7 +753,7 @@ test("payload real de atribuições expõe permissão efetiva de Agenda", async 
   loadTeamReadModel.mockResolvedValue(scheduleModel);
   render(<Equipe />);
   const row = await openActionsFor("Ana");
-  fireEvent.click(within(row).getByRole("button", { name: "Gerenciar perfis" }));
+  fireEvent.click(within(row).getByRole("menuitem", { name: "Gerenciar perfis" }));
   expect(screen.getByText("Agenda")).toBeInTheDocument();
   expect(screen.getByText(/Gerenciar.*Toda a clínica/)).toBeInTheDocument();
   expect(screen.queryByText(/não possui permissões granulares/)).not.toBeInTheDocument();
@@ -785,6 +785,6 @@ test.each([
   });
   render(<Equipe />);
   const row = await openActionsFor("Ana");
-  fireEvent.click(within(row).getByRole("button", { name: "Gerenciar perfis" }));
+  fireEvent.click(within(row).getByRole("menuitem", { name: "Gerenciar perfis" }));
   expect(screen.getByText(expectedMessage)).toBeInTheDocument();
 });
