@@ -26,6 +26,7 @@ jest.mock("../contexts/AuthorizationContext", () => ({
   }),
 }));
 jest.mock("../pages/Equipe", () => () => <div>Equipe</div>);
+jest.mock("../pages/SettingsDocuments", () => () => <div>Configurações</div>);
 
 jest.mock("../pages/Agendamentos", () => function AgendaRouteMock() {
   return (

@@ -14,6 +14,7 @@ import { getAuthorizationContext } from "../services/team";
 const AuthorizationContext = createContext({
   status: "idle",
   context: null,
+  isAdministrator: false,
   canViewTeam: false,
   canManageProfessionalLifecycle: false,
   canAccessModule: () => false,
@@ -21,7 +22,7 @@ const AuthorizationContext = createContext({
   reload: () => {},
 });
 const TEAM_POWER = "access_profiles.manage";
-const AUTHORIZATION_CATALOG_VERSION = 6;
+const AUTHORIZATION_CATALOG_VERSION = 7;
 const ACCESS_LEVELS = Object.freeze({ none: 0, view: 1, edit: 2, manage: 3 });
 const MODULE_KEYS = Object.freeze([
   "dashboard",
@@ -70,6 +71,12 @@ export function contextHasCapability(context, capability) {
     && context.capabilities.includes(capability);
 }
 
+export function contextIsAdministrator(context) {
+  return isValidAuthorizationContext(context)
+    && context.authorization_state === "authorized"
+    && context.is_administrator === true;
+}
+
 export function classifyAuthorizationContextFailure(error) {
   const status = error?.response?.status;
   if (status === 401) return "idle";
@@ -78,9 +85,7 @@ export function classifyAuthorizationContextFailure(error) {
 }
 
 export function isTeamAdministrator(context) {
-  return isValidAuthorizationContext(context)
-    && context?.authorization_state === "authorized"
-    && context?.is_administrator === true
+  return contextIsAdministrator(context)
     && Array.isArray(context?.administrative_powers)
     && context.administrative_powers.includes(TEAM_POWER);
 }
@@ -175,6 +180,8 @@ export function AuthorizationProvider({ children }) {
   const value = useMemo(() => ({
     status: visibleState.status,
     context: visibleState.context,
+    isAdministrator: visibleState.status === "ready"
+      && contextIsAdministrator(visibleState.context),
     canViewTeam: visibleState.status === "ready" && isTeamAdministrator(visibleState.context),
     canManageProfessionalLifecycle: visibleState.status === "ready"
       && canManageProfessionalLifecycle(visibleState.context),

@@ -2,6 +2,7 @@ import {
   FaCalendarAlt,
   FaChartLine,
   FaClipboardList,
+  FaCog,
   FaMoneyBillWave,
   FaUserFriends,
   FaUsersCog,
@@ -141,6 +142,17 @@ const navigationItems = [
   },
 ];
 
+const footerNavigationItems = [
+  {
+    key: "settings",
+    label: "Configurações",
+    path: "/configuracoes/documentos",
+    matchPaths: ["/configuracoes"],
+    icon: FaCog,
+    isVisible: ({ isAdministrator } = {}) => isAdministrator === true,
+  },
+];
+
 export function filterVisibleNavigationItems(items, visibilityContext = {}) {
   return items.reduce((visibleItems, item) => {
     if (item.isVisible && !item.isVisible(visibilityContext)) return visibleItems;
@@ -158,6 +170,10 @@ export function filterVisibleNavigationItems(items, visibilityContext = {}) {
 
 export function getVisibleNavigationItems(visibilityContext) {
   return filterVisibleNavigationItems(navigationItems, visibilityContext);
+}
+
+export function getVisibleFooterNavigationItems(visibilityContext) {
+  return filterVisibleNavigationItems(footerNavigationItems, visibilityContext);
 }
 
 export function isNavigationItemActive(item, pathname, search = "") {

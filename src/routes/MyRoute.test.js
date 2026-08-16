@@ -8,7 +8,6 @@ import { useAuthorization } from "../contexts/AuthorizationContext";
 jest.mock("../hooks/useAuthRedirect", () => ({ useAuthRedirect: () => null }));
 jest.mock("../contexts/AuthorizationContext", () => ({
   useAuthorization: jest.fn(),
-  isTeamAdministrator: (context) => context?.is_administrator === true,
 }));
 
 const ProtectedPage = () => <div>Conteúdo protegido</div>;
@@ -35,6 +34,7 @@ describe("MyRoute authorization guard", () => {
         context: status === "ready" ? { authorization_state: "no_permissions" } : null,
         canAccessModule: () => false,
         hasCapability: () => false,
+        isAdministrator: false,
       });
       renderRoute();
       expect(screen.getByText("Você não tem acesso")).toBeInTheDocument();
@@ -62,6 +62,7 @@ describe("MyRoute authorization guard", () => {
       context: { authorization_state: "authorized", is_administrator: false },
       canAccessModule: (moduleKey) => moduleKey === "schedule",
       hasCapability: () => true,
+      isAdministrator: false,
     });
     const { rerender } = renderRoute({ requiredModule: "schedule" });
     expect(screen.getByText("Conteúdo protegido")).toBeInTheDocument();
@@ -86,8 +87,41 @@ describe("MyRoute authorization guard", () => {
       context: { authorization_state: "authorized", is_administrator: false },
       canAccessModule: () => true,
       hasCapability: () => false,
+      isAdministrator: false,
     });
     renderRoute({ requiredCapability: "finance.configure" });
     expect(screen.getByText("Você não tem acesso")).toBeInTheDocument();
+  });
+
+  it("protege rota administrativa pelo booleano semântico oficial", () => {
+    useAuthorization.mockReturnValue({
+      status: "ready",
+      canAccessModule: () => true,
+      hasCapability: () => true,
+      isAdministrator: false,
+    });
+    const { rerender } = renderRoute({ administratorOnly: true });
+    expect(screen.getByText("Você não tem acesso")).toBeInTheDocument();
+
+    useAuthorization.mockReturnValue({
+      status: "ready",
+      canAccessModule: () => true,
+      hasCapability: () => true,
+      isAdministrator: true,
+    });
+    rerender(
+      <MemoryRouter initialEntries={["/pacientes"]}>
+        <MyRoute
+          exact
+          path="/pacientes"
+          component={ProtectedPage}
+          isClosed
+          requiredModule="settings"
+          minimumAccessLevel="manage"
+          administratorOnly
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Conteúdo protegido")).toBeInTheDocument();
   });
 });

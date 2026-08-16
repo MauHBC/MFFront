@@ -9,6 +9,7 @@ import {
   classifyAuthorizationContextFailure,
   contextCanAccessModule,
   contextHasCapability,
+  contextIsAdministrator,
   isValidAuthorizationContext,
   isTeamAdministrator,
   useAuthorization,
@@ -48,6 +49,7 @@ function AuthorizationProbe() {
     <div>
       <span data-testid="status">{authorization.status}</span>
       <span data-testid="administrator">{String(authorization.canViewTeam)}</span>
+      <span data-testid="native-administrator">{String(authorization.isAdministrator)}</span>
       <span data-testid="schedule">{String(authorization.canAccessModule("schedule"))}</span>
       <span data-testid="patients">{String(authorization.canAccessModule("patients"))}</span>
     </div>
@@ -90,7 +92,7 @@ describe("AuthorizationContext", () => {
   }));
   const administrator = {
     authorization_state: "authorized",
-    catalog_version: 6,
+    catalog_version: 7,
     is_administrator: true,
     modules,
     capabilities: [],
@@ -116,6 +118,12 @@ describe("AuthorizationContext", () => {
     expect(isTeamAdministrator(administrator)).toBe(true);
   });
 
+  it("expõe Administrador nativo sem depender de poder administrativo não relacionado", () => {
+    const nativeAdministrator = { ...administrator, administrative_powers: [] };
+    expect(contextIsAdministrator(nativeAdministrator)).toBe(true);
+    expect(isTeamAdministrator(nativeAdministrator)).toBe(false);
+  });
+
   it("resolve modulos e capacidades apenas em payload oficial completo", () => {
     const agendaOnly = {
       ...administrator,
@@ -134,7 +142,7 @@ describe("AuthorizationContext", () => {
     expect(contextHasCapability(agendaOnly, "schedule.configure")).toBe(true);
     expect(isValidAuthorizationContext({ ...agendaOnly, modules: agendaOnly.modules.slice(1) }))
       .toBe(false);
-    expect(isValidAuthorizationContext({ ...agendaOnly, catalog_version: 7 })).toBe(false);
+    expect(isValidAuthorizationContext({ ...agendaOnly, catalog_version: 6 })).toBe(false);
     expect(contextCanAccessModule({ ...agendaOnly, authorization_state: "invalid" }, "schedule"))
       .toBe(false);
   });
@@ -193,6 +201,7 @@ describe("AuthorizationContext", () => {
     dispatchAuth(store, authState({ isLoggedIn: false, token: false, userId: null }));
     expect(screen.getByTestId("status")).toHaveTextContent("idle");
     expect(screen.getByTestId("administrator")).toHaveTextContent("false");
+    expect(screen.getByTestId("native-administrator")).toHaveTextContent("false");
 
     dispatchAuth(store, authState({ token: "common-token", userId: 13 }));
     expect(screen.getByTestId("status")).toHaveTextContent("loading");

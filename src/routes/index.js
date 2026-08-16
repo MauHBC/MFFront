@@ -29,6 +29,7 @@ import PlatformPaused from "../pages/PlatformPaused";
 import { isPlansModuleEnabled } from "../config/features";
 import AppShell from "../components/AppShell";
 import Equipe from "../pages/Equipe";
+import SettingsDocuments from "../pages/SettingsDocuments";
 
 function getPatientsPageTitle(pathname) {
   if (pathname === "/pacientes/novo") return "Novo paciente";
@@ -42,7 +43,14 @@ function getAppShellPageTitle(pathname) {
   if (pathname === "/financeiro" || pathname.startsWith("/financeiro/")) return "Financeiro";
   if (pathname === "/planos" || pathname.startsWith("/planos/")) return "Planos";
   if (pathname === "/equipe") return "Equipe";
+  if (pathname === "/configuracoes" || pathname.startsWith("/configuracoes/")) {
+    return "Configurações";
+  }
   return getPatientsPageTitle(pathname);
+}
+
+function SettingsRedirect() {
+  return <Redirect to="/configuracoes/documentos" />;
 }
 
 function LegacyFinancialRoute() {
@@ -67,6 +75,8 @@ export default function Routes() {
   const usesFinancialAppShell = location.pathname === "/financeiro"
     || location.pathname.startsWith("/financeiro/");
   const usesTeamAppShell = location.pathname === "/equipe";
+  const usesSettingsAppShell = location.pathname === "/configuracoes"
+    || location.pathname.startsWith("/configuracoes/");
   const usesAppShell = [
     "/menu",
     "/painel",
@@ -77,7 +87,8 @@ export default function Routes() {
     || usesPatientsAppShell
     || usesPlansAppShell
     || usesFinancialAppShell
-    || usesTeamAppShell;
+    || usesTeamAppShell
+    || usesSettingsAppShell;
   const shouldShowNavbar = location.pathname !== "/" && !isPublicSignup && !usesAppShell;
 
   const routeContent = (
@@ -102,6 +113,24 @@ export default function Routes() {
         <MyRoute exact path="/painel" component={Painel} isClosed requiredModule="dashboard" />
         <MyRoute exact path="/dashboard" component={Painel} isClosed requiredModule="dashboard" />
         <MyRoute exact path="/equipe" component={Equipe} isClosed administratorOnly />
+        <MyRoute
+          exact
+          path="/configuracoes"
+          component={SettingsRedirect}
+          isClosed
+          administratorOnly
+          requiredModule="settings"
+          minimumAccessLevel="manage"
+        />
+        <MyRoute
+          exact
+          path="/configuracoes/documentos"
+          component={SettingsDocuments}
+          isClosed
+          administratorOnly
+          requiredModule="settings"
+          minimumAccessLevel="manage"
+        />
         <MyRoute exact path="/financeiro" component={LegacyFinancialRoute} isClosed requiredModule="finance" />
         <MyRoute
           exact
@@ -153,7 +182,11 @@ export default function Routes() {
   return (
     <>
       {shouldShowNavbar && <ImobNavbar />} {/* Exibe a navbar em todas as páginas, exceto na HomePage */}
-      {usesPatientsAppShell || usesPlansAppShell || usesFinancialAppShell || usesTeamAppShell ? (
+      {usesPatientsAppShell
+      || usesPlansAppShell
+      || usesFinancialAppShell
+      || usesTeamAppShell
+      || usesSettingsAppShell ? (
         <AppShell pageTitle={getAppShellPageTitle(location.pathname)}>
           {routeContent}
         </AppShell>

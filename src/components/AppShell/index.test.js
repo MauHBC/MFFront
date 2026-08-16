@@ -17,6 +17,7 @@ import AppShell, {
 const mockLogout = jest.fn();
 const mockAuthorization = {
   canViewTeam: false,
+  isAdministrator: false,
   canAccessModule: () => true,
   hasCapability: () => true,
 };
@@ -56,6 +57,7 @@ function renderShell(pathname = "/painel") {
 
 afterEach(() => {
   mockAuthorization.canViewTeam = false;
+  mockAuthorization.isAdministrator = false;
 });
 
 it("exibe Equipe no App Shell somente quando autorizada", () => {
@@ -65,6 +67,23 @@ it("exibe Equipe no App Shell somente quando autorizada", () => {
   mockAuthorization.canViewTeam = true;
   renderShell();
   expect(screen.getByRole("link", { name: "Equipe" })).toHaveAttribute("href", "/equipe");
+});
+
+it("exibe Configurações no rodapé desktop e no drawer mobile somente ao Administrador", () => {
+  const hiddenView = renderShell();
+  expect(screen.queryByRole("navigation", { name: "Administração" }))
+    .not.toBeInTheDocument();
+  hiddenView.unmount();
+
+  mockAuthorization.isAdministrator = true;
+  const { container } = renderShell("/configuracoes/documentos");
+  const administration = screen.getByRole("navigation", { name: "Administração" });
+  const settingsLink = administration.querySelector("a");
+  expect(settingsLink).toHaveAttribute("href", "/configuracoes/documentos");
+  expect(settingsLink).toHaveAttribute("aria-current", "page");
+
+  fireEvent.click(container.querySelector("[aria-controls='app-navigation']"));
+  expect(settingsLink).toBeVisible();
 });
 
 function renderShellWithHistory(pathname = "/painel") {

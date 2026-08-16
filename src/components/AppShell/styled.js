@@ -195,7 +195,7 @@ export const CloseNavigationButton = styled.button`
   }
 `;
 
-export const Navigation = styled.nav`
+const navigationTheme = css`
   --navigation-inline-padding: ${spacing.md};
   --navigation-item-inline-padding: ${spacing.md};
   --navigation-icon-column: 28px;
@@ -208,10 +208,6 @@ export const Navigation = styled.nav`
   --navigation-submenu-indicator: ${colors.navigationSubmenuIndicatorFallback};
   --navigation-page-surface:
     ${colors.navigationSubmenuActiveBackground};
-  flex: 1;
-  padding: ${spacing.lg} var(--navigation-inline-padding);
-  overflow-x: clip;
-  overflow-y: auto;
 
   @supports (color: oklch(from red 0.5 clamp(0.01, c, 0.1) h)) {
     --navigation-module-open-surface: ${colors.navigationModuleOpenBackground};
@@ -219,6 +215,24 @@ export const Navigation = styled.nav`
     --navigation-submenu-indicator: ${colors.navigationSubmenuIndicator};
   }
 `;
+
+export const Navigation = styled.nav`
+  ${navigationTheme}
+  flex: 1;
+  padding: ${spacing.lg} var(--navigation-inline-padding);
+  overflow-x: clip;
+  overflow-y: auto;
+
+`;
+
+export const SidebarAdminNavigation = styled.nav`
+  ${navigationTheme}
+  flex: 0 0 auto;
+  padding: ${spacing.md};
+  border-top: 1px solid ${colors.appChromeBorder};
+`;
+
+export const SidebarFooterNavigation = SidebarAdminNavigation;
 
 export const NavigationLabel = styled.p`
   height: 14px;

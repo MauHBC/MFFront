@@ -1,5 +1,6 @@
 import {
   filterVisibleNavigationItems,
+  getVisibleFooterNavigationItems,
   getVisibleNavigationItems,
   isNavigationItemActive,
 } from "./navigation";
@@ -9,6 +10,7 @@ describe("AppShell navigation", () => {
     canAccessModule: () => true,
     hasCapability: () => true,
     canViewTeam: true,
+    isAdministrator: true,
   };
   it("remove o módulo quando ele ou todos os seus submenus estão indisponíveis", () => {
     const hiddenParent = {
@@ -113,8 +115,23 @@ describe("AppShell navigation", () => {
       canAccessModule: (moduleKey) => moduleKey === "schedule",
       hasCapability: () => false,
       canViewTeam: false,
+      isAdministrator: false,
     });
     expect(items.map(({ key }) => key)).toEqual(["schedule"]);
     expect(items[0].children.map(({ key }) => key)).toEqual(["schedule-calendar"]);
+  });
+
+  it("centraliza Configurações no rodapé e restringe ao Administrador nativo", () => {
+    expect(getVisibleFooterNavigationItems(fullAccess)).toEqual([
+      expect.objectContaining({
+        key: "settings",
+        label: "Configurações",
+        path: "/configuracoes/documentos",
+      }),
+    ]);
+    expect(getVisibleFooterNavigationItems({
+      ...fullAccess,
+      isAdministrator: false,
+    })).toEqual([]);
   });
 });

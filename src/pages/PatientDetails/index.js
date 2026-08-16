@@ -66,11 +66,13 @@ import {
   formatClinicalRecordDateTime,
   formatClinicalRecordMeta,
 } from "./clinicalRecordPresentation";
+import PatientDocumentsSection from "./DocumentsSection";
 
 const TABS = {
   resumo: "resumo",
   prontuario: "prontuario",
   historico: "historico",
+  documentos: "documentos",
   dados: "dados",
 };
 
@@ -776,6 +778,9 @@ export default function PatientDetails() {
     && authorization.hasCapability("clinical_records.write");
   const canFinalizeClinicalRecords = authorization.canAccessModule("clinical_records", "edit")
     && authorization.hasCapability("clinical_records.finalize");
+  const canIssueDocuments = authorization.canAccessModule("clinical_records", "view")
+    && authorization.hasCapability("clinical_records.documents.issue");
+  const canViewDocuments = canReadClinicalRecords || canIssueDocuments;
   const canEditClinicalPatientData = authorization.canAccessModule("patients", "manage")
     && canWriteClinicalRecords;
   const canViewSchedule = authorization.canAccessModule("schedule", "view");
@@ -1057,8 +1062,10 @@ export default function PatientDetails() {
       setActiveTab(canReadClinicalRecords ? TABS.resumo : TABS.dados);
     } else if (activeTab === TABS.resumo && !canReadClinicalRecords) {
       setActiveTab(canViewSchedule ? TABS.historico : TABS.dados);
+    } else if (activeTab === TABS.documentos && !canViewDocuments) {
+      setActiveTab(canReadClinicalRecords ? TABS.resumo : TABS.dados);
     }
-  }, [activeTab, canReadClinicalRecords, canViewSchedule]);
+  }, [activeTab, canReadClinicalRecords, canViewDocuments, canViewSchedule]);
 
   const latestEval = evaluations[0] || null;
   const summaryText = latestEval?.summary_text || latestEval?.summaryText || "";
@@ -1299,6 +1306,7 @@ export default function PatientDetails() {
     setActiveProntuarioSection(PRONTUARIO_SECTIONS.records);
   }, []);
   const showHistorico = useCallback(() => setActiveTab(TABS.historico), []);
+  const showDocumentos = useCallback(() => setActiveTab(TABS.documentos), []);
   const showDados = useCallback(() => setActiveTab(TABS.dados), []);
   const closePackageModal = useCallback(() => setSelectedPackage(null), []);
 
@@ -2389,6 +2397,13 @@ export default function PatientDetails() {
           >
             Histórico
           </TabButton>}
+          {canViewDocuments && <TabButton
+            type="button"
+            onClick={showDocumentos}
+            $active={activeTab === TABS.documentos}
+          >
+            Documentos
+          </TabButton>}
           <TabButton
             type="button"
             onClick={showDados}
@@ -2734,6 +2749,16 @@ export default function PatientDetails() {
               )}
             </InfoCard>
             </>}
+          </Section>
+        )}
+
+        {profileStatus === "ready" && activeTab === TABS.documentos && canViewDocuments && (
+          <Section>
+            <PatientDocumentsSection
+              key={id}
+              patientId={id}
+              patientName={getPatientDisplayName(patient)}
+            />
           </Section>
         )}
 

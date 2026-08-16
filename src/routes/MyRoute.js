@@ -3,7 +3,7 @@ import React from "react";
 import { Route } from "react-router-dom";
 import PropTypes from "prop-types";
 import { useAuthRedirect } from "../hooks/useAuthRedirect";
-import { useAuthorization, isTeamAdministrator } from "../contexts/AuthorizationContext";
+import { useAuthorization } from "../contexts/AuthorizationContext";
 import SemAcesso from "../pages/SemAcesso";
 
 function MyRoute({
@@ -38,7 +38,7 @@ function MyRoute({
       );
     }
     const allowed = authorization.status === "ready"
-      && (!administratorOnly || isTeamAdministrator(authorization.context))
+      && (!administratorOnly || authorization.isAdministrator === true)
       && (!requiredModule || authorization.canAccessModule(requiredModule, minimumAccessLevel))
       && (!requiredCapability || authorization.hasCapability(requiredCapability));
     if (!allowed) return <Route {...rest} render={() => <SemAcesso />} />;

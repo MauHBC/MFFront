@@ -10,6 +10,7 @@ import { useAuthorization } from "../../contexts/AuthorizationContext";
 import { listPatientClinicalCases } from "../../services/patientClinicalCases";
 import { listPatientClinicalReferences } from "../../services/patientClinicalReferences";
 import { listPatientExternalProfessionals } from "../../services/patientExternalProfessionals";
+import { listPatientDocuments } from "../../services/documents";
 
 jest.mock("../../services/axios", () => ({
   __esModule: true,
@@ -39,18 +40,34 @@ jest.mock("../../services/clinicalRecords", () => ({
   finalizeClinicalRecord: jest.fn(),
   getClinicalSigningIdentity: jest.fn(),
 }));
+jest.mock("../../services/documents", () => ({
+  ATTENDANCE_DECLARATION: "attendance_declaration",
+  downloadIssuedDocument: jest.fn(),
+  downloadPdfResponse: jest.fn(),
+  getDocumentErrorMessage: jest.fn((error, fallback) => Promise.resolve(fallback)),
+  issueAttendanceDeclaration: jest.fn(),
+  listEligibleDocumentSessions: jest.fn(),
+  listIssuanceDocumentTemplates: jest.fn(),
+  listPatientDocuments: jest.fn(),
+  previewAttendanceDeclaration: jest.fn(),
+}));
 jest.mock("react-toastify", () => ({
   toast: { error: jest.fn(), success: jest.fn() },
 }));
 
 const response = (data) => Promise.resolve({ data });
 
-function authorize(modules, { clinicalRead = modules.includes("clinical_records") } = {}) {
+function authorize(modules, {
+  clinicalRead = modules.includes("clinical_records"),
+  documentIssue = false,
+} = {}) {
   useAuthorization.mockReturnValue({
+    isAdministrator: false,
     canAccessModule: (moduleKey) => modules.includes(moduleKey),
-    hasCapability: (capability) => (
-      capability === "clinical_records.read" && clinicalRead
-    ),
+    hasCapability: (capability) => ({
+      "clinical_records.read": clinicalRead,
+      "clinical_records.documents.issue": documentIssue,
+    }[capability] === true),
   });
 }
 
@@ -74,6 +91,7 @@ function configureSuccessfulRequests() {
   listPatientClinicalCases.mockResolvedValue({ data: [] });
   listPatientClinicalReferences.mockResolvedValue({ data: [] });
   listPatientExternalProfessionals.mockResolvedValue({ data: [] });
+  listPatientDocuments.mockResolvedValue([]);
 }
 
 function renderPage(path = "/pacientes/101") {
@@ -226,6 +244,25 @@ describe("PatientDetails permission-aware bootstrap", () => {
     expect(requested("/evaluations?")).toBe(false);
     expect(listPatientClinicalCases).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Prontuário" })).not.toBeInTheDocument();
+  });
+
+  it("expõe Documentos como tab de primeiro nível e preserva a seleção por paciente", async () => {
+    authorize(["patients", "clinical_records"], { clinicalRead: false, documentIssue: true });
+    const history = renderPage();
+    expect(await screen.findByRole("heading", { name: "Ana Modular" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Documentos" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Prontuário" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Documentos" }));
+    expect(await screen.findByText(/histórico documental não está disponível/i))
+      .toBeInTheDocument();
+    expect(window.sessionStorage.getItem("patient-details-active-tab:101"))
+      .toBe("documentos");
+
+    await act(async () => { history.push("/pacientes/202"); });
+    expect(await screen.findByRole("heading", { name: "Bruno Modular" })).toBeInTheDocument();
+    expect(window.sessionStorage.getItem("patient-details-active-tab:202"))
+      .not.toBe("documentos");
   });
 
   it("mantém o perfil e mostra erro clínico quando uma request clínica autorizada falha", async () => {

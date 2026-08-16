@@ -15,6 +15,7 @@ import { useLogout } from "../../hooks/useLogout";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   getVisibleNavigationItems,
+  getVisibleFooterNavigationItems,
   isNavigationItemActive,
   NAVIGATION_BADGE_EVENT,
 } from "./navigation";
@@ -40,6 +41,7 @@ import {
   Overlay,
   Shell,
   Sidebar,
+  SidebarAdminNavigation,
   SidebarPinButton,
   SkipLink,
   SubnavigationLink,
@@ -105,6 +107,7 @@ export default function AppShell({ children, pageTitle }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [navigationBadges, setNavigationBadges] = useState({});
   const navigationItems = getVisibleNavigationItems(authorization);
+  const footerNavigationItems = getVisibleFooterNavigationItems(authorization);
   const activeExpandableItem = navigationItems.find(
     (item) => item.children
       && isNavigationItemActive(item, location.pathname, location.search),
@@ -394,6 +397,40 @@ export default function AppShell({ children, pageTitle }) {
             })}
           </NavigationList>
         </Navigation>
+
+        {footerNavigationItems.length > 0 && (
+          <SidebarAdminNavigation aria-label="Administração">
+            <NavigationList>
+              {footerNavigationItems.map((item) => {
+                const active = isNavigationItemActive(
+                  item,
+                  location.pathname,
+                  location.search,
+                );
+                return (
+                  <li key={item.key}>
+                    <NavigationLink
+                      as={Link}
+                      to={item.path}
+                      $active={active}
+                      $expanded={expanded}
+                      aria-current={active ? "page" : undefined}
+                      aria-label={!expanded ? item.label : undefined}
+                      title={!expanded ? item.label : undefined}
+                    >
+                      <NavigationItemPresentation
+                        expanded={expanded}
+                        icon={item.icon}
+                        label={item.label}
+                        trailing={false}
+                      />
+                    </NavigationLink>
+                  </li>
+                );
+              })}
+            </NavigationList>
+          </SidebarAdminNavigation>
+        )}
 
       </Sidebar>
 

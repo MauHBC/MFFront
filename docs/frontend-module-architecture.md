@@ -112,7 +112,7 @@ daquele módulo.
 ### Autorização oficial e fail-closed
 
 `AuthorizationProvider` carrega `/team/authorization-context` para a identidade
-e o token atuais. Sidebar, atalhos e `MyRoute` usam exclusivamente os módulos,
+e o token atuais e aceita o catálogo oficial na versão `7`. Sidebar, atalhos e `MyRoute` usam exclusivamente os módulos,
 níveis e capacidades desse contrato. O frontend não consulta grupo ou nome de
 perfil para conceder acesso, não replica o resolvedor e somente considera
 administrativo o booleano literal `is_administrator === true` em um contexto
@@ -155,6 +155,20 @@ exigem adicionalmente a capacidade de finalização. Sem a combinação aplicáv
 a interface preserva a apresentação dos dados e oculta os acionadores de
 escrita. A edição dos campos clínicos na seção Dados também depende da permissão
 adequada de Pacientes, sem ampliar a edição das demais seções cadastrais.
+
+Documentos é uma tab de primeiro nível com bootstrap próprio. Histórico exige
+`clinical_records.read`, preview/emissão exige
+`clinical_records.documents.issue` e segunda via exige
+`clinical_records.documents.download`; essas capacidades não substituem o
+acesso à rota do paciente. O seletor de atendimento usa somente
+`/patients/:patientId/documents/eligible-sessions`, sem consultar Agenda. A
+emissão mantém uma chave idempotente durante o retry da mesma confirmação e o
+estado documental é invalidado quando muda o paciente. A gestão de modelos fica
+em `/configuracoes/documentos`, restrita ao Administrador nativo. No fluxo de
+emissão, todo usuário com `clinical_records.documents.issue` consulta os modelos
+ativos por `/documents/templates`, inicia com o padrão selecionado e envia o
+`template_id` escolhido; o Backend deriva a clínica autenticada e o navegador
+nunca escolhe tenant.
 
 Casos clínicos e suas referências usam concorrência otimista (CAS). Os resources
 carregados expõem `version`; a criação não a exige, enquanto updates de caso ou
@@ -241,7 +255,7 @@ sidebar, cabeçalho, drawer mobile, menu do usuário e landmarks;
 `styled.js` contém a estrutura responsiva; e `styles/tokens.js` define os tokens
 semânticos usados pelo shell.
 
-`src/routes/index.js` envolve Pacientes, Planos e Financeiro em uma instância
+`src/routes/index.js` envolve Pacientes, Planos, Financeiro e Configurações em uma instância
 compartilhada. Menu, Painel, Agenda e Configurações da Agenda ainda montam
 `AppShell` nas próprias páginas. Por isso, as chaves dos módulos abertos são
 mantidas em `sessionStorage` sob `multifisio:app-shell:open-modules`: a troca
@@ -258,6 +272,7 @@ sidebar fixada usa `localStorage` e a chave
 | Pacientes | Link direto | `/pacientes`; detalhes em `/pacientes/:id` e demais subrotas protegidas |
 | Planos | Expansível e sujeito a `isPlansModuleEnabled` | Pacientes com plano: `/planos?tab=patient-plans`; Planos mensais: `/planos?tab=service-plans`; Serviços: `/planos?tab=services`; detalhes: `/planos/pacientes/:patientPlanId` |
 | Financeiro | Expansível | `/financeiro/visao-geral`, `/financeiro/receitas`, `/financeiro/despesas` e `/financeiro/configuracoes` |
+| Configurações | Link direto no rodapé, somente Administrador nativo | `/configuracoes` redireciona para `/configuracoes/documentos` |
 | Sair | Ação | Executa `useLogout` no menu do usuário; não é rota |
 
 `/financeiro` é uma entrada legada redirecionada para a Visão geral. Formas de
