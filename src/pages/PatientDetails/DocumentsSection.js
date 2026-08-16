@@ -9,6 +9,7 @@ import styled from "styled-components";
 import { toast } from "react-toastify";
 import { FaDownload, FaFileAlt, FaPlus, FaTimes } from "react-icons/fa";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
+import { useClinicContext } from "../../contexts/ClinicContext";
 import { GhostButton, PrimaryButton, RowActionButton } from "../../components/AppButton";
 import { StatusPill } from "../../components/AppStatus";
 import DataLoadingState from "../../components/DataLoadingState";
@@ -30,14 +31,15 @@ const DOCUMENT_TYPES = Object.freeze([{
   value: ATTENDANCE_DECLARATION,
   label: "Declaração de comparecimento",
 }]);
+const DOCUMENT_TITLE = "DECLARA\u00c7\u00c3O DE COMPARECIMENTO";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "short",
   timeStyle: "short",
   timeZone: "America/Sao_Paulo",
 });
-const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
-  dateStyle: "long",
+const eligibleDateFormatter = new Intl.DateTimeFormat("pt-BR", {
+  dateStyle: "short",
   timeZone: "America/Sao_Paulo",
 });
 const timeFormatter = new Intl.DateTimeFormat("pt-BR", {
@@ -58,7 +60,7 @@ function formatEligibleSession(session) {
   if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
     return `Atendimento #${session.id}`;
   }
-  return `${dateFormatter.format(startsAt)}, ${timeFormatter.format(startsAt)}–${timeFormatter.format(endsAt)}`;
+  return `${eligibleDateFormatter.format(startsAt)} · ${timeFormatter.format(startsAt)}–${timeFormatter.format(endsAt)}`;
 }
 
 function documentTypeLabel(type) {
@@ -83,8 +85,13 @@ function DocumentIssueModal({
   onClose,
   onIssued,
 }) {
+  const { logoSrc: clinicLogoSrc } = useClinicContext();
   const [resources, setResources] = useState({ status: "loading", error: "" });
-  const [sessions, setSessions] = useState([]);
+  const [recentSessions, setRecentSessions] = useState([]);
+  const [dateSearchOpen, setDateSearchOpen] = useState(false);
+  const [searchDate, setSearchDate] = useState("");
+  const [dateSessions, setDateSessions] = useState([]);
+  const [dateSearch, setDateSearch] = useState({ status: "idle", error: "" });
   const [templates, setTemplates] = useState([]);
   const [sessionId, setSessionId] = useState("");
   const [templateId, setTemplateId] = useState("");
@@ -94,27 +101,44 @@ function DocumentIssueModal({
   const [issuing, setIssuing] = useState(false);
   const [operationError, setOperationError] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(null);
-  const sessionSelectRef = useRef(null);
+  const templateSelectRef = useRef(null);
+  const dateInputRef = useRef(null);
+
+  const invalidatePreview = useCallback(() => {
+    setPreview(null);
+    setFinalText("");
+    setOperationError("");
+    setIdempotencyKey(null);
+  }, []);
 
   useEffect(() => {
     let active = true;
     setResources({ status: "loading", error: "" });
+    setRecentSessions([]);
+    setDateSearchOpen(false);
+    setSearchDate("");
+    setDateSessions([]);
+    setDateSearch({ status: "idle", error: "" });
+    setTemplates([]);
+    setSessionId("");
+    setTemplateId("");
+    invalidatePreview();
     Promise.all([
-      listEligibleDocumentSessions(patientId),
+      listEligibleDocumentSessions(patientId, { limit: 5 }),
       listIssuanceDocumentTemplates(),
     ])
       .then(([sessionData, templateData]) => {
         if (!active) return;
         const availableSessions = Array.isArray(sessionData) ? sessionData : [];
         const availableTemplates = Array.isArray(templateData) ? templateData : [];
-        setSessions(availableSessions);
+        setRecentSessions(availableSessions.slice(0, 5));
         setTemplates(availableTemplates);
-        setSessionId(availableSessions[0] ? String(availableSessions[0].id) : "");
+        setSessionId("");
         const defaultTemplate = availableTemplates.find((template) => template.is_default)
           || availableTemplates[0];
         setTemplateId(defaultTemplate ? String(defaultTemplate.id) : "");
         setResources({ status: "ready", error: "" });
-        window.setTimeout(() => sessionSelectRef.current?.focus(), 0);
+        window.setTimeout(() => templateSelectRef.current?.focus(), 0);
       })
       .catch(async (error) => {
         if (!active) return;
@@ -129,7 +153,34 @@ function DocumentIssueModal({
         });
       });
     return () => { active = false; };
-  }, [patientId]);
+  }, [invalidatePreview, patientId]);
+
+  useEffect(() => {
+    if (!dateSearchOpen || !searchDate) return undefined;
+
+    let active = true;
+    setDateSessions([]);
+    setDateSearch({ status: "loading", error: "" });
+    listEligibleDocumentSessions(patientId, { date: searchDate })
+      .then((sessionData) => {
+        if (!active) return;
+        const availableSessions = Array.isArray(sessionData) ? sessionData : [];
+        setDateSessions(availableSessions.filter(
+          (session) => String(session.status || "").toLowerCase() === "done",
+        ));
+        setDateSearch({ status: "ready", error: "" });
+      })
+      .catch(async (error) => {
+        const message = await getDocumentErrorMessage(
+          error,
+          "Não foi possível buscar os atendimentos desta data.",
+        );
+        if (!active) return;
+        setDateSearch({ status: "error", error: message });
+      });
+
+    return () => { active = false; };
+  }, [dateSearchOpen, patientId, searchDate]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -144,15 +195,21 @@ function DocumentIssueModal({
     };
   }, [issuing, onClose]);
 
-  const invalidatePreview = () => {
-    setPreview(null);
-    setFinalText("");
-    setOperationError("");
-    setIdempotencyKey(null);
+  const handleSessionChange = (event) => {
+    if (event.target.value === sessionId) return;
+    setSessionId(event.target.value);
+    invalidatePreview();
   };
 
   const handlePreview = async () => {
-    if (!sessionId || !templateId || previewing) return;
+    if (!sessionId) {
+      setOperationError(
+        "Selecione um atendimento recente ou informe uma data para buscar outro atendimento.",
+      );
+      if (dateSearchOpen) window.setTimeout(() => dateInputRef.current?.focus(), 0);
+      return;
+    }
+    if (!templateId || previewing) return;
     setPreviewing(true);
     setOperationError("");
     try {
@@ -210,7 +267,7 @@ function DocumentIssueModal({
         <ModalHeader>
           <div>
             <ModalTitle id="document-issue-title">Novo documento</ModalTitle>
-            <ModalSubtitle>{patientName}</ModalSubtitle>
+            <PatientName>{patientName}</PatientName>
           </div>
           <CloseButton type="button" onClick={onClose} disabled={issuing} aria-label="Fechar">
             <FaTimes aria-hidden="true" />
@@ -232,28 +289,9 @@ function DocumentIssueModal({
                 </select>
               </FlowField>
               <FlowField>
-                <span>Atendimento</span>
-                <select
-                  ref={sessionSelectRef}
-                  value={sessionId}
-                  onChange={(event) => {
-                    setSessionId(event.target.value);
-                    invalidatePreview();
-                  }}
-                  disabled={sessions.length === 0 || previewing || issuing}
-                >
-                  {sessions.length === 0 && <option value="">Nenhum atendimento elegível</option>}
-                  {sessions.map((session) => (
-                    <option key={session.id} value={session.id}>
-                      {formatEligibleSession(session)}
-                      {session.professional?.name ? ` · ${session.professional.name}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </FlowField>
-              <FlowField>
                 <span>Modelo</span>
                 <select
+                  ref={templateSelectRef}
                   value={templateId}
                   onChange={(event) => {
                     setTemplateId(event.target.value);
@@ -270,9 +308,109 @@ function DocumentIssueModal({
                 </select>
               </FlowField>
 
-              {sessions.length === 0 && (
-                <InlineEmpty>Nenhum atendimento concluído está disponível para emissão.</InlineEmpty>
-              )}
+              <AttendanceGroup
+                role="group"
+                aria-labelledby="recent-document-sessions-title"
+              >
+                <RecentSessionsBlock>
+                  <RecentSessionsHeading id="recent-document-sessions-title">
+                    Atendimentos mais recentes
+                  </RecentSessionsHeading>
+                  {recentSessions.length === 0 && (
+                    <InlineEmpty>Nenhum atendimento concluído recente está disponível.</InlineEmpty>
+                  )}
+                  {recentSessions.length > 0 && (
+                    <SessionOptions>
+                      {recentSessions.map((session) => (
+                        <SessionOption key={`recent-${session.id}`} $selected={sessionId === String(session.id)}>
+                          <input
+                            type="radio"
+                            name="eligible-session"
+                            value={session.id}
+                            checked={sessionId === String(session.id)}
+                            onChange={handleSessionChange}
+                            disabled={previewing || issuing}
+                          />
+                          <SessionCopy>
+                            <strong>{formatEligibleSession(session)}</strong>
+                            {session.professional?.name && <span>{session.professional.name}</span>}
+                          </SessionCopy>
+                        </SessionOption>
+                      ))}
+                    </SessionOptions>
+                  )}
+                </RecentSessionsBlock>
+
+                <SearchSection>
+                  <GhostButton
+                    type="button"
+                    aria-expanded={dateSearchOpen}
+                    aria-controls="document-session-date-search"
+                    onClick={() => setDateSearchOpen((open) => !open)}
+                    disabled={previewing || issuing}
+                  >
+                    {dateSearchOpen ? "Ocultar busca por data" : "Buscar outro atendimento"}
+                  </GhostButton>
+
+                  {dateSearchOpen && (
+                    <DateSearch id="document-session-date-search">
+                      <FlowField>
+                        <span>Data</span>
+                        <input
+                          ref={dateInputRef}
+                          type="date"
+                          value={searchDate}
+                          onChange={(event) => {
+                            const selectedIsRecent = recentSessions.some(
+                              (session) => String(session.id) === sessionId,
+                            );
+                            if (sessionId && !selectedIsRecent) {
+                              setSessionId("");
+                              invalidatePreview();
+                            }
+                            setDateSessions([]);
+                            setDateSearch({ status: "idle", error: "" });
+                            setOperationError("");
+                            setSearchDate(event.target.value);
+                          }}
+                          disabled={previewing || issuing}
+                        />
+                      </FlowField>
+
+                      {dateSearch.status === "loading" && (
+                        <SearchStatus role="status">Buscando atendimentos...</SearchStatus>
+                      )}
+                      {dateSearch.status === "error" && (
+                        <OperationError role="alert">{dateSearch.error}</OperationError>
+                      )}
+                      {dateSearch.status === "ready" && dateSessions.length === 0 && (
+                        <InlineEmpty>Nenhum atendimento realizado nesta data.</InlineEmpty>
+                      )}
+                      {dateSearch.status === "ready" && dateSessions.length > 0 && (
+                        <SessionOptions>
+                          {dateSessions.map((session) => (
+                            <SessionOption key={`date-${session.id}`} $selected={sessionId === String(session.id)}>
+                              <input
+                                type="radio"
+                                name="eligible-session"
+                                value={session.id}
+                                checked={sessionId === String(session.id)}
+                                onChange={handleSessionChange}
+                                disabled={previewing || issuing}
+                              />
+                              <SessionCopy>
+                                <strong>{formatEligibleSession(session)}</strong>
+                                {session.professional?.name && <span>{session.professional.name}</span>}
+                              </SessionCopy>
+                            </SessionOption>
+                          ))}
+                        </SessionOptions>
+                      )}
+                    </DateSearch>
+                  )}
+                </SearchSection>
+              </AttendanceGroup>
+
               {templates.length === 0 && (
                 <InlineEmpty>Nenhum modelo ativo está disponível para emissão.</InlineEmpty>
               )}
@@ -281,7 +419,7 @@ function DocumentIssueModal({
                 <GhostButton
                   type="button"
                   onClick={handlePreview}
-                  disabled={!sessionId || !templateId || previewing || issuing}
+                  disabled={!templateId || previewing || issuing}
                 >
                   {previewing ? "Gerando preview..." : "Visualizar preview"}
                 </GhostButton>
@@ -304,23 +442,38 @@ function DocumentIssueModal({
                       {preview.session?.date || "—"}, {preview.session?.start_time || "—"}–{preview.session?.end_time || "—"}
                     </span>
                   </PreviewIdentity>
-                  <FlowField>
-                    <span>Texto deste documento</span>
-                    <textarea
-                      rows={9}
-                      value={finalText}
-                      maxLength={10000}
-                      onChange={(event) => {
-                        setFinalText(event.target.value);
-                        setIdempotencyKey(null);
-                        setOperationError("");
-                      }}
-                      disabled={issuing}
-                    />
-                    <small>
-                      Esta alteração vale somente para este documento e não modifica o modelo salvo.
-                    </small>
-                  </FlowField>
+                  <PreviewDocumentCanvas>
+                    <PreviewDocumentSheet aria-label="Prévia visual da declaração">
+                      <PreviewDocumentHeader>
+                        {(preview.clinic?.logo_url || clinicLogoSrc) && (
+                          <PreviewDocumentLogo
+                            src={preview.clinic?.logo_url || clinicLogoSrc}
+                            alt={`Logo ${preview.clinic?.display_name || "da clínica"}`}
+                          />
+                        )}
+                        <PreviewClinicName>
+                          {preview.clinic?.display_name || "Clínica"}
+                        </PreviewClinicName>
+                        <PreviewDocumentTitle>{DOCUMENT_TITLE}</PreviewDocumentTitle>
+                      </PreviewDocumentHeader>
+                      <PreviewTextEditor>
+                        <PreviewTextArea
+                          aria-label="Texto deste documento"
+                          value={finalText}
+                          maxLength={10000}
+                          onChange={(event) => {
+                            setFinalText(event.target.value);
+                            setIdempotencyKey(null);
+                            setOperationError("");
+                          }}
+                          disabled={issuing}
+                        />
+                      </PreviewTextEditor>
+                    </PreviewDocumentSheet>
+                  </PreviewDocumentCanvas>
+                  <PreviewEditHint>
+                    Esta alteração vale somente para este documento e não modifica o modelo salvo.
+                  </PreviewEditHint>
                 </PreviewPanel>
               )}
 
@@ -697,6 +850,10 @@ const ModalOverlay = styled.div`
   justify-content: center;
   padding: 20px;
   background: rgba(27, 27, 27, 0.42);
+
+  @media (max-width: 560px) {
+    padding: ${spacing.sm};
+  }
 `;
 
 const ModalCard = styled.div`
@@ -709,6 +866,10 @@ const ModalCard = styled.div`
   border-radius: ${radii.xl};
   background: ${colors.surface};
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.22);
+
+  @media (max-width: 560px) {
+    max-height: calc(100dvh - 16px);
+  }
 `;
 
 const ModalHeader = styled.div`
@@ -726,9 +887,12 @@ const ModalTitle = styled.h2`
   font-size: 1.25rem;
 `;
 
-const ModalSubtitle = styled.p`
+const PatientName = styled.strong`
+  display: block;
   margin: ${spacing.xs} 0 0;
-  color: ${colors.textSecondary};
+  color: ${colors.textPrimary};
+  font-size: 1.08rem;
+  font-weight: 800;
 `;
 
 const CloseButton = styled.button`
@@ -770,11 +934,14 @@ const ModalFooter = styled.div`
 `;
 
 const FlowFields = styled.div`
+  min-width: 0;
   display: grid;
   gap: ${spacing.lg};
 `;
 
 const FlowField = styled.label`
+  width: 100%;
+  min-width: 0;
   display: grid;
   gap: 5px;
   color: ${colors.textPrimary};
@@ -782,8 +949,12 @@ const FlowField = styled.label`
   font-weight: 700;
 
   select,
+  input,
   textarea {
+    box-sizing: border-box;
     width: 100%;
+    min-width: 0;
+    max-width: 100%;
     padding: 9px 11px;
     border: 1px solid ${alpha.brand022};
     border-radius: ${radii.sm};
@@ -802,6 +973,114 @@ const FlowField = styled.label`
     color: ${colors.textSecondary};
     font-weight: 400;
   }
+`;
+
+const AttendanceGroup = styled.div`
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: ${spacing.md};
+`;
+
+const RecentSessionsBlock = styled.div`
+  min-width: 0;
+  display: grid;
+  gap: ${spacing.sm};
+`;
+
+const RecentSessionsHeading = styled.h3`
+  margin: 0;
+  color: ${colors.textPrimary};
+  font-size: 0.95rem;
+`;
+
+const SessionOptions = styled.div`
+  max-height: 280px;
+  display: grid;
+  gap: ${spacing.sm};
+  overflow-y: auto;
+  padding: 2px;
+`;
+
+const SessionOption = styled.label`
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: ${spacing.md};
+  padding: 11px 12px;
+  border: 1px solid ${({ $selected }) => ($selected ? colors.brand : alpha.brand022)};
+  border-radius: ${radii.md};
+  background: ${({ $selected }) => ($selected ? alpha.brand010 : colors.surface)};
+  color: ${colors.textPrimary};
+  cursor: pointer;
+
+  &:focus-within {
+    outline: 2px solid ${colors.focus};
+    outline-offset: 2px;
+  }
+
+  input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: ${colors.brand};
+  }
+`;
+
+const SessionCopy = styled.span`
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: ${spacing.md};
+
+  strong {
+    font-size: 0.92rem;
+  }
+
+  span {
+    color: ${colors.textSecondary};
+    font-size: 0.82rem;
+    font-weight: 400;
+    text-align: right;
+  }
+
+  @media (max-width: 560px) {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+
+    span {
+      text-align: left;
+    }
+  }
+`;
+
+const SearchSection = styled.div`
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  justify-items: start;
+  gap: ${spacing.md};
+  padding-top: ${spacing.md};
+  border-top: 1px solid ${alpha.brand012};
+`;
+
+const DateSearch = styled.div`
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: ${spacing.md};
+`;
+
+const SearchStatus = styled.div`
+  padding: ${spacing.md};
+  border-radius: ${radii.md};
+  background: ${colors.surfaceSecondary};
+  color: ${colors.textSecondary};
 `;
 
 const InlineEmpty = styled.div`
@@ -847,6 +1126,133 @@ const PreviewIdentity = styled.div`
   gap: ${spacing.xs};
   color: ${colors.textSecondary};
   font-size: 0.88rem;
+`;
+
+const PreviewDocumentCanvas = styled.div`
+  min-width: 0;
+  padding: ${spacing.xl};
+  border-radius: ${radii.lg};
+  background: ${colors.surfaceSecondary};
+
+  @media (max-width: 560px) {
+    padding: ${spacing.sm};
+  }
+`;
+
+const PreviewDocumentSheet = styled.section`
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 640px;
+  min-width: 0;
+  min-height: 560px;
+  margin: 0 auto;
+  padding: 48px 54px;
+  overflow: hidden;
+  border: 1px solid rgba(27, 27, 27, 0.12);
+  background: ${colors.white};
+  box-shadow: 0 10px 28px rgba(27, 27, 27, 0.1);
+  color: ${colors.ink};
+  font-family: Arial, Helvetica, sans-serif;
+
+  @media (max-width: 560px) {
+    min-height: 460px;
+    padding: 30px 20px;
+    box-shadow: 0 4px 14px rgba(27, 27, 27, 0.08);
+  }
+`;
+
+const PreviewDocumentHeader = styled.header`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 40px;
+  text-align: center;
+
+  @media (max-width: 560px) {
+    margin-bottom: 28px;
+  }
+`;
+
+const PreviewDocumentLogo = styled.img`
+  display: block;
+  width: auto;
+  max-width: min(180px, 70%);
+  height: 64px;
+  margin-bottom: ${spacing.md};
+  object-fit: contain;
+`;
+
+const PreviewClinicName = styled.div`
+  max-width: 100%;
+  margin-bottom: 34px;
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+  font-weight: 700;
+
+  @media (max-width: 560px) {
+    margin-bottom: 26px;
+    font-size: 0.92rem;
+  }
+`;
+
+const PreviewDocumentTitle = styled.h3`
+  margin: 0;
+  font-size: 1.08rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+
+  @media (max-width: 560px) {
+    font-size: 0.96rem;
+    letter-spacing: 0.02em;
+  }
+`;
+
+const PreviewTextEditor = styled.div`
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid ${alpha.brand014};
+  border-radius: ${radii.xs};
+
+  &:hover {
+    border-color: ${alpha.brand028};
+  }
+
+  &:focus-within {
+    border-color: ${colors.focus};
+    box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.12);
+  }
+`;
+
+const PreviewTextArea = styled.textarea`
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 270px;
+  padding: ${spacing.sm};
+  resize: vertical;
+  border: 0;
+  border-radius: inherit;
+  outline: none;
+  background: transparent;
+  color: ${colors.ink};
+  font: inherit;
+  font-size: 0.94rem;
+  line-height: 1.75;
+  text-align: justify;
+  overflow-wrap: break-word;
+
+  @media (max-width: 560px) {
+    min-height: 240px;
+    font-size: 0.9rem;
+    line-height: 1.65;
+  }
+`;
+
+const PreviewEditHint = styled.small`
+  color: ${colors.textSecondary};
 `;
 
 const OperationError = styled.div`

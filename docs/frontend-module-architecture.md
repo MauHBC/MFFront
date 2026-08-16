@@ -161,14 +161,38 @@ Documentos é uma tab de primeiro nível com bootstrap próprio. Histórico exig
 `clinical_records.documents.issue` e segunda via exige
 `clinical_records.documents.download`; essas capacidades não substituem o
 acesso à rota do paciente. O seletor de atendimento usa somente
-`/patients/:patientId/documents/eligible-sessions`, sem consultar Agenda. A
-emissão mantém uma chave idempotente durante o retry da mesma confirmação e o
-estado documental é invalidado quando muda o paciente. A gestão de modelos fica
-em `/configuracoes/documentos`, restrita ao Administrador nativo. No fluxo de
+`/patients/:patientId/documents/eligible-sessions`, sem consultar Agenda nem
+carregar todo o histórico no navegador. O modal começa com até cinco sessões
+recentes (`limit=5`), sem seleção automática, e permite buscar as sessões
+concluídas de um dia por `date=YYYY-MM-DD`. Tipo, Modelo e Atendimento aparecem
+nessa ordem; a busca por data preserva as subseleções já feitas que continuem
+aplicáveis. Trocar modelo ou atendimento invalida o preview anterior. A emissão
+mantém uma chave idempotente durante o retry da mesma confirmação e o estado
+documental é invalidado quando muda o paciente. A gestão de modelos fica em
+`/configuracoes/documentos`, restrita ao Administrador nativo. No fluxo de
 emissão, todo usuário com `clinical_records.documents.issue` consulta os modelos
 ativos por `/documents/templates`, inicia com o padrão selecionado e envia o
 `template_id` escolhido; o Backend deriva a clínica autenticada e o navegador
 nunca escolhe tenant.
+
+Acionar o preview sem atendimento selecionado mantém o fluxo no modal e oferece
+orientação explícita para escolher uma sessão recente ou buscar outra por data.
+Depois de gerado, o preview usa a mesma hierarquia visual de folha do editor de
+modelos — logo disponível, nome da clínica, título documental e corpo editável —
+para se aproximar da saída impressa sem retirar a edição pontual do texto.
+
+O editor administrativo de modelos apresenta o corpo editável em uma folha que
+reproduz a hierarquia da declaração, com logo disponível no contexto
+autenticado, nome da clínica e título documental. Tipo e nome do modelo ficam em
+campos compactos fora da folha; o corpo continua sendo um `textarea` nativo,
+responsivo, delimitado mesmo fora de hover/foco e sem rich-text. As variáveis
+canônicas aparecem como informações automáticas com nomes legíveis, recebem
+destaque de fundo dentro do corpo e podem ser inseridas na seleção atual. Ao
+abrir,
+o Frontend converte as variáveis recebidas para essa representação editorial;
+antes de criar ou atualizar, reconverte todo o texto para os valores canônicos.
+Essa tradução é exclusiva do editor: API, preview/emissão, autorização
+administrativa e resolução de tenant permanecem inalterados.
 
 Casos clínicos e suas referências usam concorrência otimista (CAS). Os resources
 carregados expõem `version`; a criação não a exige, enquanto updates de caso ou

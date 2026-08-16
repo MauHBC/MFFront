@@ -16,7 +16,8 @@ const DOCUMENT_ERROR_MESSAGES = Object.freeze({
   DOCUMENT_TEMPLATE_NOT_FOUND: "Modelo de documento não encontrado.",
   IDEMPOTENCY_KEY_CONFLICT: "Esta confirmação já foi usada com dados diferentes.",
   INVALID_DOCUMENT_FINAL_TEXT: "Revise o texto final do documento.",
-  INVALID_DOCUMENT_PLACEHOLDER: "O modelo contém um placeholder inválido ou incompleto.",
+  INVALID_DOCUMENT_PLACEHOLDER:
+    "O modelo contém uma informação automática inválida ou incompleta.",
   INVALID_TEMPLATE_BODY: "Informe um texto válido para o modelo.",
   INVALID_TEMPLATE_NAME: "Informe um nome válido para o modelo.",
   SESSION_NOT_ELIGIBLE_FOR_DOCUMENT:
@@ -63,11 +64,15 @@ export const archiveDocumentTemplate = (templateId) => api
   .post(`/document-templates/${templateId}/archive`)
   .then(unwrapData);
 
-export const listEligibleDocumentSessions = (patientId) => api
-  .get(`/patients/${patientId}/documents/eligible-sessions`, {
-    params: { document_type: ATTENDANCE_DECLARATION },
-  })
-  .then(unwrapData);
+export const listEligibleDocumentSessions = (patientId, { limit, date } = {}) => {
+  const params = { document_type: ATTENDANCE_DECLARATION };
+  if (limit !== undefined) params.limit = limit;
+  if (date) params.date = date;
+
+  return api
+    .get(`/patients/${patientId}/documents/eligible-sessions`, { params })
+    .then(unwrapData);
+};
 
 export const listPatientDocuments = (patientId) => api
   .get(`/patients/${patientId}/documents`)

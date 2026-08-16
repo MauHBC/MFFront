@@ -39,6 +39,46 @@ describe("Documentos: estrutura de rotas e responsividade", () => {
     );
   });
 
+  it("mantém a folha editável dentro da largura disponível no desktop e mobile", () => {
+    expect(settingsSource).toMatch(
+      /const VisualEditorDrawer = styled\(AppDrawer\)`[\s\S]*?width: min\(760px, 96vw\);[\s\S]*?@media \(max-width: 760px\)[\s\S]*?width: 100%;[\s\S]*?max-width: 100vw;/,
+    );
+    expect(settingsSource).toMatch(
+      /const DocumentCanvas = styled\.div`[\s\S]*?min-width: 0;[\s\S]*?overflow-x: hidden;/,
+    );
+    expect(settingsSource).toMatch(
+      /const DocumentSheet = styled\.section`[\s\S]*?box-sizing: border-box;[\s\S]*?width: 100%;[\s\S]*?min-width: 0;/,
+    );
+    expect(settingsSource).toMatch(
+      /const DocumentBodyEditor = styled\.div`[\s\S]*?min-width: 0;[\s\S]*?border: 1px solid \$\{alpha\.brand014\};/,
+    );
+    expect(settingsSource).toMatch(
+      /const DocumentBodyTextarea = styled\.textarea`[\s\S]*?box-sizing: border-box;[\s\S]*?width: 100%;[\s\S]*?min-width: 0;/,
+    );
+  });
+
+  it("dimensiona o campo de data dentro da largura útil do modal", () => {
+    expect(documentsSource).toMatch(
+      /const FlowField = styled\.label`[\s\S]*?min-width: 0;[\s\S]*?box-sizing: border-box;[\s\S]*?width: 100%;[\s\S]*?max-width: 100%;/,
+    );
+    expect(documentsSource).toMatch(
+      /const SearchSection = styled\.div`[\s\S]*?box-sizing: border-box;[\s\S]*?width: 100%;[\s\S]*?min-width: 0;/,
+    );
+    expect(documentsSource).toMatch(
+      /const DateSearch = styled\.div`[\s\S]*?box-sizing: border-box;[\s\S]*?width: 100%;[\s\S]*?min-width: 0;/,
+    );
+    expect(documentsSource).not.toMatch(/overflow-x:\s*hidden/);
+  });
+
+  it("apresenta o preview em uma folha responsiva próxima ao documento", () => {
+    expect(documentsSource).toMatch(
+      /const PreviewDocumentSheet = styled\.section`[\s\S]*?box-sizing: border-box;[\s\S]*?max-width: 640px;[\s\S]*?min-width: 0;[\s\S]*?font-family: Arial, Helvetica, sans-serif;/,
+    );
+    expect(documentsSource).toMatch(
+      /const PreviewTextArea = styled\.textarea`[\s\S]*?box-sizing: border-box;[\s\S]*?width: 100%;[\s\S]*?min-width: 0;[\s\S]*?text-align: justify;/,
+    );
+  });
+
   it("mantém o fluxo documental isolado de Agenda e clinic_id", () => {
     expect(documentsSource).not.toMatch(/\/sessions|agendamentos|clinic_id/i);
   });

@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import styled from "styled-components";
 import { toast } from "react-toastify";
 import { FaPlus, FaTimes } from "react-icons/fa";
@@ -6,14 +12,13 @@ import { PageContent, PageWrapper } from "../../components/AppLayout";
 import {
   ModuleBody,
   ModuleHeader,
-  ModuleSubtitle,
   ModuleTabButton,
   ModuleTabs,
   ModuleTitle,
 } from "../../components/AppModuleShell";
 import { AppToolbar, AppToolbarRight } from "../../components/AppToolbar";
 import { DataTable, TableWrap, TD, TH } from "../../components/AppTable";
-import { GhostButton, PrimaryButton } from "../../components/AppButton";
+import { GhostButton, PrimaryButton, RowActionButton } from "../../components/AppButton";
 import { NeutralPill, StatusPill } from "../../components/AppStatus";
 import {
   AppDrawer,
@@ -24,9 +29,10 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "../../components/AppDrawer";
-import { Field, FieldHint } from "../../components/AppForm";
+import { Field } from "../../components/AppForm";
 import AppActionMenu, { AppActionMenuItem } from "../../components/AppActionMenu";
 import DataLoadingState from "../../components/DataLoadingState";
+import { useClinicContext } from "../../contexts/ClinicContext";
 import {
   archiveDocumentTemplate,
   ATTENDANCE_DECLARATION,
@@ -38,22 +44,22 @@ import {
   updateDocumentTemplate,
 } from "../../services/documents";
 import { alpha, colors, radii, spacing } from "../../styles/tokens";
-
-const PLACEHOLDERS = [
-  "{{patient_name}}",
-  "{{clinic_name}}",
-  "{{session_date}}",
-  "{{start_time}}",
-  "{{end_time}}",
-];
+import {
+  AUTOMATIC_INFORMATION,
+  getDocumentTemplateEditorSegments,
+  toCanonicalDocumentTemplateText,
+  toDocumentTemplateEditorText,
+} from "./automaticInformation";
 
 const EMPTY_FORM = Object.freeze({ name: "", body_text: "", is_default: false });
+const DOCUMENT_TITLE = "DECLARA\u00c7\u00c3O DE COMPARECIMENTO";
 
 const documentTypeLabel = (type) => (
   type === ATTENDANCE_DECLARATION ? "Declaração de comparecimento" : type
 );
 
 export default function SettingsDocuments() {
+  const { displayName: clinicDisplayName, logoSrc: clinicLogoSrc } = useClinicContext();
   const [load, setLoad] = useState({ status: "loading", error: "" });
   const [templates, setTemplates] = useState([]);
   const [drawer, setDrawer] = useState(null);
@@ -62,6 +68,9 @@ export default function SettingsDocuments() {
   const [saving, setSaving] = useState(false);
   const [actingId, setActingId] = useState(null);
   const nameInputRef = useRef(null);
+  const bodyTextRef = useRef(null);
+  const bodyTextHighlightsRef = useRef(null);
+  const pendingBodySelectionRef = useRef(null);
   const archiveCancelRef = useRef(null);
 
   const loadTemplates = useCallback(async (silent = false) => {
@@ -82,6 +91,14 @@ export default function SettingsDocuments() {
   useEffect(() => {
     loadTemplates();
   }, [loadTemplates]);
+
+  useLayoutEffect(() => {
+    const selection = pendingBodySelectionRef.current;
+    if (selection === null || !bodyTextRef.current) return;
+    bodyTextRef.current.focus();
+    bodyTextRef.current.setSelectionRange(selection, selection);
+    pendingBodySelectionRef.current = null;
+  }, [form.body_text]);
 
   useEffect(() => {
     if (!drawer) return undefined;
@@ -111,7 +128,7 @@ export default function SettingsDocuments() {
   const openEdit = (template) => {
     setForm({
       name: template.name || "",
-      body_text: template.body_text || "",
+      body_text: toDocumentTemplateEditorText(template.body_text),
       is_default: template.is_default === true,
     });
     setDrawer({ mode: "edit", template });
@@ -119,6 +136,17 @@ export default function SettingsDocuments() {
 
   const closeDrawer = () => {
     if (!saving) setDrawer(null);
+  };
+
+  const insertAutomaticInformation = (information) => {
+    const textarea = bodyTextRef.current;
+    const selectionStart = textarea?.selectionStart ?? form.body_text.length;
+    const selectionEnd = textarea?.selectionEnd ?? selectionStart;
+    const nextBodyText = `${form.body_text.slice(0, selectionStart)}`
+      + `${information.editorText}${form.body_text.slice(selectionEnd)}`;
+
+    pendingBodySelectionRef.current = selectionStart + information.editorText.length;
+    setForm((current) => ({ ...current, body_text: nextBodyText }));
   };
 
   const handleSubmit = async (event) => {
@@ -133,19 +161,25 @@ export default function SettingsDocuments() {
       return;
     }
 
+    const canonicalBodyText = toCanonicalDocumentTemplateText(form.body_text);
+    if (canonicalBodyText.length > 10000) {
+      toast.error("O texto do modelo é muito longo. Reduza o conteúdo antes de salvar.");
+      bodyTextRef.current?.focus();
+      return;
+    }
     setSaving(true);
     try {
       if (drawer.mode === "edit") {
         await updateDocumentTemplate(drawer.template.id, {
           name: form.name,
-          body_text: form.body_text,
+          body_text: canonicalBodyText,
         });
         toast.success("Modelo atualizado com sucesso.");
       } else {
         await createDocumentTemplate({
           document_type: ATTENDANCE_DECLARATION,
           name: form.name,
-          body_text: form.body_text,
+          body_text: canonicalBodyText,
           is_default: form.is_default,
         });
         toast.success("Modelo criado com sucesso.");
@@ -240,7 +274,6 @@ export default function SettingsDocuments() {
       <PageContent as="div">
         <ModuleHeader>
           <ModuleTitle>Configurações</ModuleTitle>
-          <ModuleSubtitle>Preferências administrativas da clínica.</ModuleSubtitle>
         </ModuleHeader>
 
         <ModuleTabs role="tablist" aria-label="Áreas de configurações">
@@ -253,7 +286,6 @@ export default function SettingsDocuments() {
           <SectionHeading>
             <div>
               <h2>Modelos de documentos</h2>
-              <p>Gerencie os textos usados nas emissões da clínica.</p>
             </div>
           </SectionHeading>
 
@@ -334,7 +366,7 @@ export default function SettingsDocuments() {
 
       {drawer && (
         <>
-          <AppDrawer
+          <VisualEditorDrawer
             $open
             role="dialog"
             aria-modal="true"
@@ -350,43 +382,88 @@ export default function SettingsDocuments() {
             </DrawerHeader>
             <DrawerBody>
               <form onSubmit={handleSubmit}>
-            <Field>
-              Tipo
-              <select value={ATTENDANCE_DECLARATION} disabled>
-                <option value={ATTENDANCE_DECLARATION}>Declaração de comparecimento</option>
-              </select>
-            </Field>
-            <Field>
-              Nome *
-              <input
-                ref={nameInputRef}
-                value={form.name}
-                maxLength={120}
-                onChange={(event) => setForm((current) => ({
-                  ...current,
-                  name: event.target.value,
-                }))}
-              />
-            </Field>
-            <Field>
-              Texto do modelo *
-              <textarea
-                rows={10}
-                value={form.body_text}
-                maxLength={10000}
-                onChange={(event) => setForm((current) => ({
-                  ...current,
-                  body_text: event.target.value,
-                }))}
-              />
-              <FieldHint>Texto simples. Máximo de 10.000 caracteres.</FieldHint>
-            </Field>
-            <PlaceholderHelp>
-              <strong>Placeholders disponíveis</strong>
-              <div>{PLACEHOLDERS.map((placeholder) => (
-                <code key={placeholder}>{placeholder}</code>
+                <CompactFields>
+                  <Field>
+                    Tipo
+                    <select value={ATTENDANCE_DECLARATION} disabled>
+                      <option value={ATTENDANCE_DECLARATION}>
+                        Declaração de comparecimento
+                      </option>
+                    </select>
+                  </Field>
+                  <Field>
+                    Nome do modelo *
+                    <input
+                      ref={nameInputRef}
+                      value={form.name}
+                      maxLength={120}
+                      onChange={(event) => setForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))}
+                    />
+                  </Field>
+                </CompactFields>
+                <DocumentCanvas>
+                  <DocumentSheet aria-label="Editor visual da declaração">
+                    <DocumentHeader>
+                      {clinicLogoSrc && (
+                        <DocumentLogo
+                          src={clinicLogoSrc}
+                          alt={`Logo ${clinicDisplayName || "da clínica"}`}
+                        />
+                      )}
+                      <DocumentClinicName>{clinicDisplayName || "Clínica"}</DocumentClinicName>
+                      <DocumentTitle>{DOCUMENT_TITLE}</DocumentTitle>
+                    </DocumentHeader>
+                    <DocumentBodyEditor>
+                      <DocumentBodyHighlights ref={bodyTextHighlightsRef} aria-hidden="true">
+                        {getDocumentTemplateEditorSegments(form.body_text).map((segment) => (
+                          segment.isAutomaticInformation ? (
+                            <AutomaticInformationHighlight
+                              key={`${segment.start}-${segment.text}`}
+                              data-automatic-information="true"
+                            >
+                              {segment.text}
+                            </AutomaticInformationHighlight>
+                          ) : (
+                            <React.Fragment key={`${segment.start}-${segment.text}`}>
+                              {segment.text}
+                            </React.Fragment>
+                          )
+                        ))}
+                      </DocumentBodyHighlights>
+                      <DocumentBodyTextarea
+                        ref={bodyTextRef}
+                        aria-label="Texto do modelo"
+                        value={form.body_text}
+                        onChange={(event) => setForm((current) => ({
+                          ...current,
+                          body_text: event.target.value,
+                        }))}
+                        onScroll={(event) => {
+                          if (bodyTextHighlightsRef.current) {
+                            bodyTextHighlightsRef.current.scrollTop = event.currentTarget.scrollTop;
+                            bodyTextHighlightsRef.current.scrollLeft = event.currentTarget.scrollLeft;
+                          }
+                        }}
+                      />
+                    </DocumentBodyEditor>
+                  </DocumentSheet>
+                </DocumentCanvas>
+            <AutomaticInformationPanel>
+              <strong>Informações automáticas</strong>
+              <div>{AUTOMATIC_INFORMATION.map((information) => (
+                <RowActionButton
+                  key={information.canonical}
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => insertAutomaticInformation(information)}
+                >
+                  + {information.label}
+                </RowActionButton>
               ))}</div>
-            </PlaceholderHelp>
+            </AutomaticInformationPanel>
             {drawer.mode === "create" && (
               <DefaultOption>
                 <input
@@ -410,7 +487,7 @@ export default function SettingsDocuments() {
             </DrawerFooter>
               </form>
             </DrawerBody>
-          </AppDrawer>
+          </VisualEditorDrawer>
           <DrawerBackdrop onClick={closeDrawer} />
         </>
       )}
@@ -448,6 +525,187 @@ export default function SettingsDocuments() {
   );
 }
 
+// O editor documental precisa de mais largura que o drawer CRUD padrão para preservar a folha.
+const VisualEditorDrawer = styled(AppDrawer)`
+  width: min(760px, 96vw);
+  max-width: 96vw;
+
+  @media (max-width: 760px) {
+    width: 100%;
+    max-width: 100vw;
+  }
+`;
+
+const CompactFields = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: ${spacing.md};
+  margin-bottom: ${spacing.lg};
+
+  > label {
+    min-width: 0;
+    margin-bottom: 0;
+  }
+
+  @media (max-width: 560px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+`;
+
+const DocumentCanvas = styled.div`
+  min-width: 0;
+  overflow-x: hidden;
+  padding: ${spacing.xl};
+  border-radius: ${radii.lg};
+  background: ${colors.surfaceSecondary};
+
+  @media (max-width: 560px) {
+    padding: ${spacing.sm};
+  }
+`;
+
+const DocumentSheet = styled.section`
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 640px;
+  min-width: 0;
+  min-height: 560px;
+  margin: 0 auto;
+  padding: 48px 54px;
+  overflow: hidden;
+  border: 1px solid rgba(27, 27, 27, 0.12);
+  background: ${colors.white};
+  box-shadow: 0 10px 28px rgba(27, 27, 27, 0.1);
+  color: ${colors.ink};
+  font-family: Arial, Helvetica, sans-serif;
+
+  @media (max-width: 560px) {
+    min-height: 460px;
+    padding: 30px 20px;
+    box-shadow: 0 4px 14px rgba(27, 27, 27, 0.08);
+  }
+`;
+
+const DocumentHeader = styled.header`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 40px;
+  text-align: center;
+
+  @media (max-width: 560px) {
+    margin-bottom: 28px;
+  }
+`;
+
+const DocumentLogo = styled.img`
+  display: block;
+  width: auto;
+  max-width: min(180px, 70%);
+  height: 64px;
+  margin-bottom: ${spacing.md};
+  object-fit: contain;
+`;
+
+const DocumentClinicName = styled.div`
+  max-width: 100%;
+  margin-bottom: 34px;
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+  font-weight: 700;
+
+  @media (max-width: 560px) {
+    margin-bottom: 26px;
+    font-size: 0.92rem;
+  }
+`;
+
+const DocumentTitle = styled.h3`
+  margin: 0;
+  font-size: 1.08rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+
+  @media (max-width: 560px) {
+    font-size: 0.96rem;
+    letter-spacing: 0.02em;
+  }
+`;
+
+const DocumentBodyEditor = styled.div`
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid ${alpha.brand014};
+  border-radius: ${radii.xs};
+
+  &:hover {
+    border-color: ${alpha.brand028};
+  }
+
+  &:focus-within {
+    border-color: ${colors.focus};
+    box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.12);
+  }
+`;
+
+const DocumentBodyHighlights = styled.div`
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: ${spacing.sm};
+  pointer-events: none;
+  color: transparent;
+  font: inherit;
+  font-size: 0.94rem;
+  line-height: 1.75;
+  text-align: justify;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+
+  @media (max-width: 560px) {
+    font-size: 0.9rem;
+    line-height: 1.65;
+  }
+`;
+
+const AutomaticInformationHighlight = styled.span`
+  border-radius: 3px;
+  background: ${alpha.brand014};
+  box-shadow: inset 0 -1px 0 ${alpha.brand028};
+  box-decoration-break: clone;
+`;
+
+const DocumentBodyTextarea = styled.textarea`
+  position: relative;
+  z-index: 1;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 270px;
+  padding: ${spacing.sm};
+  resize: vertical;
+  border: 0;
+  border-radius: inherit;
+  outline: none;
+  background: transparent;
+  color: ${colors.ink};
+  font: inherit;
+  font-size: 0.94rem;
+  line-height: 1.75;
+  text-align: justify;
+  overflow-wrap: break-word;
+
+  @media (max-width: 560px) {
+    min-height: 240px;
+    font-size: 0.9rem;
+    line-height: 1.65;
+  }
+`;
+
 const SectionHeading = styled.div`
   display: flex;
   justify-content: space-between;
@@ -460,10 +718,6 @@ const SectionHeading = styled.div`
     font-size: 1.25rem;
   }
 
-  p {
-    margin: ${spacing.xs} 0 0;
-    color: ${colors.textSecondary};
-  }
 `;
 
 const DesktopTableWrap = styled(TableWrap)`
@@ -513,7 +767,7 @@ const StatePanel = styled.div`
   gap: ${spacing.md};
 `;
 
-const PlaceholderHelp = styled.div`
+const AutomaticInformationPanel = styled.div`
   margin: ${spacing.md} 0;
   padding: ${spacing.md};
   border-radius: ${radii.md};
@@ -528,12 +782,6 @@ const PlaceholderHelp = styled.div`
     margin-top: ${spacing.sm};
   }
 
-  code {
-    padding: 3px 6px;
-    border-radius: ${radii.xs};
-    background: ${colors.surface};
-    color: ${colors.brandDark};
-  }
 `;
 
 const DefaultOption = styled.label`

@@ -69,7 +69,7 @@ describe("documents service", () => {
   });
 
   it("usa somente endpoints documentais do paciente e de preview", async () => {
-    await listEligibleDocumentSessions(41);
+    await listEligibleDocumentSessions(41, { limit: 5 });
     await listIssuanceDocumentTemplates();
     await listPatientDocuments(41);
     await previewAttendanceDeclaration({ session_id: 9 });
@@ -77,7 +77,7 @@ describe("documents service", () => {
     expect(api.get).toHaveBeenNthCalledWith(
       1,
       "/patients/41/documents/eligible-sessions",
-      { params: { document_type: "attendance_declaration" } },
+      { params: { document_type: "attendance_declaration", limit: 5 } },
     );
     expect(api.get).toHaveBeenNthCalledWith(
       2,
@@ -91,6 +91,21 @@ describe("documents service", () => {
     );
     expect(JSON.stringify([api.get.mock.calls, api.post.mock.calls]))
       .not.toMatch(/clinic_id|\/sessions|agendamentos/i);
+  });
+
+  it("consulta atendimentos elegíveis por data sem enviar clinic_id", async () => {
+    await listEligibleDocumentSessions(41, { date: "2026-08-16" });
+
+    expect(api.get).toHaveBeenCalledWith(
+      "/patients/41/documents/eligible-sessions",
+      {
+        params: {
+          document_type: "attendance_declaration",
+          date: "2026-08-16",
+        },
+      },
+    );
+    expect(JSON.stringify(api.get.mock.calls)).not.toContain("clinic_id");
   });
 
   it("mantém separadas as listagens de modelos administrativa e de emissão", async () => {
@@ -145,6 +160,15 @@ describe("documents service", () => {
         JSON.stringify({ error: "IDEMPOTENCY_KEY_CONFLICT" }),
       ], { type: "application/json" }) },
     }, "Falha")).resolves.toMatch(/dados diferentes/);
+  });
+
+  it("traduz erro de variável do modelo sem expor linguagem técnica", async () => {
+    const message = await getDocumentErrorMessage({
+      response: { data: { error: "INVALID_DOCUMENT_PLACEHOLDER" } },
+    }, "Falha");
+
+    expect(message).toBe("O modelo contém uma informação automática inválida ou incompleta.");
+    expect(message).not.toMatch(/placeholder/i);
   });
 
   it("valida PDF, usa nome de Content-Disposition e revoga a URL", () => {
