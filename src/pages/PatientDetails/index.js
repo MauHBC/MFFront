@@ -2874,17 +2874,12 @@ export default function PatientDetails() {
 		                        </>
 		                      )}
 	                      {!selectedRecordCase && canWriteClinicalRecords && (
-	                        <>
-	                          <ProntuarioActionButton
-	                            type="button"
-	                            onClick={openClinicalCaseCreateModal}
-	                          >
-	                            <FaPlus /> Caso clínico
-	                          </ProntuarioActionButton>
-	                          <SubtleCardButton type="button" onClick={() => setIsCaseManagerOpen(true)}>
-	                            Gerenciar lifecycle
-	                          </SubtleCardButton>
-	                        </>
+	                        <ProntuarioActionButton
+	                          type="button"
+	                          onClick={openClinicalCaseCreateModal}
+	                        >
+	                          <FaPlus /> Caso clínico
+	                        </ProntuarioActionButton>
 	                      )}
 	                    </TimelineActions>
 	                  )}

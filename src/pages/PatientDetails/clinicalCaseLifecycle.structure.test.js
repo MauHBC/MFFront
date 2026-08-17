@@ -27,6 +27,10 @@ describe("clinical case lifecycle structure", () => {
     expect(patientDetails).toContain("getPatientClinicalCaseHistory");
   });
 
+  test("does not render the lifecycle management button", () => {
+    expect(patientDetails).not.toContain("Gerenciar lifecycle");
+  });
+
   test("status carries reason, version and idempotency", () => {
     expect(caseService).toMatch(/\{ status, version, reason \}/);
     expect(caseService).toContain('"Idempotency-Key"');
