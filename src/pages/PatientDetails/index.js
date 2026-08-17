@@ -851,6 +851,23 @@ export default function PatientDetails() {
   const skipActiveTabPersistenceRef = useRef(false);
   const skipRecordCasePersistenceRef = useRef(false);
   const isClinicalIdentityRequired = canReadClinicalRecords;
+  const isClinicalCaseDraftAuthor = useCallback((clinicalCase) => (
+    clinicalCase?.clinical_state === "draft"
+      && Number(clinicalCase?.created_by) === Number(signingIdentity.data?.user_id)
+  ), [signingIdentity.data?.user_id]);
+  const canEditClinicalCaseDraft = useCallback((clinicalCase) => (
+    canWriteClinicalRecords && isClinicalCaseDraftAuthor(clinicalCase)
+  ), [canWriteClinicalRecords, isClinicalCaseDraftAuthor]);
+  const canFinalizeClinicalCaseDraft = useCallback((clinicalCase) => (
+    canFinalizeClinicalRecords
+      && signingIdentity.data?.eligible_to_sign === true
+      && isClinicalCaseDraftAuthor(clinicalCase)
+  ), [canFinalizeClinicalRecords, isClinicalCaseDraftAuthor, signingIdentity.data?.eligible_to_sign]);
+  const canUseClinicalCaseLifecycle = useCallback((clinicalCase) => (
+    canFinalizeClinicalRecords
+      && signingIdentity.data?.eligible_to_sign === true
+      && ["finalized", "legacy"].includes(clinicalCase?.clinical_state)
+  ), [canFinalizeClinicalRecords, signingIdentity.data?.eligible_to_sign]);
 
   useEffect(() => {
     skipActiveTabPersistenceRef.current = true;
@@ -1518,14 +1535,10 @@ export default function PatientDetails() {
   }, [canWriteClinicalRecords]);
 
   const openClinicalCaseEditModal = useCallback((clinicalCase) => {
-    if (
-      !canWriteClinicalRecords
-      || clinicalCase?.clinical_state !== "draft"
-      || Number(clinicalCase?.created_by) !== Number(signingIdentity.data?.user_id)
-    ) return;
+    if (!canEditClinicalCaseDraft(clinicalCase)) return;
     setClinicalCaseForm(buildClinicalCaseForm(clinicalCase));
     setClinicalCaseModal({ mode: "edit", item: clinicalCase });
-  }, [canWriteClinicalRecords, signingIdentity.data]);
+  }, [canEditClinicalCaseDraft]);
 
   const closeClinicalCaseModal = useCallback(() => {
     if (isSavingClinicalCase) return;
@@ -1617,7 +1630,11 @@ export default function PatientDetails() {
   const handleClinicalCaseStatusChange = useCallback(async (
     clinicalCase, status, reason,
   ) => {
-    if (!clinicalCase?.id || clinicalCase.status === status) return false;
+    if (
+      !clinicalCase?.id
+      || clinicalCase.status === status
+      || !canUseClinicalCaseLifecycle(clinicalCase)
+    ) return false;
     setIsUpdatingClinicalCaseStatus(true);
     try {
       const response = await updatePatientClinicalCaseStatus(
@@ -1645,16 +1662,20 @@ export default function PatientDetails() {
     } finally {
       setIsUpdatingClinicalCaseStatus(false);
     }
-  }, [reloadClinicalCaseHistory, reloadClinicalCases]);
+  }, [canUseClinicalCaseLifecycle, reloadClinicalCaseHistory, reloadClinicalCases]);
 
   const consolidateClinicalCase = useCallback((clinicalCase) => {
-    if (!clinicalCase || !signingIdentity.data?.eligible_to_sign) return;
+    if (!canFinalizeClinicalCaseDraft(clinicalCase)) return;
     setClinicalCaseActionModal({ type: "consolidate", item: clinicalCase });
-  }, [signingIdentity.data]);
+  }, [canFinalizeClinicalCaseDraft]);
 
   const saveClinicalCaseAction = useCallback(async () => {
     const action = clinicalCaseActionModal;
-    if (!action || !signingIdentity.data?.eligible_to_sign) return;
+    if (!action) return;
+    const canPerformAction = action.type === "consolidate"
+      ? canFinalizeClinicalCaseDraft(action.item)
+      : canUseClinicalCaseLifecycle(action.item);
+    if (!canPerformAction) return;
     const reason = String(action.reason || "").trim();
     if (action.type !== "consolidate" && reason.length < 3) {
       toast.error("Informe o motivo.");
@@ -1692,11 +1713,12 @@ export default function PatientDetails() {
       toast.error(error?.response?.data?.error || "Não foi possível registrar a alteração.");
     }
   }, [
+    canFinalizeClinicalCaseDraft,
+    canUseClinicalCaseLifecycle,
     clinicalCaseActionModal,
     handleClinicalCaseStatusChange,
     reloadClinicalCaseHistory,
     reloadClinicalCases,
-    signingIdentity.data,
   ]);
 
   useEffect(() => {
@@ -2824,21 +2846,14 @@ export default function PatientDetails() {
 		                          >
 		                            Voltar aos casos
 		                          </CardButton>
-		                          {canWriteClinicalRecords
-		                            && selectedRecordCase.clinical_state === "draft"
-		                            && Number(selectedRecordCase.created_by)
-		                              === Number(signingIdentity.data?.user_id)
+		                          {canEditClinicalCaseDraft(selectedRecordCase)
 		                            && <SubtleCardButton
 		                            type="button"
 		                            onClick={() => openClinicalCaseEditModal(selectedRecordCase)}
 		                          >
 		                            <FaPen /> Editar caso
 		                          </SubtleCardButton>}
-		                          {canFinalizeClinicalRecords
-		                            && selectedRecordCase.clinical_state === "draft"
-		                            && Number(selectedRecordCase.created_by)
-		                              === Number(signingIdentity.data?.user_id)
-		                            && signingIdentity.data?.eligible_to_sign && (
+		                          {canFinalizeClinicalCaseDraft(selectedRecordCase) && (
 		                            <SubtleCardButton
 		                              type="button"
 		                              onClick={() => consolidateClinicalCase(selectedRecordCase)}
@@ -2846,9 +2861,7 @@ export default function PatientDetails() {
 		                              Consolidar caso
 		                            </SubtleCardButton>
 		                          )}
-		                          {canFinalizeClinicalRecords
-		                            && ["finalized", "legacy"].includes(selectedRecordCase.clinical_state)
-		                            && signingIdentity.data?.eligible_to_sign && (
+		                          {canUseClinicalCaseLifecycle(selectedRecordCase) && (
 		                            <>
 		                              <SubtleCardButton
 		                                type="button"
@@ -4176,16 +4189,14 @@ export default function PatientDetails() {
                             </ClinicalCaseDetails>
                           )}
                           <ClinicalCaseActions>
-                            {clinicalCase.clinical_state === "draft"
-                              && Number(clinicalCase.created_by) === Number(signingIdentity.data?.user_id)
+                            {canEditClinicalCaseDraft(clinicalCase)
                               && <SubtleCardButton
                               type="button"
                               onClick={() => openClinicalCaseEditModal(clinicalCase)}
                             >
                               Editar
                             </SubtleCardButton>}
-                            {["finalized", "legacy"].includes(clinicalCase.clinical_state)
-                              && signingIdentity.data?.eligible_to_sign && <CaseStatusSelect
+                            {canUseClinicalCaseLifecycle(clinicalCase) && <CaseStatusSelect
                               value={clinicalCase.status}
                               onChange={(event) =>
                                 setClinicalCaseActionModal({
@@ -4234,8 +4245,7 @@ export default function PatientDetails() {
                               "Sem queixa principal registrada."}
                           </ClinicalCaseDescription>
                           <ClinicalCaseActions>
-                            {["finalized", "legacy"].includes(clinicalCase.clinical_state)
-                              && signingIdentity.data?.eligible_to_sign && <SubtleCardButton
+                            {canUseClinicalCaseLifecycle(clinicalCase) && <SubtleCardButton
                               type="button"
                               onClick={() =>
                                 setClinicalCaseActionModal({

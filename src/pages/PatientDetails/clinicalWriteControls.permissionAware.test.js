@@ -90,6 +90,11 @@ const clinicalCase = {
   version: 2,
   created_by: 7,
 };
+const finalizedClinicalCase = {
+  ...clinicalCase,
+  clinical_state: "finalized",
+  version: 3,
+};
 const evaluations = [
   {
     id: 31,
@@ -310,6 +315,85 @@ describe("PatientDetails clinical write controls permission matrix", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Adicionar adendo" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Salvar adendo" })).toBeEnabled());
+  });
+
+  test.each([
+    ["active", "resolved"],
+    ["resolved", "active"],
+  ])("eligible finalizer exposes the dedicated lifecycle action from %s to %s", async (
+    status,
+    expectedStatus,
+  ) => {
+    listPatientClinicalCases.mockResolvedValue(response([{
+      ...finalizedClinicalCase,
+      status,
+    }]));
+    authorize({
+      clinicalLevel: "edit",
+      capabilities: [
+        "clinical_records.read",
+        "clinical_records.write",
+        "clinical_records.finalize",
+      ],
+    });
+    renderPage();
+    await waitForPatient();
+    await openCase();
+
+    fireEvent.click(screen.getByRole("button", { name: "Alterar status" }));
+    expect(screen.getByRole("combobox", { name: "Novo status" })).toHaveValue(expectedStatus);
+    cleanup();
+  });
+
+  test("eligible professional without finalize cannot change or reactivate case status", async () => {
+    listPatientClinicalCases.mockResolvedValue(response([finalizedClinicalCase]));
+    authorize({
+      clinicalLevel: "edit",
+      capabilities: ["clinical_records.read", "clinical_records.write"],
+    });
+    renderPage();
+    await waitForPatient();
+    await openCase();
+
+    expect(screen.queryByRole("button", { name: "Alterar status" })).not.toBeInTheDocument();
+  });
+
+  test("finalize capability without eligible professional identity hides signed case actions", async () => {
+    listPatientClinicalCases.mockResolvedValue(response([finalizedClinicalCase]));
+    getClinicalSigningIdentity.mockResolvedValue({
+      ...eligibleIdentity,
+      eligible_to_sign: false,
+    });
+    authorize({
+      clinicalLevel: "edit",
+      capabilities: [
+        "clinical_records.read",
+        "clinical_records.write",
+        "clinical_records.finalize",
+      ],
+    });
+    renderPage();
+    await waitForPatient();
+    await openCase();
+
+    await waitFor(() => expect(getClinicalSigningIdentity).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("button", { name: "Alterar status" })).not.toBeInTheDocument();
+  });
+
+  test("writer cannot edit another professional's clinical case draft", async () => {
+    listPatientClinicalCases.mockResolvedValue(response([{
+      ...clinicalCase,
+      created_by: 999,
+    }]));
+    authorize({
+      clinicalLevel: "edit",
+      capabilities: ["clinical_records.read", "clinical_records.write"],
+    });
+    renderPage();
+    await waitForPatient();
+    await openCase();
+
+    expect(screen.queryByRole("button", { name: "Editar caso" })).not.toBeInTheDocument();
   });
 
   test("edit + write exposes case, reference and external-professional mutation entries", async () => {

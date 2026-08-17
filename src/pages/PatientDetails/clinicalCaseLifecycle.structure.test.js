@@ -31,6 +31,15 @@ describe("clinical case lifecycle structure", () => {
     expect(patientDetails).not.toContain("Gerenciar lifecycle");
   });
 
+  test("the legacy manager markup reuses the same permission-aware case gates", () => {
+    const managerMarkup = patientDetails
+      .split("{canWriteClinicalRecords && isCaseManagerOpen && (")[1]
+      .split("{canWriteClinicalRecords && clinicalCaseModal && (")[0];
+
+    expect(managerMarkup).toContain("canEditClinicalCaseDraft(clinicalCase)");
+    expect(managerMarkup.match(/canUseClinicalCaseLifecycle\(clinicalCase\)/g)).toHaveLength(2);
+  });
+
   test("status carries reason, version and idempotency", () => {
     expect(caseService).toMatch(/\{ status, version, reason \}/);
     expect(caseService).toContain('"Idempotency-Key"');
