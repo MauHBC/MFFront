@@ -19,7 +19,7 @@ import {
 import { AppToolbar, AppToolbarRight } from "../../components/AppToolbar";
 import { DataTable, TableWrap, TD, TH } from "../../components/AppTable";
 import { GhostButton, PrimaryButton, RowActionButton } from "../../components/AppButton";
-import { NeutralPill, StatusPill } from "../../components/AppStatus";
+import { StatusPill } from "../../components/AppStatus";
 import {
   AppDrawer,
   DrawerBackdrop,
@@ -34,13 +34,13 @@ import AppActionMenu, { AppActionMenuItem } from "../../components/AppActionMenu
 import DataLoadingState from "../../components/DataLoadingState";
 import { useClinicContext } from "../../contexts/ClinicContext";
 import {
-  archiveDocumentTemplate,
+  activateDocumentTemplate,
   ATTENDANCE_DECLARATION,
   createDocumentTemplate,
+  deactivateDocumentTemplate,
   duplicateDocumentTemplate,
   getDocumentErrorMessage,
   listDocumentTemplates,
-  setDefaultDocumentTemplate,
   updateDocumentTemplate,
 } from "../../services/documents";
 import { alpha, colors, radii, spacing } from "../../styles/tokens";
@@ -51,12 +51,21 @@ import {
   toDocumentTemplateEditorText,
 } from "./automaticInformation";
 
-const EMPTY_FORM = Object.freeze({ name: "", body_text: "", is_default: false });
-const DOCUMENT_TITLE = "DECLARA\u00c7\u00c3O DE COMPARECIMENTO";
+const EMPTY_FORM = Object.freeze({
+  name: "",
+  document_title: "",
+  body_text: "",
+});
 
-const documentTypeLabel = (type) => (
-  type === ATTENDANCE_DECLARATION ? "Declaração de comparecimento" : type
-);
+const renderTemplateState = (template) => {
+  if (template.archived_at) {
+    return <StatusPill $tone="canceled">Arquivado</StatusPill>;
+  }
+  if (template.is_active) {
+    return <StatusPill $tone="active">Ativo</StatusPill>;
+  }
+  return <StatusPill $tone="paused">Inativo</StatusPill>;
+};
 
 export default function SettingsDocuments() {
   const { displayName: clinicDisplayName, logoSrc: clinicLogoSrc } = useClinicContext();
@@ -64,14 +73,13 @@ export default function SettingsDocuments() {
   const [templates, setTemplates] = useState([]);
   const [drawer, setDrawer] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [archiveCandidate, setArchiveCandidate] = useState(null);
   const [saving, setSaving] = useState(false);
   const [actingId, setActingId] = useState(null);
   const nameInputRef = useRef(null);
+  const documentTitleInputRef = useRef(null);
   const bodyTextRef = useRef(null);
   const bodyTextHighlightsRef = useRef(null);
   const pendingBodySelectionRef = useRef(null);
-  const archiveCancelRef = useRef(null);
 
   const loadTemplates = useCallback(async (silent = false) => {
     if (!silent) setLoad({ status: "loading", error: "" });
@@ -110,16 +118,6 @@ export default function SettingsDocuments() {
     return () => document.removeEventListener("keydown", handleEscape);
   }, [drawer, saving]);
 
-  useEffect(() => {
-    if (!archiveCandidate) return undefined;
-    archiveCancelRef.current?.focus();
-    const handleEscape = (event) => {
-      if (event.key === "Escape" && !actingId) setArchiveCandidate(null);
-    };
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [actingId, archiveCandidate]);
-
   const openCreate = () => {
     setForm(EMPTY_FORM);
     setDrawer({ mode: "create", template: null });
@@ -128,8 +126,8 @@ export default function SettingsDocuments() {
   const openEdit = (template) => {
     setForm({
       name: template.name || "",
+      document_title: template.document_title || "",
       body_text: toDocumentTemplateEditorText(template.body_text),
-      is_default: template.is_default === true,
     });
     setDrawer({ mode: "edit", template });
   };
@@ -156,6 +154,11 @@ export default function SettingsDocuments() {
       nameInputRef.current?.focus();
       return;
     }
+    if (!form.document_title.trim()) {
+      toast.error("Informe o título do documento.");
+      documentTitleInputRef.current?.focus();
+      return;
+    }
     if (!form.body_text.trim()) {
       toast.error("Informe o texto do modelo.");
       return;
@@ -172,6 +175,7 @@ export default function SettingsDocuments() {
       if (drawer.mode === "edit") {
         await updateDocumentTemplate(drawer.template.id, {
           name: form.name,
+          document_title: form.document_title,
           body_text: canonicalBodyText,
         });
         toast.success("Modelo atualizado com sucesso.");
@@ -179,8 +183,8 @@ export default function SettingsDocuments() {
         await createDocumentTemplate({
           document_type: ATTENDANCE_DECLARATION,
           name: form.name,
+          document_title: form.document_title,
           body_text: canonicalBodyText,
-          is_default: form.is_default,
         });
         toast.success("Modelo criado com sucesso.");
       }
@@ -213,26 +217,19 @@ export default function SettingsDocuments() {
     "Não foi possível duplicar o modelo.",
   );
 
-  const handleSetDefault = (template) => runTemplateAction(
+  const handleActivate = (template) => runTemplateAction(
     template,
-    () => setDefaultDocumentTemplate(template.id),
-    "Modelo definido como padrão.",
-    "Não foi possível definir o modelo como padrão.",
+    () => activateDocumentTemplate(template.id),
+    "Modelo ativado com sucesso.",
+    "Não foi possível ativar o modelo.",
   );
 
-  const handleArchive = (template) => setArchiveCandidate(template);
-
-  const confirmArchive = () => {
-    const template = archiveCandidate;
-    if (!template) return;
-    setArchiveCandidate(null);
-    runTemplateAction(
-      template,
-      () => archiveDocumentTemplate(template.id),
-      "Modelo arquivado com sucesso.",
-      "Não foi possível arquivar o modelo.",
-    );
-  };
+  const handleDeactivate = (template) => runTemplateAction(
+    template,
+    () => deactivateDocumentTemplate(template.id),
+    "Modelo desativado com sucesso.",
+    "Não foi possível desativar o modelo.",
+  );
 
   const renderActions = (template) => (
     <AppActionMenu label={`Ações do modelo ${template.name}`} compact>
@@ -248,22 +245,22 @@ export default function SettingsDocuments() {
       >
         Duplicar
       </AppActionMenuItem>
-      {!template.archived_at && !template.is_default && (
+      {!template.archived_at && template.is_active === true && (
         <AppActionMenuItem
           type="button"
           disabled={actingId === template.id}
-          onClick={() => handleSetDefault(template)}
+          onClick={() => handleDeactivate(template)}
         >
-          Definir como padrão
+          Desativar
         </AppActionMenuItem>
       )}
-      {!template.archived_at && !template.is_default && (
+      {!template.archived_at && template.is_active === false && (
         <AppActionMenuItem
           type="button"
           disabled={actingId === template.id}
-          onClick={() => handleArchive(template)}
+          onClick={() => handleActivate(template)}
         >
-          Arquivar
+          Ativar
         </AppActionMenuItem>
       )}
     </AppActionMenu>
@@ -319,8 +316,6 @@ export default function SettingsDocuments() {
                   <thead>
                     <tr>
                       <TH>Nome</TH>
-                      <TH>Tipo</TH>
-                      <TH>Padrão</TH>
                       <TH>Estado</TH>
                       <TH>Ações</TH>
                     </tr>
@@ -329,13 +324,7 @@ export default function SettingsDocuments() {
                     {templates.map((template) => (
                       <tr key={template.id}>
                         <TD><strong>{template.name}</strong></TD>
-                        <TD>{documentTypeLabel(template.document_type)}</TD>
-                        <TD>{template.is_default ? <NeutralPill>Padrão</NeutralPill> : "—"}</TD>
-                        <TD>
-                          <StatusPill $tone={template.archived_at ? "canceled" : "active"}>
-                            {template.archived_at ? "Arquivado" : "Ativo"}
-                          </StatusPill>
-                        </TD>
+                        <TD>{renderTemplateState(template)}</TD>
                         <TD>{renderActions(template)}</TD>
                       </tr>
                     ))}
@@ -349,12 +338,8 @@ export default function SettingsDocuments() {
                       <strong>{template.name}</strong>
                       {renderActions(template)}
                     </CardHeader>
-                    <span>{documentTypeLabel(template.document_type)}</span>
                     <CardBadges>
-                      {template.is_default && <NeutralPill>Padrão</NeutralPill>}
-                      <StatusPill $tone={template.archived_at ? "canceled" : "active"}>
-                        {template.archived_at ? "Arquivado" : "Ativo"}
-                      </StatusPill>
+                      {renderTemplateState(template)}
                     </CardBadges>
                   </TemplateCard>
                 ))}
@@ -384,14 +369,6 @@ export default function SettingsDocuments() {
               <form onSubmit={handleSubmit}>
                 <CompactFields>
                   <Field>
-                    Tipo
-                    <select value={ATTENDANCE_DECLARATION} disabled>
-                      <option value={ATTENDANCE_DECLARATION}>
-                        Declaração de comparecimento
-                      </option>
-                    </select>
-                  </Field>
-                  <Field>
                     Nome do modelo *
                     <input
                       ref={nameInputRef}
@@ -400,6 +377,18 @@ export default function SettingsDocuments() {
                       onChange={(event) => setForm((current) => ({
                         ...current,
                         name: event.target.value,
+                      }))}
+                    />
+                  </Field>
+                  <Field>
+                    Título do documento *
+                    <input
+                      ref={documentTitleInputRef}
+                      value={form.document_title}
+                      maxLength={160}
+                      onChange={(event) => setForm((current) => ({
+                        ...current,
+                        document_title: event.target.value,
                       }))}
                     />
                   </Field>
@@ -414,7 +403,7 @@ export default function SettingsDocuments() {
                         />
                       )}
                       <DocumentClinicName>{clinicDisplayName || "Clínica"}</DocumentClinicName>
-                      <DocumentTitle>{DOCUMENT_TITLE}</DocumentTitle>
+                      <DocumentTitle>{form.document_title}</DocumentTitle>
                     </DocumentHeader>
                     <DocumentBodyEditor>
                       <DocumentBodyHighlights ref={bodyTextHighlightsRef} aria-hidden="true">
@@ -464,19 +453,6 @@ export default function SettingsDocuments() {
                 </RowActionButton>
               ))}</div>
             </AutomaticInformationPanel>
-            {drawer.mode === "create" && (
-              <DefaultOption>
-                <input
-                  type="checkbox"
-                  checked={form.is_default}
-                  onChange={(event) => setForm((current) => ({
-                    ...current,
-                    is_default: event.target.checked,
-                  }))}
-                />
-                Definir como padrão
-              </DefaultOption>
-            )}
             <DrawerFooter>
               <GhostButton type="button" onClick={closeDrawer} disabled={saving}>
                 Cancelar
@@ -490,36 +466,6 @@ export default function SettingsDocuments() {
           </VisualEditorDrawer>
           <DrawerBackdrop onClick={closeDrawer} />
         </>
-      )}
-      {archiveCandidate && (
-        <ConfirmOverlay
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !actingId) {
-              setArchiveCandidate(null);
-            }
-          }}
-        >
-          <ConfirmCard role="dialog" aria-modal="true" aria-labelledby="archive-template-title">
-            <h2 id="archive-template-title">Arquivar modelo</h2>
-            <p>
-              Arquivar o modelo “{archiveCandidate.name}”? Ele deixará de aparecer em novas
-              emissões.
-            </p>
-            <ConfirmActions>
-              <GhostButton
-                ref={archiveCancelRef}
-                type="button"
-                onClick={() => setArchiveCandidate(null)}
-              >
-                Cancelar
-              </GhostButton>
-              <PrimaryButton type="button" onClick={confirmArchive}>
-                Arquivar modelo
-              </PrimaryButton>
-            </ConfirmActions>
-          </ConfirmCard>
-        </ConfirmOverlay>
       )}
     </PageWrapper>
   );
@@ -538,17 +484,12 @@ const VisualEditorDrawer = styled(AppDrawer)`
 
 const CompactFields = styled.div`
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: ${spacing.md};
   margin-bottom: ${spacing.lg};
 
   > label {
     min-width: 0;
     margin-bottom: 0;
-  }
-
-  @media (max-width: 560px) {
-    grid-template-columns: minmax(0, 1fr);
   }
 `;
 
@@ -782,58 +723,6 @@ const AutomaticInformationPanel = styled.div`
     margin-top: ${spacing.sm};
   }
 
-`;
-
-const DefaultOption = styled.label`
-  display: flex;
-  align-items: center;
-  gap: ${spacing.sm};
-  color: ${colors.textPrimary};
-  font-weight: 600;
-`;
-
-const ConfirmOverlay = styled.div`
-  position: fixed;
-  inset: 0;
-  z-index: 5000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
-  background: rgba(0, 0, 0, 0.38);
-`;
-
-const ConfirmCard = styled.div`
-  width: min(100%, 430px);
-  overflow: hidden;
-  border: 1px solid ${alpha.brand014};
-  border-radius: ${radii.lg};
-  background: ${colors.surface};
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.18);
-
-  h2,
-  p {
-    margin: 0;
-    padding: ${spacing.lg};
-  }
-
-  h2 {
-    border-bottom: 1px solid ${alpha.brand012};
-    color: ${colors.ink};
-    font-size: 1rem;
-  }
-
-  p {
-    color: ${colors.textPrimary};
-    line-height: 1.5;
-  }
-`;
-
-const ConfirmActions = styled.div`
-  display: flex;
-  justify-content: flex-end;
-  gap: ${spacing.sm};
-  padding: 0 ${spacing.lg} ${spacing.lg};
 `;
 
 // Submit do drawer usa largura de conteúdo e padding próprio do formulário.

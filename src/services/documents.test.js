@@ -1,7 +1,9 @@
 import api from "./axios";
 import {
+  activateDocumentTemplate,
   archiveDocumentTemplate,
   createDocumentTemplate,
+  deactivateDocumentTemplate,
   downloadIssuedDocument,
   downloadPdfResponse,
   duplicateDocumentTemplate,
@@ -13,7 +15,6 @@ import {
   listPatientDocuments,
   parseDownloadFilename,
   previewAttendanceDeclaration,
-  setDefaultDocumentTemplate,
   updateDocumentTemplate,
 } from "./documents";
 
@@ -44,10 +45,19 @@ describe("documents service", () => {
 
   it("integra templates e ações administrativas sem enviar clinic_id", async () => {
     await listDocumentTemplates({ includeArchived: true });
-    await createDocumentTemplate({ name: "Modelo", body_text: "Texto" });
-    await updateDocumentTemplate(7, { name: "Atualizado", body_text: "Texto" });
+    await createDocumentTemplate({
+      name: "Modelo",
+      document_title: "Título",
+      body_text: "Texto",
+    });
+    await updateDocumentTemplate(7, {
+      name: "Atualizado",
+      document_title: "Novo título",
+      body_text: "Texto",
+    });
     await duplicateDocumentTemplate(7);
-    await setDefaultDocumentTemplate(7);
+    await activateDocumentTemplate(7);
+    await deactivateDocumentTemplate(7);
     await archiveDocumentTemplate(7);
 
     expect(api.get).toHaveBeenCalledWith("/document-templates", {
@@ -55,14 +65,15 @@ describe("documents service", () => {
     });
     expect(api.post).toHaveBeenCalledWith(
       "/document-templates",
-      { name: "Modelo", body_text: "Texto" },
+      { name: "Modelo", document_title: "Título", body_text: "Texto" },
     );
     expect(api.put).toHaveBeenCalledWith(
       "/document-templates/7",
-      { name: "Atualizado", body_text: "Texto" },
+      { name: "Atualizado", document_title: "Novo título", body_text: "Texto" },
     );
     expect(api.post).toHaveBeenCalledWith("/document-templates/7/duplicate", {});
-    expect(api.post).toHaveBeenCalledWith("/document-templates/7/set-default");
+    expect(api.post).toHaveBeenCalledWith("/document-templates/7/activate");
+    expect(api.post).toHaveBeenCalledWith("/document-templates/7/deactivate");
     expect(api.post).toHaveBeenCalledWith("/document-templates/7/archive");
     expect(JSON.stringify([api.get.mock.calls, api.post.mock.calls, api.put.mock.calls]))
       .not.toContain("clinic_id");
@@ -169,6 +180,14 @@ describe("documents service", () => {
 
     expect(message).toBe("O modelo contém uma informação automática inválida ou incompleta.");
     expect(message).not.toMatch(/placeholder/i);
+  });
+
+  it("traduz título documental inválido com mensagem amigável", async () => {
+    const message = await getDocumentErrorMessage({
+      response: { data: { error: "INVALID_DOCUMENT_TITLE" } },
+    }, "Falha");
+
+    expect(message).toBe("Informe um título válido para o documento.");
   });
 
   it("valida PDF, usa nome de Content-Disposition e revoga a URL", () => {

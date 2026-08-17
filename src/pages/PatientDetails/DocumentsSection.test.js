@@ -66,8 +66,24 @@ const eligibleSessions = [{
 }];
 
 const templates = [
-  { id: 1, name: "Alternativo", is_default: false },
-  { id: 2, name: "Padrão comparecimento", is_default: true },
+  {
+    id: 1,
+    name: "Alternativo",
+    document_title: "Comprovante alternativo",
+    is_active: true,
+  },
+  {
+    id: 2,
+    name: "Comparecimento principal",
+    document_title: "Comprovante de presença",
+    is_active: true,
+  },
+  {
+    id: 3,
+    name: "Modelo inativo",
+    document_title: "Título indisponível",
+    is_active: false,
+  },
 ];
 
 const authorizationFor = ({ read = false, issue = false, download = false, admin = false }) => ({
@@ -90,6 +106,25 @@ const deferred = () => {
   return { promise, reject, resolve };
 };
 
+const selectTemplate = async (dialog, templateId = "2") => {
+  const select = await within(dialog).findByRole("combobox", { name: "Modelo" });
+  fireEvent.change(select, { target: { value: templateId } });
+  return select;
+};
+
+const previewResponse = ({
+  templateId = 2,
+  templateName = "Comparecimento principal",
+  documentTitle = "Comprovante de presença",
+  finalText = "Maria Souza compareceu ao atendimento.",
+} = {}) => ({
+  patient: { name: "Maria Souza" },
+  clinic: { display_name: "Espaço Cuidar" },
+  session: { date: "15/08/2026", start_time: "11:30", end_time: "12:00" },
+  template: { id: templateId, name: templateName, document_title: documentTitle },
+  final_text: finalText,
+});
+
 describe("PatientDocumentsSection", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -101,13 +136,7 @@ describe("PatientDocumentsSection", () => {
     listPatientDocuments.mockResolvedValue([]);
     listEligibleDocumentSessions.mockResolvedValue(eligibleSessions);
     listIssuanceDocumentTemplates.mockResolvedValue(templates);
-    previewAttendanceDeclaration.mockResolvedValue({
-      patient: { name: "Maria Souza" },
-      clinic: { display_name: "Espaço Cuidar" },
-      session: { date: "15/08/2026", start_time: "11:30", end_time: "12:00" },
-      template: { id: 2, name: "Padrão comparecimento" },
-      final_text: "Maria Souza compareceu ao atendimento.",
-    });
+    previewAttendanceDeclaration.mockResolvedValue(previewResponse());
     issueAttendanceDeclaration.mockResolvedValue({ data: new Blob([]) });
     downloadIssuedDocument.mockResolvedValue({ data: new Blob([]) });
   });
@@ -143,33 +172,50 @@ describe("PatientDocumentsSection", () => {
     await waitFor(() => expect(downloadPdfResponse).toHaveBeenCalledTimes(1));
   });
 
-  it("destaca o paciente, ordena Tipo, Modelo e recentes sem título redundante", async () => {
+  it("abre com Modelo primeiro, sem Tipo ou modelo pré-selecionado e preserva a ordem ativa", async () => {
     mockAuthorization = authorizationFor({ read: true, issue: true });
     render(<PatientDocumentsSection patientId="41" patientName="Maria Souza" />);
     await screen.findByText("Nenhum documento emitido para este paciente.");
     fireEvent.click(screen.getByRole("button", { name: /Novo documento/ }));
     const dialog = await screen.findByRole("dialog", { name: "Novo documento" });
 
-    await waitFor(() => expect(within(dialog).getAllByRole("combobox")).toHaveLength(2));
+    const templateSelect = await within(dialog).findByRole("combobox", { name: "Modelo" });
     expect(listEligibleDocumentSessions).toHaveBeenCalledWith("41", { limit: 5 });
     expect(listIssuanceDocumentTemplates).toHaveBeenCalledTimes(1);
-    const selects = within(dialog).getAllByRole("combobox");
-    expect(selects[1]).toHaveValue("2");
+    expect(templateSelect).toHaveValue("");
+    expect(templateSelect).toHaveDisplayValue("Selecione um modelo");
+    expect(within(templateSelect).getAllByRole("option").map((option) => option.textContent))
+      .toEqual(["Alternativo", "Comparecimento principal"]);
+    expect(within(templateSelect).queryByRole("option", { name: "Selecione um modelo" }))
+      .not.toBeInTheDocument();
+    expect(templateSelect.querySelector('option[value=""]')).toBeDisabled();
+    expect(templateSelect.querySelector('option[value=""]')).toHaveAttribute("hidden");
+    expect(within(templateSelect).queryByRole("option", { name: "Modelo inativo" }))
+      .not.toBeInTheDocument();
     expect(within(dialog).getByText("Maria Souza").tagName).toBe("STRONG");
-    expect(within(dialog).getAllByText(/^(Tipo|Modelo|Atendimentos mais recentes)$/).map(
+    expect(within(dialog).queryByText("Tipo")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Declaração de comparecimento"))
+      .not.toBeInTheDocument();
+    expect(dialog.querySelector("select")).toBe(templateSelect);
+    expect(within(dialog).getAllByText(/^(Modelo|Atendimentos mais recentes)$/).map(
       (element) => element.textContent,
-    )).toEqual(["Tipo", "Modelo", "Atendimentos mais recentes"]);
+    )).toEqual(["Modelo", "Atendimentos mais recentes"]);
     expect(within(dialog).queryByText("Atendimento")).not.toBeInTheDocument();
     expect(within(dialog).getByRole("group", { name: "Atendimentos mais recentes" }))
       .toBeInTheDocument();
-    expect(within(dialog).getByText("Dra. Ana")).toBeInTheDocument();
+    const sessionDate = within(dialog).getByText("15/08/2026 · 11:30–12:00");
+    const professional = within(dialog).getByText("Dra. Ana");
+    expect(sessionDate.tagName).toBe(professional.tagName);
+    expect(sessionDate.className).toBe(professional.className);
     expect(within(dialog).getByRole("radio", { name: /15\/08\/2026.*Dra\. Ana/ }))
       .not.toBeChecked();
-    expect(within(dialog).getByRole("button", { name: "Visualizar preview" }))
-      .toBeEnabled();
+    expect(within(dialog).queryByRole("button", { name: "Visualizar preview" }))
+      .not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Gerar e baixar PDF" }))
+      .toBeDisabled();
 
+    fireEvent.change(templateSelect, { target: { value: "2" } });
     fireEvent.click(within(dialog).getByRole("radio", { name: /Dra\. Ana/ }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Visualizar preview" }));
     await waitFor(() => expect(previewAttendanceDeclaration).toHaveBeenCalledWith({
       session_id: 17,
       template_id: 2,
@@ -180,8 +226,13 @@ describe("PatientDocumentsSection", () => {
     expect(within(previewSheet).getByRole("img", { name: "Logo Espaço Cuidar" }))
       .toBeInTheDocument();
     expect(within(previewSheet).getByText("Espaço Cuidar")).toBeInTheDocument();
-    expect(within(previewSheet).getByText("DECLARA\u00c7\u00c3O DE COMPARECIMENTO"))
+    expect(within(previewSheet).getByRole("heading", { name: "Comprovante de presença" }))
       .toBeInTheDocument();
+    expect(within(dialog).queryByText("Preview")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Pronto para emitir")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/^Paciente:/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/^Clínica:/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/^Atendimento:/)).not.toBeInTheDocument();
     expect(within(dialog).getByText(/não modifica o modelo salvo/i)).toBeInTheDocument();
     fireEvent.change(within(previewSheet).getByRole("textbox"), {
       target: { value: "Texto ajustado somente nesta emissão." },
@@ -199,23 +250,19 @@ describe("PatientDocumentsSection", () => {
       .not.toBeInTheDocument();
   });
 
-  it("orienta e foca a data quando o preview é acionado sem atendimento", async () => {
+  it("não carrega preview com somente um modelo selecionado", async () => {
     mockAuthorization = authorizationFor({ issue: true });
     render(<PatientDocumentsSection patientId="41" patientName="Maria Souza" />);
     fireEvent.click(screen.getByRole("button", { name: /Novo documento/ }));
     const dialog = await screen.findByRole("dialog", { name: "Novo documento" });
-    fireEvent.click(await within(dialog).findByRole("button", {
-      name: "Buscar outro atendimento",
-    }));
-    const dateInput = within(dialog).getByLabelText("Data");
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Visualizar preview" }));
-
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-      "Selecione um atendimento recente ou informe uma data para buscar outro atendimento.",
-    );
-    await waitFor(() => expect(dateInput).toHaveFocus());
+    await selectTemplate(dialog);
+    expect(within(dialog).getByRole("button", { name: "Buscar outro atendimento" }))
+      .toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Visualizar preview" }))
+      .not.toBeInTheDocument();
     expect(previewAttendanceDeclaration).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("button", { name: "Gerar e baixar PDF" }))
+      .toBeDisabled();
   });
 
   it("limita a apresentação inicial aos cinco atendimentos mais recentes", async () => {
@@ -233,7 +280,7 @@ describe("PatientDocumentsSection", () => {
     expect(within(dialog).queryByText("Profissional 6")).not.toBeInTheDocument();
   });
 
-  it("busca por data, mantém tipo e modelo e permite múltiplos atendimentos done", async () => {
+  it("busca por data, mantém o modelo e permite múltiplos atendimentos done", async () => {
     const sessionsOnDate = [
       {
         id: 21,
@@ -264,7 +311,7 @@ describe("PatientDocumentsSection", () => {
     render(<PatientDocumentsSection patientId="41" patientName="Maria Souza" />);
     fireEvent.click(screen.getByRole("button", { name: /Novo documento/ }));
     const dialog = await screen.findByRole("dialog", { name: "Novo documento" });
-    await waitFor(() => expect(within(dialog).getAllByRole("combobox")[1]).toHaveValue("2"));
+    await selectTemplate(dialog);
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Buscar outro atendimento" }));
     expect(within(dialog).getByLabelText("Data")).toBeInTheDocument();
@@ -279,10 +326,9 @@ describe("PatientDocumentsSection", () => {
     expect(await within(dialog).findByRole("radio", { name: /Maria/ })).toBeInTheDocument();
     expect(within(dialog).getByRole("radio", { name: /Leonardo/ })).toBeInTheDocument();
     expect(within(dialog).queryByText("Não realizado")).not.toBeInTheDocument();
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveValue("2");
+    expect(within(dialog).getByRole("combobox", { name: "Modelo" })).toHaveValue("2");
 
     fireEvent.click(within(dialog).getByRole("radio", { name: /Leonardo/ }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Visualizar preview" }));
     await waitFor(() => expect(previewAttendanceDeclaration).toHaveBeenCalledWith({
       session_id: 22,
       template_id: 2,
@@ -309,54 +355,130 @@ describe("PatientDocumentsSection", () => {
       .toBeInTheDocument();
   });
 
-  it("invalida o preview ao trocar modelo ou atendimento", async () => {
+  it("trocar o modelo invalida e atualiza automaticamente o preview", async () => {
     listEligibleDocumentSessions.mockResolvedValue([
       eligibleSessions[0],
       { ...eligibleSessions[0], id: 18, professional: { name: "Dr. Paulo" } },
     ]);
+    previewAttendanceDeclaration.mockImplementation(({ template_id: templateId }) => (
+      Promise.resolve(templateId === 1
+        ? previewResponse({
+          templateId: 1,
+          templateName: "Alternativo",
+          documentTitle: "Comprovante alternativo",
+          finalText: "Texto alternativo.",
+        })
+        : previewResponse())
+    ));
     mockAuthorization = authorizationFor({ issue: true });
     render(<PatientDocumentsSection patientId="41" patientName="Maria Souza" />);
     fireEvent.click(screen.getByRole("button", { name: /Novo documento/ }));
     const dialog = await screen.findByRole("dialog", { name: "Novo documento" });
+    await selectTemplate(dialog);
     const firstSession = await within(dialog).findByRole("radio", { name: /Dra\. Ana/ });
     fireEvent.click(firstSession);
-    fireEvent.click(within(dialog).getByRole("button", { name: "Visualizar preview" }));
-    expect(await within(dialog).findByRole("textbox")).toBeInTheDocument();
+    expect(await within(dialog).findByDisplayValue("Maria Souza compareceu ao atendimento."))
+      .toBeInTheDocument();
 
-    fireEvent.change(within(dialog).getAllByRole("combobox")[1], {
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Modelo" }), {
       target: { value: "1" },
     });
     expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(await within(dialog).findByDisplayValue("Texto alternativo.")).toBeInTheDocument();
+    expect(previewAttendanceDeclaration).toHaveBeenLastCalledWith({
+      session_id: 17,
+      template_id: 1,
+    });
+  });
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Visualizar preview" }));
-    expect(await within(dialog).findByRole("textbox")).toBeInTheDocument();
+  it("trocar o atendimento invalida e atualiza automaticamente o preview", async () => {
+    listEligibleDocumentSessions.mockResolvedValue([
+      eligibleSessions[0],
+      { ...eligibleSessions[0], id: 18, professional: { name: "Dr. Paulo" } },
+    ]);
+    previewAttendanceDeclaration.mockImplementation(({ session_id: sessionId }) => (
+      Promise.resolve(previewResponse({
+        finalText: sessionId === 18 ? "Atendimento de Paulo." : "Atendimento de Ana.",
+      }))
+    ));
+    mockAuthorization = authorizationFor({ issue: true });
+    render(<PatientDocumentsSection patientId="41" patientName="Maria Souza" />);
+    fireEvent.click(screen.getByRole("button", { name: /Novo documento/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Novo documento" });
+    await selectTemplate(dialog);
+    fireEvent.click(await within(dialog).findByRole("radio", { name: /Dra\. Ana/ }));
+    expect(await within(dialog).findByDisplayValue("Atendimento de Ana.")).toBeInTheDocument();
+
     fireEvent.click(within(dialog).getByRole("radio", { name: /Dr\. Paulo/ }));
     expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(await within(dialog).findByDisplayValue("Atendimento de Paulo."))
+      .toBeInTheDocument();
+    expect(previewAttendanceDeclaration).toHaveBeenLastCalledWith({
+      session_id: 18,
+      template_id: 2,
+    });
+  });
+
+  it("ignora resposta antiga quando uma seleção mais recente já gerou outro preview", async () => {
+    const oldPreview = deferred();
+    const newPreview = deferred();
+    previewAttendanceDeclaration.mockImplementation(({ template_id: templateId }) => (
+      templateId === 2 ? oldPreview.promise : newPreview.promise
+    ));
+    mockAuthorization = authorizationFor({ issue: true });
+    render(<PatientDocumentsSection patientId="41" patientName="Maria Souza" />);
+    fireEvent.click(screen.getByRole("button", { name: /Novo documento/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Novo documento" });
+    const templateSelect = await selectTemplate(dialog);
+    fireEvent.click(await within(dialog).findByRole("radio", { name: /Dra\. Ana/ }));
+    await waitFor(() => expect(previewAttendanceDeclaration).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(templateSelect, { target: { value: "1" } });
+    await waitFor(() => expect(previewAttendanceDeclaration).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      newPreview.resolve(previewResponse({
+        templateId: 1,
+        templateName: "Alternativo",
+        documentTitle: "Comprovante alternativo",
+        finalText: "Preview mais recente.",
+      }));
+    });
+    expect(await within(dialog).findByDisplayValue("Preview mais recente."))
+      .toBeInTheDocument();
+
+    await act(async () => {
+      oldPreview.resolve(previewResponse({ finalText: "Preview antigo." }));
+    });
+    expect(within(dialog).getByDisplayValue("Preview mais recente.")).toBeInTheDocument();
+    expect(within(dialog).queryByDisplayValue("Preview antigo.")).not.toBeInTheDocument();
   });
 
   it("envia o modelo escolhido por perfil customizado no preview e na emissão", async () => {
     mockAuthorization = authorizationFor({ issue: true });
-    previewAttendanceDeclaration.mockResolvedValue({
-      patient: { name: "Maria Souza" },
-      clinic: { display_name: "Espaço Cuidar" },
-      session: { date: "15/08/2026", start_time: "11:30", end_time: "12:00" },
-      template: { id: 1, name: "Alternativo" },
-      final_text: "Texto do modelo alternativo.",
-    });
+    previewAttendanceDeclaration.mockResolvedValue(previewResponse({
+      templateId: 1,
+      templateName: "Alternativo",
+      documentTitle: "Título exclusivo do modelo alternativo",
+      finalText: "Texto do modelo alternativo.",
+    }));
     render(<PatientDocumentsSection patientId="41" patientName="Maria Souza" />);
     fireEvent.click(screen.getByRole("button", { name: /Novo documento/ }));
     const dialog = await screen.findByRole("dialog", { name: "Novo documento" });
-    await waitFor(() => expect(within(dialog).getAllByRole("combobox")).toHaveLength(2));
-    const templateSelect = within(dialog).getAllByRole("combobox")[1];
-    expect(templateSelect).toHaveValue("2");
+    const templateSelect = await within(dialog).findByRole("combobox", { name: "Modelo" });
+    expect(templateSelect).toHaveValue("");
 
     fireEvent.change(templateSelect, { target: { value: "1" } });
     fireEvent.click(within(dialog).getByRole("radio", { name: /Dra\. Ana/ }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Visualizar preview" }));
     await waitFor(() => expect(previewAttendanceDeclaration).toHaveBeenCalledWith({
       session_id: 17,
       template_id: 1,
     }));
+    const previewSheet = await within(dialog).findByRole("region", {
+      name: "Prévia visual da declaração",
+    });
+    expect(within(previewSheet).getByRole("heading", {
+      name: "Título exclusivo do modelo alternativo",
+    })).toBeInTheDocument();
     const issueButton = await within(dialog).findByRole("button", {
       name: "Gerar e baixar PDF",
     });
@@ -369,21 +491,30 @@ describe("PatientDocumentsSection", () => {
     }, "document-logical-attempt"));
   });
 
-  it("mantém o único modelo selecionado sem oferecer uma escolha desnecessária", async () => {
+  it("não pré-seleciona nem mesmo quando existe somente um modelo ativo", async () => {
     listIssuanceDocumentTemplates.mockResolvedValue([
-      { id: 7, name: "Modelo único", is_default: true },
+      {
+        id: 7,
+        name: "Modelo único",
+        document_title: "Título único",
+        is_active: true,
+      },
     ]);
     mockAuthorization = authorizationFor({ issue: true });
     render(<PatientDocumentsSection patientId="41" patientName="Maria Souza" />);
     fireEvent.click(screen.getByRole("button", { name: /Novo documento/ }));
     const dialog = await screen.findByRole("dialog", { name: "Novo documento" });
-    await waitFor(() => expect(within(dialog).getAllByRole("combobox")).toHaveLength(2));
-    const templateSelect = within(dialog).getAllByRole("combobox")[1];
+    const templateSelect = await within(dialog).findByRole("combobox", { name: "Modelo" });
 
-    expect(templateSelect).toHaveValue("7");
-    expect(templateSelect).toBeDisabled();
-    expect(within(templateSelect).getByRole("option", { name: "Modelo único (Padrão)" }))
+    expect(templateSelect).toHaveValue("");
+    expect(templateSelect).toBeEnabled();
+    expect(templateSelect).toHaveDisplayValue("Selecione um modelo");
+    expect(within(templateSelect).queryByRole("option", { name: "Selecione um modelo" }))
+      .not.toBeInTheDocument();
+    expect(within(templateSelect).getByRole("option", { name: "Modelo único" }))
       .toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Visualizar preview" }))
+      .not.toBeInTheDocument();
   });
 
   it("exibe erro quando a listagem de modelos para emissão falha", async () => {
@@ -420,10 +551,9 @@ describe("PatientDocumentsSection", () => {
     render(<PatientDocumentsSection patientId="41" patientName="Maria Souza" />);
     fireEvent.click(screen.getByRole("button", { name: /Novo documento/ }));
     const dialog = await screen.findByRole("dialog", { name: "Novo documento" });
-    await waitFor(() => expect(within(dialog).getAllByRole("combobox")[1]).toHaveValue("2"));
+    await selectTemplate(dialog);
     expect(listIssuanceDocumentTemplates).toHaveBeenCalledTimes(1);
     fireEvent.click(within(dialog).getByRole("radio", { name: /Dra\. Ana/ }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Visualizar preview" }));
     await waitFor(() => expect(within(dialog).getByRole("textbox"))
       .toBeInTheDocument());
 
@@ -447,8 +577,8 @@ describe("PatientDocumentsSection", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /Novo documento/ }));
     const dialog = await screen.findByRole("dialog", { name: "Novo documento" });
+    await selectTemplate(dialog);
     fireEvent.click(await within(dialog).findByRole("radio", { name: /Dra\. Ana/ }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Visualizar preview" }));
     expect(await within(dialog).findByRole("textbox")).toBeInTheDocument();
 
     rerender(<PatientDocumentsSection patientId="42" patientName="Joana Lima" />);

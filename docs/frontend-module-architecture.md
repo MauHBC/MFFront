@@ -171,21 +171,43 @@ mantém uma chave idempotente durante o retry da mesma confirmação e o estado
 documental é invalidado quando muda o paciente. A gestão de modelos fica em
 `/configuracoes/documentos`, restrita ao Administrador nativo. No fluxo de
 emissão, todo usuário com `clinical_records.documents.issue` consulta os modelos
-ativos por `/documents/templates`, inicia com o padrão selecionado e envia o
-`template_id` escolhido; o Backend deriva a clínica autenticada e o navegador
-nunca escolhe tenant.
+ativos por `/documents/templates`, preserva a ordem recebida, inicia sem modelo
+selecionado e mantém o preview bloqueado até uma escolha explícita. Preview e
+emissão enviam o `template_id` escolhido; o Backend deriva a clínica autenticada
+e o navegador nunca escolhe tenant.
 
-Acionar o preview sem atendimento selecionado mantém o fluxo no modal e oferece
-orientação explícita para escolher uma sessão recente ou buscar outra por data.
-Depois de gerado, o preview usa a mesma hierarquia visual de folha do editor de
-modelos — logo disponível, nome da clínica, título documental e corpo editável —
-para se aproximar da saída impressa sem retirar a edição pontual do texto.
+Na gestão administrativa, modelos não possuem preferência visual. A listagem
+mantém ativos e inativos editáveis, mostra o estado correspondente e oferece
+`Desativar` para ativos e `Ativar` para inativos pelos endpoints próprios. O
+contrato de arquivamento permanece preservado no Backend, mas não é exposto como
+ação nesta interface.
+
+O modal de emissão não expõe o tipo `attendance_declaration`: ele permanece no
+contrato interno. Modelo é a primeira escolha, começa vazio e usa um placeholder
+não selecionável; os modelos ativos preservam a ordem recebida. Assim que modelo
+e atendimento estão selecionados, o preview autoritativo é carregado
+automaticamente. Trocar qualquer uma das escolhas invalida a prévia anterior, e
+respostas assíncronas antigas são descartadas. A emissão só fica disponível para
+a combinação que originou a prévia vigente.
+
+O preview usa a mesma hierarquia visual de folha do editor de modelos — logo
+disponível, nome da clínica, o `document_title` devolvido pela API e corpo
+editável — sem repetir acima da folha paciente, clínica, atendimento, título ou
+estado. A edição pontual do texto continua restrita à emissão e não altera o
+modelo salvo.
 
 O editor administrativo de modelos apresenta o corpo editável em uma folha que
 reproduz a hierarquia da declaração, com logo disponível no contexto
-autenticado, nome da clínica e título documental. Tipo e nome do modelo ficam em
-campos compactos fora da folha; o corpo continua sendo um `textarea` nativo,
-responsivo, delimitado mesmo fora de hover/foco e sem rich-text. As variáveis
+autenticado, nome da clínica e o `document_title` do modelo. O `name` identifica
+internamente o modelo para a clínica e fica fora da folha; o `document_title`
+identifica o título visível do documento e alimenta a folha em tempo real. Os
+dois campos são obrigatórios, aparecem nessa ordem antes do editor e começam
+vazios na criação. Enquanto
+`attendance_declaration` for o único tipo suportado, a gestão não exibe tipo na
+listagem nem nos drawers: a criação envia esse valor internamente e a edição não
+o sobrescreve. O corpo continua sendo um
+`textarea` nativo, responsivo, delimitado mesmo fora de hover/foco e sem
+rich-text. As variáveis
 canônicas aparecem como informações automáticas com nomes legíveis, recebem
 destaque de fundo dentro do corpo e podem ser inseridas na seleção atual. Ao
 abrir,

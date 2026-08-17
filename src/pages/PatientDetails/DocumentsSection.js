@@ -11,7 +11,6 @@ import { FaDownload, FaFileAlt, FaPlus, FaTimes } from "react-icons/fa";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import { useClinicContext } from "../../contexts/ClinicContext";
 import { GhostButton, PrimaryButton, RowActionButton } from "../../components/AppButton";
-import { StatusPill } from "../../components/AppStatus";
 import DataLoadingState from "../../components/DataLoadingState";
 import {
   ATTENDANCE_DECLARATION,
@@ -31,7 +30,6 @@ const DOCUMENT_TYPES = Object.freeze([{
   value: ATTENDANCE_DECLARATION,
   label: "Declaração de comparecimento",
 }]);
-const DOCUMENT_TITLE = "DECLARA\u00c7\u00c3O DE COMPARECIMENTO";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "short",
@@ -96,17 +94,21 @@ function DocumentIssueModal({
   const [sessionId, setSessionId] = useState("");
   const [templateId, setTemplateId] = useState("");
   const [preview, setPreview] = useState(null);
+  const [previewSelectionKey, setPreviewSelectionKey] = useState("");
   const [finalText, setFinalText] = useState("");
   const [previewing, setPreviewing] = useState(false);
   const [issuing, setIssuing] = useState(false);
   const [operationError, setOperationError] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(null);
   const templateSelectRef = useRef(null);
-  const dateInputRef = useRef(null);
+  const previewRequestIdRef = useRef(0);
 
   const invalidatePreview = useCallback(() => {
+    previewRequestIdRef.current += 1;
     setPreview(null);
+    setPreviewSelectionKey("");
     setFinalText("");
+    setPreviewing(false);
     setOperationError("");
     setIdempotencyKey(null);
   }, []);
@@ -130,13 +132,13 @@ function DocumentIssueModal({
       .then(([sessionData, templateData]) => {
         if (!active) return;
         const availableSessions = Array.isArray(sessionData) ? sessionData : [];
-        const availableTemplates = Array.isArray(templateData) ? templateData : [];
+        const availableTemplates = Array.isArray(templateData)
+          ? templateData.filter((template) => template.is_active !== false)
+          : [];
         setRecentSessions(availableSessions.slice(0, 5));
         setTemplates(availableTemplates);
         setSessionId("");
-        const defaultTemplate = availableTemplates.find((template) => template.is_default)
-          || availableTemplates[0];
-        setTemplateId(defaultTemplate ? String(defaultTemplate.id) : "");
+        setTemplateId("");
         setResources({ status: "ready", error: "" });
         window.setTimeout(() => templateSelectRef.current?.focus(), 0);
       })
@@ -183,6 +185,47 @@ function DocumentIssueModal({
   }, [dateSearchOpen, patientId, searchDate]);
 
   useEffect(() => {
+    if (!sessionId || !templateId) return undefined;
+
+    const requestId = previewRequestIdRef.current + 1;
+    const selectionKey = `${templateId}:${sessionId}`;
+    previewRequestIdRef.current = requestId;
+    setPreviewing(true);
+    setOperationError("");
+
+    const loadPreview = async () => {
+      try {
+        const data = await previewAttendanceDeclaration({
+          session_id: Number(sessionId),
+          template_id: Number(templateId),
+        });
+        if (previewRequestIdRef.current !== requestId) return;
+        setPreview(data);
+        setPreviewSelectionKey(selectionKey);
+        setFinalText(data?.final_text || "");
+        setIdempotencyKey(null);
+      } catch (error) {
+        const message = await getDocumentErrorMessage(
+          error,
+          "Não foi possível gerar o preview do documento.",
+        );
+        if (previewRequestIdRef.current !== requestId) return;
+        setOperationError(message);
+      } finally {
+        if (previewRequestIdRef.current === requestId) setPreviewing(false);
+      }
+    };
+
+    loadPreview();
+
+    return () => {
+      if (previewRequestIdRef.current === requestId) {
+        previewRequestIdRef.current += 1;
+      }
+    };
+  }, [sessionId, templateId]);
+
+  useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const handleEscape = (event) => {
@@ -201,37 +244,13 @@ function DocumentIssueModal({
     invalidatePreview();
   };
 
-  const handlePreview = async () => {
-    if (!sessionId) {
-      setOperationError(
-        "Selecione um atendimento recente ou informe uma data para buscar outro atendimento.",
-      );
-      if (dateSearchOpen) window.setTimeout(() => dateInputRef.current?.focus(), 0);
-      return;
-    }
-    if (!templateId || previewing) return;
-    setPreviewing(true);
-    setOperationError("");
-    try {
-      const data = await previewAttendanceDeclaration({
-        session_id: Number(sessionId),
-        template_id: Number(templateId),
-      });
-      setPreview(data);
-      setFinalText(data?.final_text || "");
-      setIdempotencyKey(null);
-    } catch (error) {
-      setOperationError(await getDocumentErrorMessage(
-        error,
-        "Não foi possível gerar o preview do documento.",
-      ));
-    } finally {
-      setPreviewing(false);
-    }
-  };
+  const currentSelectionKey = sessionId && templateId ? `${templateId}:${sessionId}` : "";
+  const hasValidPreview = Boolean(
+    preview && previewSelectionKey && previewSelectionKey === currentSelectionKey,
+  );
 
   const handleIssue = async () => {
-    if (!preview || !templateId || !finalText.trim() || issuing) return;
+    if (!hasValidPreview || !finalText.trim() || issuing) return;
     const commandKey = idempotencyKey || createDocumentIdempotencyKey();
     if (!idempotencyKey) setIdempotencyKey(commandKey);
     setIssuing(true);
@@ -283,12 +302,6 @@ function DocumentIssueModal({
           {resources.status === "ready" && (
             <FlowFields>
               <FlowField>
-                <span>Tipo</span>
-                <select value={ATTENDANCE_DECLARATION} disabled>
-                  <option value={ATTENDANCE_DECLARATION}>Declaração de comparecimento</option>
-                </select>
-              </FlowField>
-              <FlowField>
                 <span>Modelo</span>
                 <select
                   ref={templateSelectRef}
@@ -297,12 +310,16 @@ function DocumentIssueModal({
                     setTemplateId(event.target.value);
                     invalidatePreview();
                   }}
-                  disabled={templates.length <= 1 || previewing || issuing}
+                  disabled={templates.length === 0 || issuing}
                 >
-                  {templates.length === 0 && <option value="">Nenhum modelo ativo disponível</option>}
+                  <option value="" disabled hidden>
+                    {templates.length > 0
+                      ? "Selecione um modelo"
+                      : "Nenhum modelo ativo disponível"}
+                  </option>
                   {templates.map((template) => (
                     <option key={template.id} value={template.id}>
-                      {template.name}{template.is_default ? " (Padrão)" : ""}
+                      {template.name}
                     </option>
                   ))}
                 </select>
@@ -329,11 +346,15 @@ function DocumentIssueModal({
                             value={session.id}
                             checked={sessionId === String(session.id)}
                             onChange={handleSessionChange}
-                            disabled={previewing || issuing}
+                            disabled={issuing}
                           />
                           <SessionCopy>
-                            <strong>{formatEligibleSession(session)}</strong>
-                            {session.professional?.name && <span>{session.professional.name}</span>}
+                            <SessionDetail>{formatEligibleSession(session)}</SessionDetail>
+                            {session.professional?.name && (
+                              <SessionProfessional>
+                                <SessionDetail>{session.professional.name}</SessionDetail>
+                              </SessionProfessional>
+                            )}
                           </SessionCopy>
                         </SessionOption>
                       ))}
@@ -347,7 +368,7 @@ function DocumentIssueModal({
                     aria-expanded={dateSearchOpen}
                     aria-controls="document-session-date-search"
                     onClick={() => setDateSearchOpen((open) => !open)}
-                    disabled={previewing || issuing}
+                    disabled={issuing}
                   >
                     {dateSearchOpen ? "Ocultar busca por data" : "Buscar outro atendimento"}
                   </GhostButton>
@@ -357,7 +378,6 @@ function DocumentIssueModal({
                       <FlowField>
                         <span>Data</span>
                         <input
-                          ref={dateInputRef}
                           type="date"
                           value={searchDate}
                           onChange={(event) => {
@@ -373,7 +393,7 @@ function DocumentIssueModal({
                             setOperationError("");
                             setSearchDate(event.target.value);
                           }}
-                          disabled={previewing || issuing}
+                          disabled={issuing}
                         />
                       </FlowField>
 
@@ -396,11 +416,15 @@ function DocumentIssueModal({
                                 value={session.id}
                                 checked={sessionId === String(session.id)}
                                 onChange={handleSessionChange}
-                                disabled={previewing || issuing}
+                                disabled={issuing}
                               />
                               <SessionCopy>
-                                <strong>{formatEligibleSession(session)}</strong>
-                                {session.professional?.name && <span>{session.professional.name}</span>}
+                                <SessionDetail>{formatEligibleSession(session)}</SessionDetail>
+                                {session.professional?.name && (
+                                  <SessionProfessional>
+                                    <SessionDetail>{session.professional.name}</SessionDetail>
+                                  </SessionProfessional>
+                                )}
                               </SessionCopy>
                             </SessionOption>
                           ))}
@@ -415,33 +439,10 @@ function DocumentIssueModal({
                 <InlineEmpty>Nenhum modelo ativo está disponível para emissão.</InlineEmpty>
               )}
 
-              <PreviewAction>
-                <GhostButton
-                  type="button"
-                  onClick={handlePreview}
-                  disabled={!templateId || previewing || issuing}
-                >
-                  {previewing ? "Gerando preview..." : "Visualizar preview"}
-                </GhostButton>
-              </PreviewAction>
+              {previewing && <SearchStatus role="status">Gerando preview...</SearchStatus>}
 
-              {preview && (
+              {hasValidPreview && (
                 <PreviewPanel>
-                  <PreviewHeading>
-                    <div>
-                      <strong>Preview</strong>
-                      <span>{preview.template?.name || "Modelo padrão"}</span>
-                    </div>
-                    <StatusPill $tone="active">Pronto para emitir</StatusPill>
-                  </PreviewHeading>
-                  <PreviewIdentity>
-                    <span><strong>Paciente:</strong> {preview.patient?.name || patientName}</span>
-                    <span><strong>Clínica:</strong> {preview.clinic?.display_name || "—"}</span>
-                    <span>
-                      <strong>Atendimento:</strong>{" "}
-                      {preview.session?.date || "—"}, {preview.session?.start_time || "—"}–{preview.session?.end_time || "—"}
-                    </span>
-                  </PreviewIdentity>
                   <PreviewDocumentCanvas>
                     <PreviewDocumentSheet aria-label="Prévia visual da declaração">
                       <PreviewDocumentHeader>
@@ -454,7 +455,9 @@ function DocumentIssueModal({
                         <PreviewClinicName>
                           {preview.clinic?.display_name || "Clínica"}
                         </PreviewClinicName>
-                        <PreviewDocumentTitle>{DOCUMENT_TITLE}</PreviewDocumentTitle>
+                        <PreviewDocumentTitle>
+                          {preview.template?.document_title || ""}
+                        </PreviewDocumentTitle>
                       </PreviewDocumentHeader>
                       <PreviewTextEditor>
                         <PreviewTextArea
@@ -486,7 +489,7 @@ function DocumentIssueModal({
           <PrimaryButton
             type="button"
             onClick={handleIssue}
-            disabled={!preview || !templateId || !finalText.trim() || issuing}
+            disabled={!hasValidPreview || !finalText.trim() || issuing}
           >
             <FaDownload aria-hidden="true" />
             {issuing ? "Gerando PDF..." : "Gerar e baixar PDF"}
@@ -1028,6 +1031,17 @@ const SessionOption = styled.label`
   }
 `;
 
+const SessionDetail = styled.span`
+  color: ${colors.textPrimary};
+  font-size: 0.92rem;
+  font-weight: 600;
+`;
+
+const SessionProfessional = styled.span`
+  margin-left: auto;
+  text-align: right;
+`;
+
 const SessionCopy = styled.span`
   min-width: 0;
   display: flex;
@@ -1035,23 +1049,13 @@ const SessionCopy = styled.span`
   justify-content: space-between;
   gap: ${spacing.md};
 
-  strong {
-    font-size: 0.92rem;
-  }
-
-  span {
-    color: ${colors.textSecondary};
-    font-size: 0.82rem;
-    font-weight: 400;
-    text-align: right;
-  }
-
   @media (max-width: 560px) {
     align-items: flex-start;
     flex-direction: column;
     gap: 2px;
 
-    span {
+    ${SessionProfessional} {
+      margin-left: 0;
       text-align: left;
     }
   }
@@ -1090,11 +1094,6 @@ const InlineEmpty = styled.div`
   color: ${colors.textSecondary};
 `;
 
-const PreviewAction = styled.div`
-  display: flex;
-  justify-content: flex-end;
-`;
-
 const PreviewPanel = styled.section`
   display: grid;
   gap: ${spacing.lg};
@@ -1102,30 +1101,6 @@ const PreviewPanel = styled.section`
   border: 1px solid ${alpha.brand022};
   border-radius: ${radii.lg};
   background: ${colors.surfaceSecondary};
-`;
-
-const PreviewHeading = styled.div`
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: ${spacing.md};
-
-  div {
-    display: grid;
-    gap: ${spacing.xs};
-  }
-
-  span {
-    color: ${colors.textSecondary};
-    font-size: 0.82rem;
-  }
-`;
-
-const PreviewIdentity = styled.div`
-  display: grid;
-  gap: ${spacing.xs};
-  color: ${colors.textSecondary};
-  font-size: 0.88rem;
 `;
 
 const PreviewDocumentCanvas = styled.div`

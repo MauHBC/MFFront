@@ -5,8 +5,6 @@ export const ATTENDANCE_DECLARATION = "attendance_declaration";
 const DOCUMENT_ERROR_MESSAGES = Object.freeze({
   CLINICAL_ACCESS_DENIED: "Você não tem autorização para realizar esta operação.",
   CLINICAL_RESOURCE_NOT_FOUND: "O paciente ou atendimento não está disponível para seu acesso.",
-  DEFAULT_DOCUMENT_TEMPLATE_CANNOT_BE_ARCHIVED:
-    "Defina outro modelo como padrão antes de arquivar este modelo.",
   DOCUMENT_CONTEXT_NOT_FOUND: "Não foi possível localizar todos os dados necessários do documento.",
   DOCUMENT_INTEGRITY_CHECK_FAILED: "A integridade deste documento não pôde ser confirmada.",
   DOCUMENT_ISSUANCE_NOT_FOUND: "Documento não encontrado ou indisponível para seu acesso.",
@@ -14,8 +12,10 @@ const DOCUMENT_ERROR_MESSAGES = Object.freeze({
   DOCUMENT_TEMPLATE_ADMIN_REQUIRED: "Somente administradores podem gerenciar modelos de documentos.",
   DOCUMENT_TEMPLATE_ARCHIVED: "Este modelo está arquivado e não pode mais ser alterado.",
   DOCUMENT_TEMPLATE_NOT_FOUND: "Modelo de documento não encontrado.",
+  DOCUMENT_TEMPLATE_REQUIRED: "Escolha um modelo para continuar.",
   IDEMPOTENCY_KEY_CONFLICT: "Esta confirmação já foi usada com dados diferentes.",
   INVALID_DOCUMENT_FINAL_TEXT: "Revise o texto final do documento.",
+  INVALID_DOCUMENT_TITLE: "Informe um título válido para o documento.",
   INVALID_DOCUMENT_PLACEHOLDER:
     "O modelo contém uma informação automática inválida ou incompleta.",
   INVALID_TEMPLATE_BODY: "Informe um texto válido para o modelo.",
@@ -56,8 +56,12 @@ export const duplicateDocumentTemplate = (templateId, payload = {}) => api
   .post(`/document-templates/${templateId}/duplicate`, payload)
   .then(unwrapData);
 
-export const setDefaultDocumentTemplate = (templateId) => api
-  .post(`/document-templates/${templateId}/set-default`)
+export const activateDocumentTemplate = (templateId) => api
+  .post(`/document-templates/${templateId}/activate`)
+  .then(unwrapData);
+
+export const deactivateDocumentTemplate = (templateId) => api
+  .post(`/document-templates/${templateId}/deactivate`)
   .then(unwrapData);
 
 export const archiveDocumentTemplate = (templateId) => api
@@ -206,8 +210,10 @@ export function createDocumentIdempotencyKey() {
 }
 
 export default {
+  activateDocumentTemplate,
   archiveDocumentTemplate,
   createDocumentTemplate,
+  deactivateDocumentTemplate,
   downloadIssuedDocument,
   downloadPdfResponse,
   duplicateDocumentTemplate,
@@ -217,6 +223,5 @@ export default {
   listEligibleDocumentSessions,
   listPatientDocuments,
   previewAttendanceDeclaration,
-  setDefaultDocumentTemplate,
   updateDocumentTemplate,
 };
