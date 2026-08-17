@@ -9,11 +9,11 @@ import { alpha, colors, layout } from "../../styles/tokens";
 
 export const AppDrawer = styled.aside`
   position: fixed;
-  top: ${layout.topbarHeight};
+  top: ${layout.appHeaderHeight};
   right: 0;
   width: 440px;
   max-width: 90vw;
-  height: calc(100vh - ${layout.topbarHeight});
+  height: calc(100vh - ${layout.appHeaderHeight});
   background: ${colors.white};
   box-shadow: -12px 0 24px ${alpha.drawerShadow};
   transform: ${(props) => (props.$open ? "translateX(0)" : "translateX(100%)")};
@@ -25,7 +25,7 @@ export const AppDrawer = styled.aside`
 
 export const DrawerBackdrop = styled.div`
   position: fixed;
-  top: ${layout.topbarHeight};
+  top: ${layout.appHeaderHeight};
   left: 0;
   right: 0;
   bottom: 0;

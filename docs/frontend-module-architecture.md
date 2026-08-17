@@ -529,7 +529,10 @@ Shell de página. Toda página administrativa começa aqui.
 
 ### `AppDrawer` — `src/components/AppDrawer`
 
-Drawer lateral para CRUD. Sempre fixo na direita, `top: 80px` (abaixo da navbar), animação por `transform`. Sempre presente no DOM — visibilidade controlada por `$open`.
+Drawer lateral para CRUD. Sempre fixo na direita e alinhado imediatamente abaixo
+do cabeçalho do `AppShell`, usando `layout.appHeaderHeight` tanto no `top` quanto
+no cálculo da altura. Possui animação por `transform` e permanece no DOM — a
+visibilidade é controlada por `$open`.
 
 | Componente | Uso |
 |---|---|

@@ -333,6 +333,21 @@ describe("Agendamentos - editar agendamento", () => {
     expect(screen.getByRole("button", { name: "Novo agendamento" })).toBeInTheDocument();
   });
 
+  it("omite Mensal da frequência do plano na visão semanal", async () => {
+    sessionsMockData = [{
+      ...baseSession,
+      billing_mode: "covered_by_plan",
+      BillingCycle: {
+        ServicePlan: { sessions_per_week: 2 },
+      },
+    }];
+
+    renderAgendamentos();
+
+    expect(await screen.findByText("2x")).toBeInTheDocument();
+    expect(screen.queryByText("Mensal 2x")).not.toBeInTheDocument();
+  });
+
   it("mostra mensagem curta e mantem bloqueada a exclusao com impacto financeiro", async () => {
     axios.post.mockResolvedValueOnce({
       data: {

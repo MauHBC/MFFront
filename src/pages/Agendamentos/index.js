@@ -571,7 +571,7 @@ const getSessionCardMetaParts = (session) => {
 
 const getWeekSessionMetaLabel = (session) => {
   if (session?.billing_mode === "covered_by_plan") {
-    return getMonthlyCardSummary(session);
+    return getMonthlyCardSummary(session).replace(/^Mensal\s*/i, "").trim();
   }
 
   const position = Number(session?.recurring_position);
