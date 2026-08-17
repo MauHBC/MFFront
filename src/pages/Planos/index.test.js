@@ -19,6 +19,7 @@ import {
   listServicePlans,
   listServicePrices,
   getPatientPlanHistory,
+  pausePatientPlan,
 } from "../../services/financial";
 import axios from "../../services/axios";
 
@@ -145,6 +146,57 @@ describe("Planos no contêiner do App Shell", () => {
       expect(screen.getByRole("heading", { name: "Serviços" })).toBeInTheDocument();
     });
     expect((await screen.findAllByText("Fisioterapia")).length).toBeGreaterThan(0);
+  });
+
+  it("exige confirmação explícita antes de enviar pausa retroativa", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: {
+        id: 31,
+        name: "Mensal 2x",
+        service_id: 7,
+        sessions_per_week: 2,
+      },
+      agenda_summary: { status: "active_recurrence", future_sessions_count: 2 },
+    };
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") return Promise.resolve({ data: {} });
+      if (url === "/services") return Promise.resolve({ data: [] });
+      if (url === "/patients") return Promise.resolve({ data: [patientPlan.Patient] });
+      if (url === "/users") return Promise.resolve({ data: [] });
+      if (url === "/unit-scheduling-policy") return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: {} });
+    });
+    pausePatientPlan.mockResolvedValue({ data: {} });
+
+    renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("button", { name: "Pausar plano" }));
+    fireEvent.change(document.getElementById("pause-starts-on"), {
+      target: { value: "2000-01-01" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar pausa" }));
+
+    const confirmation = await screen.findByRole("dialog", {
+      name: "Pausa com data retroativa",
+    });
+    expect(within(confirmation).getByText(
+      "Você está iniciando a pausa em uma data anterior. Deseja continuar?",
+    )).toBeInTheDocument();
+    expect(within(confirmation).getByText(
+      "Sessões agendadas nesse período serão suspensas. Sessões já concluídas, faltas ou canceladas não serão alteradas.",
+    )).toBeInTheDocument();
+    expect(pausePatientPlan).not.toHaveBeenCalled();
+
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Confirmar pausa" }));
+    await waitFor(() => expect(pausePatientPlan).toHaveBeenCalledWith(41, expect.objectContaining({
+      starts_on: "2000-01-01",
+      retroactive_confirmed: true,
+    })));
   });
 
   it("restaura a seção indicada pela query no acesso direto", async () => {

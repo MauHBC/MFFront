@@ -906,6 +906,7 @@ export default function Planos() {
   const [ppForm, setPpForm] = useState(makeEmptyPpForm);
   const [ppPausePlan, setPpPausePlan] = useState(null);
   const [ppPauseForm, setPpPauseForm] = useState(makeEmptyPauseForm);
+  const [ppRetroactivePauseConfirmOpen, setPpRetroactivePauseConfirmOpen] = useState(false);
   const [ppPauseEditPlan, setPpPauseEditPlan] = useState(null);
   const [ppPauseEditForm, setPpPauseEditForm] = useState(() => buildPauseEditFormFromPause(null));
   const [ppResumePlan, setPpResumePlan] = useState(null);
@@ -1723,10 +1724,11 @@ export default function Planos() {
 	    [isSaving, ppPausePlan, ppPauseEditPlan, ppResumePlan, ppCancelPlan],
 	  );
 
-	  const closePpPauseModal = useCallback(() => {
-	    setPpPausePlan(null);
-	    setPpPauseForm(makeEmptyPauseForm());
-	  }, []);
+  const closePpPauseModal = useCallback(() => {
+    setPpPausePlan(null);
+    setPpPauseForm(makeEmptyPauseForm());
+    setPpRetroactivePauseConfirmOpen(false);
+  }, []);
 
   const handlePpPauseEdit = useCallback(
     (pp) => {
@@ -1768,13 +1770,17 @@ export default function Planos() {
       }
       setIsSaving(true);
       try {
-        await updatePatientPlanPause(ppPauseEditPlan.id, {
+        const response = await updatePatientPlanPause(ppPauseEditPlan.id, {
           ends_on: ppPauseEditForm.is_indefinite ? null : ppPauseEditForm.ends_on,
           is_indefinite: ppPauseEditForm.is_indefinite,
           reason: ppPauseEditForm.reason.trim() || null,
           expected_version: Number(activePause.version || 1),
         });
         toast.success("Pausa atualizada.");
+        const blocked = Number(response?.data?.pause_reconciliation?.blocked_sessions?.length || 0);
+        if (blocked > 0) {
+          toast.warning(`${blocked} sessão(ões) permaneceram suspensas e precisam de revisão.`);
+        }
         closePpPauseEditModal();
         await loadPatientPlans();
         if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
@@ -1804,9 +1810,42 @@ export default function Planos() {
     setPpResumePlan(plan);
   }, [closePpPauseEditModal, isSaving, ppPauseEditPlan]);
 
+  const submitPpPause = useCallback(
+    async (retroactiveConfirmed = false) => {
+      if (!ppPausePlan || isSaving) return;
+      setIsSaving(true);
+      try {
+        await pausePatientPlan(ppPausePlan.id, {
+          starts_on: ppPauseForm.starts_on,
+          ends_on: ppPauseForm.is_indefinite ? null : ppPauseForm.ends_on,
+          is_indefinite: ppPauseForm.is_indefinite,
+          reason: ppPauseForm.reason.trim() || null,
+          retroactive_confirmed: retroactiveConfirmed,
+        });
+        toast.success("Plano pausado.");
+        closePpPauseModal();
+        await loadPatientPlans();
+        if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
+      } catch (err) {
+        toast.error(err?.response?.data?.error || "Erro ao pausar plano.");
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [
+      closePpPauseModal,
+      isSaving,
+      loadPatientPlanDetail,
+      loadPatientPlans,
+      patientPlanId,
+      ppPauseForm,
+      ppPausePlan,
+    ],
+  );
+
   const handlePpPauseConfirm = useCallback(
-	    async () => {
-	      if (!ppPausePlan || isSaving) return;
+    async () => {
+      if (!ppPausePlan || isSaving) return;
 	      if (!isValidDateOnly(ppPauseForm.starts_on)) {
 	        toast.error("Informe uma data de início válida.");
 	        return;
@@ -1821,25 +1860,13 @@ export default function Planos() {
 	          return;
 	        }
 	      }
-	      setIsSaving(true);
-	      try {
-	        await pausePatientPlan(ppPausePlan.id, {
-	          starts_on: ppPauseForm.starts_on,
-	          ends_on: ppPauseForm.is_indefinite ? null : ppPauseForm.ends_on,
-	          is_indefinite: ppPauseForm.is_indefinite,
-	          reason: ppPauseForm.reason.trim() || null,
-	        });
-	        toast.success("Plano pausado.");
-	        closePpPauseModal();
-        await loadPatientPlans();
-        if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
-      } catch (err) {
-        toast.error(err?.response?.data?.error || "Erro ao pausar plano.");
-      } finally {
-        setIsSaving(false);
+      if (ppPauseForm.starts_on < todayDateOnly()) {
+        setPpRetroactivePauseConfirmOpen(true);
+        return;
       }
+      await submitPpPause(false);
     },
-	    [closePpPauseModal, isSaving, loadPatientPlans, patientPlanId, ppPauseForm, ppPausePlan, loadPatientPlanDetail],
+	    [isSaving, ppPauseForm, ppPausePlan, submitPpPause],
 	  );
 
   const closePpResumeModal = useCallback(() => {
@@ -1886,11 +1913,15 @@ export default function Planos() {
       }
       setIsSaving(true);
       try {
-        await resumePatientPlan(ppResumePlan.id, {
+        const response = await resumePatientPlan(ppResumePlan.id, {
           resumes_on: ppResumeForm.resumes_on,
           expected_pause_version: Number(getPatientPlanActivePause(ppResumePlan)?.version || 1),
         });
         toast.success("Plano retomado.");
+        const blocked = Number(response?.data?.pause_reconciliation?.blocked_sessions?.length || 0);
+        if (blocked > 0) {
+          toast.warning(`${blocked} sessão(ões) permaneceram suspensas e precisam de revisão.`);
+        }
         closePpResumeModal();
         await loadPatientPlans();
         if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
@@ -3350,6 +3381,36 @@ export default function Planos() {
                 {isSaving ? "Pausando..." : "Confirmar pausa"}
               </PrimaryButton>
             </PausePlanActions>
+          </PromptCard>
+        </PromptOverlay>
+      )}
+
+      {ppRetroactivePauseConfirmOpen && ppPausePlan && (
+        <PromptOverlay>
+          <PromptCard role="dialog" aria-modal="true" aria-labelledby="retroactive-pause-title">
+            <PromptTitle id="retroactive-pause-title">Pausa com data retroativa</PromptTitle>
+            <PromptText>
+              Você está iniciando a pausa em uma data anterior. Deseja continuar?
+            </PromptText>
+            <PromptText>
+              Sessões agendadas nesse período serão suspensas. Sessões já concluídas, faltas ou canceladas não serão alteradas.
+            </PromptText>
+            <PromptActions>
+              <GhostButton
+                type="button"
+                onClick={() => setPpRetroactivePauseConfirmOpen(false)}
+                disabled={isSaving}
+              >
+                Voltar
+              </GhostButton>
+              <PrimaryButton
+                type="button"
+                onClick={() => submitPpPause(true)}
+                disabled={isSaving}
+              >
+                {isSaving ? "Pausando..." : "Confirmar pausa"}
+              </PrimaryButton>
+            </PromptActions>
           </PromptCard>
         </PromptOverlay>
       )}
