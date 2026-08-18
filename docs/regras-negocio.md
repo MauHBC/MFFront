@@ -1,26 +1,29 @@
-# Regras de negocio
+# Regras de negócio
 
-Este frontend nao e a fonte oficial das regras de negocio do MultiFisio/Espaco
-Cuidar.
-
-A fonte oficial fica no backend:
-
-```text
-../MFBackend/docs/regras-negocio/
-```
+Este frontend não é a fonte oficial das regras de negócio do Motria. A fonte
+canônica fica no MFBackend, no
+[catálogo de regras de negócio](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/README.md).
 
 Consulte principalmente:
 
-- `../MFBackend/docs/regras-negocio/agenda.md`
-- `../MFBackend/docs/regras-negocio/financeiro.md`
-- `../MFBackend/docs/regras-negocio/planos-mensais.md`
-- `../MFBackend/docs/regras-negocio/pacientes.md`
-- `../MFBackend/docs/regras-negocio/caso-clinico.md`
-- `../MFBackend/docs/regras-negocio/despesas-clinica.md`
+- [Agenda](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/agenda.md)
+- [Financeiro](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md)
+- [Planos](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/planos.md)
+- [Pacientes](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/pacientes.md)
+- [Prontuário](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/prontuario.md)
+- [Documentos](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/documentos.md)
+- [Equipe e autorizações](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/equipe-autorizacoes.md)
+- [Tenant e clínica](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/tenant-clinica.md)
 
-O frontend implementa a experiencia visual e deve preservar os contratos do
-backend. Nao mova regra financeira, saldo, status, cobranca, plano, pacote,
-reposicao ou remarcacao para uma protecao apenas visual.
+Quando a mudança atravessar domínios, use os mapas do Backend:
 
-Se a pasta `../MFBackend/docs/regras-negocio/` nao estiver disponivel no
-workspace, solicite os documentos antes de alterar fluxos de negocio.
+- [Lifecycle de Plano Mensal](https://github.com/MauHBC/MFBackend/blob/main/docs/fluxos/plano-mensal-lifecycle.md)
+- [Sessão e impactos cross-domain](https://github.com/MauHBC/MFBackend/blob/main/docs/fluxos/sessao-impactos-cross-domain.md)
+- [Provisionamento e entrada em operação do tenant](https://github.com/MauHBC/MFBackend/blob/main/docs/fluxos/provisionamento-tenant.md)
+
+O frontend implementa a experiência visual e deve preservar os contratos do
+backend. Não mova regra financeira, saldo, status, cobrança, plano, pacote,
+reposição ou remarcação para uma proteção apenas visual.
+
+Se o MFBackend não estiver disponível no workspace, use os links canônicos
+acima ou solicite os documentos antes de alterar fluxos de negócio.
