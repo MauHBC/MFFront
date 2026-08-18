@@ -109,6 +109,22 @@ export const buildPendingScheduleChangePresentation = (pendingScheduleChange) =>
   };
 };
 
+export const formatPlanHistoryEventLabel = (event) => {
+  const label = String(event?.label || "").trim();
+  if (!event?.legacy?.is_legacy) return label || "Evento do plano";
+
+  const userFacingLabel = label.replace(/^Registro legado(?: de)?\s*/i, "").trim();
+  if (!userFacingLabel) return "Evento do plano";
+  return `${userFacingLabel.charAt(0).toUpperCase()}${userFacingLabel.slice(1)}`;
+};
+
+export const getVisiblePlanHistoryChanges = (changes = []) => (
+  (Array.isArray(changes) ? changes : []).filter((change) => (
+    String(change?.field || "").trim().toLowerCase() !== "change_version"
+    && String(change?.label || "").trim().toLocaleLowerCase("pt-BR") !== "versão da alteração"
+  ))
+);
+
 export const getScheduleChangeIssues = (payload = {}) => {
   const protectedSessions = Array.isArray(payload.protected_sessions)
     ? payload.protected_sessions

@@ -77,7 +77,9 @@ import {
   createScheduleChangeIdempotencyKey,
   formatAgendaPattern,
   formatCompactDate,
+  formatPlanHistoryEventLabel,
   formatScheduleGrid,
+  getVisiblePlanHistoryChanges,
   getScheduleChangeIssues,
   scheduleChangeErrorPresentation,
 } from "./patientPlanDetailPresentation";
@@ -3350,20 +3352,18 @@ export default function Planos() {
           <PlanHistorySection>
             {ppHistoryEvents.map((event) => (
               <PlanHistoryItem key={event.id || `${event.type}-${event.sequence}`}>
-                <strong>{event.label || "Evento do plano"}</strong>
+                <strong>{formatPlanHistoryEventLabel(event)}</strong>
                 <span>
                   {formatDateTimeBR(event.occurred_at)} · {event.actor?.name
                     || (event.origin === "automatic" ? "Sistema" : "Responsável não identificado")}
                 </span>
-                {(Array.isArray(event.changes) ? event.changes : []).map((change) => (
+                {getVisiblePlanHistoryChanges(event.changes).map((change) => (
                   <small key={`${event.id}-${change.field}`}>
                     {change.label}: {formatPlanHistoryValue(change.field, change.before)} → {formatPlanHistoryValue(change.field, change.after)}
                   </small>
                 ))}
-                {event.legacy?.is_legacy && (
-                  <small>
-                    Registro legado{event.legacy?.is_incomplete ? " · evidência histórica incompleta" : ""}
-                  </small>
+                {event.legacy?.is_incomplete && (
+                  <small>Evidência histórica incompleta</small>
                 )}
               </PlanHistoryItem>
             ))}

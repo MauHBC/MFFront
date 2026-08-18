@@ -260,12 +260,20 @@ describe("Planos no contêiner do App Shell", () => {
               occurred_at: "2026-08-06T12:00:00.000Z",
               origin: "automatic",
               actor: null,
-              changes: [{
-                field: "change_status",
-                label: "Status da alteração",
-                before: "pending",
-                after: "applied",
-              }],
+              changes: [
+                {
+                  field: "change_status",
+                  label: "Status da alteração",
+                  before: "pending",
+                  after: "applied",
+                },
+                {
+                  field: "change_version",
+                  label: "Versão da alteração",
+                  before: 1,
+                  after: 2,
+                },
+              ],
               legacy: { is_legacy: false, is_incomplete: false },
             },
             {
@@ -317,8 +325,10 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.queryByText(/\{"/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Carregar eventos anteriores" }));
-    expect(await screen.findByText("Registro legado de pausa")).toBeInTheDocument();
-    expect(screen.getByText(/evidência histórica incompleta/)).toBeInTheDocument();
+    expect(await screen.findByText("Pausa")).toBeInTheDocument();
+    expect(screen.getByText(/Evidência histórica incompleta/)).toBeInTheDocument();
+    expect(screen.queryByText(/Versão da alteração/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Registro legado/i)).not.toBeInTheDocument();
     expect(getPatientPlanHistory).toHaveBeenLastCalledWith("41", {
       limit: 20,
       cursor: "cursor-11",
