@@ -665,6 +665,22 @@ Na Administração do plano mensal, a aba Histórico consome o endpoint paginado
 trocas comerciais a partir do estado atual do vínculo e nunca renderiza os
 snapshots JSON internos.
 
+O detalhe desse vínculo usa o paciente como título principal e separa os
+domínios `Plano`, `Agenda` e `Histórico` em tabs semânticas. Cada domínio mostra
+o estado corrente, no máximo uma ação principal contextual e painéis datados
+para mudanças futuras. A alteração operacional da grade é independente da
+troca comercial: o frontend chama primeiro
+`POST /patient-plans/:id/schedule-change-preview` e só confirma em
+`POST /patient-plans/:id/schedule-change` com o token, a revisão observada, a
+versão esperada e `Idempotency-Key` devolvidos ou exigidos pelo contrato. A UI
+não lê `ScheduleRevision` cru para inferir uma pendência futura; ela apresenta
+somente `pending_schedule_change` do resumo administrativo. Essa projeção
+fornece `effective_on`, `current_grid`, `proposed_grid` e o indicador
+`professional_changed`; o painel mostra a transição entre as grades e só nomeia
+a troca de profissional quando esse indicador for verdadeiro. Depois da
+confirmação, o Frontend recarrega o resumo e não mantém estado local como fonte
+de verdade, inclusive após refresh completo.
+
 > Regra: novo módulo nasce do template, não de uma cópia de Planos ou Agendamentos.
 
 ### Composição obrigatória

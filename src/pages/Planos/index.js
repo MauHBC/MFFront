@@ -62,6 +62,25 @@ import {
   buildPlanChangePreviewPresentation,
   buildPlanCommercialDisplay,
 } from "../../utils/planChangePresentation";
+import {
+  AgendaSummaryCard,
+  HistoryTimelineCard,
+  PatientPlanDetailHeader,
+  PatientPlanTabPanel,
+  PlanSummaryCard,
+  ScheduleChangeDrawer,
+  ScheduledChangePanel,
+} from "./PatientPlanDetailView";
+import {
+  buildPendingScheduleChangePresentation,
+  buildScheduleRows,
+  createScheduleChangeIdempotencyKey,
+  formatAgendaPattern,
+  formatCompactDate,
+  formatScheduleGrid,
+  getScheduleChangeIssues,
+  scheduleChangeErrorPresentation,
+} from "./patientPlanDetailPresentation";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -275,6 +294,15 @@ const todayDateOnly = () => {
   return `${y}-${m}-${day}`;
 };
 
+const tomorrowDateOnly = () => {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const isWeekendDateOnly = (value) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false;
   const date = new Date(`${value}T12:00:00`);
@@ -360,20 +388,6 @@ const isAlternatingFromPlanStartSelected = (weeks) => cycleWeeksKey(weeks) === "
 
 const isAlternatingFromNextWeekSelected = (weeks) => cycleWeeksKey(weeks) === "2,4";
 
-const formatCycleWeeksFriendly = (weeks, fallbackLabel = "") => {
-  const key = cycleWeeksKey(weeks);
-  if (key === "1,2,3,4") return "Toda semana";
-  if (key === "1,3") return "Quinzenal";
-  if (key === "2,4") return "Quinzenal, a partir da semana seguinte";
-
-  const fallback = String(fallbackLabel || "").trim();
-  if (/toda semana/i.test(fallback)) return "Toda semana";
-  if (/1.?\s*e\s*3./i.test(fallback)) return "Quinzenal";
-  if (/2.?\s*e\s*4./i.test(fallback)) return "Quinzenal, a partir da semana seguinte";
-  if (!fallback || fallback === "—") return "";
-  return fallback.replace(/\s+do mês$/i, "").replace(/\s+do ciclo$/i, "");
-};
-
 const formatWeekdayList = (value) => {
   const weekdays = normalizeWeekdays(value);
   if (weekdays.length === 0) return "-";
@@ -381,18 +395,6 @@ const formatWeekdayList = (value) => {
     .map((day) => WEEKDAY_OPTIONS.find((opt) => opt.value === day)?.label)
     .filter(Boolean);
   if (labels.length === 0) return "-";
-  if (labels.length === 1) return labels[0];
-  if (labels.length === 2) return `${labels[0]} e ${labels[1]}`;
-  return `${labels.slice(0, -1).join(", ")} e ${labels[labels.length - 1]}`;
-};
-
-const formatWeekdayLongList = (value) => {
-  const weekdays = normalizeWeekdays(value);
-  if (weekdays.length === 0) return "";
-  const labels = weekdays
-    .map((day) => WEEKDAY_FULL_LABELS[day])
-    .filter(Boolean);
-  if (labels.length === 0) return "";
   if (labels.length === 1) return labels[0];
   if (labels.length === 2) return `${labels[0]} e ${labels[1]}`;
   return `${labels.slice(0, -1).join(", ")} e ${labels[labels.length - 1]}`;
@@ -426,13 +428,6 @@ const getPatientPlanBackendAgendaSummary = (pp) => {
   return summary;
 };
 
-const formatAgendaNextSession = (nextSession) => {
-  if (!nextSession || typeof nextSession !== "object") return "—";
-  const date = nextSession.date ? formatDateBR(nextSession.date) : "—";
-  const time = nextSession.time || "—";
-  return `${date} às ${time}`;
-};
-
 const formatDayOfMonth = (day) => (day ? `Dia ${day}` : "—");
 
 const mapBadgeTone = (tone) => {
@@ -440,15 +435,6 @@ const mapBadgeTone = (tone) => {
   if (tone === "danger") return "canceled";
   if (tone === "warning") return "paused";
   return tone || "neutral";
-};
-
-const formatCycleWeeksForPlanInfo = (label, weeks = null) => {
-  const friendly = formatCycleWeeksFriendly(weeks, label);
-  if (friendly) return friendly;
-  const normalized = String(label || "").trim();
-  if (!normalized || normalized === "—") return "";
-  if (/toda semana/i.test(normalized)) return "Toda semana";
-  return `${normalized} do ciclo`;
 };
 
 const simplifyPlanStatusLabel = (label) => (
@@ -537,6 +523,24 @@ const getHourTimeValue = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+};
+
+const getScheduleChangeInitialRows = (patientPlan, agendaSummary) => {
+  const rows = getPlanSeriesList(patientPlan)
+    .filter((series) => series?.lifecycle_status !== "ended" && !series?.ended_at)
+    .flatMap((series) => normalizeWeekdays(series?.weekdays).map((weekday) => ({
+      weekday,
+      time: getHourTimeValue(series?.starts_at) || agendaSummary?.time || "08:00",
+      professional_user_id: Number(
+        series?.professional_user_id || agendaSummary?.professional_user_id || 0,
+      ),
+    })));
+  if (rows.length > 0) return rows;
+  return normalizeWeekdays(agendaSummary?.weekdays).map((weekday) => ({
+    weekday,
+    time: agendaSummary?.time || "08:00",
+    professional_user_id: Number(agendaSummary?.professional_user_id || 0),
+  }));
 };
 
 const normalizeScheduleTimeValue = (timeValue, allowBrokenTimeScheduling = false) => {
@@ -821,6 +825,21 @@ const EMPTY_PLAN_CHANGE_PREVIEW = {
   error: "",
 };
 
+const makeEmptyScheduleChangeForm = () => ({
+  effective_on: tomorrowDateOnly(),
+  minimum_effective_on: tomorrowDateOnly(),
+  professional_user_id: "",
+  weekdays: [],
+  times_by_weekday: {},
+});
+
+const EMPTY_SCHEDULE_CHANGE_PREVIEW = {
+  status: "idle",
+  data: null,
+  error: "",
+  issues: [],
+};
+
 const EMPTY_CANCEL = {
   effectiveDate: todayDateOnly(),
   reason: "",
@@ -944,6 +963,14 @@ export default function Planos() {
   const planChangeSubmittingRef = useRef(false);
   const planChangePreviewRequestRef = useRef(0);
   const planChangeCancelSubmittingRef = useRef(false);
+  const [scheduleChangeOpen, setScheduleChangeOpen] = useState(false);
+  const [scheduleChangeForm, setScheduleChangeForm] = useState(makeEmptyScheduleChangeForm);
+  const [scheduleChangePreview, setScheduleChangePreview] = useState(
+    EMPTY_SCHEDULE_CHANGE_PREVIEW,
+  );
+  const [scheduleChangeSaving, setScheduleChangeSaving] = useState(false);
+  const scheduleChangePreviewRequestRef = useRef(0);
+  const scheduleChangeIdempotencyRef = useRef(null);
   const [operationalPolicy, setOperationalPolicy] = useState(DEFAULT_OPERATIONAL_POLICY);
 
   // Schedule sessions drawer (open from PatientPlan row)
@@ -1183,6 +1210,10 @@ export default function Planos() {
       setPpDetailSection(PATIENT_PLAN_DETAIL_SECTIONS.plan);
       setFutureRemovalPreview(null);
       setFutureRemovalIncludeToday(false);
+      setScheduleChangeOpen(false);
+      setScheduleChangeForm(makeEmptyScheduleChangeForm());
+      setScheduleChangePreview(EMPTY_SCHEDULE_CHANGE_PREVIEW);
+      scheduleChangeIdempotencyRef.current = null;
       return;
     }
     setActiveTab("patient-plans");
@@ -1191,6 +1222,10 @@ export default function Planos() {
     setPpDetailSection(PATIENT_PLAN_DETAIL_SECTIONS.plan);
     setFutureRemovalPreview(null);
     setFutureRemovalIncludeToday(false);
+    setScheduleChangeOpen(false);
+    setScheduleChangeForm(makeEmptyScheduleChangeForm());
+    setScheduleChangePreview(EMPTY_SCHEDULE_CHANGE_PREVIEW);
+    scheduleChangeIdempotencyRef.current = null;
     loadPatientPlanDetail(patientPlanId);
   }, [loadPatientPlanDetail, patientPlanId]);
 
@@ -2626,6 +2661,229 @@ export default function Planos() {
     ppDetailPlan,
   ]);
 
+  const invalidateScheduleChangePreview = useCallback(() => {
+    scheduleChangePreviewRequestRef.current += 1;
+    scheduleChangeIdempotencyRef.current = null;
+    setScheduleChangePreview(EMPTY_SCHEDULE_CHANGE_PREVIEW);
+  }, []);
+
+  const closeScheduleChange = useCallback(() => {
+    if (scheduleChangeSaving) return;
+    scheduleChangePreviewRequestRef.current += 1;
+    scheduleChangeIdempotencyRef.current = null;
+    setScheduleChangeOpen(false);
+    setScheduleChangeForm(makeEmptyScheduleChangeForm());
+    setScheduleChangePreview(EMPTY_SCHEDULE_CHANGE_PREVIEW);
+  }, [scheduleChangeSaving]);
+
+  const openScheduleChange = useCallback(() => {
+    if (!ppDetailPlan?.id) return;
+    const agendaSummary = ppAdminSummary?.agenda_summary
+      || getPatientPlanBackendAgendaSummary(ppDetailPlan);
+    const initialRows = getScheduleChangeInitialRows(ppDetailPlan, agendaSummary);
+    const initialProfessionalId = initialRows[0]?.professional_user_id
+      || agendaSummary?.professional_user_id
+      || "";
+    const initialWeekdays = initialRows.map((row) => Number(row.weekday));
+    const initialTimes = initialRows.reduce((result, row) => ({
+      ...result,
+      [String(row.weekday)]: row.time || "08:00",
+    }), {});
+    const minimumDate = tomorrowDateOnly();
+    setScheduleChangeForm({
+      effective_on: minimumDate,
+      minimum_effective_on: minimumDate,
+      professional_user_id: initialProfessionalId ? String(initialProfessionalId) : "",
+      weekdays: initialWeekdays,
+      times_by_weekday: initialTimes,
+    });
+    setScheduleChangePreview(EMPTY_SCHEDULE_CHANGE_PREVIEW);
+    scheduleChangeIdempotencyRef.current = null;
+    setScheduleChangeOpen(true);
+    loadPatientProfessionals(ppDetailPlan.patient_id);
+  }, [loadPatientProfessionals, ppAdminSummary, ppDetailPlan]);
+
+  const handleScheduleChangeField = useCallback((event) => {
+    const { name, value } = event.target;
+    setScheduleChangeForm((current) => ({ ...current, [name]: value }));
+    invalidateScheduleChangePreview();
+  }, [invalidateScheduleChangePreview]);
+
+  const toggleScheduleChangeWeekday = useCallback((weekday) => {
+    const agendaSummary = ppAdminSummary?.agenda_summary
+      || getPatientPlanBackendAgendaSummary(ppDetailPlan);
+    const frequency = normalizeSessionsPerWeek(
+      ppAdminSummary?.plan_data_summary?.sessions_per_week
+      || ppDetailPlan?.contracted_sessions_per_week
+      || ppDetailPlan?.ServicePlan?.sessions_per_week,
+    ) || 1;
+    setScheduleChangeForm((current) => {
+      const selected = current.weekdays.includes(weekday);
+      if (!selected && current.weekdays.length >= frequency) return current;
+      const weekdays = selected
+        ? current.weekdays.filter((item) => item !== weekday)
+        : [...current.weekdays, weekday].sort((left, right) => left - right);
+      const timesByWeekday = { ...current.times_by_weekday };
+      if (selected) delete timesByWeekday[String(weekday)];
+      else if (!timesByWeekday[String(weekday)]) {
+        timesByWeekday[String(weekday)] = agendaSummary?.time || "08:00";
+      }
+      return { ...current, weekdays, times_by_weekday: timesByWeekday };
+    });
+    invalidateScheduleChangePreview();
+  }, [invalidateScheduleChangePreview, ppAdminSummary, ppDetailPlan]);
+
+  const setScheduleChangeWeekdayTime = useCallback((weekday, time) => {
+    setScheduleChangeForm((current) => ({
+      ...current,
+      times_by_weekday: {
+        ...current.times_by_weekday,
+        [String(weekday)]: time,
+      },
+    }));
+    invalidateScheduleChangePreview();
+  }, [invalidateScheduleChangePreview]);
+
+  const previewScheduleChange = useCallback(async () => {
+    if (!ppDetailPlan?.id || scheduleChangeSaving) return;
+    const frequency = normalizeSessionsPerWeek(
+      ppAdminSummary?.plan_data_summary?.sessions_per_week
+      || ppDetailPlan?.contracted_sessions_per_week
+      || ppDetailPlan?.ServicePlan?.sessions_per_week,
+    );
+    const schedule = buildScheduleRows({
+      weekdays: scheduleChangeForm.weekdays,
+      timesByWeekday: scheduleChangeForm.times_by_weekday,
+      professionalUserId: scheduleChangeForm.professional_user_id,
+    });
+    let validationMessage = "";
+    if (!scheduleChangeForm.effective_on
+      || scheduleChangeForm.effective_on < scheduleChangeForm.minimum_effective_on) {
+      validationMessage = "Escolha uma data a partir de amanhã.";
+    } else if (!scheduleChangeForm.professional_user_id) {
+      validationMessage = "Selecione o profissional.";
+    } else if (!frequency || schedule.length !== frequency) {
+      validationMessage = `Selecione exatamente ${frequency || 1} dia(s).`;
+    } else if (schedule.some((row) => !/^\d{2}:\d{2}$/.test(row.time))) {
+      validationMessage = "Informe o horário de cada dia.";
+    }
+    if (validationMessage) {
+      setScheduleChangePreview({
+        ...EMPTY_SCHEDULE_CHANGE_PREVIEW,
+        status: "error",
+        error: validationMessage,
+      });
+      return;
+    }
+
+    const requestId = scheduleChangePreviewRequestRef.current + 1;
+    scheduleChangePreviewRequestRef.current = requestId;
+    setScheduleChangePreview({
+      ...EMPTY_SCHEDULE_CHANGE_PREVIEW,
+      status: "loading",
+    });
+    try {
+      const response = await axios.post(
+        `/patient-plans/${ppDetailPlan.id}/schedule-change-preview`,
+        {
+          effective_on: scheduleChangeForm.effective_on,
+          schedule,
+        },
+      );
+      if (scheduleChangePreviewRequestRef.current !== requestId) return;
+      const data = response.data || {};
+      scheduleChangeIdempotencyRef.current = createScheduleChangeIdempotencyKey(ppDetailPlan.id);
+      setScheduleChangePreview({
+        status: "success",
+        data,
+        error: data.can_confirm === false
+          ? "Resolva os impedimentos abaixo antes de confirmar."
+          : "",
+        issues: getScheduleChangeIssues(data),
+      });
+    } catch (error) {
+      if (scheduleChangePreviewRequestRef.current !== requestId) return;
+      const presentation = scheduleChangeErrorPresentation(error);
+      const minimumDate = error?.response?.data?.minimum_effective_on;
+      if (minimumDate) {
+        setScheduleChangeForm((current) => ({
+          ...current,
+          minimum_effective_on: minimumDate,
+          effective_on: current.effective_on < minimumDate ? minimumDate : current.effective_on,
+        }));
+      }
+      setScheduleChangePreview({
+        status: "error",
+        data: null,
+        error: presentation.message,
+        issues: presentation.issues,
+      });
+    }
+  }, [ppAdminSummary, ppDetailPlan, scheduleChangeForm, scheduleChangeSaving]);
+
+  const confirmScheduleChange = useCallback(async () => {
+    const preview = scheduleChangePreview.data;
+    if (
+      !ppDetailPlan?.id
+      || scheduleChangeSaving
+      || scheduleChangePreview.status !== "success"
+      || preview?.can_confirm !== true
+    ) return;
+    const schedule = buildScheduleRows({
+      weekdays: scheduleChangeForm.weekdays,
+      timesByWeekday: scheduleChangeForm.times_by_weekday,
+      professionalUserId: scheduleChangeForm.professional_user_id,
+    });
+    const selectedProfessional = patientProfessionals.find((professional) => (
+      String(professional.id) === String(scheduleChangeForm.professional_user_id)
+    ));
+    const idempotencyKey = scheduleChangeIdempotencyRef.current
+      || createScheduleChangeIdempotencyKey(ppDetailPlan.id);
+    scheduleChangeIdempotencyRef.current = idempotencyKey;
+    setScheduleChangeSaving(true);
+    setScheduleChangePreview((current) => ({ ...current, error: "", issues: [] }));
+    try {
+      await axios.post(
+        `/patient-plans/${ppDetailPlan.id}/schedule-change`,
+        {
+          effective_on: preview.effective_on,
+          schedule,
+          observed_revision_id: Number(preview.observed_revision_id),
+          expected_version: Number(preview.expected_version),
+          preview_token: preview.preview_token,
+          assign_patient_care: selectedProfessional?.is_assigned === false,
+        },
+        { headers: { "Idempotency-Key": idempotencyKey } },
+      );
+      setScheduleChangeOpen(false);
+      setScheduleChangePreview(EMPTY_SCHEDULE_CHANGE_PREVIEW);
+      setScheduleChangeForm(makeEmptyScheduleChangeForm());
+      scheduleChangeIdempotencyRef.current = null;
+      toast.success("Alteração da Agenda agendada.");
+      await loadPatientPlans();
+      await loadPatientPlanDetail(ppDetailPlan.id);
+      setPpDetailSection(PATIENT_PLAN_DETAIL_SECTIONS.agenda);
+    } catch (error) {
+      const presentation = scheduleChangeErrorPresentation(error);
+      setScheduleChangePreview((current) => ({
+        status: presentation.stale ? "error" : current.status,
+        data: presentation.stale ? null : current.data,
+        error: presentation.message,
+        issues: presentation.issues,
+      }));
+    } finally {
+      setScheduleChangeSaving(false);
+    }
+  }, [
+    loadPatientPlanDetail,
+    loadPatientPlans,
+    patientProfessionals,
+    ppDetailPlan,
+    scheduleChangeForm,
+    scheduleChangePreview,
+    scheduleChangeSaving,
+  ]);
+
   // ---- Drawer visibility ----
 
   const anyDrawerOpen = svcDrawerOpen
@@ -2767,17 +3025,10 @@ export default function Planos() {
   const ppDetailFutureSessionsCount = Number(ppDetailAgendaSummary?.future_sessions_count || 0);
   const ppDetailAgendaStatus = ppDetailAgendaSummary?.status || "not_configured";
   const ppDetailAgendaCanConfigure = ppDetailAgendaSummary?.can_configure_agenda === true;
-  const ppDetailAgendaCanManage = ppDetailAgendaSummary?.can_manage_agenda === true;
   const ppDetailAgendaCanRemoveFuture = ppDetailAgendaSummary?.can_remove_future_sessions === true;
   const ppDetailAgendaPrimaryAction = ppDetailAgendaSummary?.primary_action || null;
   const ppDetailAgendaNeedsNewSchedule = ppDetailAgendaPrimaryAction === "configure_new_agenda"
     || ppDetailAgendaStatus === "no_future_sessions";
-  let ppDetailAgendaActionLabel = "Configurar agenda";
-  if (ppDetailAgendaCanManage) {
-    ppDetailAgendaActionLabel = "Gerenciar agenda";
-  } else if (ppDetailAgendaPrimaryAction === "configure_new_agenda") {
-    ppDetailAgendaActionLabel = "Configurar nova agenda";
-  }
   const ppDetailPauseInfo = ppDetailPlan ? getPatientPlanPauseInfo(ppDetailPlan) : null;
   const goToPatientAgenda = useCallback(() => {
     if (!ppDetailPlan?.patient_id) return;
@@ -2844,118 +3095,8 @@ export default function Planos() {
     isSaving || ppPausePlan || ppPauseEditPlan || ppResumePlan || ppCancelPlan,
   );
   const isPpDetailDataLoading = ppDetailLoading && !ppDetailPlan;
-  let ppDetailEditActions = null;
-  if (!isPpDetailDataLoading && ppDetailEditing) {
-    ppDetailEditActions = (
-      <>
-        <GhostButton
-          type="button"
-          onClick={cancelPpDetailEditing}
-          disabled={isSaving}
-        >
-          Cancelar edição
-        </GhostButton>
-        <SaveBtn
-          type="button"
-          onClick={savePpDetailEditing}
-          disabled={isSaving}
-        >
-          {isSaving ? "Salvando..." : "Salvar"}
-        </SaveBtn>
-      </>
-    );
-  } else if (!isPpDetailDataLoading && ppDetailPlan?.status !== "canceled") {
-    ppDetailEditActions = (
-      <>
-        <GhostButton type="button" onClick={startPpDetailEditing}>
-          Editar dados
-        </GhostButton>
-        {ppDetailPlan?.status === "active" && ppCommercialDisplay.show_create_action && (
-          <GhostButton type="button" onClick={openPlanChange}>
-            Trocar plano
-          </GhostButton>
-        )}
-        {ppDetailPlan?.status === "active" && ppCommercialDisplay.show_edit_action && (
-          <GhostButton type="button" onClick={openPlanChange} disabled={isPpStatusActionBusy}>
-            Editar troca agendada
-          </GhostButton>
-        )}
-        {ppDetailPlan?.status === "active" && ppCommercialDisplay.show_cancel_action && (
-          <DangerButton
-            type="button"
-            onClick={openScheduledPlanChangeCancellation}
-            disabled={isPpStatusActionBusy}
-          >
-            Cancelar troca agendada
-          </DangerButton>
-        )}
-      </>
-    );
-  }
-  let ppDetailAgendaCardAction = null;
-  if (!isPpDetailDataLoading && ppDetailAgendaCanManage && !ppDetailAgendaNeedsNewSchedule) {
-    ppDetailAgendaCardAction = (
-      <GhostButton
-        type="button"
-        disabled={ppDetailEditing}
-        onClick={() => toast.info(
-          "Para alterar os lançamentos da agenda, remova os lançamentos futuros primeiro.",
-          { autoClose: 10000 },
-        )}
-      >
-        <FaCalendarAlt /> {ppDetailAgendaActionLabel}
-      </GhostButton>
-    );
-  } else if (!isPpDetailDataLoading && ppDetailAgendaCanConfigure) {
-    ppDetailAgendaCardAction = (
-      <PrimaryButton
-        type="button"
-        disabled={ppDetailEditing}
-        onClick={() => openSchedDrawer(ppDetailPlan, {
-          mode: ppDetailAgendaNeedsNewSchedule ? "new" : "manage",
-        })}
-      >
-        <FaCalendarAlt /> {ppDetailAgendaActionLabel}
-      </PrimaryButton>
-    );
-  }
-  const ppDetailFutureRemovalAction = !isPpDetailDataLoading && ppDetailAgendaCanRemoveFuture ? (
-    <DangerButton
-      type="button"
-      disabled={ppDetailEditing || (!futureRemovalPreview && futureRemovalLoading) || futureRemovalConfirming}
-      onClick={openFutureRemovalPreview}
-    >
-      {!futureRemovalPreview && futureRemovalLoading ? "Carregando..." : "Remover lançamentos futuros"}
-    </DangerButton>
-  ) : null;
   const ppDetailAgendaHasActiveRecurrence = ppDetailAgendaStatus === "active_recurrence"
     && ppDetailFutureSessionsCount > 0;
-  const ppDetailAgendaShortStatusLabel = ppDetailAgendaHasActiveRecurrence
-    ? "Ativa"
-    : "Pendente";
-  const ppDetailNextSessionText = ppDetailAgendaSummary?.next_session
-    ? formatAgendaNextSession(ppDetailAgendaSummary.next_session)
-    : "—";
-  const ppDetailPlanFrequency = ppAdminPlanData?.frequency_label
-    || ppDetailSummary?.frequency
-    || "-";
-  const ppDetailPlanCycleWeeksLabel = ppAdminPlanData?.included_cycle_weeks_label
-    || ppDetailAgendaSummary?.included_cycle_weeks_label
-    || "Toda semana";
-  const ppDetailPlanCycleWeeks = ppAdminPlanData?.included_cycle_weeks
-    || ppDetailAgendaSummary?.included_cycle_weeks
-    || getPlanIncludedCycleWeeks(ppDetailPlan);
-  const ppDetailPlanCycleWeeksText = formatCycleWeeksForPlanInfo(
-    ppDetailPlanCycleWeeksLabel,
-    ppDetailPlanCycleWeeks,
-  );
-  const ppDetailAgendaWeekdaysText = formatWeekdayLongList(
-    ppDetailAgendaSummary?.weekdays || getPrimaryPlanSeries(ppDetailPlan)?.weekdays,
-  );
-  const ppDetailAgendaWeeklyFrequencyText = [
-    ppDetailPlanFrequency && ppDetailPlanFrequency !== "-" ? ppDetailPlanFrequency : null,
-    ppDetailAgendaWeekdaysText || null,
-  ].filter(Boolean).join(" - ");
   const ppDetailPlanValue = ppAdminPlanData?.price_cents != null
     ? formatPrice(ppAdminPlanData.price_cents)
     : ppDetailSummary?.price || "-";
@@ -2967,15 +3108,8 @@ export default function Planos() {
   );
   const ppDetailPlanNotes = String(ppAdminPlanData?.notes || ppDetailPlan?.notes || "").trim();
   const ppDetailPlanDataContent = (() => {
-    if (isPpDetailDataLoading) {
-      return (
-      <PlanBlockLoading>
-        <DataLoadingState text="Carregando dados do plano..." compact />
-      </PlanBlockLoading>
-      );
-    }
-    if (ppDetailEditing) {
-      return (
+    if (!ppDetailEditing) return null;
+    return (
       <PlanSummaryList>
         <PlanSummaryItem>
           <PlanSummaryLabel>Plano comercial</PlanSummaryLabel>
@@ -3047,215 +3181,211 @@ export default function Planos() {
           </PlanSummaryValue>
         </PlanSummaryItem>
       </PlanSummaryList>
-      );
-    }
-    return (
-      <PlanAdminContentStack>
-        <PlanInfoRows>
-          <PlanInfoRow>
-            <span>Plano atual</span>
-            <strong>{ppCommercialDisplay.current_plan_name}</strong>
-          </PlanInfoRow>
-          {ppPendingPlanChange && (
-            <>
-              <PlanInfoRow>
-                <span>Troca agendada para</span>
-                <strong>{formatDateBR(ppPendingPlanChange.effective_on)}</strong>
-              </PlanInfoRow>
-              <PlanInfoRow>
-                <span>Configuração vigente</span>
-                <strong>
-                  {[
-                    ppCommercialDisplay.current_plan_name,
-                    ppAdminPlanData?.frequency_label,
-                    ppCommercialDisplay.current_schedule_text,
-                  ].filter(Boolean).join(" · ") || "—"}
-                </strong>
-              </PlanInfoRow>
-              <PlanInfoRow>
-                <span>Configuração futura</span>
-                <strong>
-                  {[
-                    ppPendingPlanChange.service_plan_name || "Novo plano",
-                    ppPendingPlanChange.new_configuration?.frequency_label,
-                    ppPendingPlanScheduleText,
-                  ].filter(Boolean).join(" · ") || "—"}
-                </strong>
-              </PlanInfoRow>
-            </>
-          )}
-          <PlanInfoRow>
-            <span>Início</span>
-            <strong>{ppDetailPlanStartsAt}</strong>
-          </PlanInfoRow>
-          <PlanInfoRow>
-            <span>Vencimento</span>
-            <strong>{ppDetailPlanAnchorDay === "—" ? "—" : ppDetailPlanAnchorDay}</strong>
-          </PlanInfoRow>
-          <PlanInfoRow>
-            <span>Valor</span>
-            <strong>{ppDetailPlanValue}</strong>
-          </PlanInfoRow>
-          {ppDetailPlanNotes && (
-            <PlanInfoRow>
-              <span>Observações</span>
-              <PlanNotesValue>{ppDetailPlanNotes}</PlanNotesValue>
-            </PlanInfoRow>
-          )}
-          <PlanInfoRow>
-            <span>Status do plano</span>
-            <PlanInfoValue $tone={mapBadgeTone(ppDetailStatus?.tone)}>
-              {simplifyPlanStatusLabel(ppAdminHeader?.plan_status_label || ppDetailStatus?.label)}
-            </PlanInfoValue>
-          </PlanInfoRow>
-          <PlanInfoRow>
-            <PlanInfoLabel>
-              Agenda
-              <IconShortcutButton
-                type="button"
-                onClick={goToPatientAgenda}
-                disabled={!ppDetailPlan?.patient_id}
-                title="Abrir agenda deste paciente"
-                aria-label="Abrir agenda deste paciente"
-              >
-                <FaCalendarAlt />
-              </IconShortcutButton>
-            </PlanInfoLabel>
-            <PlanInfoValue $tone={ppDetailAgendaHasActiveRecurrence ? "active" : "paused"}>
-              {ppDetailAgendaShortStatusLabel}
-            </PlanInfoValue>
-          </PlanInfoRow>
-        </PlanInfoRows>
-      </PlanAdminContentStack>
     );
   })();
-  let ppDetailAgendaCardContent = null;
+
+  const ppDetailCurrentStatusLabel = ppDetailHasFutureCancellation
+    ? "Ativo"
+    : simplifyPlanStatusLabel(ppAdminHeader?.plan_status_label || ppDetailStatus?.label);
+  const ppDetailStatusTone = mapBadgeTone(
+    ppDetailHasFutureCancellation ? "success" : ppDetailStatus?.tone,
+  );
+  const ppDetailPlanName = ppCommercialDisplay.current_plan_name || ppDetailSummary?.planName || "Plano";
+  const ppDetailBillingSummary = ppAdminPlanData?.is_no_charge === true
+    || ppDetailPlan?.is_no_charge === true
+    ? ["Sem cobrança", ppDetailPlanAnchorDay !== "—" ? `vence ${ppDetailPlanAnchorDay.toLowerCase()}` : null]
+      .filter(Boolean).join(" · ")
+    : [
+      ppDetailPlanValue && ppDetailPlanValue !== "-" ? `${ppDetailPlanValue}/mês` : null,
+      ppDetailPlanAnchorDay !== "—" ? `vence ${ppDetailPlanAnchorDay.toLowerCase()}` : null,
+    ].filter(Boolean).join(" · ");
+  const ppDetailStartSummary = ppDetailPlanStartsAt && ppDetailPlanStartsAt !== "-"
+    ? `Desde ${formatCompactDate(
+      ppAdminPlanData?.starts_at || ppDetailPlan?.starts_at,
+      { includeYear: true },
+    )}`
+    : "";
+  const ppDetailHeaderSummary = [ppDetailPlanName, ppDetailCurrentStatusLabel]
+    .filter(Boolean).join(" · ");
+
+  let ppDetailPlanPrimaryAction = null;
+  let ppDetailPlanSecondaryAction = null;
+  if (!isPpDetailDataLoading && ppDetailEditing) {
+    ppDetailPlanPrimaryAction = {
+      label: isSaving ? "Salvando..." : "Salvar",
+      onClick: savePpDetailEditing,
+      disabled: isSaving,
+    };
+    ppDetailPlanSecondaryAction = {
+      label: "Cancelar edição",
+      onClick: cancelPpDetailEditing,
+      disabled: isSaving,
+    };
+  } else if (!isPpDetailDataLoading && ppDetailPlan?.status !== "canceled") {
+    ppDetailPlanSecondaryAction = { label: "Editar dados", onClick: startPpDetailEditing };
+    if (ppDetailPlan?.status === "paused") {
+      ppDetailPlanPrimaryAction = {
+        label: "Gerenciar pausa",
+        onClick: () => handlePpPauseEdit(ppDetailPlan),
+        disabled: isPpStatusActionBusy,
+      };
+    } else if (ppDetailHasFutureCancellation) {
+      ppDetailPlanPrimaryAction = {
+        label: "Alterar cancelamento",
+        onClick: () => handlePpCancel(ppDetailPlan),
+        disabled: isPpStatusActionBusy,
+      };
+    } else if (ppCommercialDisplay.show_edit_action) {
+      ppDetailPlanPrimaryAction = {
+        label: "Revisar troca",
+        onClick: openPlanChange,
+        disabled: isPpStatusActionBusy,
+      };
+    } else if (ppDetailPlan?.status === "active" && ppCommercialDisplay.show_create_action) {
+      ppDetailPlanPrimaryAction = { label: "Trocar plano", onClick: openPlanChange };
+    }
+  }
+  const ppDetailPlanMenuActions = ppDetailEditing || ppDetailPlan?.status === "canceled" ? [] : [
+    {
+      label: "Pausar plano",
+      onClick: () => handlePpPause(ppDetailPlan),
+      visible: ppDetailPlan?.status === "active" && !ppDetailHasFutureCancellation,
+      disabled: isPpStatusActionBusy,
+    },
+    {
+      label: "Cancelar plano",
+      onClick: () => handlePpCancel(ppDetailPlan),
+      visible: !ppDetailHasFutureCancellation,
+      critical: true,
+      disabled: isPpStatusActionBusy,
+    },
+  ];
+
+  const agendaStatusPresentation = {
+    active_recurrence: { label: "Ativa", tone: "active" },
+    not_configured: { label: "Sem agenda", tone: "neutral" },
+    no_future_sessions: { label: "Sem sessões futuras", tone: "paused" },
+    plan_paused: { label: "Pausada", tone: "paused" },
+    plan_canceled: { label: "Cancelada", tone: "canceled" },
+  }[ppDetailAgendaStatus] || {
+    label: ppDetailAgendaSummary?.status_label || "Indisponível",
+    tone: "neutral",
+  };
+  const ppDetailAgendaPattern = ppDetailAgendaHasActiveRecurrence
+    ? formatAgendaPattern(ppDetailAgendaSummary)
+    : "";
+  const ppDetailNextSessionCompact = ppDetailAgendaSummary?.next_session
+    ? `${formatCompactDate(ppDetailAgendaSummary.next_session.date)} às ${ppDetailAgendaSummary.next_session.time}`
+    : "";
+  const ppDetailAgendaSupportingText = [
+    ppDetailAgendaSummary?.professional_name || null,
+    ppDetailNextSessionCompact ? `próxima sessão ${ppDetailNextSessionCompact}` : null,
+  ].filter(Boolean).join(" · ");
+  const ppPendingScheduleChangePresentation = buildPendingScheduleChangePresentation(
+    ppAdminSummary?.pending_schedule_change,
+  );
+  const hasOperationalScheduleChange = Boolean(ppPendingScheduleChangePresentation);
+  let agendaBlockedByLifecycle = "";
+  if (ppPendingPlanChange) {
+    agendaBlockedByLifecycle = "Resolva a troca de plano agendada antes de alterar a Agenda.";
+  } else if (ppDetailHasFutureCancellation) {
+    agendaBlockedByLifecycle = "Resolva o cancelamento programado antes de alterar a Agenda.";
+  } else if (hasOperationalScheduleChange) {
+    agendaBlockedByLifecycle = "Já existe uma alteração de Agenda agendada.";
+  }
+  let ppDetailAgendaPrimary = null;
+  if (!isPpDetailDataLoading && !agendaBlockedByLifecycle && ppDetailPlan?.status === "active") {
+    if (ppDetailAgendaHasActiveRecurrence) {
+      ppDetailAgendaPrimary = { label: "Alterar agenda", onClick: openScheduleChange };
+    } else if (ppDetailAgendaCanConfigure) {
+      ppDetailAgendaPrimary = {
+        label: ppDetailAgendaNeedsNewSchedule ? "Configurar nova agenda" : "Configurar agenda",
+        onClick: () => openSchedDrawer(ppDetailPlan, {
+          mode: ppDetailAgendaNeedsNewSchedule ? "new" : "manage",
+        }),
+      };
+    }
+  }
+  const ppDetailAgendaMenuActions = [
+    {
+      label: "Remover lançamentos futuros",
+      onClick: openFutureRemovalPreview,
+      visible: ppDetailPlan?.status === "active"
+        && ppDetailAgendaCanRemoveFuture
+        && !agendaBlockedByLifecycle,
+      critical: true,
+      disabled: futureRemovalLoading || futureRemovalConfirming,
+    },
+  ];
+  const ppDetailAgendaBlockedMessage = agendaBlockedByLifecycle
+    || (["plan_paused", "plan_canceled"].includes(ppDetailAgendaStatus)
+      ? ppDetailAgendaSummary?.status_message
+      : "")
+    || "";
+  const scheduleChangeFrequency = normalizeSessionsPerWeek(
+    ppAdminPlanData?.sessions_per_week
+    || ppDetailPlan?.contracted_sessions_per_week
+    || ppDetailPlan?.ServicePlan?.sessions_per_week,
+  ) || 1;
+  const selectedScheduleChangeProfessional = patientProfessionals.find((professional) => (
+    String(professional.id) === String(scheduleChangeForm.professional_user_id)
+  ));
+  const currentScheduleProfessionalId = scheduleChangePreview.data?.current_grid?.[0]
+    ?.professional_user_id || ppDetailAgendaSummary?.professional_user_id;
+  const scheduleChangeProfessionalChanged = currentScheduleProfessionalId
+    && String(currentScheduleProfessionalId) !== String(scheduleChangeForm.professional_user_id);
+  const scheduleChangeProfessionalText = scheduleChangeProfessionalChanged
+    ? `Profissional: ${ppDetailAgendaSummary?.professional_name || "atual"} → ${selectedScheduleChangeProfessional?.name || "novo"}`
+    : "";
+
   let ppDetailAgendaHistoryContent = null;
-  if (isPpDetailDataLoading) {
-    ppDetailAgendaCardContent = (
-      <PlanBlockLoading>
-        <DataLoadingState text="Carregando agenda..." compact />
-      </PlanBlockLoading>
+  if (ppHistoryLoading) {
+    ppDetailAgendaHistoryContent = <DataLoadingState text="Carregando histórico..." compact />;
+  } else if (ppHistoryError) {
+    ppDetailAgendaHistoryContent = <InlineAlert $tone="danger">{ppHistoryError}</InlineAlert>;
+  } else if (ppHistoryLoaded && ppHistoryEvents.length > 0) {
+    ppDetailAgendaHistoryContent = (
+      <HistoryTimelineCard>
+        <PlanHistorySections>
+          <PlanHistorySection>
+            {ppHistoryEvents.map((event) => (
+              <PlanHistoryItem key={event.id || `${event.type}-${event.sequence}`}>
+                <strong>{event.label || "Evento do plano"}</strong>
+                <span>
+                  {formatDateTimeBR(event.occurred_at)} · {event.actor?.name
+                    || (event.origin === "automatic" ? "Sistema" : "Responsável não identificado")}
+                </span>
+                {(Array.isArray(event.changes) ? event.changes : []).map((change) => (
+                  <small key={`${event.id}-${change.field}`}>
+                    {change.label}: {formatPlanHistoryValue(change.field, change.before)} → {formatPlanHistoryValue(change.field, change.after)}
+                  </small>
+                ))}
+                {event.legacy?.is_legacy && (
+                  <small>
+                    Registro legado{event.legacy?.is_incomplete ? " · evidência histórica incompleta" : ""}
+                  </small>
+                )}
+              </PlanHistoryItem>
+            ))}
+            {ppHistoryPageInfo.has_more && (
+              <GhostButton
+                type="button"
+                onClick={loadMorePatientPlanHistory}
+                disabled={ppHistoryLoadingMore}
+              >
+                {ppHistoryLoadingMore ? "Carregando..." : "Carregar eventos anteriores"}
+              </GhostButton>
+            )}
+          </PlanHistorySection>
+        </PlanHistorySections>
+      </HistoryTimelineCard>
     );
   } else {
-    let agendaTone;
-    if (ppDetailAgendaStatus === "plan_paused" || ppDetailAgendaStatus === "no_future_sessions") {
-      agendaTone = "warning";
-    } else if (ppDetailAgendaStatus === "plan_canceled") {
-      agendaTone = "danger";
-    } else if (ppDetailAgendaStatus === "active_recurrence") {
-      agendaTone = "success";
-    }
-
-    ppDetailAgendaCardContent = (
-      <AgendaSimpleBlock $tone={agendaTone}>
-        <AgendaBlockHeader>
-          <AgendaTitleGroup>
-            <AgendaBlockTitle>Agenda</AgendaBlockTitle>
-            <AgendaStatusText $tone={agendaTone}>
-              {ppDetailAgendaHasActiveRecurrence ? "Ativa" : "Pendente"}
-            </AgendaStatusText>
-          </AgendaTitleGroup>
-          {(ppDetailAgendaCardAction || ppDetailFutureRemovalAction) && (
-            <AgendaTopActions>
-              {ppDetailAgendaCardAction}
-              {ppDetailFutureRemovalAction}
-            </AgendaTopActions>
-          )}
-        </AgendaBlockHeader>
-        {ppDetailAgendaHasActiveRecurrence ? (
-          <PlanInfoRows>
-            <PlanInfoRow>
-              <span>Profissional</span>
-              <strong>{ppDetailAgendaSummary?.professional_name || "—"}</strong>
-            </PlanInfoRow>
-            <PlanInfoRow>
-              <span>Início da agenda</span>
-              <strong>{ppDetailAgendaSummary?.series_starts_at ? formatDateBR(ppDetailAgendaSummary.series_starts_at) : "—"}</strong>
-            </PlanInfoRow>
-            <PlanInfoRow>
-              <span>Horário</span>
-              <strong>{ppDetailAgendaSummary?.time || "—"}</strong>
-            </PlanInfoRow>
-            <PlanInfoRow>
-              <span>Dias da semana</span>
-              <strong>{ppDetailAgendaWeeklyFrequencyText || "—"}</strong>
-            </PlanInfoRow>
-            <PlanInfoRow>
-              <span>Frequência mensal</span>
-              <strong>{ppDetailPlanCycleWeeksText || "—"}</strong>
-            </PlanInfoRow>
-            <PlanInfoRow>
-              <span>Próxima sessão</span>
-              <strong>{ppDetailNextSessionText}</strong>
-            </PlanInfoRow>
-            <AgendaAutoCreateNote>
-              Novas sessões serão lançadas automaticamente.
-            </AgendaAutoCreateNote>
-          </PlanInfoRows>
-        ) : (
-          <AgendaSummaryMessage $tone={agendaTone}>
-            Nenhuma recorrência ativa para este plano.
-          </AgendaSummaryMessage>
-        )}
-      </AgendaSimpleBlock>
+    ppDetailAgendaHistoryContent = (
+      <HistoryTimelineCard>
+        <AgendaSummaryMessage>Nenhum evento registrado para este plano.</AgendaSummaryMessage>
+      </HistoryTimelineCard>
     );
-
-    if (ppHistoryLoading) {
-      ppDetailAgendaHistoryContent = (
-        <PlanBlockLoading>
-          <DataLoadingState text="Carregando histórico..." compact />
-        </PlanBlockLoading>
-      );
-    } else if (ppHistoryError) {
-      ppDetailAgendaHistoryContent = (
-        <InlineAlert $tone="danger">{ppHistoryError}</InlineAlert>
-      );
-    } else if (ppHistoryLoaded && ppHistoryEvents.length > 0) {
-      ppDetailAgendaHistoryContent = (
-        <AgendaSimpleBlock $tone="warning">
-          <AgendaBlockHeader>
-            <AgendaTitleGroup>
-              <AgendaBlockTitle>Histórico</AgendaBlockTitle>
-              <AgendaStatusText $tone="warning">Eventos do plano</AgendaStatusText>
-            </AgendaTitleGroup>
-          </AgendaBlockHeader>
-          <PlanHistorySections>
-            <PlanHistorySection>
-              <PlanHistorySectionTitle>Linha do tempo</PlanHistorySectionTitle>
-              {ppHistoryEvents.map((event) => (
-                <PlanHistoryItem key={event.id || `${event.type}-${event.sequence}`}>
-                  <strong>{event.label || "Evento do plano"}</strong>
-                  <span>
-                    {formatDateTimeBR(event.occurred_at)} · {event.actor?.name
-                      || (event.origin === "automatic" ? "Sistema" : "Responsável não identificado")}
-                  </span>
-                  {(Array.isArray(event.changes) ? event.changes : []).map((change) => (
-                    <small key={`${event.id}-${change.field}`}>
-                      {change.label}: {formatPlanHistoryValue(change.field, change.before)} → {formatPlanHistoryValue(change.field, change.after)}
-                    </small>
-                  ))}
-                  {event.legacy?.is_legacy && (
-                    <small>
-                      Registro legado{event.legacy?.is_incomplete ? " · evidência histórica incompleta" : ""}
-                    </small>
-                  )}
-                </PlanHistoryItem>
-              ))}
-              {ppHistoryPageInfo.has_more && (
-                <GhostButton
-                  type="button"
-                  onClick={loadMorePatientPlanHistory}
-                  disabled={ppHistoryLoadingMore}
-                >
-                  {ppHistoryLoadingMore ? "Carregando..." : "Carregar eventos anteriores"}
-                </GhostButton>
-              )}
-            </PlanHistorySection>
-          </PlanHistorySections>
-        </AgendaSimpleBlock>
-      );
-    }
   }
   const futureRemovalTodaySessions = Array.isArray(futureRemovalPreview?.today_sessions)
     ? futureRemovalPreview.today_sessions.filter((session) => session?.status === "scheduled")
@@ -3264,12 +3394,38 @@ export default function Planos() {
     && !futureRemovalConfirming;
 	  return (
 	    <PlansPage>
-	      {anyDrawerOpen && <DrawerBackdrop onClick={handleBackdropClick} />}
-	      <UnsavedChangesDialog
+      {anyDrawerOpen && <DrawerBackdrop onClick={handleBackdropClick} />}
+      <UnsavedChangesDialog
 	        open={Boolean(discardDrawerClose)}
 	        onKeepEditing={keepDrawerEditing}
 	        onDiscard={discardDrawerChanges}
-	      />
+      />
+
+      <ScheduleChangeDrawer
+        open={scheduleChangeOpen}
+        busy={scheduleChangeSaving}
+        form={scheduleChangeForm}
+        frequency={scheduleChangeFrequency}
+        professionals={patientProfessionals}
+        professionalsLoading={patientProfessionalsLoading}
+        professionalError={patientProfessionalsError}
+        weekdayOptions={WEEKDAY_OPTIONS}
+        timeOptions={PLAN_HOUR_OPTIONS}
+        allowBrokenTime={allowBrokenTimeScheduling}
+        preview={scheduleChangePreview}
+        previewPattern={formatScheduleGrid(scheduleChangePreview.data?.proposed_grid)}
+        currentPattern={formatScheduleGrid(scheduleChangePreview.data?.current_grid)}
+        professionalChange={scheduleChangeProfessionalText}
+        issues={scheduleChangePreview.issues}
+        errorMessage={scheduleChangePreview.error}
+        requiresCareAssignment={selectedScheduleChangeProfessional?.is_assigned === false}
+        onClose={closeScheduleChange}
+        onFieldChange={handleScheduleChangeField}
+        onWeekdayToggle={toggleScheduleChangeWeekday}
+        onTimeChange={setScheduleChangeWeekdayTime}
+        onPreview={previewScheduleChange}
+        onConfirm={confirmScheduleChange}
+      />
 
 	      {/* ---- Post-creation schedule prompt ---- */}
       {schedPrompt && (
@@ -4435,12 +4591,12 @@ export default function Planos() {
       </AppDrawer>
 
 	      <PlansContent>
-	          <Header>
+	          {!isPatientPlanDetailPage && <Header>
 	            <HeaderText>
 	              <Title>{activeSectionInfo.title}</Title>
 	              {activeSectionInfo.subtitle && <Subtitle>{activeSectionInfo.subtitle}</Subtitle>}
 	            </HeaderText>
-	          </Header>
+	          </Header>}
 
           {isPatientPlanDetailPage && (
             <ModuleBody>
@@ -4451,122 +4607,101 @@ export default function Planos() {
               )}
               {!ppDetailError && (
                 <PlanDetailPage>
-                  <PlanPatientIdentity>
-                    <PlanPatientLabel>Paciente</PlanPatientLabel>
-                    <PlanPatientName>
-                      {isPpDetailDataLoading ? "-" : ppDetailHeaderPatientName}
-                    </PlanPatientName>
-                  </PlanPatientIdentity>
-                  <PlanDetailSubTabs role="tablist" aria-label="Seções do plano mensal">
-                    <PlanDetailSubTabButton
-                      type="button"
-                      role="tab"
-                      $active={ppDetailSection === PATIENT_PLAN_DETAIL_SECTIONS.plan}
-                      aria-selected={ppDetailSection === PATIENT_PLAN_DETAIL_SECTIONS.plan}
-                      onClick={() => setPpDetailSection(PATIENT_PLAN_DETAIL_SECTIONS.plan)}
-                    >
-                      Plano
-                    </PlanDetailSubTabButton>
-                    <PlanDetailSubTabButton
-                      type="button"
-                      role="tab"
-                      $active={ppDetailSection === PATIENT_PLAN_DETAIL_SECTIONS.agenda}
-                      aria-selected={ppDetailSection === PATIENT_PLAN_DETAIL_SECTIONS.agenda}
-                      onClick={() => setPpDetailSection(PATIENT_PLAN_DETAIL_SECTIONS.agenda)}
-                    >
-                      Agenda
-                    </PlanDetailSubTabButton>
-                    <PlanDetailSubTabButton
-                      type="button"
-                      role="tab"
-                      $active={ppDetailSection === PATIENT_PLAN_DETAIL_SECTIONS.history}
-                      aria-selected={ppDetailSection === PATIENT_PLAN_DETAIL_SECTIONS.history}
-                      onClick={() => setPpDetailSection(PATIENT_PLAN_DETAIL_SECTIONS.history)}
-                    >
-                      Histórico
-                    </PlanDetailSubTabButton>
-                  </PlanDetailSubTabs>
 
-                  {ppDetailSection === PATIENT_PLAN_DETAIL_SECTIONS.plan && (
-                    <PlanDetailHero>
-                      <PlanDetailTitleGroup>
-                        <AgendaBlockHeader $spacious={ppDetailEditing}>
-                          <AgendaTitleGroup>
-                            <AgendaBlockTitle>Plano</AgendaBlockTitle>
-                          </AgendaTitleGroup>
-                          <PlanDetailsActions>
-                            {ppDetailEditActions}
-                            {!ppDetailEditing && ppDetailPlan?.status === "active" && (
-                              <GhostButton
-                                type="button"
-                                onClick={() => handlePpPause(ppDetailPlan)}
-                                disabled={ppDetailEditing || isPpStatusActionBusy}
-                              >
-                                Pausar plano
-                              </GhostButton>
-                            )}
-                            {!ppDetailEditing && ppDetailPlan?.status === "paused" && (
-                              <GhostButton
-                                type="button"
-                                onClick={() => handlePpPauseEdit(ppDetailPlan)}
-                                disabled={ppDetailEditing || isPpStatusActionBusy}
-                              >
-                                Gerenciar pausa
-                              </GhostButton>
-                            )}
-                            {!ppDetailEditing && ppDetailHasFutureCancellation && (
-                              <GhostButton
-                                type="button"
-                                onClick={handleUnscheduleCancellation}
-                                disabled={ppDetailEditing || isPpStatusActionBusy}
-                              >
-                                Desprogramar cancelamento
-                              </GhostButton>
-                            )}
-                            {!ppDetailEditing && ppDetailPlan && ppDetailPlan.status !== "canceled" && (
-                              <DangerButton
-                                type="button"
-                                className="plan-cancel-action"
-                                onClick={() => handlePpCancel(ppDetailPlan)}
-                                disabled={ppDetailEditing || isPpStatusActionBusy}
-                              >
-                                {ppDetailHasFutureCancellation ? "Alterar cancelamento" : "Cancelar plano"}
-                              </DangerButton>
-                            )}
-                          </PlanDetailsActions>
-                        </AgendaBlockHeader>
-                        {ppDetailPlanDataContent}
-                        {ppDetailPauseInfo && (
-                          <PlanDetailPauseNote>
-                            <span>{ppDetailPauseInfo}</span>
-                          </PlanDetailPauseNote>
-                        )}
-                      </PlanDetailTitleGroup>
-                    </PlanDetailHero>
-                  )}
+                  <PatientPlanDetailHeader
+                    patientName={isPpDetailDataLoading ? "" : ppDetailHeaderPatientName}
+                    planSummary={isPpDetailDataLoading ? "" : ppDetailHeaderSummary}
+                    activeTab={ppDetailSection}
+                    onBack={() => history.push("/planos?tab=patient-plans")}
+                    onTabChange={setPpDetailSection}
+                  />
 
-                  {ppDetailSection === PATIENT_PLAN_DETAIL_SECTIONS.agenda && (
-                    <PlanDetailSection>
-                      {ppDetailAgendaCardContent}
-                    </PlanDetailSection>
-                  )}
+                  <PatientPlanTabPanel
+                    tabId={PATIENT_PLAN_DETAIL_SECTIONS.plan}
+                    activeTab={ppDetailSection}
+                  >
+                    <PlanSummaryCard
+                      loading={isPpDetailDataLoading}
+                      title={ppDetailPlanName}
+                      statusLabel={ppDetailCurrentStatusLabel}
+                      statusTone={ppDetailStatusTone}
+                      billingSummary={ppDetailBillingSummary}
+                      startSummary={ppDetailStartSummary}
+                      notes={ppDetailPlanNotes}
+                      stateNote={ppDetailPauseInfo}
+                      primaryAction={ppDetailPlanPrimaryAction}
+                      secondaryAction={ppDetailPlanSecondaryAction}
+                      menuActions={ppDetailPlanMenuActions}
+                    >
+                      {ppDetailPlanDataContent}
+                      {ppPendingPlanChange && (
+                        <ScheduledChangePanel
+                          eyebrow={`Troca agendada · ${formatCompactDate(ppPendingPlanChange.effective_on)}`}
+                          title={`${ppCommercialDisplay.current_plan_name} → ${ppCommercialDisplay.pending_plan_name || "Novo plano"}`}
+                          detail={ppPendingPlanScheduleText || "A nova grade será aplicada na próxima vigência."}
+                          secondaryDetail={ppCommercialDisplay.current_schedule_text
+                            ? `Grade atual: ${ppCommercialDisplay.current_schedule_text}`
+                            : ""}
+                          onEdit={openPlanChange}
+                          menuActions={[{
+                            label: "Cancelar troca",
+                            onClick: openScheduledPlanChangeCancellation,
+                            critical: true,
+                          }]}
+                        />
+                      )}
+                      {ppDetailHasFutureCancellation && (
+                        <ScheduledChangePanel
+                          eyebrow={`Cancelamento agendado · ${formatCompactDate(ppDetailPlan.cancellation_effective_on)}`}
+                          title={`Ativo até ${formatCompactDate(ppDetailPlan.cancellation_effective_on)}`}
+                          detail="Os lançamentos futuros seguem a programação do cancelamento."
+                          menuActions={[{
+                            label: "Desprogramar cancelamento",
+                            onClick: handleUnscheduleCancellation,
+                            critical: true,
+                            disabled: isPpStatusActionBusy,
+                          }]}
+                        />
+                      )}
+                    </PlanSummaryCard>
+                  </PatientPlanTabPanel>
 
-                  {ppDetailSection === PATIENT_PLAN_DETAIL_SECTIONS.history && (
-                    <PlanDetailSection>
-                      {ppDetailAgendaHistoryContent || (ppHistoryLoaded && (
-                        <AgendaSimpleBlock>
-                          <AgendaBlockHeader>
-                            <AgendaTitleGroup>
-                              <AgendaBlockTitle>Histórico</AgendaBlockTitle>
-                            </AgendaTitleGroup>
-                          </AgendaBlockHeader>
-                          <AgendaSummaryMessage>
-                            Nenhum evento registrado para este plano.
-                          </AgendaSummaryMessage>
-                        </AgendaSimpleBlock>
-                      ))}
-                    </PlanDetailSection>
-                  )}
+                  <PatientPlanTabPanel
+                    tabId={PATIENT_PLAN_DETAIL_SECTIONS.agenda}
+                    activeTab={ppDetailSection}
+                  >
+                    <AgendaSummaryCard
+                      loading={isPpDetailDataLoading}
+                      title="Agenda recorrente"
+                      statusLabel={agendaStatusPresentation.label}
+                      statusTone={agendaStatusPresentation.tone}
+                      pattern={ppDetailAgendaPattern}
+                      supportingText={ppDetailAgendaSupportingText}
+                      empty={ppDetailAgendaPattern ? "" : ppDetailAgendaSummary?.status_message
+                        || "Nenhuma recorrência configurada."}
+                      primaryAction={ppDetailAgendaPrimary}
+                      onOpenAgenda={ppDetailPlan?.patient_id ? goToPatientAgenda : null}
+                      menuActions={ppDetailAgendaMenuActions}
+                      blockedMessage={ppDetailAgendaBlockedMessage}
+                    >
+                      {hasOperationalScheduleChange && (
+                        <ScheduledChangePanel
+                          eyebrow={`Alteração agendada · ${formatCompactDate(ppPendingScheduleChangePresentation.effectiveOn)}`}
+                          title={ppPendingScheduleChangePresentation.title}
+                          detail={ppPendingScheduleChangePresentation.professionalChange
+                            || "A nova grade entrará em vigor automaticamente."}
+                          menuActions={[]}
+                        />
+                      )}
+                    </AgendaSummaryCard>
+                  </PatientPlanTabPanel>
+
+                  <PatientPlanTabPanel
+                    tabId={PATIENT_PLAN_DETAIL_SECTIONS.history}
+                    activeTab={ppDetailSection}
+                  >
+                    {ppDetailAgendaHistoryContent}
+                  </PatientPlanTabPanel>
 			                </PlanDetailPage>
 	              )}
             </ModuleBody>
@@ -4977,100 +5112,6 @@ const PlanDetailPage = styled.div`
   gap: 12px;
 `;
 
-const PlanPatientIdentity = styled.div`
-  display: grid;
-  gap: 3px;
-  margin: -2px 0 2px;
-`;
-
-const PlanPatientLabel = styled.span`
-  color: #6a795c;
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.05em;
-  line-height: 1;
-  text-transform: uppercase;
-`;
-
-const PlanPatientName = styled.h2`
-  color: #1b1b1b;
-  font-size: clamp(1.08rem, 1.45vw, 1.35rem);
-  font-weight: 900;
-  line-height: 1.2;
-  margin: 0;
-`;
-
-const PlanDetailSubTabs = styled.div`
-  align-items: center;
-  border-bottom: 1px solid rgba(106, 121, 92, 0.16);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-  margin-bottom: 2px;
-`;
-
-const PlanDetailSubTabButton = styled.button`
-  align-items: center;
-  background: transparent;
-  border: 0;
-  border-bottom: 3px solid ${(props) => (props.$active ? "#6a795c" : "transparent")};
-  color: ${(props) => (props.$active ? "#2d3629" : "#6a795c")};
-  cursor: pointer;
-  display: inline-flex;
-  font: inherit;
-  font-weight: 700;
-  justify-content: center;
-  line-height: 1.2;
-  min-height: 38px;
-  padding: 0 0 10px;
-  transition: border-color 0.2s ease, color 0.2s ease;
-
-  &:hover {
-    color: #2d3629;
-  }
-
-  &:focus {
-    outline: none;
-  }
-
-  &:focus-visible {
-    border-radius: 6px;
-    box-shadow: 0 0 0 3px rgba(106, 121, 92, 0.14);
-  }
-`;
-
-const PlanDetailHero = styled.section`
-  align-items: flex-start;
-  border: 1px solid rgba(106, 121, 92, 0.12);
-  border-radius: 16px;
-  background: #fff;
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
-
-  @media (max-width: 760px) {
-    flex-direction: column;
-  }
-`;
-
-const PlanDetailTitleGroup = styled.div`
-  flex: 1;
-  min-width: 0;
-`;
-
-const PlanDetailSection = styled.section`
-  border: ${(props) => (props.$editing ? "1px" : "1px")} solid
-    ${(props) => (props.$editing ? "rgba(190, 92, 92, 0.35)" : "rgba(106, 121, 92, 0.12)")};
-  border-radius: 16px;
-  background: ${(props) => (props.$editing ? "#fffdf7" : "#fff")};
-  box-shadow: none;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px;
-`;
-
 const PlanSummaryList = styled.div`
   display: grid;
   gap: 8px;
@@ -5121,13 +5162,6 @@ const PlanSummaryValue = styled.div`
   word-break: break-word;
 `;
 
-const PlanBlockLoading = styled.div`
-  align-items: center;
-  display: flex;
-  justify-content: center;
-  min-height: 44px;
-`;
-
 const AgendaSummaryMessage = styled.div`
   background: ${(props) => (props.$tone === "warning" ? "#fff7e8" : "#f7faf4")};
   border: 1px solid ${(props) => (
@@ -5139,141 +5173,6 @@ const AgendaSummaryMessage = styled.div`
   font-weight: 700;
   line-height: 1.4;
   padding: 10px 12px;
-`;
-
-const AgendaAutoCreateNote = styled.div`
-  color: #5f7058;
-  font-size: 0.86rem;
-  font-weight: 800;
-  margin-top: 12px;
-`;
-
-const AgendaSimpleBlock = styled.div`
-  --agenda-accent: ${({ $tone }) => {
-    if ($tone === "warning") return "#9b6a16";
-    if ($tone === "danger") return "#9a2f2f";
-    if ($tone === "success") return "#4f6f3f";
-    return "#6a795c";
-  }};
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 7px;
-  min-width: 0;
-  padding: 0;
-`;
-
-const AgendaBlockHeader = styled.div`
-  align-items: center;
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
-  margin-bottom: ${(props) => (props.$spacious ? "14px" : "0")};
-  width: 100%;
-
-  @media (max-width: 520px) {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 5px;
-  }
-`;
-
-const AgendaTitleGroup = styled.div`
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  flex: 0 0 auto;
-  min-width: fit-content;
-`;
-
-const AgendaBlockTitle = styled.strong`
-  color: #1f2a1c;
-  font-size: 0.98rem;
-  font-weight: 900;
-  line-height: 1.25;
-  white-space: nowrap;
-`;
-
-const AgendaStatusText = styled.span`
-  color: ${({ $tone }) => {
-    if ($tone === "success") return "#3f6530";
-    if ($tone === "danger") return "#9a2f2f";
-    if ($tone === "warning") return "#8a651d";
-    return "#596951";
-  }};
-  font-size: 0.82rem;
-  font-weight: 900;
-`;
-
-const AgendaTopActions = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-
-  @media (max-width: 640px) {
-    justify-content: flex-start;
-    width: 100%;
-  }
-`;
-
-const PlanAdminContentStack = styled.div`
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-`;
-
-const PlanInfoRows = styled.div`
-  display: grid;
-  margin-top: 14px;
-`;
-
-const PlanInfoRow = styled.div`
-  align-items: center;
-  border-bottom: 1px solid rgba(106, 121, 92, 0.12);
-  display: grid;
-  gap: 14px;
-  grid-template-columns: minmax(160px, 240px) minmax(0, 1fr);
-  min-height: 40px;
-  padding: 9px 0;
-
-  span {
-    color: #5f7058;
-    font-size: 0.86rem;
-    font-weight: 900;
-  }
-
-  strong {
-    color: #1f2a1c;
-    font-size: 0.9rem;
-    font-weight: 900;
-    overflow-wrap: anywhere;
-  }
-
-  &:last-child {
-    border-bottom: 0;
-  }
-
-  @media (max-width: 640px) {
-    align-items: start;
-    gap: 4px;
-    grid-template-columns: 1fr;
-  }
-`;
-
-const PlanInfoLabel = styled.span`
-  align-items: center;
-  display: inline-flex;
-  gap: 7px;
-  width: fit-content;
-`;
-
-const PlanNotesValue = styled.strong`
-  white-space: pre-line;
 `;
 
 const FieldLabelWithHelp = styled.span`
@@ -5315,46 +5214,6 @@ const FieldHelpButton = styled.button`
   }
 `;
 
-const IconShortcutButton = styled.button`
-  align-items: center;
-  background: transparent;
-  border: 0;
-  color: #6a795c;
-  cursor: pointer;
-  display: inline-flex;
-  height: 22px;
-  justify-content: center;
-  margin: 0;
-  padding: 0;
-  transition: color 0.18s ease, transform 0.18s ease;
-  width: 22px;
-
-  svg {
-    height: 13px;
-    width: 13px;
-  }
-
-  &:hover:not(:disabled) {
-    color: #354a2c;
-    transform: translateY(-1px);
-  }
-
-  &:focus {
-    outline: none;
-  }
-
-  &:focus-visible {
-    border-radius: 6px;
-    box-shadow: 0 0 0 3px rgba(106, 121, 92, 0.14);
-  }
-
-  &:disabled {
-    color: #b8c0b1;
-    cursor: not-allowed;
-    transform: none;
-  }
-`;
-
 const PlanHistorySections = styled.div`
   display: grid;
   gap: 14px;
@@ -5364,14 +5223,6 @@ const PlanHistorySections = styled.div`
 const PlanHistorySection = styled.div`
   display: grid;
   gap: 8px;
-`;
-
-const PlanHistorySectionTitle = styled.span`
-  color: #5f7058;
-  font-size: 0.78rem;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 `;
 
 const PlanHistoryItem = styled.div`
@@ -5401,47 +5252,6 @@ const PlanHistoryItem = styled.div`
   }
 `;
 
-const PlanInfoValue = styled.strong`
-  align-items: center;
-  color: ${({ $tone }) => {
-    if ($tone === "active") return "#3f6530";
-    if ($tone === "paused") return "#8a651d";
-    if ($tone === "canceled") return "#9a2f2f";
-    return "#1f2a1c";
-  }};
-  background: ${({ $tone }) => {
-    if ($tone === "active") return "#e6f3df";
-    if ($tone === "paused") return "#fff0c7";
-    if ($tone === "canceled") return "#ffe1e1";
-    return "#f7faf4";
-  }};
-  border: 1px solid ${({ $tone }) => {
-    if ($tone === "active") return "rgba(63, 101, 48, 0.34)";
-    if ($tone === "paused") return "rgba(138, 101, 29, 0.38)";
-    if ($tone === "canceled") return "rgba(154, 47, 47, 0.36)";
-    return "rgba(106, 121, 92, 0.16)";
-  }};
-  border-radius: 999px;
-  display: inline-flex;
-  font-size: 0.9rem;
-  font-weight: 900;
-  line-height: 1;
-  overflow-wrap: anywhere;
-  padding: 6px 10px;
-  width: fit-content;
-
-  &::before {
-    background: currentColor;
-    border-radius: 999px;
-    content: "";
-    display: inline-block;
-    flex: 0 0 auto;
-    height: 6px;
-    margin-right: 7px;
-    width: 6px;
-  }
-`;
-
 const PlanDetailField = styled.input`
   border: 1px solid rgba(106, 121, 92, 0.22);
   border-radius: 10px;
@@ -5467,30 +5277,6 @@ const PlanDetailField = styled.input`
   textarea& {
     min-height: 74px;
     resize: vertical;
-  }
-`;
-
-const PlanDetailPauseNote = styled.div`
-  align-items: center;
-  color: #7a5a18;
-  display: flex;
-  flex-wrap: wrap;
-  font-size: 0.88rem;
-  font-weight: 700;
-  gap: 8px;
-`;
-
-const PlanDetailsActions = styled.div`
-  display: flex;
-  flex: 1 1 auto;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-  min-width: 0;
-
-  @media (max-width: 640px) {
-    justify-content: flex-start;
-    width: 100%;
   }
 `;
 

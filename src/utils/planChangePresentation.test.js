@@ -18,13 +18,13 @@ describe('buildPlanCommercialDisplay', () => {
   });
 
   it('preserva visualmente as quebras de linha das observações', () => {
-    const planosSource = fs.readFileSync(
-      path.join(__dirname, '../pages/Planos/index.js'),
+    const detailSource = fs.readFileSync(
+      path.join(__dirname, '../pages/Planos/PatientPlanDetailView.js'),
       'utf8',
     );
 
-    expect(planosSource).toMatch(/<PlanNotesValue>\{ppDetailPlanNotes\}<\/PlanNotesValue>/);
-    expect(planosSource).toMatch(/const PlanNotesValue = styled\.strong`[\s\S]*white-space: pre-line;/);
+    expect(detailSource).toMatch(/<NotesDisclosure>[\s\S]*<p>\{notes\}<\/p>/);
+    expect(detailSource).toMatch(/const NotesDisclosure = styled\.details`[\s\S]*white-space: pre-wrap;/);
   });
 
   it('mantém o plano vigente separado da troca futura', () => {

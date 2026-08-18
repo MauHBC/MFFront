@@ -175,7 +175,8 @@ describe("Planos no contêiner do App Shell", () => {
     pausePatientPlan.mockResolvedValue({ data: {} });
 
     renderPlans("/planos/pacientes/41");
-    fireEvent.click(await screen.findByRole("button", { name: "Pausar plano" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ações do plano" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pausar plano" }));
     fireEvent.change(document.getElementById("pause-starts-on"), {
       target: { value: "2000-01-01" },
     });
@@ -427,7 +428,7 @@ describe("Planos no contêiner do App Shell", () => {
 
     renderPlans();
     fireEvent.click(await screen.findByRole("button", { name: "Detalhes" }));
-    expect(await screen.findByRole("heading", { name: "Administração do plano mensal" }))
+    expect(await screen.findByRole("heading", { name: "Ana Silva" }))
       .toBeInTheDocument();
     await waitFor(() => expect(axios.get).toHaveBeenCalledWith("/patient-plans/41/admin-summary"));
     fireEvent.click(screen.getByRole("tab", { name: "Agenda" }));
@@ -487,6 +488,288 @@ describe("Planos no contêiner do App Shell", () => {
       !Object.prototype.hasOwnProperty.call(item, "assign_patient_care")
       && !Object.prototype.hasOwnProperty.call(item, "clinic_professional_id")
     ))).toBe(true);
+  });
+
+  it("executa preview e confirmação idempotente da alteração operacional da Agenda", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      starts_at: "2026-05-18",
+      anchor_day: 18,
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: { id: 31, name: "Funcional 2x", sessions_per_week: 2 },
+      agenda_summary: {
+        status: "active_recurrence",
+        pattern_summary: "Seg às 08:00 · Qua às 08:00",
+        weekdays: [1, 3],
+        time: "08:00",
+        professional_user_id: 21,
+        professional_name: "Leonardo",
+        future_sessions_count: 8,
+        can_remove_future_sessions: true,
+      },
+    };
+    const adminSummary = {
+      header_summary: { patient_name: "Ana Silva", plan_status_label: "Plano ativo" },
+      plan_data_summary: {
+        service_plan_name: "Funcional 2x",
+        sessions_per_week: 2,
+        price_cents: 48000,
+        anchor_day: 18,
+        starts_at: "2026-05-18",
+      },
+      agenda_summary: patientPlan.agenda_summary,
+      pending_schedule_change: null,
+    };
+    const projectedScheduleChange = {
+      revision_id: 72,
+      status: "scheduled",
+      effective_on: "2030-08-25",
+      current_grid: [
+        {
+          weekday: 1,
+          time: "08:00",
+          professional_user_id: 21,
+          professional_name: "Leonardo",
+        },
+        {
+          weekday: 3,
+          time: "08:00",
+          professional_user_id: 21,
+          professional_name: "Leonardo",
+        },
+      ],
+      proposed_grid: [
+        {
+          weekday: 2,
+          time: "09:00",
+          professional_user_id: 36,
+          professional_name: "Mariana",
+        },
+        {
+          weekday: 3,
+          time: "10:00",
+          professional_user_id: 36,
+          professional_name: "Mariana",
+        },
+      ],
+      current_professional: { id: 21, name: "Leonardo" },
+      future_professional: { id: 36, name: "Mariana" },
+      professional_name: "Mariana",
+      professional_changed: true,
+    };
+    let pendingScheduleChange = null;
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({
+          data: {
+            ...adminSummary,
+            pending_schedule_change: pendingScheduleChange,
+          },
+        });
+      }
+      if (url === "/schedule/references/professionals") {
+        return Promise.resolve({
+          data: [
+            { id: 21, name: "Leonardo", clinic_professional_id: 80, is_assigned: true },
+            { id: 36, name: "Mariana", clinic_professional_id: 99, is_assigned: false },
+          ],
+        });
+      }
+      if (url === "/services") return Promise.resolve({ data: [] });
+      if (url === "/patients") return Promise.resolve({ data: [patientPlan.Patient] });
+      if (url === "/unit-scheduling-policy") return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: {} });
+    });
+    axios.post.mockImplementation((url, payload) => {
+      if (url.endsWith("/schedule-change-preview")) {
+        return Promise.resolve({
+          data: {
+            can_confirm: true,
+            effective_on: payload.effective_on,
+            current_grid: [
+              { weekday: 1, time: "08:00", professional_user_id: 21 },
+              { weekday: 3, time: "08:00", professional_user_id: 21 },
+            ],
+            proposed_grid: payload.schedule,
+            observed_revision_id: 71,
+            expected_version: 4,
+            preview_token: "preview-token",
+            protected_sessions: [],
+            conflicts: [],
+          },
+        });
+      }
+      if (url.endsWith("/schedule-change")) {
+        pendingScheduleChange = projectedScheduleChange;
+        return Promise.resolve({ data: { effective_on: payload.effective_on } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const firstRender = renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
+    expect(await screen.findByText("Seg 08h · Qua 08h")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Alterar agenda/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Alterar agenda" });
+    const professional = await within(dialog).findByLabelText("Profissional");
+    fireEvent.change(within(dialog).getByLabelText("Nova agenda a partir de"), {
+      target: { name: "effective_on", value: "2030-08-25" },
+    });
+    fireEvent.change(professional, { target: { name: "professional_user_id", value: "36" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Seg" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ter" }));
+    fireEvent.change(within(dialog).getByLabelText("Horário de Ter"), {
+      target: { value: "09:00" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Horário de Qua"), {
+      target: { value: "10:00" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revisar alteração" }));
+
+    expect(await within(dialog).findByText("Ter 09h · Qua 10h")).toBeInTheDocument();
+    expect(within(dialog).getByText("Profissional: Leonardo → Mariana")).toBeInTheDocument();
+    expect(axios.post).toHaveBeenCalledWith(
+      "/patient-plans/41/schedule-change-preview",
+      expect.objectContaining({
+        effective_on: "2030-08-25",
+        schedule: [
+          { weekday: 2, time: "09:00", professional_user_id: 36 },
+          { weekday: 3, time: "10:00", professional_user_id: 36 },
+        ],
+      }),
+    );
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar alteração" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/patient-plans/41/schedule-change",
+      expect.objectContaining({
+        observed_revision_id: 71,
+        expected_version: 4,
+        preview_token: "preview-token",
+        assign_patient_care: true,
+      }),
+      { headers: { "Idempotency-Key": expect.stringMatching(/^schedule-change-41-/) } },
+    ));
+    expect(await screen.findByText(/Alteração agendada/)).toBeInTheDocument();
+    expect(screen.getByText(
+      "Seg 08h · Qua 08h → Ter 09h · Qua 10h",
+    )).toBeInTheDocument();
+    expect(screen.getByText("Profissional: Leonardo → Mariana")).toBeInTheDocument();
+    expect(axios.get.mock.calls.filter(([url]) => url === "/patient-plans/41/admin-summary").length)
+      .toBeGreaterThanOrEqual(2);
+
+    firstRender.unmount();
+    const refreshedRender = renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
+    expect(await screen.findByText(/Alteração agendada/)).toBeInTheDocument();
+    expect(screen.getByText(
+      "Seg 08h · Qua 08h → Ter 09h · Qua 10h",
+    )).toBeInTheDocument();
+
+    refreshedRender.unmount();
+    pendingScheduleChange = null;
+    renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
+    await waitFor(() => {
+      expect(screen.queryByText(/Alteração agendada/)).not.toBeInTheDocument();
+    });
+    expect(await screen.findByRole("button", { name: /Alterar agenda/i })).toBeInTheDocument();
+  });
+
+  it("mantém impedimento inline e invalida confirmação quando o backend acusa stale", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: { id: 31, name: "Funcional 1x", sessions_per_week: 1 },
+      agenda_summary: {
+        status: "active_recurrence",
+        pattern_summary: "Seg às 08:00",
+        weekdays: [1],
+        time: "08:00",
+        professional_user_id: 21,
+        professional_name: "Leonardo",
+        future_sessions_count: 4,
+      },
+    };
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({
+          data: {
+            plan_data_summary: { service_plan_name: "Funcional 1x", sessions_per_week: 1 },
+            agenda_summary: patientPlan.agenda_summary,
+          },
+        });
+      }
+      if (url === "/schedule/references/professionals") {
+        return Promise.resolve({
+          data: [{ id: 21, name: "Leonardo", clinic_professional_id: 80, is_assigned: true }],
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    axios.post
+      .mockResolvedValueOnce({
+        data: {
+          can_confirm: false,
+          effective_on: "2030-08-25",
+          current_grid: [{ weekday: 1, time: "08:00", professional_user_id: 21 }],
+          proposed_grid: [{ weekday: 1, time: "09:00", professional_user_id: 21 }],
+          protected_sessions: [{
+            id: 9,
+            starts_at: "2030-08-26T09:00:00",
+            reasons: ["has_evaluation"],
+          }],
+          conflicts: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          can_confirm: true,
+          effective_on: "2030-08-25",
+          current_grid: [{ weekday: 1, time: "08:00", professional_user_id: 21 }],
+          proposed_grid: [{ weekday: 1, time: "09:00", professional_user_id: 21 }],
+          observed_revision_id: 71,
+          expected_version: 4,
+          preview_token: "preview-token",
+          protected_sessions: [],
+          conflicts: [],
+        },
+      })
+      .mockRejectedValueOnce({
+        response: {
+          data: { code: "SCHEDULE_CHANGE_PREVIEW_STALE", error: "A Agenda mudou. Revise novamente." },
+        },
+      });
+
+    renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Alterar agenda/i }));
+    const dialog = await screen.findByRole("dialog", { name: "Alterar agenda" });
+    fireEvent.change(await within(dialog).findByLabelText("Horário de Seg"), {
+      target: { value: "09:00" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revisar alteração" }));
+    expect(await within(dialog).findByText(/possui avaliação vinculada/)).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Confirmar alteração" }))
+      .not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revisar alteração" }));
+    const confirm = await within(dialog).findByRole("button", { name: "Confirmar alteração" });
+    fireEvent.click(confirm);
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "A Agenda mudou. Revise novamente.",
+    );
+    expect(within(dialog).queryByRole("button", { name: "Confirmar alteração" }))
+      .not.toBeInTheDocument();
   });
 
   it("não remonta a antiga sidebar interna nem cria um segundo main", () => {
