@@ -499,8 +499,8 @@ describe("Planos no contêiner do App Shell", () => {
     const confirmation = (await screen.findByRole("heading", { name: "Confirmar agenda" }))
       .parentElement;
     expect(within(confirmation).getByText("Leonardo")).toBeInTheDocument();
-    expect(within(confirmation).getByText(/será atribuído explicitamente ao paciente/i))
-      .toBeInTheDocument();
+    expect(within(confirmation).queryByText(/será atribuído explicitamente ao paciente/i))
+      .not.toBeInTheDocument();
     fireEvent.click(within(confirmation).getByRole("button", { name: "Voltar" }));
     expect(axios.post).not.toHaveBeenCalled();
 

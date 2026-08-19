@@ -3914,11 +3914,6 @@ export default function Planos() {
                 </strong>
               </ScheduleConfirmLine>
             </ScheduleConfirmSummary>
-            {schedConfirmation.requiresCareAssignment === true && (
-              <PromptCopy>
-                Ao confirmar, este profissional será atribuído explicitamente ao paciente.
-              </PromptCopy>
-            )}
             <PromptActions>
               <GhostButton
                 type="button"
