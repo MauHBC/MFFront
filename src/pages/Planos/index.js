@@ -4657,7 +4657,13 @@ export default function Planos() {
                       {ppPendingPlanChangeOverdue && (
                         <ScheduledChangePanel
                           eyebrow="Troca aguardando atualização"
-                          title={`Vigência: ${formatCompactDate(ppPendingPlanChange.effective_on)}`}
+                          metadata={ppPendingCommercialPresentation?.metadata}
+                          title={ppPendingCommercialPresentation?.title
+                            || `${ppCommercialDisplay.current_plan_name} → ${ppCommercialDisplay.pending_plan_name || "Novo plano"}`}
+                          detail={[
+                            `Vigência: ${formatCompactDate(ppPendingPlanChange.effective_on)}`,
+                            ...(ppPendingCommercialPresentation?.details || []),
+                          ].join("\n")}
                         />
                       )}
                       {ppPendingPlanChange && !ppPendingPlanChangeOverdue && (

@@ -685,8 +685,9 @@ Para troca comercial, `pending_plan_change.lifecycle_state` no resumo
 administrativo distingue `future_editable` de
 `overdue_awaiting_lifecycle`. Somente a primeira permite revisar, substituir ou
 cancelar; a segunda é apresentada como atualização operacional pendente, sem
-inferência local por datas e sem abrir o drawer de substituição. A comparação
-da Agenda futura usa linhas compactas `Atual` e `Nova`.
+inferência local por datas e sem abrir o drawer de substituição, preservando no
+painel os dados de negócio disponíveis da troca. A comparação da Agenda futura
+usa linhas compactas `Atual` e `Nova`.
 
 As datas desse detalhe distinguem a ação da sua vigência: `Solicitada em`
 identifica o momento e o ator do comando; `A partir de` identifica o início dos

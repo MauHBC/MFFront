@@ -556,9 +556,39 @@ describe("Planos no contêiner do App Shell", () => {
       effective_on: "2026-08-18",
       lifecycle_state: "overdue_awaiting_lifecycle",
       can_replace: false,
-      previous_schedule: [{ weekday: 1, time: "11:00", professional_user_id: 21 }],
-      new_schedule: [{ weekday: 2, time: "08:00", professional_user_id: 36 }],
+      requested_at: "2026-08-10T13:00:00.000Z",
+      previous_configuration: {
+        service_plan_name: "Mensal 2x",
+        sessions_per_week: 2,
+        price_cents: 48000,
+      },
+      new_configuration: {
+        service_plan_name: "Mensal 3x",
+        sessions_per_week: 3,
+        price_cents: 60000,
+      },
+      previous_schedule: [
+        { weekday: 1, time: "11:00", professional_user_id: 21 },
+        { weekday: 3, time: "11:00", professional_user_id: 21 },
+        { weekday: 5, time: "11:00", professional_user_id: 21 },
+      ],
+      new_schedule: [
+        { weekday: 2, time: "08:00", professional_user_id: 36 },
+        { weekday: 4, time: "08:00", professional_user_id: 36 },
+      ],
     };
+    getPatientPlanHistory.mockResolvedValue({
+      data: {
+        events: [{
+          id: 91,
+          type: "commercial_change_requested",
+          occurred_at: "2026-08-10T13:00:00.000Z",
+          actor: { name: "Leonardo" },
+          related_entity: { type: "patient_plan_change", id: 77 },
+        }],
+        page_info: { has_more: false, next_cursor: null },
+      },
+    });
     axios.get.mockImplementation((url) => {
       if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
       if (url === "/patient-plans/41/admin-summary") {
@@ -588,8 +618,18 @@ describe("Planos no contêiner do App Shell", () => {
     });
 
     const firstRender = renderPlans("/planos/pacientes/41");
-    expect(await screen.findByText("Troca aguardando atualização")).toBeInTheDocument();
-    expect(screen.getByText("Vigência: 18 ago")).toBeInTheDocument();
+    const overdueTitle = await screen.findByText("Troca aguardando atualização");
+    const overduePanel = overdueTitle.closest("section");
+    expect(overduePanel).toHaveTextContent("Solicitada em 10 ago · Leonardo");
+    expect(overduePanel).toHaveTextContent("Vigência: 18 ago");
+    expect(overduePanel).toHaveTextContent("Mensal 2x → Mensal 3x");
+    expect(overduePanel).toHaveTextContent("Frequência: 2x → 3x por semana");
+    expect(overduePanel).toHaveTextContent(/Valor: R\$\s*480,00 → R\$\s*600,00/);
+    expect(overduePanel).toHaveTextContent("Atual: Seg 11h · Qua 11h · Sex 11h");
+    expect(overduePanel).toHaveTextContent("Nova: Ter 08h · Qui 08h");
+    await waitFor(() => {
+      expect(overduePanel).toHaveTextContent("Profissional: Leonardo → Mariana");
+    });
     expect(screen.queryByRole("button", { name: "Revisar troca" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancelar troca" })).not.toBeInTheDocument();
