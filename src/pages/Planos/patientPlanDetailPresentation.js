@@ -35,6 +35,32 @@ const PLAN_HISTORY_EVENT_LABELS = {
   commercial_change_applied: "Troca de plano realizada",
 };
 
+const REQUEST_EVENT_TYPES = new Set([
+  "commercial_change_requested",
+  "commercial_change_replaced",
+  "pause_scheduled",
+  "pause_started",
+  "pause_updated",
+  "cancellation_scheduled",
+  "cancellation_updated",
+  "schedule_changed",
+]);
+
+const HISTORY_TIMING_FIELDS = new Set([
+  "starts_on",
+  "ends_on",
+  "is_indefinite",
+  "cancellation_effective_on",
+  "effective_on",
+  "schedule_revision_effective_from",
+  "schedule_revision_effective_to",
+]);
+
+const HISTORY_TECHNICAL_SCHEDULE_FIELDS = new Set([
+  "schedule_revision_id",
+  "schedule_revision_status",
+]);
+
 const parseDateOnly = (value) => {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) return null;
@@ -49,6 +75,39 @@ export const formatCompactDate = (value, { includeYear = false } = {}) => {
     month: "short",
     ...(includeYear ? { year: "numeric" } : {}),
   }).format(date).replace(" de ", " ").replace(". de ", " ").replace(/\./g, "");
+};
+
+export const formatCompactInstantDate = (value, { includeYear = false } = {}) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "numeric",
+    month: "short",
+    ...(includeYear ? { year: "numeric" } : {}),
+  }).format(date).replace(/ de /g, " ").replace(/\./g, "");
+};
+
+const formatHistoryInstant = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date).replace(/ de /g, " ").replace(/\./g, "");
+};
+
+const addOneDay = (value) => {
+  const date = parseDateOnly(value);
+  if (!date) return null;
+  date.setDate(date.getDate() + 1);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
 };
 
 export const formatScheduleTime = (value) => {
@@ -104,7 +163,9 @@ export const buildPendingScheduleChangePresentation = (pendingScheduleChange) =>
       || pendingScheduleChange.professional_name
       || firstProfessionalName(pendingScheduleChange.proposed_grid),
     ).trim();
-    professionalChange = `Profissional: ${currentName || "atual"} → ${futureName || "novo"}`;
+    professionalChange = currentName && futureName
+      ? `Profissional: ${currentName} → ${futureName}`
+      : "Profissional: alterado";
   }
 
   return {
@@ -113,6 +174,274 @@ export const buildPendingScheduleChangePresentation = (pendingScheduleChange) =>
     proposedPattern,
     title: `${currentPattern} → ${proposedPattern}`,
     professionalChange,
+  };
+};
+
+const relatedEntityMatches = (event, type, id) => (
+  String(event?.related_entity?.type || "") === String(type || "")
+  && String(event?.related_entity?.id || "") === String(id || "")
+);
+
+const changeAfterValue = (event, field) => (
+  (Array.isArray(event?.changes) ? event.changes : [])
+    .find((change) => change?.field === field)?.after
+);
+
+export const findPlanHistoryEvent = ({
+  events,
+  types,
+  relatedEntityType,
+  relatedEntityId,
+  effectiveOn,
+}) => {
+  const allowedTypes = new Set(Array.isArray(types) ? types : []);
+  return (Array.isArray(events) ? events : []).find((event) => {
+    if (allowedTypes.size && !allowedTypes.has(event?.type)) return false;
+    if (relatedEntityType && relatedEntityId) {
+      return relatedEntityMatches(event, relatedEntityType, relatedEntityId);
+    }
+    if (effectiveOn) {
+      const eventEffectiveOn = changeAfterValue(event, "cancellation_effective_on")
+        || changeAfterValue(event, "effective_on")
+        || changeAfterValue(event, "schedule_revision_effective_from");
+      return String(eventEffectiveOn || "").slice(0, 10) === String(effectiveOn).slice(0, 10);
+    }
+    return true;
+  }) || null;
+};
+
+export const formatRequestMetadata = ({
+  requestedAt,
+  actorName,
+  prefix = "Solicitada em",
+}) => {
+  if (!requestedAt) return "";
+  return [
+    `${prefix} ${formatCompactInstantDate(requestedAt)}`,
+    String(actorName || "").trim() || null,
+  ].filter(Boolean).join(" · ");
+};
+
+export const buildPausePresentation = ({ pause, historyEvent }) => {
+  if (!pause?.starts_on || !["scheduled", "active"].includes(pause.status)) return null;
+  const startsOn = formatCompactDate(pause.starts_on);
+  if (pause.status === "scheduled") {
+    return {
+      title: "Pausa agendada",
+      metadata: formatRequestMetadata({
+        requestedAt: pause.created_at || historyEvent?.occurred_at,
+        actorName: historyEvent?.actor?.name,
+      }),
+      period: pause.is_indefinite
+        ? `A partir de ${startsOn} · sem data de retorno`
+        : `${startsOn} → ${formatCompactDate(pause.ends_on)}`,
+    };
+  }
+
+  const returnOn = pause.is_indefinite ? null : addOneDay(pause.ends_on);
+  return {
+    title: "Pausa ativa",
+    metadata: `Desde ${startsOn}`,
+    period: pause.is_indefinite
+      ? "Sem data de retorno"
+      : `Retorno em ${formatCompactDate(returnOn)}`,
+  };
+};
+
+const professionalIds = (grid) => [...new Set(
+  (Array.isArray(grid) ? grid : [])
+    .map((row) => Number(row?.professional_user_id))
+    .filter((id) => Number.isSafeInteger(id) && id > 0),
+)].sort((left, right) => left - right);
+
+const sameIds = (left, right) => (
+  left.length === right.length && left.every((id, index) => id === right[index])
+);
+
+export const buildProfessionalChangeText = ({ beforeGrid, afterGrid, professionals = [] }) => {
+  const beforeIds = professionalIds(beforeGrid);
+  const afterIds = professionalIds(afterGrid);
+  if (!beforeIds.length || !afterIds.length || sameIds(beforeIds, afterIds)) return "";
+
+  const namesById = new Map((Array.isArray(professionals) ? professionals : [])
+    .filter((professional) => professional?.id && professional?.name)
+    .map((professional) => [Number(professional.id), String(professional.name).trim()]));
+  const beforeNames = beforeIds.map((id) => namesById.get(id)).filter(Boolean);
+  const afterNames = afterIds.map((id) => namesById.get(id)).filter(Boolean);
+  if (beforeNames.length !== beforeIds.length || afterNames.length !== afterIds.length) {
+    return "Profissional: alterado";
+  }
+  return `Profissional: ${beforeNames.join(", ")} → ${afterNames.join(", ")}`;
+};
+
+const formatMoney = (value) => {
+  const cents = Number(value);
+  if (!Number.isFinite(cents)) return "Não informado";
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(cents / 100);
+};
+
+export const buildPendingCommercialChangePresentation = ({
+  pendingChange,
+  currentPlanName,
+  historyEvent,
+  professionals = [],
+}) => {
+  if (!pendingChange?.effective_on) return null;
+  const previous = pendingChange.previous_configuration || {};
+  const proposed = pendingChange.new_configuration || {};
+  const futurePlanName = pendingChange.service_plan_name
+    || proposed.service_plan_name
+    || "Novo plano";
+  const details = [];
+
+  const previousFrequency = previous.sessions_per_week;
+  const proposedFrequency = proposed.sessions_per_week;
+  if (previousFrequency != null && proposedFrequency != null
+    && Number(previousFrequency) !== Number(proposedFrequency)) {
+    details.push(`Frequência: ${previousFrequency}x → ${proposedFrequency}x por semana`);
+  } else if (previous.frequency_label && proposed.frequency_label
+    && previous.frequency_label !== proposed.frequency_label) {
+    details.push(`Frequência: ${previous.frequency_label} → ${proposed.frequency_label}`);
+  }
+
+  if (previous.price_cents != null && proposed.price_cents != null
+    && Number(previous.price_cents) !== Number(proposed.price_cents)) {
+    details.push(`Valor: ${formatMoney(previous.price_cents)} → ${formatMoney(proposed.price_cents)}`);
+  }
+
+  const previousPattern = formatScheduleGrid(pendingChange.previous_schedule);
+  const proposedPattern = formatScheduleGrid(pendingChange.new_schedule);
+  if (previousPattern && proposedPattern && previousPattern !== proposedPattern) {
+    details.push(`Agenda: ${previousPattern} → ${proposedPattern}`);
+  }
+
+  const professionalChange = buildProfessionalChangeText({
+    beforeGrid: pendingChange.previous_schedule,
+    afterGrid: pendingChange.new_schedule,
+    professionals,
+  });
+  if (professionalChange) details.push(professionalChange);
+
+  return {
+    effectiveOn: pendingChange.effective_on,
+    metadata: formatRequestMetadata({
+      requestedAt: pendingChange.requested_at || historyEvent?.occurred_at,
+      actorName: historyEvent?.actor?.name,
+    }),
+    title: `${currentPlanName || previous.service_plan_name || "Plano atual"} → ${futurePlanName}`,
+    details,
+  };
+};
+
+const HISTORY_STATUS_LABELS = {
+  active: "Ativo",
+  paused: "Pausado",
+  canceled: "Cancelado",
+  scheduled: "Programada",
+  ended: "Encerrada",
+  pending: "Pendente",
+  replaced: "Substituída",
+  applied: "Aplicada",
+};
+
+const formatHistoryValue = (field, value) => {
+  if (value === null || value === undefined || value === "") return "Não informado";
+  if (field === "price_cents") return formatMoney(value);
+  if (typeof value === "boolean") return value ? "Sim" : "Não";
+  if (Array.isArray(value)) return value.join(", ");
+  if (["status", "pause_status", "change_status"].includes(field)) {
+    return HISTORY_STATUS_LABELS[String(value)] || String(value);
+  }
+  return String(value);
+};
+
+const historyVigencyLabel = (event) => {
+  const startsOn = changeAfterValue(event, "starts_on");
+  const endsOn = changeAfterValue(event, "ends_on");
+  const indefinite = changeAfterValue(event, "is_indefinite") === true;
+  if (startsOn && event?.type?.startsWith("pause_")) {
+    if (indefinite) return `A partir de ${formatCompactDate(startsOn)} · sem data de retorno`;
+    if (endsOn) return `Período: ${formatCompactDate(startsOn)} → ${formatCompactDate(endsOn)}`;
+    return `A partir de ${formatCompactDate(startsOn)}`;
+  }
+  if (endsOn && event?.type?.startsWith("pause_")) {
+    return `Até ${formatCompactDate(endsOn)}`;
+  }
+
+  const cancellationOn = changeAfterValue(event, "cancellation_effective_on");
+  if (cancellationOn) return `Último dia ativo: ${formatCompactDate(cancellationOn, { includeYear: true })}`;
+
+  const effectiveOn = changeAfterValue(event, "effective_on")
+    || changeAfterValue(event, "schedule_revision_effective_from");
+  return effectiveOn
+    ? `A partir de ${formatCompactDate(effectiveOn, { includeYear: true })}`
+    : "";
+};
+
+const formatHistoryChange = (change) => {
+  const field = String(change?.field || "");
+  const before = formatHistoryValue(field, change?.before);
+  const after = formatHistoryValue(field, change?.after);
+  if (field === "sessions_per_week") {
+    return `Frequência: ${before}x → ${after}x por semana`;
+  }
+  const label = {
+    service_plan_name: "Plano",
+    frequency_label: "Frequência",
+    price_cents: "Valor",
+  }[field] || change?.label || "Alteração";
+  return `${label}: ${before} → ${after}`;
+};
+
+export function getVisiblePlanHistoryChanges(event) {
+  return (Array.isArray(event?.changes) ? event.changes : []).filter((change) => {
+    const field = String(change?.field || "").trim().toLowerCase();
+    const label = String(change?.label || "").trim().toLocaleLowerCase("pt-BR");
+    const redundantScheduledStatus = event?.type === "commercial_change_requested"
+      && field === "change_status"
+      && (change?.before == null || change.before === "")
+      && String(change?.after || "").trim().toLowerCase() === "pending";
+    return field !== "change_version"
+      && label !== "versão da alteração"
+      && !redundantScheduledStatus;
+  });
+}
+
+export const buildPlanHistoryPresentation = (event, professionals = []) => {
+  const actorName = event?.actor?.name
+    || (event?.origin === "automatic" ? "Sistema" : "Responsável não identificado");
+  const momentPrefix = REQUEST_EVENT_TYPES.has(event?.type) ? "Solicitada em" : "Registrado em";
+  const changes = getVisiblePlanHistoryChanges(event);
+  const hasSessionsChange = changes.some((change) => change?.field === "sessions_per_week");
+  const businessChanges = changes
+    .filter((change) => !HISTORY_TIMING_FIELDS.has(change?.field))
+    .filter((change) => !HISTORY_TECHNICAL_SCHEDULE_FIELDS.has(change?.field))
+    .filter((change) => !(hasSessionsChange && change?.field === "frequency_label"))
+    .filter((change) => change?.field !== "schedule_grid_summary")
+    .map(formatHistoryChange);
+
+  const scheduleChange = changes.find((change) => change?.field === "schedule_grid_summary");
+  if (scheduleChange) {
+    const beforePattern = formatScheduleGrid(scheduleChange.before);
+    const afterPattern = formatScheduleGrid(scheduleChange.after);
+    if (beforePattern && afterPattern && beforePattern !== afterPattern) {
+      businessChanges.push(`Agenda: ${beforePattern} → ${afterPattern}`);
+    }
+    const professionalChange = buildProfessionalChangeText({
+      beforeGrid: scheduleChange.before,
+      afterGrid: scheduleChange.after,
+      professionals,
+    });
+    if (professionalChange) businessChanges.push(professionalChange);
+  }
+
+  return {
+    moment: `${momentPrefix} ${formatHistoryInstant(event?.occurred_at)} · ${actorName}`,
+    vigency: historyVigencyLabel(event),
+    changes: businessChanges,
   };
 };
 
@@ -127,20 +456,6 @@ export const formatPlanHistoryEventLabel = (event) => {
   if (!userFacingLabel) return "Evento do plano";
   return `${userFacingLabel.charAt(0).toUpperCase()}${userFacingLabel.slice(1)}`;
 };
-
-export const getVisiblePlanHistoryChanges = (event) => (
-  (Array.isArray(event?.changes) ? event.changes : []).filter((change) => {
-    const field = String(change?.field || "").trim().toLowerCase();
-    const label = String(change?.label || "").trim().toLocaleLowerCase("pt-BR");
-    const redundantScheduledStatus = event?.type === "commercial_change_requested"
-      && field === "change_status"
-      && (change?.before == null || change.before === "")
-      && String(change?.after || "").trim().toLowerCase() === "pending";
-    return field !== "change_version"
-      && label !== "versão da alteração"
-      && !redundantScheduledStatus;
-  })
-);
 
 export const getScheduleChangeIssues = (payload = {}) => {
   const protectedSessions = Array.isArray(payload.protected_sessions)

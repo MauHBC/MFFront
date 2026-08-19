@@ -681,6 +681,18 @@ a troca de profissional quando esse indicador for verdadeiro. Depois da
 confirmação, o Frontend recarrega o resumo e não mantém estado local como fonte
 de verdade, inclusive após refresh completo.
 
+As datas desse detalhe distinguem a ação da sua vigência: `Solicitada em`
+identifica o momento e o ator do comando; `A partir de` identifica o início dos
+efeitos; pausas finitas mostram o intervalo e pausas indefinidas informam
+explicitamente a ausência de retorno; cancelamentos futuros nomeiam
+`cancellation_effective_on` como último dia ativo. `Plano desde` continua
+representando exclusivamente `PatientPlan.starts_at`. A timeline separa o
+momento do evento, sua vigência quando o contrato a fornece e apenas as
+diferenças de negócio, sem duplicar frequência e sessões semanais. Nomes de
+profissionais são exibidos somente quando os IDs comprovam a troca e as
+referências consumidas permitem resolvê-los com segurança; caso contrário, a
+interface informa apenas que o profissional foi alterado.
+
 > Regra: novo módulo nasce do template, não de uma cópia de Planos ou Agendamentos.
 
 ### Composição obrigatória

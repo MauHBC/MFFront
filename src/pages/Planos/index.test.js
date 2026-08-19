@@ -258,8 +258,8 @@ describe("Planos no contêiner do App Shell", () => {
               type: "commercial_change_requested",
               label: "Alteração comercial solicitada",
               occurred_at: "2026-08-06T12:00:00.000Z",
-              origin: "automatic",
-              actor: null,
+              origin: "manual",
+              actor: { name: "Leonardo" },
               changes: [
                 {
                   field: "change_status",
@@ -272,6 +272,30 @@ describe("Planos no contêiner do App Shell", () => {
                   label: "Plano comercial",
                   before: "Mensal 2x",
                   after: "Mensal 3x",
+                },
+                {
+                  field: "effective_on",
+                  label: "Data de vigência",
+                  before: null,
+                  after: "2026-08-18",
+                },
+                {
+                  field: "sessions_per_week",
+                  label: "Sessões por semana",
+                  before: 2,
+                  after: 3,
+                },
+                {
+                  field: "frequency_label",
+                  label: "Frequência",
+                  before: "2x por semana",
+                  after: "3x por semana",
+                },
+                {
+                  field: "price_cents",
+                  label: "Valor contratado",
+                  before: 48000,
+                  after: 60000,
                 },
                 {
                   field: "change_version",
@@ -327,6 +351,12 @@ describe("Planos no contêiner do App Shell", () => {
     expect(scheduled.compareDocumentPosition(endedPause))
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.getByText(/Mensal 2x → Mensal 3x/)).toBeInTheDocument();
+    expect(screen.getByText(/Solicitada em .* · Leonardo/)).toBeInTheDocument();
+    expect(screen.getByText("A partir de 18 ago 2026")).toBeInTheDocument();
+    expect(screen.getByText("Frequência: 2x → 3x por semana")).toBeInTheDocument();
+    expect(screen.queryByText(/Sessões por semana:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Plano comercial:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Valor contratado:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Não informado → Pendente/)).not.toBeInTheDocument();
     expect(screen.getAllByText(/Sistema/).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText(/\{"/)).not.toBeInTheDocument();
@@ -628,6 +658,7 @@ describe("Planos no contêiner do App Shell", () => {
     });
 
     const firstRender = renderPlans("/planos/pacientes/41");
+    expect(await screen.findByText("Plano desde 18 mai 2026")).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
     expect(await screen.findByText("Seg 08h · Qua 08h")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Alterar agenda/i }));
@@ -672,7 +703,7 @@ describe("Planos no contêiner do App Shell", () => {
       }),
       { headers: { "Idempotency-Key": expect.stringMatching(/^schedule-change-41-/) } },
     ));
-    expect(await screen.findByText(/Alteração agendada/)).toBeInTheDocument();
+    expect(await screen.findByText(/Alteração de agenda · a partir de/)).toBeInTheDocument();
     expect(screen.getByText(
       "Seg 08h · Qua 08h → Ter 09h · Qua 10h",
     )).toBeInTheDocument();
@@ -683,7 +714,7 @@ describe("Planos no contêiner do App Shell", () => {
     firstRender.unmount();
     const refreshedRender = renderPlans("/planos/pacientes/41");
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
-    expect(await screen.findByText(/Alteração agendada/)).toBeInTheDocument();
+    expect(await screen.findByText(/Alteração de agenda · a partir de/)).toBeInTheDocument();
     expect(screen.getByText(
       "Seg 08h · Qua 08h → Ter 09h · Qua 10h",
     )).toBeInTheDocument();
@@ -693,7 +724,7 @@ describe("Planos no contêiner do App Shell", () => {
     renderPlans("/planos/pacientes/41");
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
     await waitFor(() => {
-      expect(screen.queryByText(/Alteração agendada/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Alteração de agenda · a partir de/)).not.toBeInTheDocument();
     });
     expect(await screen.findByRole("button", { name: /Alterar agenda/i })).toBeInTheDocument();
   });

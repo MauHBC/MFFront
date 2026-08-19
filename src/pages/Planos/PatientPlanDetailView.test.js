@@ -39,22 +39,25 @@ describe("PatientPlanDetailView", () => {
         statusLabel="Pausado"
         statusTone="paused"
         billingSummary="R$ 480/mês · vence dia 18"
-        startSummary="Desde 18 mai 2026"
+        startSummary="Plano desde 18 mai 2026"
         stateNote="Pausa por tempo indeterminado"
         primaryAction={{ label: "Gerenciar pausa", onClick: noop }}
         secondaryAction={{ label: "Editar dados", onClick: noop }}
         menuActions={[{ label: "Cancelar plano", onClick: noop, critical: true }]}
       >
         <ScheduledChangePanel
-          eyebrow="Cancelamento agendado · 25 ago"
-          title="Ativo até 25 ago"
+          eyebrow="Cancelamento agendado"
+          metadata="Solicitado em 23 jul · Leonardo"
+          title="Último dia ativo: 25 ago"
           menuActions={[{ label: "Desprogramar cancelamento", onClick: noop }]}
         />
       </PlanSummaryCard>,
     );
     expect(screen.getByText("Pausado")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Gerenciar pausa" })).toBeInTheDocument();
-    expect(screen.getByText("Cancelamento agendado · 25 ago")).toBeInTheDocument();
+    expect(screen.getByText("Cancelamento agendado")).toBeInTheDocument();
+    expect(screen.getByText("Solicitado em 23 jul · Leonardo")).toBeInTheDocument();
+    expect(screen.getByText("Último dia ativo: 25 ago")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Ações do plano" }));
     expect(screen.getByRole("menuitem", { name: "Cancelar plano" })).toBeInTheDocument();
   });
@@ -65,13 +68,14 @@ describe("PatientPlanDetailView", () => {
         title="Funcional 2x por semana"
         statusLabel="Ativo"
         billingSummary="R$ 480/mês · vence dia 18"
-        startSummary="Desde 18 mai 2026"
+        startSummary="Plano desde 18 mai 2026"
         primaryAction={{ label: "Trocar plano", onClick: noop }}
         secondaryAction={{ label: "Editar dados", onClick: noop }}
         menuActions={[]}
       >
         <ScheduledChangePanel
-          eyebrow="Troca agendada · 25 ago"
+          eyebrow="Troca agendada · a partir de 25 ago"
+          metadata="Solicitada em 23 jul · Leonardo"
           title="Funcional 2x → Funcional 3x"
           detail="Ter 09h · Qui 10h"
           onEdit={noop}
@@ -81,7 +85,8 @@ describe("PatientPlanDetailView", () => {
     );
     expect(screen.getByText("Ativo")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Trocar plano" })).toBeInTheDocument();
-    expect(screen.getByText("Troca agendada · 25 ago")).toBeInTheDocument();
+    expect(screen.getByText("Plano desde 18 mai 2026")).toBeInTheDocument();
+    expect(screen.getByText("Troca agendada · a partir de 25 ago")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Editar" })).toBeInTheDocument();
   });
 

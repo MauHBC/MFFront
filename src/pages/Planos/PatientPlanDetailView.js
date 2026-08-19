@@ -145,6 +145,7 @@ DetailActionMenu.defaultProps = { actions: [] };
 
 export function ScheduledChangePanel({
   eyebrow,
+  metadata,
   title,
   detail,
   secondaryDetail,
@@ -155,6 +156,7 @@ export function ScheduledChangePanel({
     <FuturePanel>
       <FuturePanelContent>
         <FutureEyebrow>{eyebrow}</FutureEyebrow>
+        {metadata && <FutureSecondary>{metadata}</FutureSecondary>}
         <FutureTitle>{title}</FutureTitle>
         {detail && <FutureDetail>{detail}</FutureDetail>}
         {secondaryDetail && <FutureSecondary>{secondaryDetail}</FutureSecondary>}
@@ -171,6 +173,7 @@ export function ScheduledChangePanel({
 
 ScheduledChangePanel.propTypes = {
   eyebrow: PropTypes.string.isRequired,
+  metadata: PropTypes.string,
   title: PropTypes.string.isRequired,
   detail: PropTypes.string,
   secondaryDetail: PropTypes.string,
@@ -179,6 +182,7 @@ ScheduledChangePanel.propTypes = {
 };
 
 ScheduledChangePanel.defaultProps = {
+  metadata: "",
   detail: "",
   secondaryDetail: "",
   onEdit: null,
@@ -253,7 +257,7 @@ PlanSummaryCard.propTypes = {
   billingSummary: PropTypes.string,
   startSummary: PropTypes.string,
   notes: PropTypes.string,
-  stateNote: PropTypes.string,
+  stateNote: PropTypes.node,
   primaryAction: PropTypes.shape({
     label: PropTypes.string.isRequired,
     onClick: PropTypes.func.isRequired,
@@ -838,9 +842,13 @@ const StateNote = styled.div`
   background: ${alpha.paused018};
   border-radius: ${radii.md};
   color: ${colors.pausedText};
+  display: grid;
   font-size: ${fontSizes.body};
-  font-weight: 700;
+  gap: ${spacing.xs};
   padding: 10px 12px;
+
+  strong { font-weight: 800; }
+  span { color: ${colors.textSecondary}; }
 `;
 
 const NotesDisclosure = styled.details`
@@ -892,6 +900,7 @@ const FutureTitle = styled.strong`
 const FutureDetail = styled.span`
   color: ${colors.textSecondary};
   font-size: ${fontSizes.body};
+  white-space: pre-line;
 `;
 
 const FutureSecondary = styled.span`

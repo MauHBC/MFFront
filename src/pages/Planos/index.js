@@ -72,14 +72,18 @@ import {
   ScheduledChangePanel,
 } from "./PatientPlanDetailView";
 import {
+  buildPausePresentation,
+  buildPendingCommercialChangePresentation,
   buildPendingScheduleChangePresentation,
+  buildPlanHistoryPresentation,
   buildScheduleRows,
   createScheduleChangeIdempotencyKey,
+  findPlanHistoryEvent,
   formatAgendaPattern,
   formatCompactDate,
+  formatRequestMetadata,
   formatPlanHistoryEventLabel,
   formatScheduleGrid,
-  getVisiblePlanHistoryChanges,
   getScheduleChangeIssues,
   scheduleChangeErrorPresentation,
 } from "./patientPlanDetailPresentation";
@@ -228,31 +232,6 @@ const formatDateTimeBR = (value) => {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
-};
-
-const HISTORY_STATUS_LABELS = {
-  active: "Ativo",
-  paused: "Pausado",
-  canceled: "Cancelado",
-  scheduled: "Programada",
-  ended: "Encerrada",
-  pending: "Pendente",
-  replaced: "Substituída",
-  applied: "Aplicada",
-};
-
-const formatPlanHistoryValue = (field, value) => {
-  if (value === null || value === undefined || value === "") return "Não informado";
-  if (field === "price_cents") return formatPrice(Number(value));
-  if (typeof value === "boolean") return value ? "Sim" : "Não";
-  if (Array.isArray(value)) return value.join(", ");
-  if (["starts_on", "ends_on", "resumes_on", "cancellation_effective_on", "effective_on"].includes(field)) {
-    return formatDateBR(value);
-  }
-  if (["status", "pause_status", "change_status"].includes(field)) {
-    return HISTORY_STATUS_LABELS[String(value)] || String(value);
-  }
-  return String(value);
 };
 
 const daysInMonth = (year, month) => new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -779,21 +758,11 @@ const getPatientPlanActivePause = (pp) => {
   return pauses.find((pause) => pause.status === "active") || null;
 };
 
-const getPatientPlanPauseInfo = (pp) => {
+const getPatientPlanCurrentPause = (pp) => {
   const pauses = Array.isArray(pp?.pauses) ? pp.pauses : [];
-  const current = getPatientPlanActivePause(pp)
-    || pauses.find((pause) => pause.status === "scheduled");
-  if (!current) return null;
-
-  if (current.status === "scheduled") {
-    return current.is_indefinite
-      ? `Pausa programada a partir de ${formatDateBR(current.starts_on)}`
-      : `Pausa programada de ${formatDateBR(current.starts_on)} a ${formatDateBR(current.ends_on)}`;
-  }
-
-  return current.is_indefinite
-    ? `Pausa por tempo indeterminado desde ${formatDateBR(current.starts_on)}`
-    : `Pausa ativa desde ${formatDateBR(current.starts_on)} até ${formatDateBR(current.ends_on)}`;
+  return getPatientPlanActivePause(pp)
+    || pauses.find((pause) => pause.status === "scheduled")
+    || null;
 };
 
 const ANCHOR_DAY_OPTIONS = Array.from({ length: 31 }, (_, index) => index + 1);
@@ -1089,6 +1058,7 @@ export default function Planos() {
 
       const detail = detailResult.value?.data || null;
       setPpDetailPlan(detail);
+      loadPatientProfessionals(detail?.patient_id);
       setPpAdminSummary(adminResult.status === "fulfilled" ? adminResult.value?.data || null : null);
       if (historyResult.status === "fulfilled") {
         const historyPayload = historyResult.value?.data || {};
@@ -1122,7 +1092,7 @@ export default function Planos() {
       setPpDetailLoading(false);
       setPpHistoryLoading(false);
     }
-  }, []);
+  }, [loadPatientProfessionals]);
 
   const loadMorePatientPlanHistory = useCallback(async () => {
     if (
@@ -3016,7 +2986,18 @@ export default function Planos() {
     currentPlanName: ppAdminPlanData?.service_plan_name || ppDetailSummary?.planName,
     pendingChange: ppPendingPlanChange,
   });
-  const ppPendingPlanScheduleText = ppCommercialDisplay.pending_schedule_text;
+  const ppPendingPlanHistoryEvent = findPlanHistoryEvent({
+    events: ppHistoryEvents,
+    types: ["commercial_change_requested", "commercial_change_replaced"],
+    relatedEntityType: "patient_plan_change",
+    relatedEntityId: ppPendingPlanChange?.id,
+  });
+  const ppPendingCommercialPresentation = buildPendingCommercialChangePresentation({
+    pendingChange: ppPendingPlanChange,
+    currentPlanName: ppCommercialDisplay.current_plan_name,
+    historyEvent: ppPendingPlanHistoryEvent,
+    professionals: patientProfessionals,
+  });
   const ppDetailEditPermissions = ppDetailPlan?.edit_permissions || {};
   const ppDetailAgendaSummary = ppAdminSummary?.agenda_summary
     || getPatientPlanBackendAgendaSummary(ppDetailPlan);
@@ -3031,7 +3012,24 @@ export default function Planos() {
   const ppDetailAgendaPrimaryAction = ppDetailAgendaSummary?.primary_action || null;
   const ppDetailAgendaNeedsNewSchedule = ppDetailAgendaPrimaryAction === "configure_new_agenda"
     || ppDetailAgendaStatus === "no_future_sessions";
-  const ppDetailPauseInfo = ppDetailPlan ? getPatientPlanPauseInfo(ppDetailPlan) : null;
+  const ppDetailCurrentPause = ppDetailPlan ? getPatientPlanCurrentPause(ppDetailPlan) : null;
+  const ppDetailPauseHistoryEvent = findPlanHistoryEvent({
+    events: ppHistoryEvents,
+    types: ["pause_scheduled", "pause_started"],
+    relatedEntityType: "patient_plan_pause",
+    relatedEntityId: ppDetailCurrentPause?.id,
+  });
+  const ppDetailPausePresentation = buildPausePresentation({
+    pause: ppDetailCurrentPause,
+    historyEvent: ppDetailPauseHistoryEvent,
+  });
+  const ppDetailPauseInfo = ppDetailPausePresentation ? (
+    <>
+      <strong>{ppDetailPausePresentation.title}</strong>
+      {ppDetailPausePresentation.metadata && <span>{ppDetailPausePresentation.metadata}</span>}
+      <span>{ppDetailPausePresentation.period}</span>
+    </>
+  ) : null;
   const goToPatientAgenda = useCallback(() => {
     if (!ppDetailPlan?.patient_id) return;
     const params = new URLSearchParams();
@@ -3202,7 +3200,7 @@ export default function Planos() {
       ppDetailPlanAnchorDay !== "—" ? `vence ${ppDetailPlanAnchorDay.toLowerCase()}` : null,
     ].filter(Boolean).join(" · ");
   const ppDetailStartSummary = ppDetailPlanStartsAt && ppDetailPlanStartsAt !== "-"
-    ? `Desde ${formatCompactDate(
+    ? `Plano desde ${formatCompactDate(
       ppAdminPlanData?.starts_at || ppDetailPlan?.starts_at,
       { includeYear: true },
     )}`
@@ -3286,6 +3284,26 @@ export default function Planos() {
   const ppPendingScheduleChangePresentation = buildPendingScheduleChangePresentation(
     ppAdminSummary?.pending_schedule_change,
   );
+  const ppPendingScheduleHistoryEvent = findPlanHistoryEvent({
+    events: ppHistoryEvents,
+    types: ["schedule_changed"],
+    relatedEntityType: "schedule_revision",
+    relatedEntityId: ppAdminSummary?.pending_schedule_change?.revision_id,
+  });
+  const ppPendingScheduleRequestMetadata = formatRequestMetadata({
+    requestedAt: ppPendingScheduleHistoryEvent?.occurred_at,
+    actorName: ppPendingScheduleHistoryEvent?.actor?.name,
+  });
+  const ppCancellationHistoryEvent = findPlanHistoryEvent({
+    events: ppHistoryEvents,
+    types: ["cancellation_scheduled", "cancellation_updated"],
+    effectiveOn: ppDetailPlan?.cancellation_effective_on,
+  });
+  const ppCancellationRequestMetadata = formatRequestMetadata({
+    requestedAt: ppCancellationHistoryEvent?.occurred_at,
+    actorName: ppCancellationHistoryEvent?.actor?.name,
+    prefix: "Solicitado em",
+  });
   const hasOperationalScheduleChange = Boolean(ppPendingScheduleChangePresentation);
   let agendaBlockedByLifecycle = "";
   if (ppPendingPlanChange) {
@@ -3350,23 +3368,22 @@ export default function Planos() {
       <HistoryTimelineCard>
         <PlanHistorySections>
           <PlanHistorySection>
-            {ppHistoryEvents.map((event) => (
-              <PlanHistoryItem key={event.id || `${event.type}-${event.sequence}`}>
-                <strong>{formatPlanHistoryEventLabel(event)}</strong>
-                <span>
-                  {formatDateTimeBR(event.occurred_at)} · {event.actor?.name
-                    || (event.origin === "automatic" ? "Sistema" : "Responsável não identificado")}
-                </span>
-                {getVisiblePlanHistoryChanges(event).map((change) => (
-                  <small key={`${event.id}-${change.field}`}>
-                    {change.label}: {formatPlanHistoryValue(change.field, change.before)} → {formatPlanHistoryValue(change.field, change.after)}
-                  </small>
-                ))}
-                {event.legacy?.is_incomplete && (
-                  <small>Evidência histórica incompleta</small>
-                )}
-              </PlanHistoryItem>
-            ))}
+            {ppHistoryEvents.map((event) => {
+              const presentation = buildPlanHistoryPresentation(event, patientProfessionals);
+              return (
+                <PlanHistoryItem key={event.id || `${event.type}-${event.sequence}`}>
+                  <strong>{formatPlanHistoryEventLabel(event)}</strong>
+                  <span>{presentation.moment}</span>
+                  {presentation.vigency && <span>{presentation.vigency}</span>}
+                  {presentation.changes.map((change) => (
+                    <small key={`${event.id}-${change}`}>{change}</small>
+                  ))}
+                  {event.legacy?.is_incomplete && (
+                    <small>Evidência histórica incompleta</small>
+                  )}
+                </PlanHistoryItem>
+              );
+            })}
             {ppHistoryPageInfo.has_more && (
               <GhostButton
                 type="button"
@@ -4636,12 +4653,11 @@ export default function Planos() {
                       {ppDetailPlanDataContent}
                       {ppPendingPlanChange && (
                         <ScheduledChangePanel
-                          eyebrow={`Troca agendada · ${formatCompactDate(ppPendingPlanChange.effective_on)}`}
-                          title={`${ppCommercialDisplay.current_plan_name} → ${ppCommercialDisplay.pending_plan_name || "Novo plano"}`}
-                          detail={ppPendingPlanScheduleText || "A nova grade será aplicada na próxima vigência."}
-                          secondaryDetail={ppCommercialDisplay.current_schedule_text
-                            ? `Grade atual: ${ppCommercialDisplay.current_schedule_text}`
-                            : ""}
+                          eyebrow={`Troca agendada · a partir de ${formatCompactDate(ppPendingPlanChange.effective_on)}`}
+                          metadata={ppPendingCommercialPresentation?.metadata}
+                          title={ppPendingCommercialPresentation?.title
+                            || `${ppCommercialDisplay.current_plan_name} → ${ppCommercialDisplay.pending_plan_name || "Novo plano"}`}
+                          detail={ppPendingCommercialPresentation?.details.join("\n")}
                           onEdit={openPlanChange}
                           menuActions={[{
                             label: "Cancelar troca",
@@ -4652,9 +4668,9 @@ export default function Planos() {
                       )}
                       {ppDetailHasFutureCancellation && (
                         <ScheduledChangePanel
-                          eyebrow={`Cancelamento agendado · ${formatCompactDate(ppDetailPlan.cancellation_effective_on)}`}
-                          title={`Ativo até ${formatCompactDate(ppDetailPlan.cancellation_effective_on)}`}
-                          detail="Os lançamentos futuros seguem a programação do cancelamento."
+                          eyebrow="Cancelamento agendado"
+                          metadata={ppCancellationRequestMetadata}
+                          title={`Último dia ativo: ${formatCompactDate(ppDetailPlan.cancellation_effective_on)}`}
                           menuActions={[{
                             label: "Desprogramar cancelamento",
                             onClick: handleUnscheduleCancellation,
@@ -4686,10 +4702,10 @@ export default function Planos() {
                     >
                       {hasOperationalScheduleChange && (
                         <ScheduledChangePanel
-                          eyebrow={`Alteração agendada · ${formatCompactDate(ppPendingScheduleChangePresentation.effectiveOn)}`}
+                          eyebrow={`Alteração de agenda · a partir de ${formatCompactDate(ppPendingScheduleChangePresentation.effectiveOn)}`}
+                          metadata={ppPendingScheduleRequestMetadata}
                           title={ppPendingScheduleChangePresentation.title}
-                          detail={ppPendingScheduleChangePresentation.professionalChange
-                            || "A nova grade entrará em vigor automaticamente."}
+                          detail={ppPendingScheduleChangePresentation.professionalChange}
                           menuActions={[]}
                         />
                       )}
