@@ -134,11 +134,13 @@ describe("patient plan detail presentation", () => {
     expect(presentation.metadata).toMatch(/^Solicitada em 23 jul · Leonardo$/);
     expect(presentation.details).toEqual(expect.arrayContaining([
       "Frequência: 3x → 2x por semana",
-      "Atual: Seg 08h",
-      "Nova: Ter 09h",
-      "Profissional: Leonardo → Mariana",
     ]));
     expect(presentation.details.join(" ")).toMatch(/Valor: R\$\s*600,00 → R\$\s*480,00/);
+    expect(presentation.agendaComparison).toEqual({
+      current: "Seg 08h",
+      proposed: "Ter 09h",
+    });
+    expect(presentation.professionalChange).toBe("Profissional: Leonardo → Mariana");
   });
 
   it("apresenta pausa futura com fim e pausa indefinida sem confundir as datas", () => {

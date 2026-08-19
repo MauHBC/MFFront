@@ -77,7 +77,10 @@ describe("PatientPlanDetailView", () => {
           eyebrow="Troca agendada · a partir de 25 ago"
           metadata="Solicitada em 23 jul · Leonardo"
           title="Funcional 2x → Funcional 3x"
-          detail={"Atual: Seg 11h · Qua 11h · Sex 11h\nNova: Ter 08h · Qui 08h"}
+          agendaComparison={{
+            current: "Seg 11h · Qua 11h · Sex 11h",
+            proposed: "Ter 08h · Qui 08h",
+          }}
           onEdit={noop}
           menuActions={[{ label: "Cancelar troca", onClick: noop }]}
         />
@@ -87,6 +90,11 @@ describe("PatientPlanDetailView", () => {
     expect(screen.getByRole("button", { name: "Trocar plano" })).toBeInTheDocument();
     expect(screen.getByText("Plano iniciado em 18 mai 2026")).toBeInTheDocument();
     expect(screen.getByText("Troca agendada · a partir de 25 ago")).toBeInTheDocument();
+    const agendaLabel = screen.getByText("Agenda");
+    const agendaLines = agendaLabel.nextElementSibling;
+    expect(agendaLines).toHaveTextContent("Atual: Seg 11h · Qua 11h · Sex 11h");
+    expect(agendaLines).toHaveTextContent("Nova: Ter 08h · Qui 08h");
+    expect(agendaLines).toHaveStyle({ paddingLeft: "8px" });
     expect(screen.getByText(/Atual: Seg 11h · Qua 11h · Sex 11h/)).toBeInTheDocument();
     expect(screen.getByText(/Nova: Ter 08h · Qui 08h/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Editar" })).toBeInTheDocument();

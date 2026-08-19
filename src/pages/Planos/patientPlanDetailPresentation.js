@@ -314,18 +314,15 @@ export const buildPendingCommercialChangePresentation = ({
 
   const previousPattern = formatScheduleGrid(pendingChange.previous_schedule);
   const proposedPattern = formatScheduleGrid(pendingChange.new_schedule);
-  if (previousPattern && proposedPattern && previousPattern !== proposedPattern) {
-    details.push(`Atual: ${previousPattern}`);
-    details.push(`Nova: ${proposedPattern}`);
-  }
+  const agendaComparison = previousPattern && proposedPattern && previousPattern !== proposedPattern
+    ? { current: previousPattern, proposed: proposedPattern }
+    : null;
 
   const professionalChange = buildProfessionalChangeText({
     beforeGrid: pendingChange.previous_schedule,
     afterGrid: pendingChange.new_schedule,
     professionals,
   });
-  if (professionalChange) details.push(professionalChange);
-
   return {
     effectiveOn: pendingChange.effective_on,
     metadata: formatRequestMetadata({
@@ -334,6 +331,8 @@ export const buildPendingCommercialChangePresentation = ({
     }),
     title: `${currentPlanName || previous.service_plan_name || "Plano atual"} → ${futurePlanName}`,
     details,
+    agendaComparison,
+    professionalChange,
   };
 };
 

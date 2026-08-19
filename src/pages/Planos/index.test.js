@@ -625,6 +625,9 @@ describe("Planos no contêiner do App Shell", () => {
     expect(overduePanel).toHaveTextContent("Mensal 2x → Mensal 3x");
     expect(overduePanel).toHaveTextContent("Frequência: 2x → 3x por semana");
     expect(overduePanel).toHaveTextContent(/Valor: R\$\s*480,00 → R\$\s*600,00/);
+    const overdueAgendaLabel = within(overduePanel).getByText("Agenda");
+    expect(overdueAgendaLabel.nextElementSibling).toHaveTextContent("Atual: Seg 11h · Qua 11h · Sex 11h");
+    expect(overdueAgendaLabel.nextElementSibling).toHaveTextContent("Nova: Ter 08h · Qui 08h");
     expect(overduePanel).toHaveTextContent("Atual: Seg 11h · Qua 11h · Sex 11h");
     expect(overduePanel).toHaveTextContent("Nova: Ter 08h · Qui 08h");
     await waitFor(() => {

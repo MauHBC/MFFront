@@ -148,6 +148,8 @@ export function ScheduledChangePanel({
   metadata,
   title,
   detail,
+  agendaComparison,
+  trailingDetail,
   secondaryDetail,
   onEdit,
   menuActions,
@@ -159,6 +161,16 @@ export function ScheduledChangePanel({
         {metadata && <FutureSecondary>{metadata}</FutureSecondary>}
         <FutureTitle>{title}</FutureTitle>
         {detail && <FutureDetail>{detail}</FutureDetail>}
+        {agendaComparison && (
+          <FutureAgendaGroup>
+            <FutureAgendaLabel>Agenda</FutureAgendaLabel>
+            <FutureAgendaLines>
+              <span>Atual: {agendaComparison.current}</span>
+              <span>Nova: {agendaComparison.proposed}</span>
+            </FutureAgendaLines>
+          </FutureAgendaGroup>
+        )}
+        {trailingDetail && <FutureDetail>{trailingDetail}</FutureDetail>}
         {secondaryDetail && <FutureSecondary>{secondaryDetail}</FutureSecondary>}
       </FuturePanelContent>
       {(onEdit || menuActions.length > 0) && (
@@ -176,6 +188,11 @@ ScheduledChangePanel.propTypes = {
   metadata: PropTypes.string,
   title: PropTypes.string.isRequired,
   detail: PropTypes.string,
+  agendaComparison: PropTypes.shape({
+    current: PropTypes.string.isRequired,
+    proposed: PropTypes.string.isRequired,
+  }),
+  trailingDetail: PropTypes.string,
   secondaryDetail: PropTypes.string,
   onEdit: PropTypes.func,
   menuActions: PropTypes.arrayOf(PropTypes.shape({})),
@@ -184,6 +201,8 @@ ScheduledChangePanel.propTypes = {
 ScheduledChangePanel.defaultProps = {
   metadata: "",
   detail: "",
+  agendaComparison: null,
+  trailingDetail: "",
   secondaryDetail: "",
   onEdit: null,
   menuActions: [],
@@ -901,6 +920,25 @@ const FutureDetail = styled.span`
   color: ${colors.textSecondary};
   font-size: ${fontSizes.body};
   white-space: pre-line;
+`;
+
+const FutureAgendaGroup = styled.div`
+  display: grid;
+  gap: 2px;
+`;
+
+const FutureAgendaLabel = styled.span`
+  color: ${colors.textSecondary};
+  font-size: ${fontSizes.small};
+  font-weight: 700;
+`;
+
+const FutureAgendaLines = styled.div`
+  color: ${colors.textSecondary};
+  display: grid;
+  font-size: ${fontSizes.body};
+  gap: 2px;
+  padding-left: ${spacing.sm};
 `;
 
 const FutureSecondary = styled.span`

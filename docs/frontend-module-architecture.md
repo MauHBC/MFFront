@@ -687,7 +687,8 @@ administrativo distingue `future_editable` de
 cancelar; a segunda é apresentada como atualização operacional pendente, sem
 inferência local por datas e sem abrir o drawer de substituição, preservando no
 painel os dados de negócio disponíveis da troca. A comparação da Agenda futura
-usa linhas compactas `Atual` e `Nova`.
+agrupa as linhas compactas `Atual` e `Nova` sob o rótulo `Agenda`, com recuo
+leve e sem criar outro contêiner visual.
 
 As datas desse detalhe distinguem a ação da sua vigência: `Solicitada em`
 identifica o momento e o ator do comando; `A partir de` identifica o início dos

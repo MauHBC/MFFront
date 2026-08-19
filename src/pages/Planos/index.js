@@ -4659,6 +4659,8 @@ export default function Planos() {
                             `Vigência: ${formatCompactDate(ppPendingPlanChange.effective_on)}`,
                             ...(ppPendingCommercialPresentation?.details || []),
                           ].join("\n")}
+                          agendaComparison={ppPendingCommercialPresentation?.agendaComparison}
+                          trailingDetail={ppPendingCommercialPresentation?.professionalChange}
                         />
                       )}
                       {ppPendingPlanChange && !ppPendingPlanChangeOverdue && (
@@ -4668,6 +4670,8 @@ export default function Planos() {
                           title={ppPendingCommercialPresentation?.title
                             || `${ppCommercialDisplay.current_plan_name} → ${ppCommercialDisplay.pending_plan_name || "Novo plano"}`}
                           detail={ppPendingCommercialPresentation?.details.join("\n")}
+                          agendaComparison={ppPendingCommercialPresentation?.agendaComparison}
+                          trailingDetail={ppPendingCommercialPresentation?.professionalChange}
                           onEdit={ppCommercialDisplay.show_edit_action ? openPlanChange : null}
                           menuActions={ppCommercialDisplay.show_cancel_action ? [{
                             label: "Cancelar troca",
