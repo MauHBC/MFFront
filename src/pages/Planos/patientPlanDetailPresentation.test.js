@@ -111,7 +111,7 @@ describe("patient plan detail presentation", () => {
         professional_user_id: row.professional_user_id,
       })),
     });
-    expect(presentation.professionalChange).toBe("Profissional: alterado");
+    expect(presentation.professionalChange).toBe("");
   });
 
   it("separa solicitação e vigência na troca futura e mostra somente diferenças reais", () => {
@@ -134,7 +134,8 @@ describe("patient plan detail presentation", () => {
     expect(presentation.metadata).toMatch(/^Solicitada em 23 jul · Leonardo$/);
     expect(presentation.details).toEqual(expect.arrayContaining([
       "Frequência: 3x → 2x por semana",
-      "Agenda: Seg 08h → Ter 09h",
+      "Atual: Seg 08h",
+      "Nova: Ter 09h",
       "Profissional: Leonardo → Mariana",
     ]));
     expect(presentation.details.join(" ")).toMatch(/Valor: R\$\s*600,00 → R\$\s*480,00/);
@@ -188,7 +189,7 @@ describe("patient plan detail presentation", () => {
     }).period).toBe("Sem data de retorno");
   });
 
-  it("resolve profissional alterado, omite o inalterado e usa fallback seguro sem nome", () => {
+  it("resolve profissional alterado e omite o inalterado ou sem nomes confiáveis", () => {
     const beforeGrid = [{ weekday: 1, time: "08:00", professional_user_id: 21 }];
     const afterGrid = [{ weekday: 2, time: "09:00", professional_user_id: 36 }];
     expect(buildProfessionalChangeText({
@@ -202,7 +203,7 @@ describe("patient plan detail presentation", () => {
       professionals: [{ id: 21, name: "Leonardo" }],
     })).toBe("");
     expect(buildProfessionalChangeText({ beforeGrid, afterGrid, professionals: [] }))
-      .toBe("Profissional: alterado");
+      .toBe("");
   });
 
   it("separa solicitação, vigência e mudanças do histórico sem duplicar frequência", () => {
@@ -262,7 +263,6 @@ describe("patient plan detail presentation", () => {
     expect(schedule.vigency).toBe("A partir de 25 ago 2026");
     expect(schedule.changes).toEqual([
       "Agenda: Seg 08h → Ter 09h",
-      "Profissional: alterado",
     ]);
   });
 

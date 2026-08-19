@@ -39,7 +39,7 @@ describe("PatientPlanDetailView", () => {
         statusLabel="Pausado"
         statusTone="paused"
         billingSummary="R$ 480/mês · vence dia 18"
-        startSummary="Plano desde 18 mai 2026"
+        startSummary="Plano iniciado em 18 mai 2026"
         stateNote="Pausa por tempo indeterminado"
         primaryAction={{ label: "Gerenciar pausa", onClick: noop }}
         secondaryAction={{ label: "Editar dados", onClick: noop }}
@@ -68,7 +68,7 @@ describe("PatientPlanDetailView", () => {
         title="Funcional 2x por semana"
         statusLabel="Ativo"
         billingSummary="R$ 480/mês · vence dia 18"
-        startSummary="Plano desde 18 mai 2026"
+        startSummary="Plano iniciado em 18 mai 2026"
         primaryAction={{ label: "Trocar plano", onClick: noop }}
         secondaryAction={{ label: "Editar dados", onClick: noop }}
         menuActions={[]}
@@ -77,7 +77,7 @@ describe("PatientPlanDetailView", () => {
           eyebrow="Troca agendada · a partir de 25 ago"
           metadata="Solicitada em 23 jul · Leonardo"
           title="Funcional 2x → Funcional 3x"
-          detail="Ter 09h · Qui 10h"
+          detail={"Atual: Seg 11h · Qua 11h · Sex 11h\nNova: Ter 08h · Qui 08h"}
           onEdit={noop}
           menuActions={[{ label: "Cancelar troca", onClick: noop }]}
         />
@@ -85,8 +85,10 @@ describe("PatientPlanDetailView", () => {
     );
     expect(screen.getByText("Ativo")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Trocar plano" })).toBeInTheDocument();
-    expect(screen.getByText("Plano desde 18 mai 2026")).toBeInTheDocument();
+    expect(screen.getByText("Plano iniciado em 18 mai 2026")).toBeInTheDocument();
     expect(screen.getByText("Troca agendada · a partir de 25 ago")).toBeInTheDocument();
+    expect(screen.getByText(/Atual: Seg 11h · Qua 11h · Sex 11h/)).toBeInTheDocument();
+    expect(screen.getByText(/Nova: Ter 08h · Qui 08h/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Editar" })).toBeInTheDocument();
   });
 

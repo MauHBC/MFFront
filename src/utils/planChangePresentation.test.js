@@ -33,6 +33,7 @@ describe('buildPlanCommercialDisplay', () => {
       pendingChange: {
         service_plan_name: 'Funcional 2x/semana',
         effective_on: '2026-07-13',
+        lifecycle_state: 'future_editable',
         previous_schedule: [
           { weekday: 1, time: '07:00' },
           { weekday: 3, time: '07:00' },
@@ -72,10 +73,23 @@ describe('buildPlanCommercialDisplay', () => {
   it('não oferece uma segunda troca comum enquanto existe pendência', () => {
     const result = buildPlanCommercialDisplay({
       currentPlanName: 'Funcional 3x/semana',
-      pendingChange: { effective_on: '2026-08-13' },
+      pendingChange: { effective_on: '2026-08-13', lifecycle_state: 'future_editable' },
     });
     expect(result.show_create_action).toBe(false);
     expect(result.action_label).toBe('Editar troca agendada');
+  });
+
+  it('não oferece edição para pendência vencida aguardando lifecycle', () => {
+    const result = buildPlanCommercialDisplay({
+      currentPlanName: 'Funcional 3x/semana',
+      pendingChange: {
+        effective_on: '2026-08-13',
+        lifecycle_state: 'overdue_awaiting_lifecycle',
+      },
+    });
+    expect(result.show_create_action).toBe(false);
+    expect(result.show_edit_action).toBe(false);
+    expect(result.show_cancel_action).toBe(false);
   });
 });
 

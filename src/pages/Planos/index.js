@@ -2352,6 +2352,7 @@ export default function Planos() {
   const openPlanChange = useCallback(() => {
     if (!ppDetailPlan) return;
     const pendingChange = ppAdminSummary?.pending_plan_change || null;
+    if (pendingChange && pendingChange.lifecycle_state !== "future_editable") return;
     const pendingSchedule = Array.isArray(pendingChange?.new_schedule)
       ? pendingChange.new_schedule
       : [];
@@ -2982,6 +2983,8 @@ export default function Planos() {
   const ppAdminHeader = ppAdminSummary?.header_summary || null;
   const ppAdminPlanData = ppAdminSummary?.plan_data_summary || null;
   const ppPendingPlanChange = ppAdminSummary?.pending_plan_change || null;
+  const ppPendingPlanChangeOverdue = ppPendingPlanChange?.lifecycle_state
+    === "overdue_awaiting_lifecycle";
   const ppCommercialDisplay = buildPlanCommercialDisplay({
     currentPlanName: ppAdminPlanData?.service_plan_name || ppDetailSummary?.planName,
     pendingChange: ppPendingPlanChange,
@@ -3200,7 +3203,7 @@ export default function Planos() {
       ppDetailPlanAnchorDay !== "—" ? `vence ${ppDetailPlanAnchorDay.toLowerCase()}` : null,
     ].filter(Boolean).join(" · ");
   const ppDetailStartSummary = ppDetailPlanStartsAt && ppDetailPlanStartsAt !== "-"
-    ? `Plano desde ${formatCompactDate(
+    ? `Plano iniciado em ${formatCompactDate(
       ppAdminPlanData?.starts_at || ppDetailPlan?.starts_at,
       { includeYear: true },
     )}`
@@ -4651,19 +4654,25 @@ export default function Planos() {
                       menuActions={ppDetailPlanMenuActions}
                     >
                       {ppDetailPlanDataContent}
-                      {ppPendingPlanChange && (
+                      {ppPendingPlanChangeOverdue && (
+                        <ScheduledChangePanel
+                          eyebrow="Troca aguardando atualização"
+                          title={`Vigência: ${formatCompactDate(ppPendingPlanChange.effective_on)}`}
+                        />
+                      )}
+                      {ppPendingPlanChange && !ppPendingPlanChangeOverdue && (
                         <ScheduledChangePanel
                           eyebrow={`Troca agendada · a partir de ${formatCompactDate(ppPendingPlanChange.effective_on)}`}
                           metadata={ppPendingCommercialPresentation?.metadata}
                           title={ppPendingCommercialPresentation?.title
                             || `${ppCommercialDisplay.current_plan_name} → ${ppCommercialDisplay.pending_plan_name || "Novo plano"}`}
                           detail={ppPendingCommercialPresentation?.details.join("\n")}
-                          onEdit={openPlanChange}
-                          menuActions={[{
+                          onEdit={ppCommercialDisplay.show_edit_action ? openPlanChange : null}
+                          menuActions={ppCommercialDisplay.show_cancel_action ? [{
                             label: "Cancelar troca",
                             onClick: openScheduledPlanChangeCancellation,
                             critical: true,
-                          }]}
+                          }] : []}
                         />
                       )}
                       {ppDetailHasFutureCancellation && (

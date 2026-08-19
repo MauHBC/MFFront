@@ -72,6 +72,7 @@ export const buildPlanChangePreviewPresentation = ({
 export const buildPlanCommercialDisplay = ({ currentPlanName, pendingChange }) => {
   const currentSchedule = formatSchedule(pendingChange?.previous_schedule);
   const futureSchedule = formatSchedule(pendingChange?.new_schedule);
+  const pendingChangeEditable = pendingChange?.lifecycle_state === 'future_editable';
 
   return {
     current_plan_name: currentPlanName || '—',
@@ -81,10 +82,10 @@ export const buildPlanCommercialDisplay = ({ currentPlanName, pendingChange }) =
     pending_effective_label: pendingChange ? formatDateBR(pendingChange.effective_on) : null,
     current_schedule_text: currentSchedule,
     pending_schedule_text: futureSchedule,
-    action_label: pendingChange ? 'Editar troca agendada' : 'Trocar plano',
+    action_label: pendingChangeEditable ? 'Editar troca agendada' : 'Trocar plano',
     show_create_action: !pendingChange,
-    show_edit_action: !!pendingChange,
-    show_cancel_action: !!pendingChange,
+    show_edit_action: pendingChangeEditable,
+    show_cancel_action: pendingChangeEditable,
   };
 };
 

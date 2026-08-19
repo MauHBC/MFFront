@@ -537,6 +537,72 @@ describe("Planos no contêiner do App Shell", () => {
     ))).toBe(true);
   });
 
+  it("bloqueia edição da troca vencida e remove o painel quando o resumo não traz pendência", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      starts_at: "2026-05-18",
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: { id: 31, name: "Mensal 2x", sessions_per_week: 2 },
+    };
+    let pendingPlanChange = {
+      id: 77,
+      version: 3,
+      status: "pending",
+      service_plan_id: 32,
+      service_plan_name: "Mensal 3x",
+      effective_on: "2026-08-18",
+      lifecycle_state: "overdue_awaiting_lifecycle",
+      can_replace: false,
+      previous_schedule: [{ weekday: 1, time: "11:00", professional_user_id: 21 }],
+      new_schedule: [{ weekday: 2, time: "08:00", professional_user_id: 36 }],
+    };
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({
+          data: {
+            plan_data_summary: {
+              service_plan_name: "Mensal 2x",
+              starts_at: "2026-05-18",
+            },
+            pending_plan_change: pendingPlanChange,
+          },
+        });
+      }
+      if (url === "/schedule/references/professionals") {
+        return Promise.resolve({
+          data: [
+            { id: 21, name: "Leonardo", clinic_professional_id: 80 },
+            { id: 36, name: "Mariana", clinic_professional_id: 99 },
+          ],
+        });
+      }
+      if (url === "/services") return Promise.resolve({ data: [] });
+      if (url === "/patients") return Promise.resolve({ data: [patientPlan.Patient] });
+      if (url === "/users") return Promise.resolve({ data: [] });
+      if (url === "/unit-scheduling-policy") return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: {} });
+    });
+
+    const firstRender = renderPlans("/planos/pacientes/41");
+    expect(await screen.findByText("Troca aguardando atualização")).toBeInTheDocument();
+    expect(screen.getByText("Vigência: 18 ago")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Revisar troca" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancelar troca" })).not.toBeInTheDocument();
+
+    firstRender.unmount();
+    pendingPlanChange = null;
+    renderPlans("/planos/pacientes/41");
+    await waitFor(() => {
+      expect(screen.queryByText("Troca aguardando atualização")).not.toBeInTheDocument();
+    });
+    expect(await screen.findByRole("button", { name: "Trocar plano" })).toBeInTheDocument();
+  });
+
   it("executa preview e confirmação idempotente da alteração operacional da Agenda", async () => {
     const patientPlan = {
       id: 41,
@@ -658,7 +724,7 @@ describe("Planos no contêiner do App Shell", () => {
     });
 
     const firstRender = renderPlans("/planos/pacientes/41");
-    expect(await screen.findByText("Plano desde 18 mai 2026")).toBeInTheDocument();
+    expect(await screen.findByText("Plano iniciado em 18 mai 2026")).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
     expect(await screen.findByText("Seg 08h · Qua 08h")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Alterar agenda/i }));

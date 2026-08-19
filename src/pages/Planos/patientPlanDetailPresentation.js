@@ -165,7 +165,7 @@ export const buildPendingScheduleChangePresentation = (pendingScheduleChange) =>
     ).trim();
     professionalChange = currentName && futureName
       ? `Profissional: ${currentName} → ${futureName}`
-      : "Profissional: alterado";
+      : "";
   }
 
   return {
@@ -269,7 +269,7 @@ export const buildProfessionalChangeText = ({ beforeGrid, afterGrid, professiona
   const beforeNames = beforeIds.map((id) => namesById.get(id)).filter(Boolean);
   const afterNames = afterIds.map((id) => namesById.get(id)).filter(Boolean);
   if (beforeNames.length !== beforeIds.length || afterNames.length !== afterIds.length) {
-    return "Profissional: alterado";
+    return "";
   }
   return `Profissional: ${beforeNames.join(", ")} → ${afterNames.join(", ")}`;
 };
@@ -315,7 +315,8 @@ export const buildPendingCommercialChangePresentation = ({
   const previousPattern = formatScheduleGrid(pendingChange.previous_schedule);
   const proposedPattern = formatScheduleGrid(pendingChange.new_schedule);
   if (previousPattern && proposedPattern && previousPattern !== proposedPattern) {
-    details.push(`Agenda: ${previousPattern} → ${proposedPattern}`);
+    details.push(`Atual: ${previousPattern}`);
+    details.push(`Nova: ${proposedPattern}`);
   }
 
   const professionalChange = buildProfessionalChangeText({
