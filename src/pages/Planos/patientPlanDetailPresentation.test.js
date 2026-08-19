@@ -4,7 +4,9 @@ import {
   createScheduleChangeIdempotencyKey,
   formatAgendaPattern,
   formatCompactDate,
+  formatPlanHistoryEventLabel,
   formatScheduleGrid,
+  getVisiblePlanHistoryChanges,
   getScheduleChangeIssues,
   scheduleChangeErrorPresentation,
 } from "./patientPlanDetailPresentation";
@@ -85,6 +87,38 @@ describe("patient plan detail presentation", () => {
     });
     expect(presentation.title).toBe("Seg 08h · Qua 08h → Ter 09h · Qua 10h");
     expect(presentation.professionalChange).toBe("");
+  });
+
+  it.each([
+    ["commercial_change_requested", "Troca de plano agendada"],
+    ["commercial_change_replaced", "Troca de plano atualizada"],
+    ["commercial_change_canceled", "Troca de plano cancelada"],
+    ["commercial_change_applied", "Troca de plano realizada"],
+  ])("apresenta %s com linguagem de negócio", (type, expectedLabel) => {
+    expect(formatPlanHistoryEventLabel({ type, label: "Rótulo técnico" })).toBe(expectedLabel);
+  });
+
+  it("oculta somente o status redundante do agendamento comercial", () => {
+    const redundantStatus = {
+      field: "change_status",
+      label: "Status da alteração",
+      before: null,
+      after: "pending",
+    };
+    const planChange = {
+      field: "service_plan_name",
+      label: "Plano comercial",
+      before: "Mensal 2x",
+      after: "Mensal 3x",
+    };
+    expect(getVisiblePlanHistoryChanges({
+      type: "commercial_change_requested",
+      changes: [redundantStatus, planChange],
+    })).toEqual([planChange]);
+    expect(getVisiblePlanHistoryChanges({
+      type: "commercial_change_applied",
+      changes: [redundantStatus],
+    })).toEqual([redundantStatus]);
   });
 
   it("traduz sessões protegidas, conflitos e stale sem expor detalhes técnicos", () => {

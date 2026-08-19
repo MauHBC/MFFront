@@ -28,6 +28,13 @@ const CONFLICT_LABELS = {
   EXPLICIT_SERVICE_CAPACITY_REACHED: "A capacidade do serviço foi atingida.",
 };
 
+const PLAN_HISTORY_EVENT_LABELS = {
+  commercial_change_requested: "Troca de plano agendada",
+  commercial_change_replaced: "Troca de plano atualizada",
+  commercial_change_canceled: "Troca de plano cancelada",
+  commercial_change_applied: "Troca de plano realizada",
+};
+
 const parseDateOnly = (value) => {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) return null;
@@ -110,6 +117,9 @@ export const buildPendingScheduleChangePresentation = (pendingScheduleChange) =>
 };
 
 export const formatPlanHistoryEventLabel = (event) => {
+  const businessLabel = PLAN_HISTORY_EVENT_LABELS[event?.type];
+  if (businessLabel) return businessLabel;
+
   const label = String(event?.label || "").trim();
   if (!event?.legacy?.is_legacy) return label || "Evento do plano";
 
@@ -118,11 +128,18 @@ export const formatPlanHistoryEventLabel = (event) => {
   return `${userFacingLabel.charAt(0).toUpperCase()}${userFacingLabel.slice(1)}`;
 };
 
-export const getVisiblePlanHistoryChanges = (changes = []) => (
-  (Array.isArray(changes) ? changes : []).filter((change) => (
-    String(change?.field || "").trim().toLowerCase() !== "change_version"
-    && String(change?.label || "").trim().toLocaleLowerCase("pt-BR") !== "versão da alteração"
-  ))
+export const getVisiblePlanHistoryChanges = (event) => (
+  (Array.isArray(event?.changes) ? event.changes : []).filter((change) => {
+    const field = String(change?.field || "").trim().toLowerCase();
+    const label = String(change?.label || "").trim().toLocaleLowerCase("pt-BR");
+    const redundantScheduledStatus = event?.type === "commercial_change_requested"
+      && field === "change_status"
+      && (change?.before == null || change.before === "")
+      && String(change?.after || "").trim().toLowerCase() === "pending";
+    return field !== "change_version"
+      && label !== "versão da alteração"
+      && !redundantScheduledStatus;
+  })
 );
 
 export const getScheduleChangeIssues = (payload = {}) => {

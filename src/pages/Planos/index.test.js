@@ -255,8 +255,8 @@ describe("Planos no contêiner do App Shell", () => {
             {
               id: 12,
               sequence: 12,
-              type: "commercial_change_applied",
-              label: "Alteração comercial aplicada",
+              type: "commercial_change_requested",
+              label: "Alteração comercial solicitada",
               occurred_at: "2026-08-06T12:00:00.000Z",
               origin: "automatic",
               actor: null,
@@ -264,8 +264,14 @@ describe("Planos no contêiner do App Shell", () => {
                 {
                   field: "change_status",
                   label: "Status da alteração",
-                  before: "pending",
-                  after: "applied",
+                  before: null,
+                  after: "pending",
+                },
+                {
+                  field: "service_plan_name",
+                  label: "Plano comercial",
+                  before: "Mensal 2x",
+                  after: "Mensal 3x",
                 },
                 {
                   field: "change_version",
@@ -316,11 +322,12 @@ describe("Planos no contêiner do App Shell", () => {
     renderPlans("/planos/pacientes/41");
     fireEvent.click(await screen.findByRole("tab", { name: "Histórico" }));
 
-    const applied = await screen.findByText("Alteração comercial aplicada");
+    const scheduled = await screen.findByText("Troca de plano agendada");
     const endedPause = screen.getByText("Pausa encerrada automaticamente");
-    expect(applied.compareDocumentPosition(endedPause))
+    expect(scheduled.compareDocumentPosition(endedPause))
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(screen.getByText(/Pendente → Aplicada/)).toBeInTheDocument();
+    expect(screen.getByText(/Mensal 2x → Mensal 3x/)).toBeInTheDocument();
+    expect(screen.queryByText(/Não informado → Pendente/)).not.toBeInTheDocument();
     expect(screen.getAllByText(/Sistema/).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText(/\{"/)).not.toBeInTheDocument();
 

@@ -3357,7 +3357,7 @@ export default function Planos() {
                   {formatDateTimeBR(event.occurred_at)} · {event.actor?.name
                     || (event.origin === "automatic" ? "Sistema" : "Responsável não identificado")}
                 </span>
-                {getVisiblePlanHistoryChanges(event.changes).map((change) => (
+                {getVisiblePlanHistoryChanges(event).map((change) => (
                   <small key={`${event.id}-${change.field}`}>
                     {change.label}: {formatPlanHistoryValue(change.field, change.before)} → {formatPlanHistoryValue(change.field, change.after)}
                   </small>
