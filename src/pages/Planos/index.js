@@ -4837,11 +4837,11 @@ export default function Planos() {
                             current: ppPendingScheduleChangePresentation.currentPattern,
                             proposed: ppPendingScheduleChangePresentation.proposedPattern,
                           }}
-                          menuActions={ppPendingScheduleChange?.can_cancel === true ? [{
+                          verticalAgendaComparison
+                          cancelAction={ppPendingScheduleChange?.can_cancel === true ? {
                             label: "Cancelar alteração",
                             onClick: openScheduleChangeCancellation,
-                            critical: true,
-                          }] : []}
+                          } : null}
                         />
                       )}
                     </AgendaSummaryCard>

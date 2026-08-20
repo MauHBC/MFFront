@@ -768,7 +768,11 @@ describe("Planos no contêiner do App Shell", () => {
     const firstRender = renderPlans("/planos/pacientes/41");
     expect(await screen.findByText("Plano iniciado em 18 mai 2026")).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
-    expect(await screen.findByText("Seg 08h · Qua 08h")).toBeInTheDocument();
+    const recurringSchedule = await screen.findByRole("list", {
+      name: "Horários da agenda recorrente",
+    });
+    expect(within(recurringSchedule).getByText("Seg 08h")).toBeInTheDocument();
+    expect(within(recurringSchedule).getByText("Qua 08h")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Alterar agenda/i }));
 
     const dialog = await screen.findByRole("dialog", { name: "Alterar agenda" });
@@ -815,8 +819,12 @@ describe("Planos no contêiner do App Shell", () => {
       { headers: { "Idempotency-Key": expect.stringMatching(/^schedule-change-41-/) } },
     ));
     expect(await screen.findByText(/Alteração de agenda · a partir de/)).toBeInTheDocument();
-    expect(screen.getByText("Agenda Atual: Seg 08h · Qua 08h")).toBeInTheDocument();
-    expect(screen.getByText("Agenda Nova: Ter 09h · Qua 10h")).toBeInTheDocument();
+    const scheduledCurrentAgenda = screen.getByRole("group", { name: "Agenda atual" });
+    const scheduledNewAgenda = screen.getByRole("group", { name: "Agenda nova" });
+    expect(within(scheduledCurrentAgenda).getByText("Seg 08h")).toBeInTheDocument();
+    expect(within(scheduledCurrentAgenda).getByText("Qua 08h")).toBeInTheDocument();
+    expect(within(scheduledNewAgenda).getByText("Ter 09h")).toBeInTheDocument();
+    expect(within(scheduledNewAgenda).getByText("Qua 10h")).toBeInTheDocument();
     expect(screen.getByText("Profissional: Leonardo → Mariana")).toBeInTheDocument();
     expect(axios.get.mock.calls.filter(([url]) => url === "/patient-plans/41/admin-summary").length)
       .toBeGreaterThanOrEqual(2);
@@ -825,8 +833,12 @@ describe("Planos no contêiner do App Shell", () => {
     const refreshedRender = renderPlans("/planos/pacientes/41");
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
     expect(await screen.findByText(/Alteração de agenda · a partir de/)).toBeInTheDocument();
-    expect(screen.getByText("Agenda Atual: Seg 08h · Qua 08h")).toBeInTheDocument();
-    expect(screen.getByText("Agenda Nova: Ter 09h · Qua 10h")).toBeInTheDocument();
+    const refreshedCurrentAgenda = screen.getByRole("group", { name: "Agenda atual" });
+    const refreshedNewAgenda = screen.getByRole("group", { name: "Agenda nova" });
+    expect(within(refreshedCurrentAgenda).getByText("Seg 08h")).toBeInTheDocument();
+    expect(within(refreshedCurrentAgenda).getByText("Qua 08h")).toBeInTheDocument();
+    expect(within(refreshedNewAgenda).getByText("Ter 09h")).toBeInTheDocument();
+    expect(within(refreshedNewAgenda).getByText("Qua 10h")).toBeInTheDocument();
 
     refreshedRender.unmount();
     pendingScheduleChange = null;
@@ -924,17 +936,22 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.queryByRole("button", { name: "Cancelar alteração" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Agenda" }));
-    expect(await screen.findByText("Agenda Atual: Seg 08h · Qua 08h")).toBeInTheDocument();
-    expect(screen.getByText("Agenda Nova: Ter 09h · Qua 10h")).toBeInTheDocument();
+    const currentAgenda = await screen.findByRole("group", { name: "Agenda atual" });
+    const newAgenda = screen.getByRole("group", { name: "Agenda nova" });
+    expect(within(currentAgenda).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(currentAgenda).getByText("Seg 08h")).toBeInTheDocument();
+    expect(within(currentAgenda).getByText("Qua 08h")).toBeInTheDocument();
+    expect(within(newAgenda).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(newAgenda).getByText("Ter 09h")).toBeInTheDocument();
+    expect(within(newAgenda).getByText("Qua 10h")).toBeInTheDocument();
     expect(screen.getByText("Profissional: Leonardo → Mariana")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Editar alteração" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Ações de Alteração de agenda/i }))
+      .not.toBeInTheDocument();
     expect(axios.post.mock.calls.some(([url]) => url.endsWith("/schedule-change/replace")))
       .toBe(false);
 
-    fireEvent.click(screen.getByRole("button", {
-      name: /Ações de Alteração de agenda/i,
-    }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Cancelar alteração" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar alteração" }));
     const confirmation = screen.getByRole("dialog", {
       name: "Cancelar alteração de agenda?",
     });

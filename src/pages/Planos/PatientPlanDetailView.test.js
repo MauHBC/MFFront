@@ -138,8 +138,46 @@ describe("PatientPlanDetailView", () => {
     } else {
       expect(screen.queryByRole("button")).not.toBeInTheDocument();
     }
-    if (pattern) expect(screen.getByText(pattern)).toBeInTheDocument();
+    if (pattern) {
+      const scheduleList = screen.getByRole("list", {
+        name: "Horários da agenda recorrente",
+      });
+      expect(within(scheduleList).getAllByRole("listitem")).toHaveLength(2);
+      expect(within(scheduleList).getByText("Ter 08h")).toBeInTheDocument();
+      expect(within(scheduleList).getByText("Qui 08h")).toBeInTheDocument();
+      expect(screen.queryByText(pattern)).not.toBeInTheDocument();
+    }
     unmount();
+  });
+
+  it("mostra a alteração futura da Agenda em listas e com cancelamento direto", () => {
+    const onCancel = jest.fn();
+    render(
+      <ScheduledChangePanel
+        eyebrow="Alteração de agenda · a partir de 25 ago"
+        title="Alteração programada"
+        agendaComparison={{
+          current: "Ter 08h · Qui 08h",
+          proposed: "Ter 18h · Qui 19h",
+        }}
+        verticalAgendaComparison
+        cancelAction={{ label: "Cancelar alteração", onClick: onCancel }}
+      />,
+    );
+
+    const currentAgenda = screen.getByRole("group", { name: "Agenda atual" });
+    const newAgenda = screen.getByRole("group", { name: "Agenda nova" });
+    expect(within(currentAgenda).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(currentAgenda).getByText("Ter 08h")).toBeInTheDocument();
+    expect(within(currentAgenda).getByText("Qui 08h")).toBeInTheDocument();
+    expect(within(newAgenda).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(newAgenda).getByText("Ter 18h")).toBeInTheDocument();
+    expect(within(newAgenda).getByText("Qui 19h")).toBeInTheDocument();
+    expect(screen.queryByText(/Agenda Atual:/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Ações de Alteração de agenda/i }))
+      .not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar alteração" }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it("mantém o dialog rotulado, campos associados e sem confirmação quando há bloqueio", () => {

@@ -4,7 +4,7 @@ import styled from "styled-components";
 import { FaArrowLeft, FaCalendarAlt, FaTimes } from "react-icons/fa";
 
 import AppActionMenu, { AppActionMenuItem } from "../../components/AppActionMenu";
-import { PrimaryButton, GhostButton } from "../../components/AppButton";
+import { DangerButton, PrimaryButton, GhostButton } from "../../components/AppButton";
 import {
   AppDrawer,
   DrawerBackdrop,
@@ -149,16 +149,23 @@ DetailActionMenu.propTypes = {
 
 DetailActionMenu.defaultProps = { actions: [] };
 
+const splitSchedulePattern = (pattern) => String(pattern || "")
+  .split(/\s*·\s*/)
+  .map((item) => item.trim())
+  .filter(Boolean);
+
 export function ScheduledChangePanel({
   eyebrow,
   metadata,
   title,
   detail,
   agendaComparison,
+  verticalAgendaComparison,
   trailingDetail,
   secondaryDetail,
   onEdit,
   editLabel,
+  cancelAction,
   menuActions,
 }) {
   return (
@@ -168,7 +175,27 @@ export function ScheduledChangePanel({
         {metadata && <FutureSecondary>{metadata}</FutureSecondary>}
         <FutureTitle>{title}</FutureTitle>
         {detail && <FutureDetail>{detail}</FutureDetail>}
-        {agendaComparison && (
+        {agendaComparison && verticalAgendaComparison && (
+          <FutureAgendaComparison>
+            <FutureAgendaColumn role="group" aria-label="Agenda atual">
+              <FutureAgendaLabel>Agenda atual</FutureAgendaLabel>
+              <FutureAgendaList>
+                {splitSchedulePattern(agendaComparison.current).map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </FutureAgendaList>
+            </FutureAgendaColumn>
+            <FutureAgendaColumn role="group" aria-label="Agenda nova">
+              <FutureAgendaLabel>Agenda nova</FutureAgendaLabel>
+              <FutureAgendaList>
+                {splitSchedulePattern(agendaComparison.proposed).map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </FutureAgendaList>
+            </FutureAgendaColumn>
+          </FutureAgendaComparison>
+        )}
+        {agendaComparison && !verticalAgendaComparison && (
           <FutureAgendaGroup>
             <FutureAgendaLines>
               <span>Agenda Atual: {agendaComparison.current}</span>
@@ -179,9 +206,18 @@ export function ScheduledChangePanel({
         {trailingDetail && <FutureDetail>{trailingDetail}</FutureDetail>}
         {secondaryDetail && <FutureSecondary>{secondaryDetail}</FutureSecondary>}
       </FuturePanelContent>
-      {(onEdit || menuActions.length > 0) && (
+      {(onEdit || cancelAction || menuActions.length > 0) && (
         <CompactActions>
           {onEdit && <InlineAction type="button" onClick={onEdit}>{editLabel}</InlineAction>}
+          {cancelAction && (
+            <DangerButton
+              type="button"
+              disabled={cancelAction.disabled}
+              onClick={cancelAction.onClick}
+            >
+              {cancelAction.label}
+            </DangerButton>
+          )}
           <DetailActionMenu label={`Ações de ${eyebrow}`} actions={menuActions} />
         </CompactActions>
       )}
@@ -198,10 +234,16 @@ ScheduledChangePanel.propTypes = {
     current: PropTypes.string.isRequired,
     proposed: PropTypes.string.isRequired,
   }),
+  verticalAgendaComparison: PropTypes.bool,
   trailingDetail: PropTypes.string,
   secondaryDetail: PropTypes.string,
   onEdit: PropTypes.func,
   editLabel: PropTypes.string,
+  cancelAction: PropTypes.shape({
+    label: PropTypes.string.isRequired,
+    onClick: PropTypes.func.isRequired,
+    disabled: PropTypes.bool,
+  }),
   menuActions: PropTypes.arrayOf(PropTypes.shape({})),
 };
 
@@ -209,10 +251,12 @@ ScheduledChangePanel.defaultProps = {
   metadata: "",
   detail: "",
   agendaComparison: null,
+  verticalAgendaComparison: false,
   trailingDetail: "",
   secondaryDetail: "",
   onEdit: null,
   editLabel: "Editar",
+  cancelAction: null,
   menuActions: [],
 };
 
@@ -339,7 +383,13 @@ export function AgendaSummaryCard({
             <SummaryTitle>{title}</SummaryTitle>
             {statusLabel && <StatusPill $tone={statusTone}>{statusLabel}</StatusPill>}
           </SummaryTitleLine>
-          {pattern && <AgendaPattern>{pattern}</AgendaPattern>}
+          {pattern && (
+            <AgendaPattern aria-label="Horários da agenda recorrente">
+              {splitSchedulePattern(pattern).map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </AgendaPattern>
+          )}
           {supportingText && <SummaryMeta>{supportingText}</SummaryMeta>}
         </SummaryHeadingGroup>
         <ContextActions>
@@ -819,8 +869,15 @@ const SummaryLead = styled.p`
   margin: 0;
 `;
 
-const AgendaPattern = styled(SummaryLead)`
+const AgendaPattern = styled.ul`
+  color: ${colors.textPrimary};
+  display: grid;
   font-size: 1.08rem;
+  font-weight: 700;
+  gap: ${spacing.xs};
+  list-style: none;
+  margin: 0;
+  padding: 0;
 `;
 
 const SummaryMeta = styled.p`
@@ -946,6 +1003,31 @@ const FutureAgendaLines = styled.div`
   font-size: ${fontSizes.body};
   gap: 2px;
   padding-left: ${spacing.sm};
+`;
+
+const FutureAgendaComparison = styled.div`
+  display: grid;
+  gap: ${spacing.md};
+  margin-top: ${spacing.xs};
+`;
+
+const FutureAgendaColumn = styled.div`
+  display: grid;
+  gap: ${spacing.xs};
+`;
+
+const FutureAgendaLabel = styled.strong`
+  color: ${colors.textPrimary};
+  font-size: ${fontSizes.body};
+`;
+
+const FutureAgendaList = styled.ul`
+  color: ${colors.textSecondary};
+  display: grid;
+  font-size: ${fontSizes.body};
+  gap: 2px;
+  margin: 0;
+  padding-left: ${spacing.lg};
 `;
 
 const FutureSecondary = styled.span`
