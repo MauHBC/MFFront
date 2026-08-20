@@ -262,10 +262,102 @@ describe("patient plan detail presentation", () => {
         },
       ],
     }, []);
-    expect(schedule.vigency).toBe("A partir de 25 ago 2026");
+    expect(schedule.vigency).toBe("A partir de 25 ago");
     expect(schedule.changes).toEqual([
       "Agenda: Seg 08h → Ter 09h",
     ]);
+  });
+
+  it("apresenta pausa iniciada finita sem metadados técnicos", () => {
+    const event = {
+      type: "pause_started",
+      label: "Rótulo do ledger",
+      occurred_at: "2026-08-20T14:51:00.000Z",
+      actor: { name: "LeoJoyce" },
+      changes: [
+        { field: "status", label: "Status do plano", before: "active", after: "paused" },
+        { field: "pause_status", label: "Status da pausa", before: null, after: "active" },
+        { field: "pause_version", label: "Versão da pausa", before: null, after: 1 },
+        { field: "starts_on", before: null, after: "2026-08-20" },
+        { field: "ends_on", before: null, after: "2026-08-28" },
+        { field: "is_indefinite", before: null, after: false },
+      ],
+    };
+
+    const presentation = buildPlanHistoryPresentation(event);
+    expect(formatPlanHistoryEventLabel(event)).toBe("Pausa iniciada");
+    expect(presentation.moment).toMatch(/^20 ago 2026, \d{2}:\d{2} · LeoJoyce$/);
+    expect(presentation.vigency).toBe("Período: 20 ago → 28 ago");
+    expect(presentation.changes).toEqual([]);
+    expect(getVisiblePlanHistoryChanges(event)).toEqual([]);
+  });
+
+  it("apresenta pausa iniciada indefinida sem data de retorno", () => {
+    const presentation = buildPlanHistoryPresentation({
+      type: "pause_started",
+      occurred_at: "2026-08-20T14:51:00.000Z",
+      actor: { name: "LeoJoyce" },
+      changes: [
+        { field: "starts_on", before: null, after: "2026-08-20" },
+        { field: "ends_on", before: null, after: null },
+        { field: "is_indefinite", before: null, after: true },
+      ],
+    });
+
+    expect(presentation.vigency).toBe("Desde 20 ago · sem data de retorno");
+    expect(presentation.changes).toEqual([]);
+  });
+
+  it("apresenta retomada somente com a data útil ao usuário", () => {
+    const event = {
+      type: "plan_resumed",
+      label: "Rótulo do ledger",
+      occurred_at: "2026-08-20T14:57:00.000Z",
+      actor: { name: "LeoJoyce" },
+      changes: [
+        { field: "status", label: "Status do plano", before: "paused", after: "active" },
+        { field: "pause_status", label: "Status da pausa", before: "active", after: "ended" },
+        { field: "pause_version", label: "Versão da pausa", before: 1, after: 2 },
+        { field: "resumes_on", before: null, after: "2026-08-20" },
+      ],
+    };
+
+    const presentation = buildPlanHistoryPresentation(event);
+    expect(formatPlanHistoryEventLabel(event)).toBe("Plano retomado");
+    expect(presentation.moment).toMatch(/^20 ago 2026, \d{2}:\d{2} · LeoJoyce$/);
+    expect(presentation.vigency).toBe("Retomado em 20 ago");
+    expect(presentation.changes).toEqual([]);
+    expect(getVisiblePlanHistoryChanges(event)).toEqual([]);
+  });
+
+  it("renomeia a alteração de Agenda e oculta contagens técnicas", () => {
+    const event = {
+      type: "schedule_changed",
+      label: "Grade mensal alterada",
+      occurred_at: "2026-08-20T14:51:00.000Z",
+      actor: { name: "LeoJoyce" },
+      changes: [
+        { field: "schedule_revision_effective_from", before: null, after: "2026-08-21" },
+        {
+          field: "schedule_grid_summary",
+          before: [{ weekday: 3, time: "20:00" }, { weekday: 4, time: "20:00" }],
+          after: [{ weekday: 4, time: "20:00" }, { weekday: 5, time: "20:00" }],
+        },
+        { field: "schedule_revision_id", before: 7, after: 8 },
+        { field: "schedule_revision_status", before: "active", after: "scheduled" },
+        { field: "schedule_replaced_sessions", before: null, after: 3 },
+        { field: "schedule_preserved_sessions", before: null, after: 5 },
+      ],
+    };
+
+    const presentation = buildPlanHistoryPresentation(event);
+    expect(formatPlanHistoryEventLabel(event)).toBe("Agenda alterada");
+    expect(presentation.moment).toMatch(/^20 ago 2026, \d{2}:\d{2} · LeoJoyce$/);
+    expect(presentation.vigency).toBe("A partir de 21 ago");
+    expect(presentation.changes).toEqual([
+      "Agenda: Qua 20h · Qui 20h → Qui 20h · Sex 20h",
+    ]);
+    expect(presentation.changes.join(" ")).not.toMatch(/substituídas|preservadas|revisão/i);
   });
 
   it("correlaciona solicitação pelo recurso autoritativo ou pela vigência exata", () => {
@@ -305,6 +397,9 @@ describe("patient plan detail presentation", () => {
     ["commercial_change_replaced", "Troca de plano atualizada"],
     ["commercial_change_canceled", "Troca de plano cancelada"],
     ["commercial_change_applied", "Troca de plano realizada"],
+    ["pause_started", "Pausa iniciada"],
+    ["plan_resumed", "Plano retomado"],
+    ["schedule_changed", "Agenda alterada"],
   ])("apresenta %s com linguagem de negócio", (type, expectedLabel) => {
     expect(formatPlanHistoryEventLabel({ type, label: "Rótulo técnico" })).toBe(expectedLabel);
   });

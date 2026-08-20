@@ -48,7 +48,16 @@ const PLAN_HISTORY_EVENT_LABELS = {
   commercial_change_replaced: "Troca de plano atualizada",
   commercial_change_canceled: "Troca de plano cancelada",
   commercial_change_applied: "Troca de plano realizada",
+  pause_started: "Pausa iniciada",
+  plan_resumed: "Plano retomado",
+  schedule_changed: "Agenda alterada",
 };
+
+const SIMPLE_HISTORY_MOMENT_EVENT_TYPES = new Set([
+  "pause_started",
+  "plan_resumed",
+  "schedule_changed",
+]);
 
 const REQUEST_EVENT_TYPES = new Set([
   "commercial_change_requested",
@@ -74,6 +83,19 @@ const HISTORY_TIMING_FIELDS = new Set([
 const HISTORY_TECHNICAL_SCHEDULE_FIELDS = new Set([
   "schedule_revision_id",
   "schedule_revision_status",
+  "schedule_replaced_sessions",
+  "schedule_preserved_sessions",
+]);
+
+const HISTORY_PAUSE_LIFECYCLE_FIELDS = new Set([
+  "status",
+  "pause_status",
+  "starts_on",
+  "ends_on",
+  "is_indefinite",
+  "reason",
+  "pause_version",
+  "resumes_on",
 ]);
 
 const parseDateOnly = (value) => {
@@ -377,6 +399,11 @@ const historyVigencyLabel = (event) => {
   const startsOn = changeAfterValue(event, "starts_on");
   const endsOn = changeAfterValue(event, "ends_on");
   const indefinite = changeAfterValue(event, "is_indefinite") === true;
+  if (startsOn && event?.type === "pause_started") {
+    if (indefinite) return `Desde ${formatCompactDate(startsOn)} · sem data de retorno`;
+    if (endsOn) return `Período: ${formatCompactDate(startsOn)} → ${formatCompactDate(endsOn)}`;
+    return `Desde ${formatCompactDate(startsOn)}`;
+  }
   if (startsOn && event?.type?.startsWith("pause_")) {
     if (indefinite) return `A partir de ${formatCompactDate(startsOn)} · sem data de retorno`;
     if (endsOn) return `Período: ${formatCompactDate(startsOn)} → ${formatCompactDate(endsOn)}`;
@@ -386,11 +413,19 @@ const historyVigencyLabel = (event) => {
     return `Até ${formatCompactDate(endsOn)}`;
   }
 
+  const resumesOn = changeAfterValue(event, "resumes_on");
+  if (resumesOn && event?.type === "plan_resumed") {
+    return `Retomado em ${formatCompactDate(resumesOn)}`;
+  }
+
   const cancellationOn = changeAfterValue(event, "cancellation_effective_on");
   if (cancellationOn) return `Último dia ativo: ${formatCompactDate(cancellationOn, { includeYear: true })}`;
 
   const effectiveOn = changeAfterValue(event, "effective_on")
     || changeAfterValue(event, "schedule_revision_effective_from");
+  if (effectiveOn && event?.type === "schedule_changed") {
+    return `A partir de ${formatCompactDate(effectiveOn)}`;
+  }
   return effectiveOn
     ? `A partir de ${formatCompactDate(effectiveOn, { includeYear: true })}`
     : "";
@@ -415,12 +450,18 @@ export function getVisiblePlanHistoryChanges(event) {
   return (Array.isArray(event?.changes) ? event.changes : []).filter((change) => {
     const field = String(change?.field || "").trim().toLowerCase();
     const label = String(change?.label || "").trim().toLocaleLowerCase("pt-BR");
+    const pauseLifecycleMetadata = ["pause_started", "plan_resumed"].includes(event?.type)
+      && HISTORY_PAUSE_LIFECYCLE_FIELDS.has(field);
+    const scheduleTechnicalMetadata = event?.type === "schedule_changed"
+      && HISTORY_TECHNICAL_SCHEDULE_FIELDS.has(field);
     const redundantScheduledStatus = event?.type === "commercial_change_requested"
       && field === "change_status"
       && (change?.before == null || change.before === "")
       && String(change?.after || "").trim().toLowerCase() === "pending";
     return field !== "change_version"
       && label !== "versão da alteração"
+      && !pauseLifecycleMetadata
+      && !scheduleTechnicalMetadata
       && !redundantScheduledStatus;
   });
 }
@@ -454,7 +495,9 @@ export const buildPlanHistoryPresentation = (event, professionals = []) => {
   }
 
   return {
-    moment: `${momentPrefix} ${formatHistoryInstant(event?.occurred_at)} · ${actorName}`,
+    moment: SIMPLE_HISTORY_MOMENT_EVENT_TYPES.has(event?.type)
+      ? `${formatHistoryInstant(event?.occurred_at)} · ${actorName}`
+      : `${momentPrefix} ${formatHistoryInstant(event?.occurred_at)} · ${actorName}`,
     vigency: historyVigencyLabel(event),
     changes: businessChanges,
   };

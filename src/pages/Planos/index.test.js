@@ -783,10 +783,10 @@ describe("Planos no contêiner do App Shell", () => {
     )).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Seg" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Ter" }));
-    fireEvent.change(within(dialog).getByLabelText("Horário de Ter"), {
+    fireEvent.change(within(dialog).getByLabelText("Horário de terça"), {
       target: { value: "09:00" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Horário de Qua"), {
+    fireEvent.change(within(dialog).getByLabelText("Horário de quarta"), {
       target: { value: "10:00" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Revisar alteração" }));
@@ -914,7 +914,7 @@ describe("Planos no contêiner do App Shell", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
     fireEvent.click(await screen.findByRole("button", { name: /Alterar agenda/i }));
     const dialog = await screen.findByRole("dialog", { name: "Alterar agenda" });
-    fireEvent.change(await within(dialog).findByLabelText("Horário de Seg"), {
+    fireEvent.change(await within(dialog).findByLabelText("Horário de segunda"), {
       target: { value: "09:00" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Revisar alteração" }));

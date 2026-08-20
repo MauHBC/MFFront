@@ -180,4 +180,59 @@ describe("PatientPlanDetailView", () => {
     expect(within(dialog).queryByRole("button", { name: "Confirmar alteração" }))
       .not.toBeInTheDocument();
   });
+
+  it("usa uma linha por dia selecionado no mesmo padrão de Configurar agenda", () => {
+    render(
+      <ScheduleChangeDrawer
+        open
+        busy={false}
+        form={{
+          effective_on: "2026-08-25",
+          minimum_effective_on: "2026-08-19",
+          professional_user_id: "36",
+          weekdays: [2, 3],
+          times_by_weekday: { 2: "08:00", 3: "08:00" },
+        }}
+        frequency={2}
+        professionals={[{ id: 36, name: "Mariana" }]}
+        professionalsLoading={false}
+        weekdayOptions={[
+          { value: 1, label: "Seg", fullLabel: "segunda" },
+          { value: 2, label: "Ter", fullLabel: "terça" },
+          { value: 3, label: "Qua", fullLabel: "quarta" },
+          { value: 4, label: "Qui", fullLabel: "quinta" },
+          { value: 5, label: "Sex", fullLabel: "sexta" },
+        ]}
+        timeOptions={[{ value: "08:00", label: "08h" }]}
+        allowBrokenTime={false}
+        preview={{ status: "idle", data: null }}
+        previewPattern=""
+        currentPattern="Ter 08h · Qua 08h"
+        issues={[]}
+        errorMessage=""
+        onClose={noop}
+        onFieldChange={noop}
+        onWeekdayToggle={noop}
+        onTimeChange={noop}
+        onPreview={noop}
+        onConfirm={noop}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Alterar agenda" });
+    expect(within(dialog).getByText("Horários por dia")).toBeInTheDocument();
+    const weekdayButtons = ["Seg", "Ter", "Qua", "Qui", "Sex"]
+      .map((name) => within(dialog).getByRole("button", { name }));
+    expect(new Set(weekdayButtons.map((button) => button.parentElement))).toHaveProperty("size", 1);
+
+    const tuesdaySelect = within(dialog).getByRole("combobox", { name: "Horário de terça" });
+    const wednesdaySelect = within(dialog).getByRole("combobox", { name: "Horário de quarta" });
+    const tuesdayRow = within(dialog).getByText("terça").closest("label");
+    const wednesdayRow = within(dialog).getByText("quarta").closest("label");
+    expect(tuesdayRow).not.toBe(wednesdayRow);
+    expect(tuesdayRow).toContainElement(tuesdaySelect);
+    expect(wednesdayRow).toContainElement(wednesdaySelect);
+    expect(within(dialog).queryByText("Horário de Ter")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Horário de Qua")).not.toBeInTheDocument();
+  });
 });

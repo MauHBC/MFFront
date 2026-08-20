@@ -19,6 +19,12 @@ import { StatusPill } from "../../components/AppStatus";
 import DataLoadingState from "../../components/DataLoadingState";
 import { alpha, colors, fontSizes, radii, shadows, spacing } from "../../styles/tokens";
 import { formatCompactDate } from "./patientPlanDetailPresentation";
+import {
+  DayTimeList,
+  DayTimeRow,
+  WeekdayButton,
+  WeekdayPicker,
+} from "./PlanScheduleFields";
 
 const TABS = [
   { id: "plan", label: "Plano" },
@@ -517,14 +523,14 @@ export function ScheduleChangeDrawer({
             </Field>
             <fieldset>
               <legend>Dias da semana</legend>
-              <WeekdayGrid>
+              <WeekdayPicker>
                 {weekdayOptions.map((option) => {
                   const selected = form.weekdays.includes(option.value);
                   return (
                     <WeekdayButton
                       key={option.value}
                       type="button"
-                      $selected={selected}
+                      $active={selected}
                       aria-pressed={selected}
                       disabled={busy || (!selected && form.weekdays.length >= frequency)}
                       onClick={() => onWeekdayToggle(option.value)}
@@ -533,43 +539,49 @@ export function ScheduleChangeDrawer({
                     </WeekdayButton>
                   );
                 })}
-              </WeekdayGrid>
+              </WeekdayPicker>
               <FieldHint>Selecione {frequency} dia(s).</FieldHint>
             </fieldset>
             {form.weekdays.length > 0 && (
-              <ScheduleTimes>
-                {form.weekdays.slice().sort((a, b) => a - b).map((weekday) => {
-                  const option = weekdayOptions.find((item) => item.value === weekday);
-                  const inputId = `schedule-change-time-${weekday}`;
-                  return (
-                    <Field key={weekday} htmlFor={inputId}>
-                      Horário de {option?.label || weekday}
-                      {allowBrokenTime ? (
-                        <input
-                          id={inputId}
-                          type="time"
-                          value={form.times_by_weekday[String(weekday)] || ""}
-                          disabled={busy}
-                          onChange={(event) => onTimeChange(weekday, event.target.value)}
-                        />
-                      ) : (
-                        <select
-                          id={inputId}
-                          value={form.times_by_weekday[String(weekday)] || ""}
-                          disabled={busy}
-                          onChange={(event) => onTimeChange(weekday, event.target.value)}
-                        >
-                          {timeOptions.map((optionItem) => (
-                            <option key={optionItem.value} value={optionItem.value}>
-                              {optionItem.label}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </Field>
-                  );
-                })}
-              </ScheduleTimes>
+              <Field as="div">
+                Horários por dia
+                <DayTimeList>
+                  {form.weekdays.slice().sort((a, b) => a - b).map((weekday) => {
+                    const option = weekdayOptions.find((item) => item.value === weekday);
+                    const inputId = `schedule-change-time-${weekday}`;
+                    const weekdayLabel = option?.fullLabel || option?.label || weekday;
+                    return (
+                      <DayTimeRow key={weekday} htmlFor={inputId}>
+                        <span>{weekdayLabel}</span>
+                        {allowBrokenTime ? (
+                          <input
+                            id={inputId}
+                            aria-label={`Horário de ${weekdayLabel}`}
+                            type="time"
+                            value={form.times_by_weekday[String(weekday)] || ""}
+                            disabled={busy}
+                            onChange={(event) => onTimeChange(weekday, event.target.value)}
+                          />
+                        ) : (
+                          <select
+                            id={inputId}
+                            aria-label={`Horário de ${weekdayLabel}`}
+                            value={form.times_by_weekday[String(weekday)] || ""}
+                            disabled={busy}
+                            onChange={(event) => onTimeChange(weekday, event.target.value)}
+                          >
+                            {timeOptions.map((optionItem) => (
+                              <option key={optionItem.value} value={optionItem.value}>
+                                {optionItem.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </DayTimeRow>
+                    );
+                  })}
+                </DayTimeList>
+              </Field>
             )}
             {errorMessage && <ErrorNote role="alert">{errorMessage}</ErrorNote>}
             {issues.length > 0 && (
@@ -976,35 +988,6 @@ const ScheduleChangeForm = styled.form`
     font-weight: 700;
     margin-bottom: ${spacing.sm};
   }
-`;
-
-const WeekdayGrid = styled.div`
-  display: grid;
-  gap: ${spacing.sm};
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-
-  @media (max-width: 640px) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-`;
-
-const WeekdayButton = styled.button`
-  background: ${(props) => (props.$selected ? colors.brand : colors.surface)};
-  border: 1px solid ${(props) => (props.$selected ? colors.brand : alpha.brand028)};
-  border-radius: ${radii.sm};
-  color: ${(props) => (props.$selected ? colors.white : colors.brandDark)};
-  cursor: pointer;
-  font-weight: 700;
-  min-height: 40px;
-
-  &:disabled { cursor: not-allowed; opacity: 0.5; }
-  &:focus-visible { outline: 3px solid ${alpha.brand014}; outline-offset: 2px; }
-`;
-
-const ScheduleTimes = styled.div`
-  display: grid;
-  gap: ${spacing.md};
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-
-  @media (max-width: 520px) { grid-template-columns: 1fr; }
 `;
 
 const ErrorNote = styled.div`
