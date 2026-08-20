@@ -330,6 +330,55 @@ describe("patient plan detail presentation", () => {
     expect(getVisiblePlanHistoryChanges(event)).toEqual([]);
   });
 
+  it("apresenta somente mudanças reais de período e motivo na pausa alterada", () => {
+    const presentation = buildPlanHistoryPresentation({
+      type: "pause_updated",
+      occurred_at: "2026-08-20T14:55:00.000Z",
+      actor: { name: "LeoJoyce" },
+      changes: [
+        { field: "pause_status", label: "Status da pausa", before: "active", after: "active" },
+        { field: "pause_version", label: "Versão da pausa", before: 1, after: 2 },
+        { field: "ends_on", label: "Fim da pausa", before: "2026-08-28", after: "2026-09-04" },
+        { field: "reason", label: "Motivo da pausa", before: null, after: "Recesso" },
+      ],
+    });
+
+    expect(presentation.moment).toMatch(/^20 ago 2026, \d{2}:\d{2} · LeoJoyce$/);
+    expect(presentation.vigency).toBe("");
+    expect(presentation.changes).toEqual([
+      "Período: até 28 ago → até 4 set",
+      "Motivo adicionado: Recesso",
+    ]);
+    expect(presentation.changes.join(" ")).not.toMatch(/status|versão|não informado/i);
+  });
+
+  it("descreve motivo alterado ou removido sem campos internos", () => {
+    expect(buildPlanHistoryPresentation({
+      type: "pause_updated",
+      changes: [{ field: "reason", before: "Viagem", after: "Tratamento" }],
+    }).changes).toEqual(["Motivo: Viagem → Tratamento"]);
+    expect(buildPlanHistoryPresentation({
+      type: "pause_updated",
+      changes: [{ field: "reason", before: "Viagem", after: null }],
+    }).changes).toEqual(["Motivo removido."]);
+  });
+
+  it.each(["pause_scheduled", "pause_started", "pause_updated", "pause_ended", "plan_resumed"])(
+    "remove status e versão técnica de %s",
+    (type) => {
+      const event = {
+        type,
+        changes: [
+          { field: "pause_status", label: "Status da pausa", before: "active", after: "ended" },
+          { field: "pause_version", label: "Versão da pausa", before: 1, after: 2 },
+          { field: "lifecycle_status", label: "Lifecycle", before: "open", after: "closed" },
+        ],
+      };
+      expect(getVisiblePlanHistoryChanges(event)).toEqual([]);
+      expect(buildPlanHistoryPresentation(event).changes).toEqual([]);
+    },
+  );
+
   it("renomeia a alteração de Agenda e oculta contagens técnicas", () => {
     const event = {
       type: "schedule_changed",
@@ -492,7 +541,7 @@ describe("patient plan detail presentation", () => {
         },
       },
     })).toEqual(expect.objectContaining({
-      message: "Existem sessões futuras protegidas que impedem a alteração da grade.",
+      message: "Existem sessões futuras que precisam de revisão antes desta alteração.",
       issues: [expect.objectContaining({ detail: "possui avaliação vinculada" })],
     }));
   });

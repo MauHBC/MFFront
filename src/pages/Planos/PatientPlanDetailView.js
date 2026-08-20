@@ -158,6 +158,7 @@ export function ScheduledChangePanel({
   trailingDetail,
   secondaryDetail,
   onEdit,
+  editLabel,
   menuActions,
 }) {
   return (
@@ -169,10 +170,9 @@ export function ScheduledChangePanel({
         {detail && <FutureDetail>{detail}</FutureDetail>}
         {agendaComparison && (
           <FutureAgendaGroup>
-            <FutureAgendaLabel>Agenda</FutureAgendaLabel>
             <FutureAgendaLines>
-              <span>Atual: {agendaComparison.current}</span>
-              <span>Nova: {agendaComparison.proposed}</span>
+              <span>Agenda Atual: {agendaComparison.current}</span>
+              <span>Agenda Nova: {agendaComparison.proposed}</span>
             </FutureAgendaLines>
           </FutureAgendaGroup>
         )}
@@ -181,7 +181,7 @@ export function ScheduledChangePanel({
       </FuturePanelContent>
       {(onEdit || menuActions.length > 0) && (
         <CompactActions>
-          {onEdit && <InlineAction type="button" onClick={onEdit}>Editar</InlineAction>}
+          {onEdit && <InlineAction type="button" onClick={onEdit}>{editLabel}</InlineAction>}
           <DetailActionMenu label={`Ações de ${eyebrow}`} actions={menuActions} />
         </CompactActions>
       )}
@@ -201,6 +201,7 @@ ScheduledChangePanel.propTypes = {
   trailingDetail: PropTypes.string,
   secondaryDetail: PropTypes.string,
   onEdit: PropTypes.func,
+  editLabel: PropTypes.string,
   menuActions: PropTypes.arrayOf(PropTypes.shape({})),
 };
 
@@ -211,6 +212,7 @@ ScheduledChangePanel.defaultProps = {
   trailingDetail: "",
   secondaryDetail: "",
   onEdit: null,
+  editLabel: "Editar",
   menuActions: [],
 };
 
@@ -223,6 +225,7 @@ export function PlanSummaryCard({
   startSummary,
   notes,
   stateNote,
+  blockedMessage,
   primaryAction,
   secondaryAction,
   menuActions,
@@ -263,6 +266,7 @@ export function PlanSummaryCard({
         </ContextActions>
       </SummaryHeader>
       {stateNote && <StateNote>{stateNote}</StateNote>}
+      {blockedMessage && <BlockedNote role="status">{blockedMessage}</BlockedNote>}
       {notes && (
         <NotesDisclosure>
           <summary>Observações</summary>
@@ -283,6 +287,7 @@ PlanSummaryCard.propTypes = {
   startSummary: PropTypes.string,
   notes: PropTypes.string,
   stateNote: PropTypes.node,
+  blockedMessage: PropTypes.string,
   primaryAction: PropTypes.shape({
     label: PropTypes.string.isRequired,
     onClick: PropTypes.func.isRequired,
@@ -304,6 +309,7 @@ PlanSummaryCard.defaultProps = {
   startSummary: "",
   notes: "",
   stateNote: "",
+  blockedMessage: "",
   primaryAction: null,
   secondaryAction: null,
   menuActions: [],
@@ -932,12 +938,6 @@ const FutureDetail = styled.span`
 const FutureAgendaGroup = styled.div`
   display: grid;
   gap: 2px;
-`;
-
-const FutureAgendaLabel = styled.span`
-  color: ${colors.textSecondary};
-  font-size: ${fontSizes.small};
-  font-weight: 700;
 `;
 
 const FutureAgendaLines = styled.div`

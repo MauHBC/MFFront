@@ -945,9 +945,13 @@ export default function Planos() {
   const [scheduleChangePreview, setScheduleChangePreview] = useState(
     EMPTY_SCHEDULE_CHANGE_PREVIEW,
   );
+  const [scheduleChangeCommand, setScheduleChangeCommand] = useState(null);
   const [scheduleChangeSaving, setScheduleChangeSaving] = useState(false);
+  const [scheduleChangeCancelOpen, setScheduleChangeCancelOpen] = useState(false);
+  const [scheduleChangeCancelSaving, setScheduleChangeCancelSaving] = useState(false);
   const scheduleChangePreviewRequestRef = useRef(0);
   const scheduleChangeIdempotencyRef = useRef(null);
+  const scheduleChangeCancelIdempotencyRef = useRef(null);
   const [operationalPolicy, setOperationalPolicy] = useState(DEFAULT_OPERATIONAL_POLICY);
 
   // Schedule sessions drawer (open from PatientPlan row)
@@ -1191,7 +1195,10 @@ export default function Planos() {
       setScheduleChangeOpen(false);
       setScheduleChangeForm(makeEmptyScheduleChangeForm());
       setScheduleChangePreview(EMPTY_SCHEDULE_CHANGE_PREVIEW);
+      setScheduleChangeCommand(null);
+      setScheduleChangeCancelOpen(false);
       scheduleChangeIdempotencyRef.current = null;
+      scheduleChangeCancelIdempotencyRef.current = null;
       return;
     }
     setActiveTab("patient-plans");
@@ -1203,7 +1210,10 @@ export default function Planos() {
     setScheduleChangeOpen(false);
     setScheduleChangeForm(makeEmptyScheduleChangeForm());
     setScheduleChangePreview(EMPTY_SCHEDULE_CHANGE_PREVIEW);
+    setScheduleChangeCommand(null);
+    setScheduleChangeCancelOpen(false);
     scheduleChangeIdempotencyRef.current = null;
+    scheduleChangeCancelIdempotencyRef.current = null;
     loadPatientPlanDetail(patientPlanId);
   }, [loadPatientPlanDetail, patientPlanId]);
 
@@ -2357,6 +2367,7 @@ export default function Planos() {
 
   const openPlanChange = useCallback(() => {
     if (!ppDetailPlan) return;
+    if (ppAdminSummary?.pending_schedule_change) return;
     const pendingChange = ppAdminSummary?.pending_plan_change || null;
     if (pendingChange && pendingChange.lifecycle_state !== "future_editable") return;
     const pendingSchedule = Array.isArray(pendingChange?.new_schedule)
@@ -2653,6 +2664,7 @@ export default function Planos() {
     setScheduleChangeOpen(false);
     setScheduleChangeForm(makeEmptyScheduleChangeForm());
     setScheduleChangePreview(EMPTY_SCHEDULE_CHANGE_PREVIEW);
+    setScheduleChangeCommand(null);
   }, [scheduleChangeSaving]);
 
   const openScheduleChange = useCallback(() => {
@@ -2675,6 +2687,37 @@ export default function Planos() {
       professional_user_id: initialProfessionalId ? String(initialProfessionalId) : "",
       weekdays: initialWeekdays,
       times_by_weekday: initialTimes,
+    });
+    setScheduleChangePreview(EMPTY_SCHEDULE_CHANGE_PREVIEW);
+    setScheduleChangeCommand(null);
+    scheduleChangeIdempotencyRef.current = null;
+    setScheduleChangeOpen(true);
+    loadPatientProfessionals(ppDetailPlan.patient_id);
+  }, [loadPatientProfessionals, ppAdminSummary, ppDetailPlan]);
+
+  const openPendingScheduleChange = useCallback(() => {
+    const pendingChange = ppAdminSummary?.pending_schedule_change;
+    if (!ppDetailPlan?.id || pendingChange?.can_edit !== true) return;
+    const proposedRows = Array.isArray(pendingChange.proposed_grid)
+      ? pendingChange.proposed_grid
+      : [];
+    const initialProfessionalId = pendingChange.future_professional?.id
+      || proposedRows[0]?.professional_user_id
+      || "";
+    const minimumDate = tomorrowDateOnly();
+    setScheduleChangeForm({
+      effective_on: String(pendingChange.effective_on || "").slice(0, 10),
+      minimum_effective_on: minimumDate,
+      professional_user_id: initialProfessionalId ? String(initialProfessionalId) : "",
+      weekdays: proposedRows.map((row) => Number(row.weekday)),
+      times_by_weekday: proposedRows.reduce((result, row) => ({
+        ...result,
+        [String(row.weekday)]: String(row.time || "").slice(0, 5),
+      }), {}),
+    });
+    setScheduleChangeCommand({
+      id: pendingChange.schedule_change_id,
+      token: pendingChange.command_token,
     });
     setScheduleChangePreview(EMPTY_SCHEDULE_CHANGE_PREVIEW);
     scheduleChangeIdempotencyRef.current = null;
@@ -2767,6 +2810,10 @@ export default function Planos() {
         {
           effective_on: scheduleChangeForm.effective_on,
           schedule,
+          ...(scheduleChangeCommand ? {
+            pending_schedule_change_id: Number(scheduleChangeCommand.id),
+            schedule_change_token: scheduleChangeCommand.token,
+          } : {}),
         },
       );
       if (scheduleChangePreviewRequestRef.current !== requestId) return;
@@ -2798,7 +2845,13 @@ export default function Planos() {
         issues: presentation.issues,
       });
     }
-  }, [ppAdminSummary, ppDetailPlan, scheduleChangeForm, scheduleChangeSaving]);
+  }, [
+    ppAdminSummary,
+    ppDetailPlan,
+    scheduleChangeCommand,
+    scheduleChangeForm,
+    scheduleChangeSaving,
+  ]);
 
   const confirmScheduleChange = useCallback(async () => {
     const preview = scheduleChangePreview.data;
@@ -2823,7 +2876,7 @@ export default function Planos() {
     setScheduleChangePreview((current) => ({ ...current, error: "", issues: [] }));
     try {
       await axios.post(
-        `/patient-plans/${ppDetailPlan.id}/schedule-change`,
+        `/patient-plans/${ppDetailPlan.id}/schedule-change${scheduleChangeCommand ? "/replace" : ""}`,
         {
           effective_on: preview.effective_on,
           schedule,
@@ -2831,14 +2884,21 @@ export default function Planos() {
           expected_version: Number(preview.expected_version),
           preview_token: preview.preview_token,
           assign_patient_care: selectedProfessional?.is_assigned === false,
+          ...(scheduleChangeCommand ? {
+            schedule_change_id: Number(scheduleChangeCommand.id),
+            schedule_change_token: scheduleChangeCommand.token,
+          } : {}),
         },
         { headers: { "Idempotency-Key": idempotencyKey } },
       );
       setScheduleChangeOpen(false);
       setScheduleChangePreview(EMPTY_SCHEDULE_CHANGE_PREVIEW);
       setScheduleChangeForm(makeEmptyScheduleChangeForm());
+      setScheduleChangeCommand(null);
       scheduleChangeIdempotencyRef.current = null;
-      toast.success("Alteração da Agenda agendada.");
+      toast.success(scheduleChangeCommand
+        ? "Alteração de agenda atualizada."
+        : "Alteração da agenda agendada.");
       await loadPatientPlans();
       await loadPatientPlanDetail(ppDetailPlan.id);
       setPpDetailSection(PATIENT_PLAN_DETAIL_SECTIONS.agenda);
@@ -2858,9 +2918,64 @@ export default function Planos() {
     loadPatientPlans,
     patientProfessionals,
     ppDetailPlan,
+    scheduleChangeCommand,
     scheduleChangeForm,
     scheduleChangePreview,
     scheduleChangeSaving,
+  ]);
+
+  const openScheduleChangeCancellation = useCallback(() => {
+    const pendingChange = ppAdminSummary?.pending_schedule_change;
+    if (!ppDetailPlan?.id || pendingChange?.can_cancel !== true) return;
+    scheduleChangeCancelIdempotencyRef.current = createScheduleChangeIdempotencyKey(
+      ppDetailPlan.id,
+    );
+    setScheduleChangeCancelOpen(true);
+  }, [ppAdminSummary, ppDetailPlan]);
+
+  const closeScheduleChangeCancellation = useCallback(() => {
+    if (scheduleChangeCancelSaving) return;
+    setScheduleChangeCancelOpen(false);
+    scheduleChangeCancelIdempotencyRef.current = null;
+  }, [scheduleChangeCancelSaving]);
+
+  const confirmScheduleChangeCancellation = useCallback(async () => {
+    const pendingChange = ppAdminSummary?.pending_schedule_change;
+    if (
+      !ppDetailPlan?.id
+      || pendingChange?.can_cancel !== true
+      || scheduleChangeCancelSaving
+    ) return;
+    const idempotencyKey = scheduleChangeCancelIdempotencyRef.current
+      || createScheduleChangeIdempotencyKey(ppDetailPlan.id);
+    scheduleChangeCancelIdempotencyRef.current = idempotencyKey;
+    setScheduleChangeCancelSaving(true);
+    try {
+      await axios.post(
+        `/patient-plans/${ppDetailPlan.id}/schedule-change/cancel`,
+        {
+          schedule_change_id: Number(pendingChange.schedule_change_id),
+          schedule_change_token: pendingChange.command_token,
+        },
+        { headers: { "Idempotency-Key": idempotencyKey } },
+      );
+      setScheduleChangeCancelOpen(false);
+      scheduleChangeCancelIdempotencyRef.current = null;
+      toast.success("Alteração de agenda cancelada.");
+      await loadPatientPlans();
+      await loadPatientPlanDetail(ppDetailPlan.id);
+      setPpDetailSection(PATIENT_PLAN_DETAIL_SECTIONS.agenda);
+    } catch (error) {
+      toast.error(scheduleChangeErrorPresentation(error).message);
+    } finally {
+      setScheduleChangeCancelSaving(false);
+    }
+  }, [
+    loadPatientPlanDetail,
+    loadPatientPlans,
+    ppAdminSummary,
+    ppDetailPlan,
+    scheduleChangeCancelSaving,
   ]);
 
   // ---- Drawer visibility ----
@@ -2989,6 +3104,8 @@ export default function Planos() {
   const ppAdminHeader = ppAdminSummary?.header_summary || null;
   const ppAdminPlanData = ppAdminSummary?.plan_data_summary || null;
   const ppPendingPlanChange = ppAdminSummary?.pending_plan_change || null;
+  const ppPendingScheduleChange = ppAdminSummary?.pending_schedule_change || null;
+  const planActionsBlockedByScheduleChange = Boolean(ppPendingScheduleChange);
   const ppPendingPlanChangeOverdue = ppPendingPlanChange?.lifecycle_state
     === "overdue_awaiting_lifecycle";
   const ppCommercialDisplay = buildPlanCommercialDisplay({
@@ -3248,10 +3365,14 @@ export default function Planos() {
       ppDetailPlanPrimaryAction = {
         label: "Revisar troca",
         onClick: openPlanChange,
-        disabled: isPpStatusActionBusy,
+        disabled: isPpStatusActionBusy || planActionsBlockedByScheduleChange,
       };
     } else if (ppDetailPlan?.status === "active" && ppCommercialDisplay.show_create_action) {
-      ppDetailPlanPrimaryAction = { label: "Trocar plano", onClick: openPlanChange };
+      ppDetailPlanPrimaryAction = {
+        label: "Trocar plano",
+        onClick: openPlanChange,
+        disabled: planActionsBlockedByScheduleChange,
+      };
     }
   }
   const ppDetailPlanMenuActions = ppDetailEditing || ppDetailPlan?.status === "canceled" ? [] : [
@@ -3259,16 +3380,19 @@ export default function Planos() {
       label: "Pausar plano",
       onClick: () => handlePpPause(ppDetailPlan),
       visible: ppDetailPlan?.status === "active" && !ppDetailHasFutureCancellation,
-      disabled: isPpStatusActionBusy,
+      disabled: isPpStatusActionBusy || planActionsBlockedByScheduleChange,
     },
     {
       label: "Cancelar plano",
       onClick: () => handlePpCancel(ppDetailPlan),
       visible: !ppDetailHasFutureCancellation,
       critical: true,
-      disabled: isPpStatusActionBusy,
+      disabled: isPpStatusActionBusy || planActionsBlockedByScheduleChange,
     },
   ];
+  const ppDetailPlanBlockedMessage = planActionsBlockedByScheduleChange
+    ? "Para alterações no plano, primeiro cancele a troca de agenda."
+    : "";
 
   const agendaStatusPresentation = {
     active_recurrence: { label: "Ativa", tone: "active" },
@@ -3291,13 +3415,13 @@ export default function Planos() {
     ppDetailNextSessionCompact ? `próxima sessão ${ppDetailNextSessionCompact}` : null,
   ].filter(Boolean).join(" · ");
   const ppPendingScheduleChangePresentation = buildPendingScheduleChangePresentation(
-    ppAdminSummary?.pending_schedule_change,
+    ppPendingScheduleChange,
   );
   const ppPendingScheduleHistoryEvent = findPlanHistoryEvent({
     events: ppHistoryEvents,
     types: ["schedule_changed"],
     relatedEntityType: "schedule_revision",
-    relatedEntityId: ppAdminSummary?.pending_schedule_change?.revision_id,
+    relatedEntityId: ppPendingScheduleChange?.revision_id,
   });
   const ppPendingScheduleRequestMetadata = formatRequestMetadata({
     requestedAt: ppPendingScheduleHistoryEvent?.occurred_at,
@@ -4028,6 +4152,37 @@ export default function Planos() {
         </PromptOverlay>
       )}
 
+      {scheduleChangeCancelOpen && ppDetailPlan && ppPendingScheduleChange && (
+        <PromptOverlay>
+          <PromptCard
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-schedule-change-title"
+          >
+            <PromptTitle id="cancel-schedule-change-title">
+              Cancelar alteração de agenda?
+            </PromptTitle>
+            <PromptCopy>A agenda atual será mantida.</PromptCopy>
+            <PromptActions>
+              <GhostButton
+                type="button"
+                onClick={closeScheduleChangeCancellation}
+                disabled={scheduleChangeCancelSaving}
+              >
+                Voltar
+              </GhostButton>
+              <DangerButton
+                type="button"
+                onClick={confirmScheduleChangeCancellation}
+                disabled={scheduleChangeCancelSaving}
+              >
+                {scheduleChangeCancelSaving ? "Cancelando..." : "Cancelar alteração"}
+              </DangerButton>
+            </PromptActions>
+          </PromptCard>
+        </PromptOverlay>
+      )}
+
       {/* ---- Services drawer ---- */}
       <AppDrawer $open={svcDrawerOpen}>
         <DrawerHeader>
@@ -4649,6 +4804,7 @@ export default function Planos() {
                       startSummary={ppDetailStartSummary}
                       notes={ppDetailPlanNotes}
                       stateNote={ppDetailPauseInfo}
+                      blockedMessage={ppDetailPlanBlockedMessage}
                       primaryAction={ppDetailPlanPrimaryAction}
                       secondaryAction={ppDetailPlanSecondaryAction}
                       menuActions={ppDetailPlanMenuActions}
@@ -4723,9 +4879,21 @@ export default function Planos() {
                         <ScheduledChangePanel
                           eyebrow={`Alteração de agenda · a partir de ${formatCompactDate(ppPendingScheduleChangePresentation.effectiveOn)}`}
                           metadata={ppPendingScheduleRequestMetadata}
-                          title={ppPendingScheduleChangePresentation.title}
+                          title="Alteração programada"
                           detail={ppPendingScheduleChangePresentation.professionalChange}
-                          menuActions={[]}
+                          agendaComparison={{
+                            current: ppPendingScheduleChangePresentation.currentPattern,
+                            proposed: ppPendingScheduleChangePresentation.proposedPattern,
+                          }}
+                          onEdit={ppPendingScheduleChange?.can_edit === true
+                            ? openPendingScheduleChange
+                            : null}
+                          editLabel="Editar alteração"
+                          menuActions={ppPendingScheduleChange?.can_cancel === true ? [{
+                            label: "Cancelar alteração",
+                            onClick: openScheduleChangeCancellation,
+                            critical: true,
+                          }] : []}
                         />
                       )}
                     </AgendaSummaryCard>

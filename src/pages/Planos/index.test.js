@@ -358,6 +358,8 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.queryByText(/Plano comercial:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Valor contratado:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Não informado → Pendente/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Status da pausa|Não informado → Encerrada|Versão da pausa/i))
+      .not.toBeInTheDocument();
     expect(screen.getAllByText(/Sistema/).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText(/\{"/)).not.toBeInTheDocument();
 
@@ -625,11 +627,8 @@ describe("Planos no contêiner do App Shell", () => {
     expect(overduePanel).toHaveTextContent("Mensal 2x → Mensal 3x");
     expect(overduePanel).toHaveTextContent("Frequência: 2x → 3x por semana");
     expect(overduePanel).toHaveTextContent(/Valor: R\$\s*480,00 → R\$\s*600,00/);
-    const overdueAgendaLabel = within(overduePanel).getByText("Agenda");
-    expect(overdueAgendaLabel.nextElementSibling).toHaveTextContent("Atual: Seg 11h · Qua 11h · Sex 11h");
-    expect(overdueAgendaLabel.nextElementSibling).toHaveTextContent("Nova: Ter 08h · Qui 08h");
-    expect(overduePanel).toHaveTextContent("Atual: Seg 11h · Qua 11h · Sex 11h");
-    expect(overduePanel).toHaveTextContent("Nova: Ter 08h · Qui 08h");
+    expect(overduePanel).toHaveTextContent("Agenda Atual: Seg 11h · Qua 11h · Sex 11h");
+    expect(overduePanel).toHaveTextContent("Agenda Nova: Ter 08h · Qui 08h");
     await waitFor(() => {
       expect(overduePanel).toHaveTextContent("Profissional: Leonardo → Mariana");
     });
@@ -816,9 +815,8 @@ describe("Planos no contêiner do App Shell", () => {
       { headers: { "Idempotency-Key": expect.stringMatching(/^schedule-change-41-/) } },
     ));
     expect(await screen.findByText(/Alteração de agenda · a partir de/)).toBeInTheDocument();
-    expect(screen.getByText(
-      "Seg 08h · Qua 08h → Ter 09h · Qua 10h",
-    )).toBeInTheDocument();
+    expect(screen.getByText("Agenda Atual: Seg 08h · Qua 08h")).toBeInTheDocument();
+    expect(screen.getByText("Agenda Nova: Ter 09h · Qua 10h")).toBeInTheDocument();
     expect(screen.getByText("Profissional: Leonardo → Mariana")).toBeInTheDocument();
     expect(axios.get.mock.calls.filter(([url]) => url === "/patient-plans/41/admin-summary").length)
       .toBeGreaterThanOrEqual(2);
@@ -827,9 +825,8 @@ describe("Planos no contêiner do App Shell", () => {
     const refreshedRender = renderPlans("/planos/pacientes/41");
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
     expect(await screen.findByText(/Alteração de agenda · a partir de/)).toBeInTheDocument();
-    expect(screen.getByText(
-      "Seg 08h · Qua 08h → Ter 09h · Qua 10h",
-    )).toBeInTheDocument();
+    expect(screen.getByText("Agenda Atual: Seg 08h · Qua 08h")).toBeInTheDocument();
+    expect(screen.getByText("Agenda Nova: Ter 09h · Qua 10h")).toBeInTheDocument();
 
     refreshedRender.unmount();
     pendingScheduleChange = null;
@@ -839,6 +836,236 @@ describe("Planos no contêiner do App Shell", () => {
       expect(screen.queryByText(/Alteração de agenda · a partir de/)).not.toBeInTheDocument();
     });
     expect(await screen.findByRole("button", { name: /Alterar agenda/i })).toBeInTheDocument();
+  });
+
+  it("edita, substitui e cancela a alteração futura pelo fluxo autoritativo", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      starts_at: "2026-05-18",
+      anchor_day: 18,
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: { id: 31, name: "Funcional 2x", sessions_per_week: 2 },
+      agenda_summary: {
+        status: "active_recurrence",
+        pattern_summary: "Seg às 08:00 · Qua às 08:00",
+        weekdays: [1, 3],
+        time: "08:00",
+        professional_user_id: 21,
+        professional_name: "Leonardo",
+        future_sessions_count: 8,
+        can_remove_future_sessions: true,
+      },
+    };
+    const currentGrid = [
+      { weekday: 1, time: "08:00", professional_user_id: 21, professional_name: "Leonardo" },
+      { weekday: 3, time: "08:00", professional_user_id: 21, professional_name: "Leonardo" },
+    ];
+    let pendingScheduleChange = {
+      schedule_change_id: 91,
+      revision_id: 72,
+      status: "pending",
+      effective_on: "2030-08-25",
+      current_grid: currentGrid,
+      proposed_grid: [
+        { weekday: 2, time: "09:00", professional_user_id: 36, professional_name: "Mariana" },
+        { weekday: 3, time: "10:00", professional_user_id: 36, professional_name: "Mariana" },
+      ],
+      current_professional: { id: 21, name: "Leonardo" },
+      future_professional: { id: 36, name: "Mariana" },
+      professional_changed: true,
+      can_edit: true,
+      can_cancel: true,
+      command_token: "opaque-command-token",
+    };
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({
+          data: {
+            header_summary: { patient_name: "Ana Silva", plan_status_label: "Plano ativo" },
+            plan_data_summary: { service_plan_name: "Funcional 2x", sessions_per_week: 2 },
+            agenda_summary: patientPlan.agenda_summary,
+            pending_schedule_change: pendingScheduleChange,
+          },
+        });
+      }
+      if (url === "/schedule/references/professionals") {
+        return Promise.resolve({
+          data: [
+            { id: 21, name: "Leonardo", clinic_professional_id: 80, is_assigned: true },
+            { id: 36, name: "Mariana", clinic_professional_id: 99, is_assigned: true },
+          ],
+        });
+      }
+      if (url === "/services") return Promise.resolve({ data: [] });
+      if (url === "/patients") return Promise.resolve({ data: [patientPlan.Patient] });
+      if (url === "/unit-scheduling-policy") return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: {} });
+    });
+    axios.post.mockImplementation((url, payload) => {
+      if (url.endsWith("/schedule-change-preview")) {
+        return Promise.resolve({
+          data: {
+            can_confirm: true,
+            effective_on: payload.effective_on,
+            current_grid: currentGrid,
+            proposed_grid: payload.schedule,
+            observed_revision_id: 71,
+            expected_version: 4,
+            preview_token: "replacement-preview-token",
+            protected_sessions: [],
+            conflicts: [],
+          },
+        });
+      }
+      if (url.endsWith("/schedule-change/replace")) {
+        pendingScheduleChange = {
+          ...pendingScheduleChange,
+          schedule_change_id: 92,
+          revision_id: 73,
+          effective_on: payload.effective_on,
+          proposed_grid: payload.schedule.map((row) => ({
+            ...row,
+            professional_name: "Mariana",
+          })),
+          command_token: "next-opaque-command-token",
+        };
+        return Promise.resolve({ data: { ok: true } });
+      }
+      if (url.endsWith("/schedule-change/cancel")) {
+        pendingScheduleChange = null;
+        return Promise.resolve({ data: { ok: true } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPlans("/planos/pacientes/41");
+    expect(await screen.findByText(
+      "Para alterações no plano, primeiro cancele a troca de agenda.",
+    )).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Trocar plano" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Editar dados" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Ações do plano" }));
+    expect(screen.getByRole("menuitem", { name: "Pausar plano" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "Cancelar plano" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Cancelar alteração" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Agenda" }));
+    expect(await screen.findByText("Agenda Atual: Seg 08h · Qua 08h")).toBeInTheDocument();
+    expect(screen.getByText("Agenda Nova: Ter 09h · Qua 10h")).toBeInTheDocument();
+    expect(screen.getByText("Profissional: Leonardo → Mariana")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Editar alteração" }));
+
+    const drawer = await screen.findByRole("dialog", { name: "Alterar agenda" });
+    expect(within(drawer).getByLabelText("Nova agenda a partir de"))
+      .toHaveValue("2030-08-25");
+    await waitFor(() => {
+      expect(within(drawer).getByLabelText("Profissional")).toHaveValue("36");
+    });
+    expect(within(drawer).getByRole("button", { name: "Ter" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(within(drawer).getByLabelText("Horário de terça")).toHaveValue("09:00");
+    expect(within(drawer).getByLabelText("Horário de quarta")).toHaveValue("10:00");
+    fireEvent.change(within(drawer).getByLabelText("Nova agenda a partir de"), {
+      target: { name: "effective_on", value: "2030-09-01" },
+    });
+    fireEvent.change(within(drawer).getByLabelText("Horário de terça"), {
+      target: { value: "11:00" },
+    });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Revisar alteração" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/patient-plans/41/schedule-change-preview",
+      expect.objectContaining({
+        effective_on: "2030-09-01",
+        pending_schedule_change_id: 91,
+        schedule_change_token: "opaque-command-token",
+      }),
+    ));
+    fireEvent.click(await within(drawer).findByRole("button", { name: "Confirmar alteração" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/patient-plans/41/schedule-change/replace",
+      expect.objectContaining({
+        schedule_change_id: 91,
+        schedule_change_token: "opaque-command-token",
+        preview_token: "replacement-preview-token",
+      }),
+      { headers: { "Idempotency-Key": expect.stringMatching(/^schedule-change-41-/) } },
+    ));
+    expect(await screen.findByText("Agenda Nova: Ter 11h · Qua 10h")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", {
+      name: /Ações de Alteração de agenda/i,
+    }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Cancelar alteração" }));
+    const confirmation = screen.getByRole("dialog", {
+      name: "Cancelar alteração de agenda?",
+    });
+    expect(within(confirmation).getByText("A agenda atual será mantida.")).toBeInTheDocument();
+    expect(within(confirmation).getByRole("button", { name: "Voltar" })).toBeInTheDocument();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Cancelar alteração" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/patient-plans/41/schedule-change/cancel",
+      {
+        schedule_change_id: 92,
+        schedule_change_token: "next-opaque-command-token",
+      },
+      { headers: { "Idempotency-Key": expect.stringMatching(/^schedule-change-41-/) } },
+    ));
+    await waitFor(() => {
+      expect(screen.queryByText("Alteração programada")).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: /Alterar agenda/i })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["vencida", { can_edit: false, can_cancel: false }],
+    ["legada", { legacy_without_manifest: true }],
+  ])("não oferece ações para alteração de agenda %s", async (_label, capabilities) => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: { id: 31, name: "Funcional 1x", sessions_per_week: 1 },
+      agenda_summary: {
+        status: "active_recurrence",
+        pattern_summary: "Seg às 08:00",
+        weekdays: [1],
+        time: "08:00",
+        professional_user_id: 21,
+      },
+    };
+    const pending = {
+      schedule_change_id: 91,
+      status: "pending",
+      effective_on: _label === "vencida" ? "2000-08-25" : "2030-08-25",
+      current_grid: [{ weekday: 1, time: "08:00", professional_user_id: 21 }],
+      proposed_grid: [{ weekday: 2, time: "09:00", professional_user_id: 21 }],
+      professional_changed: false,
+      ...capabilities,
+    };
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({
+          data: {
+            plan_data_summary: { service_plan_name: "Funcional 1x", sessions_per_week: 1 },
+            agenda_summary: patientPlan.agenda_summary,
+            pending_schedule_change: pending,
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
+    expect(await screen.findByText("Alteração programada")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar alteração" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Cancelar alteração")).not.toBeInTheDocument();
   });
 
   it("mantém impedimento inline e invalida confirmação quando o backend acusa stale", async () => {

@@ -28,17 +28,33 @@ const CONFLICT_LABELS = {
   EXPLICIT_SERVICE_CAPACITY_REACHED: "A capacidade do serviço foi atingida.",
 };
 
-const ACTIONABLE_SCHEDULE_CHANGE_ERROR_CODES = new Set([
-  "SCHEDULE_CHANGE_EFFECTIVE_ON_INVALID",
-  "SCHEDULE_CHANGE_EFFECTIVE_ON_TOO_EARLY",
-  "SCHEDULE_CHANGE_CONTRACT_FREQUENCY_MISMATCH",
-  "SCHEDULE_CHANGE_PLAN_NOT_ACTIVE",
-  "SCHEDULE_CHANGE_ACTIVE_PAUSE",
-  "SCHEDULE_CHANGE_CANCELLATION_PENDING",
-  "SCHEDULE_CHANGE_COMMERCIAL_CHANGE_PENDING",
-  "SCHEDULE_CHANGE_PROTECTED_SESSION",
-  "SCHEDULE_CHANGE_AGENDA_CONFLICT",
-]);
+const SCHEDULE_CHANGE_ACTIONABLE_MESSAGES = {
+  SCHEDULE_CHANGE_EFFECTIVE_ON_INVALID: "Escolha uma data válida a partir de amanhã.",
+  SCHEDULE_CHANGE_EFFECTIVE_ON_TOO_EARLY: "Escolha uma data a partir de amanhã.",
+  SCHEDULE_CHANGE_CONTRACT_FREQUENCY_MISMATCH:
+    "Selecione a quantidade de dias prevista no plano.",
+  SCHEDULE_CHANGE_PLAN_NOT_ACTIVE:
+    "A agenda só pode ser alterada enquanto o plano estiver ativo.",
+  SCHEDULE_CHANGE_ACTIVE_PAUSE: "Retome o plano antes de alterar a agenda.",
+  SCHEDULE_CHANGE_CANCELLATION_PENDING:
+    "Resolva o cancelamento programado antes de alterar a agenda.",
+  SCHEDULE_CHANGE_COMMERCIAL_CHANGE_PENDING:
+    "Resolva a troca de plano agendada antes de alterar a agenda.",
+  SCHEDULE_CHANGE_FUTURE_REVISION_CONFLICT:
+    "Já existe uma alteração de agenda programada. Recarregue a página.",
+  SCHEDULE_CHANGE_PROTECTED_SESSION:
+    "Existem sessões futuras que precisam de revisão antes desta alteração.",
+  SCHEDULE_CHANGE_AGENDA_CONFLICT:
+    "A nova agenda possui conflitos. Revise os horários e tente novamente.",
+  SCHEDULE_CHANGE_ALREADY_EFFECTIVE:
+    "Esta alteração não pode mais ser modificada. Recarregue a página.",
+  SCHEDULE_CHANGE_PENDING_CONFLICT:
+    "A alteração programada mudou. Recarregue a página e tente novamente.",
+  SCHEDULE_CHANGE_TOKEN_CONFLICT:
+    "A alteração programada mudou. Recarregue a página e tente novamente.",
+  SCHEDULE_CHANGE_RESTORE_CONFLICT:
+    "A agenda mudou desde a programação. Recarregue a página e tente novamente.",
+};
 
 const SCHEDULE_CHANGE_TECHNICAL_ERROR_MESSAGE =
   "Não foi possível alterar a agenda agora. Atualize a página e tente novamente.";
@@ -49,12 +65,14 @@ const PLAN_HISTORY_EVENT_LABELS = {
   commercial_change_canceled: "Troca de plano cancelada",
   commercial_change_applied: "Troca de plano realizada",
   pause_started: "Pausa iniciada",
+  pause_updated: "Pausa alterada",
   plan_resumed: "Plano retomado",
   schedule_changed: "Agenda alterada",
 };
 
 const SIMPLE_HISTORY_MOMENT_EVENT_TYPES = new Set([
   "pause_started",
+  "pause_updated",
   "plan_resumed",
   "schedule_changed",
 ]);
@@ -96,6 +114,18 @@ const HISTORY_PAUSE_LIFECYCLE_FIELDS = new Set([
   "reason",
   "pause_version",
   "resumes_on",
+]);
+
+const HISTORY_PAUSE_TECHNICAL_FIELDS = new Set([
+  "status",
+  "pause_status",
+  "pause_version",
+  "version",
+  "lifecycle",
+  "lifecycle_status",
+  "revision",
+  "revision_id",
+  "manifest",
 ]);
 
 const parseDateOnly = (value) => {
@@ -396,6 +426,7 @@ const formatHistoryValue = (field, value) => {
 };
 
 const historyVigencyLabel = (event) => {
+  if (event?.type === "pause_updated") return "";
   const startsOn = changeAfterValue(event, "starts_on");
   const endsOn = changeAfterValue(event, "ends_on");
   const indefinite = changeAfterValue(event, "is_indefinite") === true;
@@ -446,10 +477,68 @@ const formatHistoryChange = (change) => {
   return `${label}: ${before} → ${after}`;
 };
 
+const isPauseHistoryEvent = (event) => {
+  const type = String(event?.type || "").toLowerCase();
+  return type.startsWith("pause_") || type === "plan_resumed" || type.includes("pause");
+};
+
+const pausePeriodSide = (changes, side) => {
+  const valueFor = (field) => changes.find((change) => change?.field === field)?.[side];
+  const startsOn = valueFor("starts_on");
+  const endsOn = valueFor("ends_on");
+  const indefinite = valueFor("is_indefinite");
+  if (indefinite === true) {
+    return startsOn
+      ? `a partir de ${formatCompactDate(startsOn)} · sem data de retorno`
+      : "sem data de retorno";
+  }
+  if (startsOn && endsOn) {
+    return `${formatCompactDate(startsOn)} → ${formatCompactDate(endsOn)}`;
+  }
+  if (endsOn) return `até ${formatCompactDate(endsOn)}`;
+  if (startsOn) return `a partir de ${formatCompactDate(startsOn)}`;
+  return "";
+};
+
+const buildPauseHistoryBusinessChanges = (event) => {
+  const changes = Array.isArray(event?.changes) ? event.changes : [];
+  const reasonChange = changes.find((change) => change?.field === "reason");
+  const reasonBefore = String(reasonChange?.before || "").trim();
+  const reasonAfter = String(reasonChange?.after || "").trim();
+
+  if (event?.type !== "pause_updated") {
+    return reasonAfter ? [`Motivo: ${reasonAfter}`] : [];
+  }
+
+  const result = [];
+  const periodChanges = changes.filter((change) => (
+    ["starts_on", "ends_on", "is_indefinite"].includes(change?.field)
+    && change?.before !== change?.after
+  ));
+  if (periodChanges.length > 0) {
+    const beforePeriod = pausePeriodSide(periodChanges, "before");
+    const afterPeriod = pausePeriodSide(periodChanges, "after");
+    if (beforePeriod && afterPeriod && beforePeriod !== afterPeriod) {
+      result.push(`Período: ${beforePeriod} → ${afterPeriod}`);
+    }
+  }
+  if (reasonBefore !== reasonAfter) {
+    if (!reasonBefore && reasonAfter) result.push(`Motivo adicionado: ${reasonAfter}`);
+    else if (reasonBefore && !reasonAfter) result.push("Motivo removido.");
+    else if (reasonBefore && reasonAfter) result.push(`Motivo: ${reasonBefore} → ${reasonAfter}`);
+  }
+  return result;
+};
+
 export function getVisiblePlanHistoryChanges(event) {
   return (Array.isArray(event?.changes) ? event.changes : []).filter((change) => {
     const field = String(change?.field || "").trim().toLowerCase();
     const label = String(change?.label || "").trim().toLocaleLowerCase("pt-BR");
+    const pauseTechnicalMetadata = isPauseHistoryEvent(event)
+      && (HISTORY_PAUSE_TECHNICAL_FIELDS.has(field)
+        || /(?:^|_)(?:status|version|cas|manifest|revision|lifecycle)(?:_|$)/i.test(field)
+        || /(?:status|versão|version|cas|manifesto|manifest|revisão|revision|lifecycle|ciclo de vida)/i
+          .test(label));
     const pauseLifecycleMetadata = ["pause_started", "plan_resumed"].includes(event?.type)
       && HISTORY_PAUSE_LIFECYCLE_FIELDS.has(field);
     const scheduleTechnicalMetadata = event?.type === "schedule_changed"
@@ -460,6 +549,7 @@ export function getVisiblePlanHistoryChanges(event) {
       && String(change?.after || "").trim().toLowerCase() === "pending";
     return field !== "change_version"
       && label !== "versão da alteração"
+      && !pauseTechnicalMetadata
       && !pauseLifecycleMetadata
       && !scheduleTechnicalMetadata
       && !redundantScheduledStatus;
@@ -472,12 +562,14 @@ export const buildPlanHistoryPresentation = (event, professionals = []) => {
   const momentPrefix = REQUEST_EVENT_TYPES.has(event?.type) ? "Solicitada em" : "Registrado em";
   const changes = getVisiblePlanHistoryChanges(event);
   const hasSessionsChange = changes.some((change) => change?.field === "sessions_per_week");
-  const businessChanges = changes
-    .filter((change) => !HISTORY_TIMING_FIELDS.has(change?.field))
-    .filter((change) => !HISTORY_TECHNICAL_SCHEDULE_FIELDS.has(change?.field))
-    .filter((change) => !(hasSessionsChange && change?.field === "frequency_label"))
-    .filter((change) => change?.field !== "schedule_grid_summary")
-    .map(formatHistoryChange);
+  const businessChanges = isPauseHistoryEvent(event)
+    ? buildPauseHistoryBusinessChanges(event)
+    : changes
+      .filter((change) => !HISTORY_TIMING_FIELDS.has(change?.field))
+      .filter((change) => !HISTORY_TECHNICAL_SCHEDULE_FIELDS.has(change?.field))
+      .filter((change) => !(hasSessionsChange && change?.field === "frequency_label"))
+      .filter((change) => change?.field !== "schedule_grid_summary")
+      .map(formatHistoryChange);
 
   const scheduleChange = changes.find((change) => change?.field === "schedule_grid_summary");
   if (scheduleChange) {
@@ -543,8 +635,8 @@ export const getScheduleChangeIssues = (payload = {}) => {
       return {
         key: `conflict-${conflict.code || index}-${date}-${time}`,
         title: when || "Conflito de Agenda",
-        detail: conflict.reason || CONFLICT_LABELS[conflict.code]
-          || "A nova grade possui um conflito que precisa ser resolvido.",
+        detail: CONFLICT_LABELS[conflict.code]
+          || "A nova agenda possui um conflito que precisa ser resolvido.",
       };
     }),
   ];
@@ -560,13 +652,11 @@ export const createScheduleChangeIdempotencyKey = (patientPlanId) => {
 export const scheduleChangeErrorPresentation = (error) => {
   const payload = error?.response?.data || {};
   const code = payload.code || "";
-  const actionable = ACTIONABLE_SCHEDULE_CHANGE_ERROR_CODES.has(code);
+  const actionableMessage = SCHEDULE_CHANGE_ACTIONABLE_MESSAGES[code] || "";
   return {
     code,
-    message: actionable && payload.error
-      ? payload.error
-      : SCHEDULE_CHANGE_TECHNICAL_ERROR_MESSAGE,
-    issues: actionable ? getScheduleChangeIssues(payload) : [],
+    message: actionableMessage || SCHEDULE_CHANGE_TECHNICAL_ERROR_MESSAGE,
+    issues: actionableMessage ? getScheduleChangeIssues(payload) : [],
     stale: code === "SCHEDULE_CHANGE_PREVIEW_STALE",
   };
 };

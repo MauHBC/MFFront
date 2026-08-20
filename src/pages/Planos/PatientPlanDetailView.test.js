@@ -90,13 +90,13 @@ describe("PatientPlanDetailView", () => {
     expect(screen.getByRole("button", { name: "Trocar plano" })).toBeInTheDocument();
     expect(screen.getByText("Plano iniciado em 18 mai 2026")).toBeInTheDocument();
     expect(screen.getByText("Troca agendada · a partir de 25 ago")).toBeInTheDocument();
-    const agendaLabel = screen.getByText("Agenda");
-    const agendaLines = agendaLabel.nextElementSibling;
-    expect(agendaLines).toHaveTextContent("Atual: Seg 11h · Qua 11h · Sex 11h");
-    expect(agendaLines).toHaveTextContent("Nova: Ter 08h · Qui 08h");
+    const agendaCurrent = screen.getByText("Agenda Atual: Seg 11h · Qua 11h · Sex 11h");
+    const agendaLines = agendaCurrent.parentElement;
+    expect(agendaLines).toHaveTextContent("Agenda Atual: Seg 11h · Qua 11h · Sex 11h");
+    expect(agendaLines).toHaveTextContent("Agenda Nova: Ter 08h · Qui 08h");
     expect(agendaLines).toHaveStyle({ paddingLeft: "8px" });
-    expect(screen.getByText(/Atual: Seg 11h · Qua 11h · Sex 11h/)).toBeInTheDocument();
-    expect(screen.getByText(/Nova: Ter 08h · Qui 08h/)).toBeInTheDocument();
+    expect(screen.getByText(/Agenda Atual: Seg 11h · Qua 11h · Sex 11h/)).toBeInTheDocument();
+    expect(screen.getByText(/Agenda Nova: Ter 08h · Qui 08h/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Editar" })).toBeInTheDocument();
   });
 

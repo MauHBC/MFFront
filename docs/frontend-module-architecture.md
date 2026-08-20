@@ -679,7 +679,18 @@ fornece `effective_on`, `current_grid`, `proposed_grid` e o indicador
 `professional_changed`; o painel mostra a transição entre as grades e só nomeia
 a troca de profissional quando esse indicador for verdadeiro. Depois da
 confirmação, o Frontend recarrega o resumo e não mantém estado local como fonte
-de verdade, inclusive após refresh completo.
+de verdade, inclusive após refresh completo. Quando a projeção também fornece
+`can_edit=true`, `can_cancel=true`, a identidade da alteração e o token opaco de
+comando, o mesmo drawer permite editar a programação já preenchida: a prévia
+inclui a identidade pendente e a confirmação usa
+`POST /patient-plans/:id/schedule-change/replace`. O cancelamento confirmado usa
+`POST /patient-plans/:id/schedule-change/cancel`. Ambos recarregam o resumo após
+o sucesso. Projeções vencidas ou legadas sem essas capacidades continuam
+visíveis, mas não oferecem ações; a UI não infere capacidade pela data e não
+expõe token, versão, revisão, manifesto ou restauração. Enquanto existir a
+pendência operacional, troca, pausa e cancelamento do plano ficam desabilitados
+na aba Plano, com orientação para primeiro cancelar a troca de agenda; edição
+de dados não conflitantes permanece independente.
 
 Para troca comercial, `pending_plan_change.lifecycle_state` no resumo
 administrativo distingue `future_editable` de
@@ -687,8 +698,8 @@ administrativo distingue `future_editable` de
 cancelar; a segunda é apresentada como atualização operacional pendente, sem
 inferência local por datas e sem abrir o drawer de substituição, preservando no
 painel os dados de negócio disponíveis da troca. A comparação da Agenda futura
-agrupa as linhas compactas `Atual` e `Nova` sob o rótulo `Agenda`, com recuo
-leve e sem criar outro contêiner visual.
+agrupa as linhas compactas `Agenda Atual` e `Agenda Nova`, com recuo leve e sem
+criar outro contêiner visual.
 
 As datas desse detalhe distinguem a ação da sua vigência: `Solicitada em`
 identifica o momento e o ator do comando; `A partir de` identifica o início dos
@@ -700,7 +711,11 @@ momento do evento, sua vigência quando o contrato a fornece e apenas as
 diferenças de negócio, sem duplicar frequência e sessões semanais. Nomes de
 profissionais são exibidos somente quando os IDs comprovam a troca e as
 referências consumidas permitem resolvê-los com segurança; caso contrário, a
-linha de profissional é omitida.
+linha de profissional é omitida. Eventos de pausa nunca apresentam versão,
+status técnico ou equivalentes internos: início e retomada mostram apenas
+momento, responsável e período útil; alterações consolidam somente mudanças
+reais de período e motivo em linguagem de negócio. Eventos que registram apenas
+controle técnico não geram detalhe adicional na timeline.
 
 > Regra: novo módulo nasce do template, não de uma cópia de Planos ou Agendamentos.
 
