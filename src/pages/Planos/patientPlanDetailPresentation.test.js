@@ -347,7 +347,59 @@ describe("patient plan detail presentation", () => {
 
     expect(scheduleChangeErrorPresentation({
       response: { data: { code: "SCHEDULE_CHANGE_PREVIEW_STALE", error: "Prévia expirada." } },
-    })).toEqual(expect.objectContaining({ stale: true, message: "Prévia expirada." }));
+    })).toEqual(expect.objectContaining({
+      stale: true,
+      code: "SCHEDULE_CHANGE_PREVIEW_STALE",
+      message: "Não foi possível alterar a agenda agora. Atualize a página e tente novamente.",
+    }));
+  });
+
+  it("não transforma ocorrências puladas em impedimentos e preserva conflitos reais", () => {
+    expect(getScheduleChangeIssues({
+      skipped_occurrences: [{ date: "2026-09-07", reason: "Feriado" }],
+      warnings: [{ date: "2026-10-12", reason: "Feriado" }],
+      conflicts: [],
+    })).toEqual([]);
+
+    expect(getScheduleChangeIssues({
+      conflicts: [{
+        code: "PATIENT_SCHEDULE_CONFLICT",
+        date: "2026-09-08",
+        time: "09:00",
+      }],
+    })).toEqual([expect.objectContaining({
+      detail: "O paciente já possui atendimento nesse horário.",
+    })]);
+  });
+
+  it("oculta mensagem técnica e mantém erro acionável específico", () => {
+    expect(scheduleChangeErrorPresentation({
+      response: {
+        data: {
+          code: "SCHEDULE_CHANGE_CURRENT_REVISION_REQUIRED",
+          error: "A grade atual não possui revisão autoritativa.",
+          revision_id: 71,
+          conflicts: [{ code: "SCHEDULE_CHANGE_SERIES_REVISION_CONFLICT" }],
+        },
+      },
+    })).toEqual(expect.objectContaining({
+      code: "SCHEDULE_CHANGE_CURRENT_REVISION_REQUIRED",
+      message: "Não foi possível alterar a agenda agora. Atualize a página e tente novamente.",
+      issues: [],
+    }));
+
+    expect(scheduleChangeErrorPresentation({
+      response: {
+        data: {
+          code: "SCHEDULE_CHANGE_PROTECTED_SESSION",
+          error: "Existem sessões futuras protegidas que impedem a alteração da grade.",
+          protected_sessions: [{ id: 9, reasons: ["has_evaluation"] }],
+        },
+      },
+    })).toEqual(expect.objectContaining({
+      message: "Existem sessões futuras protegidas que impedem a alteração da grade.",
+      issues: [expect.objectContaining({ detail: "possui avaliação vinculada" })],
+    }));
   });
 
   it("gera chave de idempotência válida e limitada", () => {

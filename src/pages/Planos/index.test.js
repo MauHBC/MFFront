@@ -778,6 +778,9 @@ describe("Planos no contêiner do App Shell", () => {
       target: { name: "effective_on", value: "2030-08-25" },
     });
     fireEvent.change(professional, { target: { name: "professional_user_id", value: "36" } });
+    expect(within(dialog).queryByText(
+      "Ao confirmar, o profissional será atribuído ao paciente.",
+    )).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Seg" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Ter" }));
     fireEvent.change(within(dialog).getByLabelText("Horário de Ter"), {
@@ -923,7 +926,7 @@ describe("Planos no contêiner do App Shell", () => {
     const confirm = await within(dialog).findByRole("button", { name: "Confirmar alteração" });
     fireEvent.click(confirm);
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-      "A Agenda mudou. Revise novamente.",
+      "Não foi possível alterar a agenda agora. Atualize a página e tente novamente.",
     );
     expect(within(dialog).queryByRole("button", { name: "Confirmar alteração" }))
       .not.toBeInTheDocument();

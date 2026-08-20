@@ -3438,7 +3438,6 @@ export default function Planos() {
         professionalChange={scheduleChangeProfessionalText}
         issues={scheduleChangePreview.issues}
         errorMessage={scheduleChangePreview.error}
-        requiresCareAssignment={selectedScheduleChangeProfessional?.is_assigned === false}
         onClose={closeScheduleChange}
         onFieldChange={handleScheduleChangeField}
         onWeekdayToggle={toggleScheduleChangeWeekday}

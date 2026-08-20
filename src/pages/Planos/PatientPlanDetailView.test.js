@@ -165,7 +165,6 @@ describe("PatientPlanDetailView", () => {
         currentPattern="Seg 08h"
         issues={[{ key: "session-9", title: "Sessão de 26 ago", detail: "possui avaliação vinculada" }]}
         errorMessage="Resolva o impedimento antes de confirmar."
-        requiresCareAssignment={false}
         onClose={noop}
         onFieldChange={noop}
         onWeekdayToggle={noop}

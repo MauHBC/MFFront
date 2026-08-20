@@ -28,6 +28,21 @@ const CONFLICT_LABELS = {
   EXPLICIT_SERVICE_CAPACITY_REACHED: "A capacidade do serviço foi atingida.",
 };
 
+const ACTIONABLE_SCHEDULE_CHANGE_ERROR_CODES = new Set([
+  "SCHEDULE_CHANGE_EFFECTIVE_ON_INVALID",
+  "SCHEDULE_CHANGE_EFFECTIVE_ON_TOO_EARLY",
+  "SCHEDULE_CHANGE_CONTRACT_FREQUENCY_MISMATCH",
+  "SCHEDULE_CHANGE_PLAN_NOT_ACTIVE",
+  "SCHEDULE_CHANGE_ACTIVE_PAUSE",
+  "SCHEDULE_CHANGE_CANCELLATION_PENDING",
+  "SCHEDULE_CHANGE_COMMERCIAL_CHANGE_PENDING",
+  "SCHEDULE_CHANGE_PROTECTED_SESSION",
+  "SCHEDULE_CHANGE_AGENDA_CONFLICT",
+]);
+
+const SCHEDULE_CHANGE_TECHNICAL_ERROR_MESSAGE =
+  "Não foi possível alterar a agenda agora. Atualize a página e tente novamente.";
+
 const PLAN_HISTORY_EVENT_LABELS = {
   commercial_change_requested: "Troca de plano agendada",
   commercial_change_replaced: "Troca de plano atualizada",
@@ -501,12 +516,15 @@ export const createScheduleChangeIdempotencyKey = (patientPlanId) => {
 
 export const scheduleChangeErrorPresentation = (error) => {
   const payload = error?.response?.data || {};
-  const fallback = "Não foi possível revisar a alteração da Agenda.";
+  const code = payload.code || "";
+  const actionable = ACTIONABLE_SCHEDULE_CHANGE_ERROR_CODES.has(code);
   return {
-    code: payload.code || "",
-    message: payload.error || fallback,
-    issues: getScheduleChangeIssues(payload),
-    stale: payload.code === "SCHEDULE_CHANGE_PREVIEW_STALE",
+    code,
+    message: actionable && payload.error
+      ? payload.error
+      : SCHEDULE_CHANGE_TECHNICAL_ERROR_MESSAGE,
+    issues: actionable ? getScheduleChangeIssues(payload) : [],
+    stale: code === "SCHEDULE_CHANGE_PREVIEW_STALE",
   };
 };
 

@@ -425,7 +425,6 @@ export function ScheduleChangeDrawer({
   professionalChange,
   issues,
   errorMessage,
-  requiresCareAssignment,
   onClose,
   onFieldChange,
   onWeekdayToggle,
@@ -572,9 +571,6 @@ export function ScheduleChangeDrawer({
                 })}
               </ScheduleTimes>
             )}
-            {requiresCareAssignment && (
-              <InfoNote>Ao confirmar, o profissional será atribuído ao paciente.</InfoNote>
-            )}
             {errorMessage && <ErrorNote role="alert">{errorMessage}</ErrorNote>}
             {issues.length > 0 && (
               <IssueList aria-label="Impedimentos da alteração">
@@ -664,7 +660,6 @@ ScheduleChangeDrawer.propTypes = {
     detail: PropTypes.string.isRequired,
   })).isRequired,
   errorMessage: PropTypes.string,
-  requiresCareAssignment: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   onFieldChange: PropTypes.func.isRequired,
   onWeekdayToggle: PropTypes.func.isRequired,
@@ -1010,14 +1005,6 @@ const ScheduleTimes = styled.div`
   grid-template-columns: repeat(2, minmax(0, 1fr));
 
   @media (max-width: 520px) { grid-template-columns: 1fr; }
-`;
-
-const InfoNote = styled.div`
-  background: ${alpha.info012};
-  border-radius: ${radii.md};
-  color: ${colors.infoText};
-  font-size: ${fontSizes.body};
-  padding: 10px 12px;
 `;
 
 const ErrorNote = styled.div`
