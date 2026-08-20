@@ -679,18 +679,18 @@ fornece `effective_on`, `current_grid`, `proposed_grid` e o indicador
 `professional_changed`; o painel mostra a transição entre as grades e só nomeia
 a troca de profissional quando esse indicador for verdadeiro. Depois da
 confirmação, o Frontend recarrega o resumo e não mantém estado local como fonte
-de verdade, inclusive após refresh completo. Quando a projeção também fornece
-`can_edit=true`, `can_cancel=true`, a identidade da alteração e o token opaco de
-comando, o mesmo drawer permite editar a programação já preenchida: a prévia
-inclui a identidade pendente e a confirmação usa
-`POST /patient-plans/:id/schedule-change/replace`. O cancelamento confirmado usa
-`POST /patient-plans/:id/schedule-change/cancel`. Ambos recarregam o resumo após
-o sucesso. Projeções vencidas ou legadas sem essas capacidades continuam
-visíveis, mas não oferecem ações; a UI não infere capacidade pela data e não
-expõe token, versão, revisão, manifesto ou restauração. Enquanto existir a
-pendência operacional, troca, pausa e cancelamento do plano ficam desabilitados
-na aba Plano, com orientação para primeiro cancelar a troca de agenda; edição
-de dados não conflitantes permanece independente.
+de verdade, inclusive após refresh completo. Quando a projeção fornece
+`can_cancel=true`, a identidade da alteração e o token opaco de comando, o
+painel oferece somente `Cancelar alteração` e confirma em
+`POST /patient-plans/:id/schedule-change/cancel`. Depois do sucesso, o Frontend
+recarrega o resumo, o painel desaparece e `Alterar agenda` volta a permitir uma
+nova programação criada do zero. Projeções vencidas ou legadas sem essa
+capacidade continuam visíveis, mas não oferecem ações; a UI não infere
+capacidade pela data e não expõe token, versão, revisão, manifesto ou
+restauração. Enquanto existir a pendência operacional, troca, pausa e
+cancelamento do plano ficam desabilitados na aba Plano, com orientação para
+primeiro cancelar a troca de agenda; `Cancelar alteração` permanece restrito à
+aba Agenda e a edição de dados não conflitantes continua independente.
 
 Para troca comercial, `pending_plan_change.lifecycle_state` no resumo
 administrativo distingue `future_editable` de

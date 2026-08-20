@@ -838,7 +838,7 @@ describe("Planos no contêiner do App Shell", () => {
     expect(await screen.findByRole("button", { name: /Alterar agenda/i })).toBeInTheDocument();
   });
 
-  it("edita, substitui e cancela a alteração futura pelo fluxo autoritativo", async () => {
+  it("mostra, bloqueia ações do Plano e cancela a alteração futura pela Agenda", async () => {
     const patientPlan = {
       id: 41,
       patient_id: 11,
@@ -876,7 +876,6 @@ describe("Planos no contêiner do App Shell", () => {
       current_professional: { id: 21, name: "Leonardo" },
       future_professional: { id: 36, name: "Mariana" },
       professional_changed: true,
-      can_edit: true,
       can_cancel: true,
       command_token: "opaque-command-token",
     };
@@ -905,36 +904,7 @@ describe("Planos no contêiner do App Shell", () => {
       if (url === "/unit-scheduling-policy") return Promise.resolve({ data: {} });
       return Promise.resolve({ data: {} });
     });
-    axios.post.mockImplementation((url, payload) => {
-      if (url.endsWith("/schedule-change-preview")) {
-        return Promise.resolve({
-          data: {
-            can_confirm: true,
-            effective_on: payload.effective_on,
-            current_grid: currentGrid,
-            proposed_grid: payload.schedule,
-            observed_revision_id: 71,
-            expected_version: 4,
-            preview_token: "replacement-preview-token",
-            protected_sessions: [],
-            conflicts: [],
-          },
-        });
-      }
-      if (url.endsWith("/schedule-change/replace")) {
-        pendingScheduleChange = {
-          ...pendingScheduleChange,
-          schedule_change_id: 92,
-          revision_id: 73,
-          effective_on: payload.effective_on,
-          proposed_grid: payload.schedule.map((row) => ({
-            ...row,
-            professional_name: "Mariana",
-          })),
-          command_token: "next-opaque-command-token",
-        };
-        return Promise.resolve({ data: { ok: true } });
-      }
+    axios.post.mockImplementation((url) => {
       if (url.endsWith("/schedule-change/cancel")) {
         pendingScheduleChange = null;
         return Promise.resolve({ data: { ok: true } });
@@ -957,44 +927,9 @@ describe("Planos no contêiner do App Shell", () => {
     expect(await screen.findByText("Agenda Atual: Seg 08h · Qua 08h")).toBeInTheDocument();
     expect(screen.getByText("Agenda Nova: Ter 09h · Qua 10h")).toBeInTheDocument();
     expect(screen.getByText("Profissional: Leonardo → Mariana")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Editar alteração" }));
-
-    const drawer = await screen.findByRole("dialog", { name: "Alterar agenda" });
-    expect(within(drawer).getByLabelText("Nova agenda a partir de"))
-      .toHaveValue("2030-08-25");
-    await waitFor(() => {
-      expect(within(drawer).getByLabelText("Profissional")).toHaveValue("36");
-    });
-    expect(within(drawer).getByRole("button", { name: "Ter" }))
-      .toHaveAttribute("aria-pressed", "true");
-    expect(within(drawer).getByLabelText("Horário de terça")).toHaveValue("09:00");
-    expect(within(drawer).getByLabelText("Horário de quarta")).toHaveValue("10:00");
-    fireEvent.change(within(drawer).getByLabelText("Nova agenda a partir de"), {
-      target: { name: "effective_on", value: "2030-09-01" },
-    });
-    fireEvent.change(within(drawer).getByLabelText("Horário de terça"), {
-      target: { value: "11:00" },
-    });
-    fireEvent.click(within(drawer).getByRole("button", { name: "Revisar alteração" }));
-    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
-      "/patient-plans/41/schedule-change-preview",
-      expect.objectContaining({
-        effective_on: "2030-09-01",
-        pending_schedule_change_id: 91,
-        schedule_change_token: "opaque-command-token",
-      }),
-    ));
-    fireEvent.click(await within(drawer).findByRole("button", { name: "Confirmar alteração" }));
-    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
-      "/patient-plans/41/schedule-change/replace",
-      expect.objectContaining({
-        schedule_change_id: 91,
-        schedule_change_token: "opaque-command-token",
-        preview_token: "replacement-preview-token",
-      }),
-      { headers: { "Idempotency-Key": expect.stringMatching(/^schedule-change-41-/) } },
-    ));
-    expect(await screen.findByText("Agenda Nova: Ter 11h · Qua 10h")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar alteração" })).not.toBeInTheDocument();
+    expect(axios.post.mock.calls.some(([url]) => url.endsWith("/schedule-change/replace")))
+      .toBe(false);
 
     fireEvent.click(screen.getByRole("button", {
       name: /Ações de Alteração de agenda/i,
@@ -1009,8 +944,8 @@ describe("Planos no contêiner do App Shell", () => {
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/patient-plans/41/schedule-change/cancel",
       {
-        schedule_change_id: 92,
-        schedule_change_token: "next-opaque-command-token",
+        schedule_change_id: 91,
+        schedule_change_token: "opaque-command-token",
       },
       { headers: { "Idempotency-Key": expect.stringMatching(/^schedule-change-41-/) } },
     ));
@@ -1021,7 +956,7 @@ describe("Planos no contêiner do App Shell", () => {
   });
 
   it.each([
-    ["vencida", { can_edit: false, can_cancel: false }],
+    ["vencida", { can_cancel: false }],
     ["legada", { legacy_without_manifest: true }],
   ])("não oferece ações para alteração de agenda %s", async (_label, capabilities) => {
     const patientPlan = {

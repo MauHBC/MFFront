@@ -68,6 +68,8 @@ const PLAN_HISTORY_EVENT_LABELS = {
   pause_updated: "Pausa alterada",
   plan_resumed: "Plano retomado",
   schedule_changed: "Agenda alterada",
+  schedule_change_canceled: "Alteração de agenda cancelada",
+  schedule_change_applied: "Alteração de agenda aplicada",
 };
 
 const SIMPLE_HISTORY_MOMENT_EVENT_TYPES = new Set([

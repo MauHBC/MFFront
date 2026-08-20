@@ -449,6 +449,8 @@ describe("patient plan detail presentation", () => {
     ["pause_started", "Pausa iniciada"],
     ["plan_resumed", "Plano retomado"],
     ["schedule_changed", "Agenda alterada"],
+    ["schedule_change_canceled", "Alteração de agenda cancelada"],
+    ["schedule_change_applied", "Alteração de agenda aplicada"],
   ])("apresenta %s com linguagem de negócio", (type, expectedLabel) => {
     expect(formatPlanHistoryEventLabel({ type, label: "Rótulo técnico" })).toBe(expectedLabel);
   });
