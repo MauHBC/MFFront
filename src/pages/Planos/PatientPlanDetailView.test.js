@@ -17,13 +17,13 @@ describe("PatientPlanDetailView", () => {
     render(
       <PatientPlanDetailHeader
         patientName="Ana Silva"
-        planSummary="Funcional 2x · Ativo"
         activeTab="plan"
         onBack={noop}
         onTabChange={onTabChange}
       />,
     );
     const tabs = screen.getAllByRole("tab");
+    expect(screen.queryByText("Funcional 2x · Ativo")).not.toBeInTheDocument();
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
     expect(tabs[0]).toHaveAttribute("aria-controls", "patient-plan-panel-plan");
     fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
@@ -153,6 +153,12 @@ describe("PatientPlanDetailView", () => {
       expect(within(scheduleList).getByText("Ter 08h")).toBeInTheDocument();
       expect(within(scheduleList).getByText("Qui 08h")).toBeInTheDocument();
       expect(screen.queryByText(pattern)).not.toBeInTheDocument();
+      const recurrence = screen.getByText("Toda semana");
+      expect(recurrence).toHaveStyle({
+        color: "#78827b",
+        fontSize: "0.81rem",
+        fontWeight: "400",
+      });
     }
     unmount();
   });
@@ -161,8 +167,7 @@ describe("PatientPlanDetailView", () => {
     const onCancel = jest.fn();
     render(
       <ScheduledChangePanel
-        eyebrow="Alteração de agenda · a partir de 25 ago"
-        title="Alteração programada"
+        eyebrow="Nova agenda · a partir de 25 ago"
         agendaComparison={{
           current: "Ter 08h · Qui 08h",
           proposed: "Ter 18h · Qui 19h",
@@ -174,13 +179,16 @@ describe("PatientPlanDetailView", () => {
 
     const currentAgenda = screen.getByRole("group", { name: "Agenda atual" });
     const newAgenda = screen.getByRole("group", { name: "Agenda nova" });
+    expect(screen.getByText("Atual")).toBeInTheDocument();
+    expect(screen.getByText("Nova")).toBeInTheDocument();
     expect(within(currentAgenda).getAllByRole("listitem")).toHaveLength(2);
     expect(within(currentAgenda).getByText("Ter 08h")).toBeInTheDocument();
     expect(within(currentAgenda).getByText("Qui 08h")).toBeInTheDocument();
     expect(within(newAgenda).getAllByRole("listitem")).toHaveLength(2);
     expect(within(newAgenda).getByText("Ter 18h")).toBeInTheDocument();
     expect(within(newAgenda).getByText("Qui 19h")).toBeInTheDocument();
-    expect(screen.queryByText(/Agenda Atual:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Alteração de agenda/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Alteração programada")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ações de Alteração de agenda/i }))
       .not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancelar alteração" }));

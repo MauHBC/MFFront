@@ -3283,9 +3283,6 @@ export default function Planos() {
       { includeYear: true },
     )}`
     : "";
-  const ppDetailHeaderSummary = [ppDetailPlanName, ppDetailCurrentStatusLabel]
-    .filter(Boolean).join(" · ");
-
   let ppDetailPlanPrimaryAction = null;
   let ppDetailPlanSecondaryAction = null;
   if (!isPpDetailDataLoading && ppDetailEditing) {
@@ -4746,7 +4743,6 @@ export default function Planos() {
 
                   <PatientPlanDetailHeader
                     patientName={isPpDetailDataLoading ? "" : ppDetailHeaderPatientName}
-                    planSummary={isPpDetailDataLoading ? "" : ppDetailHeaderSummary}
                     activeTab={ppDetailSection}
                     onBack={() => history.push("/planos?tab=patient-plans")}
                     onTabChange={setPpDetailSection}
@@ -4838,9 +4834,8 @@ export default function Planos() {
                     >
                       {hasOperationalScheduleChange && (
                         <ScheduledChangePanel
-                          eyebrow={`Alteração de agenda · a partir de ${formatCompactDate(ppPendingScheduleChangePresentation.effectiveOn)}`}
+                          eyebrow={`Nova agenda · a partir de ${formatCompactDate(ppPendingScheduleChangePresentation.effectiveOn)}`}
                           metadata={ppPendingScheduleRequestMetadata}
-                          title="Alteração programada"
                           detail={ppPendingScheduleChangePresentation.professionalChange}
                           agendaComparison={{
                             current: ppPendingScheduleChangePresentation.currentPattern,

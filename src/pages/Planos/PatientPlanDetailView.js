@@ -34,7 +34,6 @@ const TABS = [
 
 export function PatientPlanDetailHeader({
   patientName,
-  planSummary,
   activeTab,
   onBack,
   onTabChange,
@@ -59,7 +58,6 @@ export function PatientPlanDetailHeader({
         <FaArrowLeft aria-hidden="true" /> Pacientes com plano
       </BackButton>
       <PatientName>{patientName || "—"}</PatientName>
-      {planSummary && <PatientPlanSummary>{planSummary}</PatientPlanSummary>}
       <DetailTabs role="tablist" aria-label="Seções do plano mensal">
         {TABS.map((tab, index) => (
           <DetailTab
@@ -85,7 +83,6 @@ export function PatientPlanDetailHeader({
 
 PatientPlanDetailHeader.propTypes = {
   patientName: PropTypes.string,
-  planSummary: PropTypes.string,
   activeTab: PropTypes.oneOf(TABS.map((tab) => tab.id)).isRequired,
   onBack: PropTypes.func.isRequired,
   onTabChange: PropTypes.func.isRequired,
@@ -93,7 +90,6 @@ PatientPlanDetailHeader.propTypes = {
 
 PatientPlanDetailHeader.defaultProps = {
   patientName: "",
-  planSummary: "",
 };
 
 export function PatientPlanTabPanel({ tabId, activeTab, children }) {
@@ -173,12 +169,12 @@ export function ScheduledChangePanel({
       <FuturePanelContent>
         <FutureEyebrow>{eyebrow}</FutureEyebrow>
         {metadata && <FutureSecondary>{metadata}</FutureSecondary>}
-        <FutureTitle>{title}</FutureTitle>
+        {title && <FutureTitle>{title}</FutureTitle>}
         {detail && <FutureDetail>{detail}</FutureDetail>}
         {agendaComparison && verticalAgendaComparison && (
           <FutureAgendaComparison>
             <FutureAgendaColumn role="group" aria-label="Agenda atual">
-              <FutureAgendaLabel>Agenda atual</FutureAgendaLabel>
+              <FutureAgendaLabel>Atual</FutureAgendaLabel>
               <FutureAgendaList>
                 {splitSchedulePattern(agendaComparison.current).map((item) => (
                   <li key={item}>{item}</li>
@@ -186,7 +182,7 @@ export function ScheduledChangePanel({
               </FutureAgendaList>
             </FutureAgendaColumn>
             <FutureAgendaColumn role="group" aria-label="Agenda nova">
-              <FutureAgendaLabel>Agenda nova</FutureAgendaLabel>
+              <FutureAgendaLabel>Nova</FutureAgendaLabel>
               <FutureAgendaList>
                 {splitSchedulePattern(agendaComparison.proposed).map((item) => (
                   <li key={item}>{item}</li>
@@ -228,7 +224,7 @@ export function ScheduledChangePanel({
 ScheduledChangePanel.propTypes = {
   eyebrow: PropTypes.string.isRequired,
   metadata: PropTypes.string,
-  title: PropTypes.string.isRequired,
+  title: PropTypes.string,
   detail: PropTypes.string,
   agendaComparison: PropTypes.shape({
     current: PropTypes.string.isRequired,
@@ -249,6 +245,7 @@ ScheduledChangePanel.propTypes = {
 
 ScheduledChangePanel.defaultProps = {
   metadata: "",
+  title: "",
   detail: "",
   agendaComparison: null,
   verticalAgendaComparison: false,
@@ -384,11 +381,14 @@ export function AgendaSummaryCard({
             {statusLabel && <StatusPill $tone={statusTone}>{statusLabel}</StatusPill>}
           </SummaryTitleLine>
           {pattern && (
-            <AgendaPattern aria-label="Horários da agenda recorrente">
-              {splitSchedulePattern(pattern).map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </AgendaPattern>
+            <AgendaSchedule>
+              <AgendaPattern aria-label="Horários da agenda recorrente">
+                {splitSchedulePattern(pattern).map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </AgendaPattern>
+              <AgendaRecurrence>Toda semana</AgendaRecurrence>
+            </AgendaSchedule>
           )}
           {supportingText && <SummaryMeta>{supportingText}</SummaryMeta>}
         </SummaryHeadingGroup>
@@ -778,12 +778,6 @@ const PatientName = styled.h1`
   margin: 0;
 `;
 
-const PatientPlanSummary = styled.p`
-  color: ${colors.textSecondary};
-  font-size: ${fontSizes.body};
-  margin: 2px 0 ${spacing.lg};
-`;
-
 const DetailTabs = styled.div`
   border-bottom: 1px solid ${colors.borderSubtle};
   display: flex;
@@ -878,6 +872,17 @@ const AgendaPattern = styled.ul`
   list-style: none;
   margin: 0;
   padding: 0;
+`;
+
+const AgendaSchedule = styled.div`
+  display: grid;
+  gap: ${spacing.xs};
+`;
+
+const AgendaRecurrence = styled.span`
+  color: ${colors.textMuted};
+  font-size: ${fontSizes.small};
+  font-weight: 400;
 `;
 
 const SummaryMeta = styled.p`

@@ -818,7 +818,7 @@ describe("Planos no contêiner do App Shell", () => {
       }),
       { headers: { "Idempotency-Key": expect.stringMatching(/^schedule-change-41-/) } },
     ));
-    expect(await screen.findByText(/Alteração de agenda · a partir de/)).toBeInTheDocument();
+    expect(await screen.findByText(/Nova agenda · a partir de/)).toBeInTheDocument();
     const scheduledCurrentAgenda = screen.getByRole("group", { name: "Agenda atual" });
     const scheduledNewAgenda = screen.getByRole("group", { name: "Agenda nova" });
     expect(within(scheduledCurrentAgenda).getByText("Seg 08h")).toBeInTheDocument();
@@ -832,7 +832,7 @@ describe("Planos no contêiner do App Shell", () => {
     firstRender.unmount();
     const refreshedRender = renderPlans("/planos/pacientes/41");
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
-    expect(await screen.findByText(/Alteração de agenda · a partir de/)).toBeInTheDocument();
+    expect(await screen.findByText(/Nova agenda · a partir de/)).toBeInTheDocument();
     const refreshedCurrentAgenda = screen.getByRole("group", { name: "Agenda atual" });
     const refreshedNewAgenda = screen.getByRole("group", { name: "Agenda nova" });
     expect(within(refreshedCurrentAgenda).getByText("Seg 08h")).toBeInTheDocument();
@@ -845,7 +845,7 @@ describe("Planos no contêiner do App Shell", () => {
     renderPlans("/planos/pacientes/41");
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
     await waitFor(() => {
-      expect(screen.queryByText(/Alteração de agenda · a partir de/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Nova agenda · a partir de/)).not.toBeInTheDocument();
     });
     expect(await screen.findByRole("button", { name: /Alterar agenda/i })).toBeInTheDocument();
   });
@@ -945,6 +945,10 @@ describe("Planos no contêiner do App Shell", () => {
     expect(within(recurringSchedule).getByText("Qua 08h")).toBeInTheDocument();
     expect(within(recurringSchedule).queryByText("Ter 09h")).not.toBeInTheDocument();
     expect(within(recurringSchedule).queryByText("Qua 10h")).not.toBeInTheDocument();
+    expect(within(recurringSchedule.parentElement).getByText("Toda semana")).toBeInTheDocument();
+    expect(screen.getByText(/Nova agenda · a partir de/)).toBeInTheDocument();
+    expect(screen.queryByText(/Alteração de agenda · a partir de/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Alteração programada")).not.toBeInTheDocument();
     const currentAgenda = await screen.findByRole("group", { name: "Agenda atual" });
     const newAgenda = screen.getByRole("group", { name: "Agenda nova" });
     expect(within(currentAgenda).getAllByRole("listitem")).toHaveLength(2);
@@ -978,7 +982,7 @@ describe("Planos no contêiner do App Shell", () => {
       { headers: { "Idempotency-Key": expect.stringMatching(/^schedule-change-41-/) } },
     ));
     await waitFor(() => {
-      expect(screen.queryByText("Alteração programada")).not.toBeInTheDocument();
+      expect(screen.queryByText(/Nova agenda · a partir de/)).not.toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: /Alterar agenda/i })).toBeInTheDocument();
   });
@@ -1026,7 +1030,7 @@ describe("Planos no contêiner do App Shell", () => {
 
     renderPlans("/planos/pacientes/41");
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
-    expect(await screen.findByText("Alteração programada")).toBeInTheDocument();
+    expect(await screen.findByText(/Nova agenda · a partir de/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Editar alteração" })).not.toBeInTheDocument();
     expect(screen.queryByText("Cancelar alteração")).not.toBeInTheDocument();
   });
