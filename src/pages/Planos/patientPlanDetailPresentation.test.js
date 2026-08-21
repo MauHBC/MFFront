@@ -11,6 +11,7 @@ import {
   formatCompactDate,
   formatPlanHistoryEventLabel,
   formatScheduleGrid,
+  getPatientScheduleConflictIssues,
   getVisiblePlanHistoryChanges,
   getScheduleChangeIssues,
   scheduleChangeErrorPresentation,
@@ -590,7 +591,7 @@ describe("patient plan detail presentation", () => {
     });
     expect(issues).toHaveLength(2);
     expect(issues[0].detail).toMatch(/avaliação/);
-    expect(issues[1].detail).toMatch(/paciente/);
+    expect(issues[1].details[0]).toMatch(/paciente/);
 
     expect(scheduleChangeErrorPresentation({
       response: { data: { code: "SCHEDULE_CHANGE_PREVIEW_STALE", error: "Prévia expirada." } },
@@ -615,8 +616,93 @@ describe("patient plan detail presentation", () => {
         time: "09:00",
       }],
     })).toEqual([expect.objectContaining({
-      detail: "O paciente já possui atendimento nesse horário.",
+      details: ["Terça às 9h já está ocupada por outro atendimento deste paciente."],
     })]);
+  });
+
+  it("agrupa várias ocorrências semanais equivalentes em uma única mensagem", () => {
+    const conflictingPlan = {
+      patient_plan_id: 82,
+      service_plan_id: 42,
+      service_name: "Pilates",
+      service_plan_name: "Pilates recorrente",
+      sessions_per_week: 2,
+      frequency_label: "2x por semana",
+    };
+    const issues = getPatientScheduleConflictIssues([
+      {
+        code: "PATIENT_SCHEDULE_CONFLICT",
+        session_id: 101,
+        weekday: 4,
+        time: "11:00",
+        conflicting_patient_plan: conflictingPlan,
+      },
+      {
+        code: "PATIENT_SCHEDULE_CONFLICT",
+        session_id: 108,
+        weekday: 4,
+        time: "11:00",
+        conflicting_patient_plan: conflictingPlan,
+      },
+      {
+        code: "PATIENT_SCHEDULE_CONFLICT",
+        session_id: 115,
+        weekday: 4,
+        time: "11:00",
+        conflicting_patient_plan: conflictingPlan,
+      },
+    ]);
+
+    expect(issues).toEqual([{
+      key: "patient-schedule-conflicts",
+      title: "Conflito de horário",
+      details: [
+        "Quinta às 11h já está ocupada pelo plano Pilates 2x/semana deste paciente.",
+      ],
+    }]);
+  });
+
+  it("mostra uma linha por padrão conflitante e identifica o PatientPlan correto", () => {
+    const issues = getPatientScheduleConflictIssues([
+      {
+        code: "PATIENT_SCHEDULE_CONFLICT",
+        weekday: 4,
+        time: "11:00",
+        conflicting_patient_plan: {
+          patient_plan_id: 91,
+          service_plan_id: 51,
+          service_name: "Fisioterapia",
+          sessions_per_week: 2,
+        },
+      },
+      {
+        code: "PATIENT_SCHEDULE_CONFLICT",
+        weekday: 2,
+        time: "18:00",
+        conflicting_patient_plan: {
+          patient_plan_id: 82,
+          service_plan_id: 42,
+          service_name: "Pilates",
+          sessions_per_week: 2,
+        },
+      },
+    ]);
+
+    expect(issues).toEqual([{
+      key: "patient-schedule-conflicts",
+      title: "Conflitos de horário",
+      details: [
+        "Terça às 18h · Pilates 2x/semana",
+        "Quinta às 11h · Fisioterapia 2x/semana",
+      ],
+    }]);
+  });
+
+  it("não mostra aviso quando não existe conflito de paciente", () => {
+    expect(getPatientScheduleConflictIssues([])).toEqual([]);
+    expect(getPatientScheduleConflictIssues([
+      { code: "EXPLICIT_SERVICE_CAPACITY_REACHED", weekday: 2, time: "18:00" },
+    ])).toEqual([]);
   });
 
   it("oculta mensagem técnica e mantém erro acionável específico", () => {

@@ -83,6 +83,7 @@ import {
   formatCompactDate,
   formatRequestMetadata,
   formatScheduleGrid,
+  getPatientScheduleConflictIssues,
   getScheduleChangeIssues,
   isSingleLinePlanHistoryEvent,
   scheduleChangeErrorPresentation,
@@ -959,6 +960,7 @@ export default function Planos() {
   const [schedForm, setSchedForm] = useState(EMPTY_SCHED);
   const [schedConfirmOpen, setSchedConfirmOpen] = useState(false);
   const [schedConfirmation, setSchedConfirmation] = useState(null);
+  const [schedConflictIssues, setSchedConflictIssues] = useState([]);
 
   // Post-creation prompt: ask user to schedule after vincular
   const [schedPrompt, setSchedPrompt] = useState(null); // PatientPlan object
@@ -2133,6 +2135,7 @@ export default function Planos() {
     });
     setSchedConfirmOpen(false);
     setSchedConfirmation(null);
+    setSchedConflictIssues([]);
     setSchedDrawerOpen(true);
     setSchedPrompt(null);
     loadPatientProfessionals(pp.patient_id);
@@ -2142,6 +2145,7 @@ export default function Planos() {
     setSchedDrawerOpen(false);
     setSchedConfirmOpen(false);
     setSchedConfirmation(null);
+    setSchedConflictIssues([]);
     setSchedPlan(null);
     setSchedForm(EMPTY_SCHED);
   }, []);
@@ -2300,6 +2304,7 @@ export default function Planos() {
           ),
         })),
       });
+      setSchedConflictIssues([]);
       setSchedConfirmOpen(true);
 
     },
@@ -2347,8 +2352,14 @@ export default function Planos() {
       await loadPatientPlans();
       if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
     } catch (err) {
-      const msg = err?.response?.data?.error || "Erro ao criar agendamentos.";
-      toast.error(msg);
+      const payload = err?.response?.data || {};
+      const conflictIssues = payload.code === "PATIENT_SCHEDULE_CONFLICT"
+        ? getPatientScheduleConflictIssues(payload.conflicts)
+        : [];
+      setSchedConflictIssues(conflictIssues);
+      toast.error(conflictIssues.length > 0
+        ? "Revise os conflitos de horário antes de confirmar."
+        : payload.error || "Erro ao criar agendamentos.");
     } finally {
       setIsSaving(false);
     }
@@ -4017,18 +4028,33 @@ export default function Planos() {
                 </strong>
               </ScheduleConfirmLine>
             </ScheduleConfirmSummary>
+            {schedConflictIssues.length > 0 && (
+              <ScheduleConflictPanel role="alert">
+                {schedConflictIssues.map((issue) => (
+                  <div key={issue.key}>
+                    <strong>{issue.title}</strong>
+                    {issue.details.map((detail) => <span key={detail}>{detail}</span>)}
+                  </div>
+                ))}
+              </ScheduleConflictPanel>
+            )}
             <PromptActions>
               <GhostButton
                 type="button"
                 onClick={() => {
                   setSchedConfirmOpen(false);
                   setSchedConfirmation(null);
+                  setSchedConflictIssues([]);
                 }}
                 disabled={isSaving}
               >
                 Voltar
               </GhostButton>
-              <PrimaryButton type="button" onClick={handleSchedConfirm} disabled={isSaving}>
+              <PrimaryButton
+                type="button"
+                onClick={handleSchedConfirm}
+                disabled={isSaving || schedConflictIssues.length > 0}
+              >
                 {isSaving ? "Lançando..." : scheduleConfirmationLabel}
               </PrimaryButton>
             </PromptActions>
@@ -5836,6 +5862,31 @@ const ScheduleConfirmSummary = styled.div`
   gap: 8px;
   margin: 4px 0 16px;
   padding-top: 12px;
+`;
+
+const ScheduleConflictPanel = styled.div`
+  background: #fff5ed;
+  border: 1px solid rgba(198, 104, 44, 0.24);
+  border-radius: 12px;
+  color: #703716;
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 12px;
+
+  div {
+    display: grid;
+    gap: 5px;
+  }
+
+  strong {
+    font-size: 0.9rem;
+  }
+
+  span {
+    font-size: 0.84rem;
+    line-height: 1.4;
+  }
 `;
 
 const ScheduleConfirmLine = styled.div`

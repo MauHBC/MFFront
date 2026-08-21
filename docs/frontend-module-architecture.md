@@ -692,6 +692,16 @@ cancelamento do plano ficam desabilitados na aba Plano, com orientação para
 primeiro cancelar a troca de agenda; `Cancelar alteração` permanece restrito à
 aba Agenda e a edição de dados não conflitantes continua independente.
 
+Conflitos globais do paciente em Agenda mensal são apresentados pelo padrão
+semanal, não por cada data materializada. A UI agrupa ocorrências equivalentes
+por dia da semana, horário e `conflicting_patient_plan.patient_plan_id`, e usa
+somente `service_name`, `service_plan_name`, `sessions_per_week` e
+`frequency_label` fornecidos pelo Backend para nomear o outro contrato. Ela não
+resolve a identidade por catálogos locais. Um padrão gera `Conflito de horário`;
+mais de um gera `Conflitos de horário` com uma linha por padrão. Tanto o preview
+de alteração com `can_confirm=false` quanto o `409 PATIENT_SCHEDULE_CONFLICT` da
+criação inicial mantêm a confirmação bloqueada.
+
 Para troca comercial, `pending_plan_change.lifecycle_state` no resumo
 administrativo distingue `future_editable` de
 `overdue_awaiting_lifecycle`. Somente a primeira permite revisar, substituir ou

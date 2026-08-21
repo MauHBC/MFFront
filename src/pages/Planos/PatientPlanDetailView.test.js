@@ -242,7 +242,17 @@ describe("PatientPlanDetailView", () => {
         preview={{ status: "success", data: { effective_on: "2026-08-25", can_confirm: false } }}
         previewPattern="Ter 09h"
         currentPattern="Seg 08h"
-        issues={[{ key: "session-9", title: "Sessão de 26 ago", detail: "possui avaliação vinculada" }]}
+        issues={[
+          { key: "session-9", title: "Sessão de 26 ago", detail: "possui avaliação vinculada" },
+          {
+            key: "patient-schedule-conflicts",
+            title: "Conflitos de horário",
+            details: [
+              "Terça às 18h · Pilates 2x/semana",
+              "Quinta às 11h · Fisioterapia 2x/semana",
+            ],
+          },
+        ]}
         errorMessage="Resolva o impedimento antes de confirmar."
         onClose={noop}
         onFieldChange={noop}
@@ -256,6 +266,9 @@ describe("PatientPlanDetailView", () => {
     expect(within(dialog).getByLabelText("Nova agenda a partir de")).toHaveAttribute("min", "2026-08-19");
     expect(within(dialog).getByLabelText("Profissional")).toHaveValue("36");
     expect(within(dialog).getByText("Sessão de 26 ago")).toBeInTheDocument();
+    expect(within(dialog).getByText("Conflitos de horário")).toBeInTheDocument();
+    expect(within(dialog).getByText("Terça às 18h · Pilates 2x/semana"))
+      .toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Confirmar alteração" }))
       .not.toBeInTheDocument();
   });

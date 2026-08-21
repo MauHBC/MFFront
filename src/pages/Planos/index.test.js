@@ -633,6 +633,108 @@ describe("Planos no contêiner do App Shell", () => {
     ))).toBe(true);
   });
 
+  it("agrupa conflitos recorrentes e mantém bloqueada a confirmação da Agenda inicial", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      starts_at: "2030-02-01",
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: {
+        id: 31,
+        name: "Fisioterapia 1x",
+        service_id: 7,
+        sessions_per_week: 1,
+      },
+      agenda_summary: {
+        status: "not_configured",
+        can_configure_agenda: true,
+        can_manage_agenda: false,
+        primary_action: "configure_new_agenda",
+        future_sessions_count: 0,
+      },
+    };
+    listPatientPlans.mockResolvedValue({ data: [patientPlan] });
+    listServicePlans.mockResolvedValue({ data: [patientPlan.ServicePlan] });
+    axios.get.mockImplementation((url) => {
+      if (url === "/services") {
+        return Promise.resolve({ data: [{ id: 7, name: "Fisioterapia", is_active: true }] });
+      }
+      if (url === "/patients") return Promise.resolve({ data: [patientPlan.Patient] });
+      if (url === "/users") return Promise.resolve({ data: [] });
+      if (url === "/unit-scheduling-policy") {
+        return Promise.resolve({ data: { allow_broken_time_scheduling: false } });
+      }
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({ data: {
+          header_summary: { patient_name: "Ana Silva" },
+          plan_data_summary: { service_plan_name: "Fisioterapia 1x", sessions_per_week: 1 },
+          agenda_summary: patientPlan.agenda_summary,
+        } });
+      }
+      if (url === "/schedule/references/professionals") {
+        return Promise.resolve({ data: [{
+          id: 36,
+          name: "Leonardo",
+          clinic_professional_id: 99,
+          is_assigned: true,
+        }] });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const conflictingPlan = {
+      patient_plan_id: 82,
+      service_plan_id: 42,
+      service_id: 8,
+      service_name: "Pilates",
+      service_plan_name: "Pilates recorrente",
+      sessions_per_week: 2,
+    };
+    axios.post.mockRejectedValueOnce({ response: { data: {
+      error: "Este paciente já possui um atendimento nesse horário.",
+      code: "PATIENT_SCHEDULE_CONFLICT",
+      conflicts: [101, 108, 115].map((sessionId) => ({
+        code: "PATIENT_SCHEDULE_CONFLICT",
+        session_id: sessionId,
+        weekday: 1,
+        time: "08:00",
+        conflicting_patient_plan: conflictingPlan,
+      })),
+    } } });
+
+    renderPlans();
+    fireEvent.click(await screen.findByRole("button", { name: "Detalhes" }));
+    expect(await screen.findByRole("heading", { name: "Ana Silva" })).toBeInTheDocument();
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith("/patient-plans/41/admin-summary"));
+    fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Configurar.*agenda/i }));
+    const drawer = screen.getByRole("heading", { name: "Agendar Sessões do Plano" })
+      .closest("aside");
+    const professionalSelect = await within(drawer).findByLabelText("Profissional *");
+    await within(drawer).findByRole("option", { name: "Leonardo" });
+    fireEvent.change(professionalSelect, {
+      target: { value: "36" },
+    });
+    fireEvent.change(within(drawer).getByLabelText("Data da primeira sessão *"), {
+      target: { value: "2030-02-04" },
+    });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Seg" }));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Toda semana" }));
+    fireEvent.submit(within(drawer).getByRole("button", { name: "Salvar" }).closest("form"));
+    const confirmation = (await screen.findByRole("heading", { name: "Confirmar agenda" }))
+      .parentElement;
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Confirmar lançamento" }));
+
+    expect(await within(confirmation).findByText("Conflito de horário")).toBeInTheDocument();
+    expect(within(confirmation).getByText(
+      "Segunda às 8h já está ocupada pelo plano Pilates 2x/semana deste paciente.",
+    )).toBeInTheDocument();
+    expect(within(confirmation).getByRole("button", { name: "Confirmar lançamento" }))
+      .toBeDisabled();
+  });
+
   it("bloqueia edição da troca vencida e remove o painel quando o resumo não traz pendência", async () => {
     const patientPlan = {
       id: 41,

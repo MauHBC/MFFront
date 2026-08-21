@@ -664,7 +664,9 @@ export function ScheduleChangeDrawer({
                 {issues.map((issue) => (
                   <IssueItem key={issue.key}>
                     <strong>{issue.title}</strong>
-                    <span>{issue.detail}</span>
+                    {Array.isArray(issue.details)
+                      ? issue.details.map((detail) => <span key={detail}>{detail}</span>)
+                      : <span>{issue.detail}</span>}
                   </IssueItem>
                 ))}
               </IssueList>
@@ -744,7 +746,8 @@ ScheduleChangeDrawer.propTypes = {
   issues: PropTypes.arrayOf(PropTypes.shape({
     key: PropTypes.string.isRequired,
     title: PropTypes.string.isRequired,
-    detail: PropTypes.string.isRequired,
+    detail: PropTypes.string,
+    details: PropTypes.arrayOf(PropTypes.string),
   })).isRequired,
   errorMessage: PropTypes.string,
   onClose: PropTypes.func.isRequired,

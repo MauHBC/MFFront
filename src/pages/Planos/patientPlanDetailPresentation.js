@@ -8,6 +8,16 @@ const WEEKDAY_SHORT_LABELS = {
   6: "Sáb",
 };
 
+const WEEKDAY_FULL_LABELS = {
+  0: "Domingo",
+  1: "Segunda",
+  2: "Terça",
+  3: "Quarta",
+  4: "Quinta",
+  5: "Sexta",
+  6: "Sábado",
+};
+
 const PROTECTED_REASON_LABELS = {
   has_absence_reason: "possui registro de falta",
   has_evaluation: "possui avaliação vinculada",
@@ -616,11 +626,111 @@ export const buildPlanHistoryPresentation = (event, professionals = []) => {
   };
 };
 
+const normalizeConflictFrequency = (plan = {}) => {
+  const sessionsPerWeek = Number(plan.sessions_per_week);
+  if (Number.isInteger(sessionsPerWeek) && sessionsPerWeek > 0) {
+    return `${sessionsPerWeek}x/semana`;
+  }
+  return String(plan.frequency_label || "")
+    .trim()
+    .replace(/\s*x\s+por\s+semana$/i, "x/semana")
+    .replace(/\s*x\s*\/\s*sem(?:ana)?$/i, "x/semana");
+};
+
+const conflictingPlanLabel = (plan = {}) => {
+  const baseName = String(plan.service_name || plan.service_plan_name || "").trim();
+  const frequency = normalizeConflictFrequency(plan);
+  if (!baseName) return frequency || "Outro atendimento deste paciente";
+  if (!frequency) return baseName;
+  const sessionsPerWeek = Number(plan.sessions_per_week);
+  if (
+    Number.isInteger(sessionsPerWeek)
+    && new RegExp(`${sessionsPerWeek}\\s*x(?:\\s*[/]\\s*sem(?:ana)?|\\s+por\\s+semana)?$`, "i")
+      .test(baseName)
+  ) {
+    return baseName.replace(
+      new RegExp(`${sessionsPerWeek}\\s*x(?:\\s*[/]\\s*sem(?:ana)?|\\s+por\\s+semana)?$`, "i"),
+      frequency,
+    );
+  }
+  return `${baseName} ${frequency}`;
+};
+
+const conflictPatternSortValue = (conflict) => {
+  const weekday = Number(conflict.weekday);
+  const normalizedWeekday = weekday === 0 ? 7 : weekday;
+  return `${String(normalizedWeekday).padStart(2, "0")}-${conflict.time || ""}`;
+};
+
+const formatConflictTime = (time) => {
+  const [hour, minute] = String(time || "").split(":");
+  const normalizedHour = String(Number(hour));
+  return minute === "00" ? `${normalizedHour}h` : `${normalizedHour}h${minute}`;
+};
+
+const resolveConflictWeekday = (conflict) => {
+  const suppliedWeekday = Number(conflict.weekday);
+  if (
+    conflict.weekday !== null
+    && conflict.weekday !== undefined
+    && Number.isInteger(suppliedWeekday)
+    && suppliedWeekday >= 0
+    && suppliedWeekday <= 6
+  ) {
+    return suppliedWeekday;
+  }
+  const date = conflict.date || String(conflict.starts_at || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  return new Date(`${date}T12:00:00Z`).getUTCDay();
+};
+
+export const getPatientScheduleConflictIssues = (conflicts = []) => {
+  const grouped = new Map();
+  conflicts
+    .filter((conflict) => conflict?.code === "PATIENT_SCHEDULE_CONFLICT")
+    .forEach((conflict) => {
+      const weekday = resolveConflictWeekday(conflict);
+      const time = String(conflict.time || "").slice(0, 5);
+      if (
+        !Object.prototype.hasOwnProperty.call(WEEKDAY_FULL_LABELS, weekday)
+        || !/^\d{2}:\d{2}$/.test(time)
+      ) return;
+      const plan = conflict.conflicting_patient_plan || {};
+      const planKey = plan.patient_plan_id || plan.service_plan_id || "unknown";
+      const key = `${weekday}-${time}-${planKey}`;
+      if (!grouped.has(key)) grouped.set(key, { weekday, time, plan });
+    });
+  const patterns = [...grouped.values()].sort((left, right) => (
+    conflictPatternSortValue(left).localeCompare(conflictPatternSortValue(right))
+  ));
+  if (patterns.length === 0) return [];
+  const details = patterns.map(({ weekday, time, plan }) => {
+    const dayTime = `${WEEKDAY_FULL_LABELS[weekday]} às ${formatConflictTime(time)}`;
+    const planLabel = conflictingPlanLabel(plan);
+    if (patterns.length === 1) {
+      return plan.patient_plan_id || plan.service_plan_id
+        ? `${dayTime} já está ocupada pelo plano ${planLabel} deste paciente.`
+        : `${dayTime} já está ocupada por outro atendimento deste paciente.`;
+    }
+    return `${dayTime} · ${planLabel}`;
+  });
+  return [{
+    key: "patient-schedule-conflicts",
+    title: patterns.length === 1 ? "Conflito de horário" : "Conflitos de horário",
+    details,
+  }];
+};
+
 export const getScheduleChangeIssues = (payload = {}) => {
   const protectedSessions = Array.isArray(payload.protected_sessions)
     ? payload.protected_sessions
     : [];
   const conflicts = Array.isArray(payload.conflicts) ? payload.conflicts : [];
+
+  const patientConflictIssues = getPatientScheduleConflictIssues(conflicts);
+  const remainingConflicts = conflicts.filter(
+    (conflict) => conflict?.code !== "PATIENT_SCHEDULE_CONFLICT",
+  );
 
   return [
     ...protectedSessions.map((session) => {
@@ -635,7 +745,8 @@ export const getScheduleChangeIssues = (payload = {}) => {
         detail: reasons || "Esta sessão precisa ser resolvida antes da alteração.",
       };
     }),
-    ...conflicts.map((conflict, index) => {
+    ...patientConflictIssues,
+    ...remainingConflicts.map((conflict, index) => {
       const date = conflict.date || String(conflict.starts_at || "").slice(0, 10);
       const time = conflict.time || String(conflict.starts_at || "").slice(11, 16);
       const when = [date ? formatCompactDate(date, { includeYear: true }) : null, time || null]
