@@ -164,10 +164,25 @@ export function ScheduledChangePanel({
   cancelAction,
   menuActions,
 }) {
+  const directAgendaCancelAction = verticalAgendaComparison && cancelAction;
+
   return (
     <FuturePanel>
       <FuturePanelContent>
-        <FutureEyebrow>{eyebrow}</FutureEyebrow>
+        {verticalAgendaComparison ? (
+          <FuturePanelHeading>
+            <FutureEyebrow>{eyebrow}</FutureEyebrow>
+            {directAgendaCancelAction && (
+              <DangerButton
+                type="button"
+                disabled={directAgendaCancelAction.disabled}
+                onClick={directAgendaCancelAction.onClick}
+              >
+                {directAgendaCancelAction.label}
+              </DangerButton>
+            )}
+          </FuturePanelHeading>
+        ) : <FutureEyebrow>{eyebrow}</FutureEyebrow>}
         {metadata && <FutureSecondary>{metadata}</FutureSecondary>}
         {title && <FutureTitle>{title}</FutureTitle>}
         {detail && <FutureDetail>{detail}</FutureDetail>}
@@ -202,10 +217,10 @@ export function ScheduledChangePanel({
         {trailingDetail && <FutureDetail>{trailingDetail}</FutureDetail>}
         {secondaryDetail && <FutureSecondary>{secondaryDetail}</FutureSecondary>}
       </FuturePanelContent>
-      {(onEdit || cancelAction || menuActions.length > 0) && (
+      {(onEdit || (!directAgendaCancelAction && cancelAction) || menuActions.length > 0) && (
         <CompactActions>
           {onEdit && <InlineAction type="button" onClick={onEdit}>{editLabel}</InlineAction>}
-          {cancelAction && (
+          {!directAgendaCancelAction && cancelAction && (
             <DangerButton
               type="button"
               disabled={cancelAction.disabled}
@@ -977,7 +992,16 @@ const FuturePanel = styled.section`
 
 const FuturePanelContent = styled.div`
   display: grid;
+  flex: 1;
   gap: ${spacing.xs};
+  min-width: 0;
+`;
+
+const FuturePanelHeading = styled.div`
+  align-items: flex-start;
+  display: flex;
+  gap: ${spacing.lg};
+  justify-content: space-between;
 `;
 
 const FutureEyebrow = styled.span`

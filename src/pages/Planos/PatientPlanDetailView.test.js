@@ -196,8 +196,29 @@ describe("PatientPlanDetailView", () => {
     expect(screen.queryByText("Alteração programada")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ações de Alteração de agenda/i }))
       .not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Cancelar alteração" }));
+    const cancelButton = screen.getByRole("button", { name: "Cancelar alteração" });
+    expect(cancelButton).toBeVisible();
+    fireEvent.click(cancelButton);
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("oculta o cancelamento direto quando a Agenda futura não é cancelável", () => {
+    render(
+      <ScheduledChangePanel
+        eyebrow="Nova agenda · a partir de 25 ago"
+        agendaComparison={{
+          current: "Ter 08h · Qui 08h",
+          proposed: "Ter 18h · Qui 19h",
+        }}
+        verticalAgendaComparison
+        cancelAction={null}
+      />,
+    );
+
+    expect(screen.getByRole("group", { name: "Agenda atual" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Agenda nova" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancelar alteração" }))
+      .not.toBeInTheDocument();
   });
 
   it("mantém o dialog rotulado, campos associados e sem confirmação quando há bloqueio", () => {

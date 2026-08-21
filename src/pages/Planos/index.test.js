@@ -970,7 +970,11 @@ describe("Planos no contêiner do App Shell", () => {
     expect(axios.post.mock.calls.some(([url]) => url.endsWith("/schedule-change/replace")))
       .toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: "Cancelar alteração" }));
+    const cancelScheduleChangeButton = screen.getByRole("button", {
+      name: "Cancelar alteração",
+    });
+    expect(cancelScheduleChangeButton).toBeVisible();
+    fireEvent.click(cancelScheduleChangeButton);
     const confirmation = screen.getByRole("dialog", {
       name: "Cancelar alteração de agenda?",
     });
