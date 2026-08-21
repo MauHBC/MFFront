@@ -84,6 +84,7 @@ import {
   formatRequestMetadata,
   formatPlanHistoryEventLabel,
   formatScheduleGrid,
+  formatScheduleTime,
   getScheduleChangeIssues,
   scheduleChangeErrorPresentation,
 } from "./patientPlanDetailPresentation";
@@ -3364,7 +3365,9 @@ export default function Planos() {
       || formatAgendaPattern(ppDetailAgendaSummary)
     : "";
   const ppDetailNextSessionCompact = ppDetailAgendaSummary?.next_session
-    ? `${formatCompactDate(ppDetailAgendaSummary.next_session.date)} às ${ppDetailAgendaSummary.next_session.time}`
+    ? `${formatCompactDate(ppDetailAgendaSummary.next_session.date)} às ${formatScheduleTime(
+      ppDetailAgendaSummary.next_session.time,
+    )}`
     : "";
   const ppDetailCurrentAgendaProfessional = String(
     ppPendingScheduleChange?.current_professional?.name
@@ -3373,9 +3376,9 @@ export default function Planos() {
     || "",
   ).trim();
   const ppDetailAgendaSupportingText = [
-    ppDetailCurrentAgendaProfessional || null,
-    ppDetailNextSessionCompact ? `próxima sessão ${ppDetailNextSessionCompact}` : null,
-  ].filter(Boolean).join(" · ");
+    ppDetailCurrentAgendaProfessional ? `Profissional: ${ppDetailCurrentAgendaProfessional}` : null,
+    ppDetailNextSessionCompact ? `Próxima sessão: ${ppDetailNextSessionCompact}` : null,
+  ].filter(Boolean).join("\n");
   const ppPendingScheduleHistoryEvent = findPlanHistoryEvent({
     events: ppHistoryEvents,
     types: ["schedule_changed"],

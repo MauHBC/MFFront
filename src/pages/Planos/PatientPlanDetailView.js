@@ -381,16 +381,20 @@ export function AgendaSummaryCard({
             {statusLabel && <StatusPill $tone={statusTone}>{statusLabel}</StatusPill>}
           </SummaryTitleLine>
           {pattern && (
-            <AgendaSchedule>
-              <AgendaPattern aria-label="Horários da agenda recorrente">
-                {splitSchedulePattern(pattern).map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </AgendaPattern>
-              <AgendaRecurrence>Toda semana</AgendaRecurrence>
-            </AgendaSchedule>
+            <AgendaPattern aria-label="Horários da agenda recorrente">
+              {splitSchedulePattern(pattern).map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </AgendaPattern>
           )}
-          {supportingText && <SummaryMeta>{supportingText}</SummaryMeta>}
+          {pattern && (
+            <AgendaSupport aria-label="Informações da agenda">
+              <span>Toda semana</span>
+              {String(supportingText || "").split("\n").filter(Boolean).map((item) => (
+                <span key={item}>{item}</span>
+              ))}
+            </AgendaSupport>
+          )}
         </SummaryHeadingGroup>
         <ContextActions>
           {primaryAction && (
@@ -868,21 +872,19 @@ const AgendaPattern = styled.ul`
   display: grid;
   font-size: ${fontSizes.body};
   font-weight: 400;
-  gap: 2px;
+  gap: ${spacing.xs};
   list-style: none;
   margin: 0;
   padding: 0;
 `;
 
-const AgendaSchedule = styled.div`
-  display: grid;
-  gap: ${spacing.xs};
-`;
-
-const AgendaRecurrence = styled.span`
+const AgendaSupport = styled.div`
   color: ${colors.textMuted};
+  display: grid;
   font-size: ${fontSizes.small};
   font-weight: 400;
+  gap: 2px;
+  margin-top: ${spacing.md};
 `;
 
 const SummaryMeta = styled.p`

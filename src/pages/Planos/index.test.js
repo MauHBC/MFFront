@@ -867,6 +867,7 @@ describe("Planos no contêiner do App Shell", () => {
         time: "08:00",
         professional_user_id: 21,
         professional_name: "Leonardo",
+        next_session: { date: "2030-08-25", time: "18:00" },
         future_sessions_count: 8,
         can_remove_future_sessions: true,
       },
@@ -945,7 +946,11 @@ describe("Planos no contêiner do App Shell", () => {
     expect(within(recurringSchedule).getByText("Qua 08h")).toBeInTheDocument();
     expect(within(recurringSchedule).queryByText("Ter 09h")).not.toBeInTheDocument();
     expect(within(recurringSchedule).queryByText("Qua 10h")).not.toBeInTheDocument();
-    expect(within(recurringSchedule.parentElement).getByText("Toda semana")).toBeInTheDocument();
+    const agendaSupport = screen.getByLabelText("Informações da agenda");
+    expect(within(agendaSupport).getByText("Toda semana")).toBeInTheDocument();
+    expect(within(agendaSupport).getByText("Profissional: Leonardo")).toBeInTheDocument();
+    expect(within(agendaSupport).getByText("Próxima sessão: 25 ago às 18h"))
+      .toBeInTheDocument();
     expect(screen.getByText(/Nova agenda · a partir de/)).toBeInTheDocument();
     expect(screen.queryByText(/Alteração de agenda · a partir de/)).not.toBeInTheDocument();
     expect(screen.queryByText("Alteração programada")).not.toBeInTheDocument();

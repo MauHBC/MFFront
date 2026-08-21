@@ -125,7 +125,9 @@ describe("PatientPlanDetailView", () => {
         title="Agenda"
         statusLabel={statusLabel}
         pattern={pattern}
-        supportingText={pattern ? "Leonardo · próxima sessão 20 ago às 08h" : ""}
+        supportingText={pattern
+          ? "Profissional: Leonardo\nPróxima sessão: 20 ago às 08h"
+          : ""}
         empty={pattern ? "" : "Sem agenda recorrente"}
         primaryAction={actionLabel ? { label: actionLabel, onClick: noop } : null}
         menuActions={[]}
@@ -147,18 +149,23 @@ describe("PatientPlanDetailView", () => {
         color: "#556159",
         fontSize: "0.9rem",
         fontWeight: "400",
-        gap: "2px",
+        gap: "4px",
       });
       expect(within(scheduleList).getAllByRole("listitem")).toHaveLength(2);
       expect(within(scheduleList).getByText("Ter 08h")).toBeInTheDocument();
       expect(within(scheduleList).getByText("Qui 08h")).toBeInTheDocument();
       expect(screen.queryByText(pattern)).not.toBeInTheDocument();
-      const recurrence = screen.getByText("Toda semana");
-      expect(recurrence).toHaveStyle({
+      const support = screen.getByLabelText("Informações da agenda");
+      expect(support).toHaveStyle({
         color: "#78827b",
         fontSize: "0.81rem",
         fontWeight: "400",
+        marginTop: "12px",
       });
+      expect(within(support).getByText("Toda semana")).toBeInTheDocument();
+      expect(within(support).getByText("Profissional: Leonardo")).toBeInTheDocument();
+      expect(within(support).getByText("Próxima sessão: 20 ago às 08h"))
+        .toBeInTheDocument();
     }
     unmount();
   });
