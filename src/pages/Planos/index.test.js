@@ -390,12 +390,14 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.queryByText(/Sessões restauradas da Agenda/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Revisão da grade|Lifecycle/)).not.toBeInTheDocument();
     expect(screen.queryByText("MHBC")).not.toBeInTheDocument();
-    const scheduled = await screen.findByText("Troca de plano agendada");
-    const endedPause = screen.getByText("Pausa encerrada automaticamente");
+    const scheduled = await screen.findByText(/· Troca de plano agendada$/);
+    const endedPause = screen.getByText(/· Pausa encerrada automaticamente$/);
     expect(scheduled.compareDocumentPosition(endedPause))
       .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.getByText(/Mensal 2x → Mensal 3x/)).toBeInTheDocument();
-    expect(screen.getByText(/Solicitada em .* · Leonardo/)).toBeInTheDocument();
+    expect(scheduled).toHaveTextContent(/^6 ago 2026, \d{1,2}h · Troca de plano agendada$/);
+    expect(screen.queryByText(/Leonardo|Sistema|MHBC/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Solicitada em|Registrado em/)).not.toBeInTheDocument();
     expect(screen.getByText("A partir de 18 ago 2026")).toBeInTheDocument();
     expect(screen.getByText("Frequência: 2x → 3x por semana")).toBeInTheDocument();
     expect(screen.queryByText(/Sessões por semana:/)).not.toBeInTheDocument();
@@ -404,11 +406,10 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.queryByText(/Não informado → Pendente/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Status da pausa|Não informado → Encerrada|Versão da pausa/i))
       .not.toBeInTheDocument();
-    expect(screen.getAllByText(/Sistema/).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText(/\{"/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Carregar eventos anteriores" }));
-    expect(await screen.findByText("Pausa")).toBeInTheDocument();
+    expect(await screen.findByText(/· Pausa$/)).toBeInTheDocument();
     expect(screen.getByText(/Evidência histórica incompleta/)).toBeInTheDocument();
     expect(screen.queryByText(/Versão da alteração/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Registro legado/i)).not.toBeInTheDocument();

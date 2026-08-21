@@ -222,7 +222,9 @@ describe("patient plan detail presentation", () => {
         { field: "price_cents", label: "Valor contratado", before: 60000, after: 48000 },
       ],
     });
-    expect(presentation.moment).toMatch(/^Solicitada em 23 jul 2026, \d{2}:\d{2} · Leonardo$/);
+    expect(presentation.singleLine)
+      .toMatch(/^23 jul 2026, \d{1,2}h38 · Troca de plano agendada$/);
+    expect(presentation.singleLine).not.toContain("Leonardo");
     expect(presentation.vigency).toBe("A partir de 18 ago 2026");
     expect(presentation.changes).toEqual(expect.arrayContaining([
       "Plano: Pilates 3x → Funcional 2x",
@@ -286,7 +288,8 @@ describe("patient plan detail presentation", () => {
 
     const presentation = buildPlanHistoryPresentation(event);
     expect(formatPlanHistoryEventLabel(event)).toBe("Pausa iniciada");
-    expect(presentation.moment).toMatch(/^20 ago 2026, \d{2}:\d{2} · LeoJoyce$/);
+    expect(presentation.singleLine).toMatch(/^20 ago 2026, \d{1,2}h51 · Pausa iniciada$/);
+    expect(presentation.singleLine).not.toContain("LeoJoyce");
     expect(presentation.vigency).toBe("Período: 20 ago → 28 ago");
     expect(presentation.changes).toEqual([]);
     expect(getVisiblePlanHistoryChanges(event)).toEqual([]);
@@ -324,7 +327,8 @@ describe("patient plan detail presentation", () => {
 
     const presentation = buildPlanHistoryPresentation(event);
     expect(formatPlanHistoryEventLabel(event)).toBe("Plano retomado");
-    expect(presentation.moment).toMatch(/^20 ago 2026, \d{2}:\d{2} · LeoJoyce$/);
+    expect(presentation.singleLine).toMatch(/^20 ago 2026, \d{1,2}h57 · Plano retomado$/);
+    expect(presentation.singleLine).not.toContain("LeoJoyce");
     expect(presentation.vigency).toBe("Retomado em 20 ago");
     expect(presentation.changes).toEqual([]);
     expect(getVisiblePlanHistoryChanges(event)).toEqual([]);
@@ -343,7 +347,8 @@ describe("patient plan detail presentation", () => {
       ],
     });
 
-    expect(presentation.moment).toMatch(/^20 ago 2026, \d{2}:\d{2} · LeoJoyce$/);
+    expect(presentation.singleLine).toMatch(/^20 ago 2026, \d{1,2}h55 · Pausa alterada$/);
+    expect(presentation.singleLine).not.toContain("LeoJoyce");
     expect(presentation.vigency).toBe("");
     expect(presentation.changes).toEqual([
       "Período: até 28 ago → até 4 set",
@@ -401,7 +406,8 @@ describe("patient plan detail presentation", () => {
 
     const presentation = buildPlanHistoryPresentation(event);
     expect(formatPlanHistoryEventLabel(event)).toBe("Agenda alterada");
-    expect(presentation.moment).toMatch(/^20 ago 2026, \d{2}:\d{2} · LeoJoyce$/);
+    expect(presentation.singleLine).toMatch(/^20 ago 2026, \d{1,2}h51 · Agenda alterada$/);
+    expect(presentation.singleLine).not.toContain("LeoJoyce");
     expect(presentation.vigency).toBe("A partir de 21 ago");
     expect(presentation.changes).toEqual([
       "Agenda: Qua 20h · Qui 20h → Qui 20h · Sex 20h",
@@ -441,10 +447,29 @@ describe("patient plan detail presentation", () => {
 
     expect(presentation).toEqual({
       singleLine: "20 ago 2026, 20h · Alteração de agenda cancelada",
-      moment: "",
       vigency: "",
       changes: [],
     });
+  });
+
+  it.each([
+    ["schedule_changed", "2026-08-20T20:00:00", "20 ago 2026, 20h · Agenda alterada"],
+    ["pause_started", "2026-08-20T15:59:00", "20 ago 2026, 15h59 · Pausa iniciada"],
+    ["plan_resumed", "2026-08-20T16:00:00", "20 ago 2026, 16h · Plano retomado"],
+    [
+      "commercial_change_requested",
+      "2026-07-23T10:38:00",
+      "23 jul 2026, 10h38 · Troca de plano agendada",
+    ],
+  ])("padroniza a primeira linha de %s sem ator", (type, occurredAt, expected) => {
+    const presentation = buildPlanHistoryPresentation({
+      type,
+      occurred_at: occurredAt,
+      actor: { name: "Responsável interno" },
+    });
+
+    expect(presentation.singleLine).toBe(expected);
+    expect(presentation.singleLine).not.toContain("Responsável interno");
   });
 
   it("correlaciona solicitação pelo recurso autoritativo ou pela vigência exata", () => {

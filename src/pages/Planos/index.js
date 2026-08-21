@@ -82,7 +82,6 @@ import {
   formatAgendaPattern,
   formatCompactDate,
   formatRequestMetadata,
-  formatPlanHistoryEventLabel,
   formatScheduleGrid,
   getScheduleChangeIssues,
   scheduleChangeErrorPresentation,
@@ -3459,20 +3458,13 @@ export default function Planos() {
               const presentation = buildPlanHistoryPresentation(event, patientProfessionals);
               return (
                 <PlanHistoryItem key={event.id || `${event.type}-${event.sequence}`}>
-                  {presentation.singleLine ? (
-                    <strong>{presentation.singleLine}</strong>
-                  ) : (
-                    <>
-                      <strong>{formatPlanHistoryEventLabel(event)}</strong>
-                      <span>{presentation.moment}</span>
-                      {presentation.vigency && <span>{presentation.vigency}</span>}
-                      {presentation.changes.map((change) => (
-                        <small key={`${event.id}-${change}`}>{change}</small>
-                      ))}
-                      {event.legacy?.is_incomplete && (
-                        <small>Evidência histórica incompleta</small>
-                      )}
-                    </>
+                  <strong>{presentation.singleLine}</strong>
+                  {presentation.vigency && <span>{presentation.vigency}</span>}
+                  {presentation.changes.map((change) => (
+                    <small key={`${event.id}-${change}`}>{change}</small>
+                  ))}
+                  {event.type !== "schedule_change_canceled" && event.legacy?.is_incomplete && (
+                    <small>Evidência histórica incompleta</small>
                   )}
                 </PlanHistoryItem>
               );

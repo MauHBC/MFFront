@@ -72,24 +72,6 @@ const PLAN_HISTORY_EVENT_LABELS = {
   schedule_change_applied: "Alteração de agenda aplicada",
 };
 
-const SIMPLE_HISTORY_MOMENT_EVENT_TYPES = new Set([
-  "pause_started",
-  "pause_updated",
-  "plan_resumed",
-  "schedule_changed",
-]);
-
-const REQUEST_EVENT_TYPES = new Set([
-  "commercial_change_requested",
-  "commercial_change_replaced",
-  "pause_scheduled",
-  "pause_started",
-  "pause_updated",
-  "cancellation_scheduled",
-  "cancellation_updated",
-  "schedule_changed",
-]);
-
 const HISTORY_TIMING_FIELDS = new Set([
   "starts_on",
   "ends_on",
@@ -169,7 +151,10 @@ const formatHistoryInstant = (value) => {
 };
 
 const formatCompactHistoryInstant = (value) => formatHistoryInstant(value)
-  .replace(/, (\d{2}):(\d{2})$/, (_, hour, minute) => `, ${hour}h${minute === "00" ? "" : minute}`);
+  .replace(/, (\d{2}):(\d{2})$/, (_, hour, minute) => {
+    const compactHour = hour.replace(/^0/, "");
+    return `, ${compactHour}h${minute === "00" ? "" : minute}`;
+  });
 
 const addOneDay = (value) => {
   const date = parseDateOnly(value);
@@ -561,19 +546,29 @@ export function getVisiblePlanHistoryChanges(event) {
   });
 }
 
+export const formatPlanHistoryEventLabel = (event) => {
+  const businessLabel = PLAN_HISTORY_EVENT_LABELS[event?.type];
+  if (businessLabel) return businessLabel;
+
+  const label = String(event?.label || "").trim();
+  if (!event?.legacy?.is_legacy) return label || "Evento do plano";
+
+  const userFacingLabel = label.replace(/^Registro legado(?: de)?\s*/i, "").trim();
+  if (!userFacingLabel) return "Evento do plano";
+  return `${userFacingLabel.charAt(0).toUpperCase()}${userFacingLabel.slice(1)}`;
+};
+
 export const buildPlanHistoryPresentation = (event, professionals = []) => {
+  const singleLine = `${formatCompactHistoryInstant(event?.occurred_at)} · ${formatPlanHistoryEventLabel(event)}`;
+
   if (event?.type === "schedule_change_canceled") {
     return {
-      singleLine: `${formatCompactHistoryInstant(event?.occurred_at)} · ${PLAN_HISTORY_EVENT_LABELS.schedule_change_canceled}`,
-      moment: "",
+      singleLine,
       vigency: "",
       changes: [],
     };
   }
 
-  const actorName = event?.actor?.name
-    || (event?.origin === "automatic" ? "Sistema" : "Responsável não identificado");
-  const momentPrefix = REQUEST_EVENT_TYPES.has(event?.type) ? "Solicitada em" : "Registrado em";
   const changes = getVisiblePlanHistoryChanges(event);
   const hasSessionsChange = changes.some((change) => change?.field === "sessions_per_week");
   const businessChanges = isPauseHistoryEvent(event)
@@ -601,24 +596,10 @@ export const buildPlanHistoryPresentation = (event, professionals = []) => {
   }
 
   return {
-    moment: SIMPLE_HISTORY_MOMENT_EVENT_TYPES.has(event?.type)
-      ? `${formatHistoryInstant(event?.occurred_at)} · ${actorName}`
-      : `${momentPrefix} ${formatHistoryInstant(event?.occurred_at)} · ${actorName}`,
+    singleLine,
     vigency: historyVigencyLabel(event),
     changes: businessChanges,
   };
-};
-
-export const formatPlanHistoryEventLabel = (event) => {
-  const businessLabel = PLAN_HISTORY_EVENT_LABELS[event?.type];
-  if (businessLabel) return businessLabel;
-
-  const label = String(event?.label || "").trim();
-  if (!event?.legacy?.is_legacy) return label || "Evento do plano";
-
-  const userFacingLabel = label.replace(/^Registro legado(?: de)?\s*/i, "").trim();
-  if (!userFacingLabel) return "Evento do plano";
-  return `${userFacingLabel.charAt(0).toUpperCase()}${userFacingLabel.slice(1)}`;
 };
 
 export const getScheduleChangeIssues = (payload = {}) => {
