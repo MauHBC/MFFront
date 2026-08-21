@@ -3056,6 +3056,12 @@ export default function Planos() {
   const ppAdminPlanData = ppAdminSummary?.plan_data_summary || null;
   const ppPendingPlanChange = ppAdminSummary?.pending_plan_change || null;
   const ppPendingScheduleChange = ppAdminSummary?.pending_schedule_change || null;
+  const ppPendingScheduleChangePresentation = buildPendingScheduleChangePresentation(
+    ppPendingScheduleChange,
+  );
+  const ppDetailHasScheduledAgendaContinuity = Boolean(
+    ppPendingScheduleChangePresentation,
+  );
   const planActionsBlockedByScheduleChange = Boolean(ppPendingScheduleChange);
   const scheduleChangeAwaitingPromotion = Boolean(
     ppPendingScheduleChange?.is_effective === true
@@ -3177,8 +3183,10 @@ export default function Planos() {
     isSaving || ppPausePlan || ppPauseEditPlan || ppResumePlan || ppCancelPlan,
   );
   const isPpDetailDataLoading = ppDetailLoading && !ppDetailPlan;
-  const ppDetailAgendaHasActiveRecurrence = ppDetailAgendaStatus === "active_recurrence"
-    && ppDetailFutureSessionsCount > 0;
+  const ppDetailAgendaHasActiveRecurrence = (
+    ppDetailAgendaStatus === "active_recurrence"
+    && ppDetailFutureSessionsCount > 0
+  ) || ppDetailHasScheduledAgendaContinuity;
   const ppDetailPlanValue = ppAdminPlanData?.price_cents != null
     ? formatPrice(ppAdminPlanData.price_cents)
     : ppDetailSummary?.price || "-";
@@ -3350,19 +3358,19 @@ export default function Planos() {
       : "Para alterações no plano, primeiro cancele a troca de agenda.";
   }
 
+  const ppDetailAgendaPresentationStatus = ppDetailHasScheduledAgendaContinuity
+    ? "active_recurrence"
+    : ppDetailAgendaStatus;
   const agendaStatusPresentation = {
     active_recurrence: { label: "Ativa", tone: "active" },
     not_configured: { label: "Sem agenda", tone: "neutral" },
     no_future_sessions: { label: "Sem sessões futuras", tone: "paused" },
     plan_paused: { label: "Pausada", tone: "paused" },
     plan_canceled: { label: "Cancelada", tone: "canceled" },
-  }[ppDetailAgendaStatus] || {
+  }[ppDetailAgendaPresentationStatus] || {
     label: ppDetailAgendaSummary?.status_label || "Indisponível",
     tone: "neutral",
   };
-  const ppPendingScheduleChangePresentation = buildPendingScheduleChangePresentation(
-    ppPendingScheduleChange,
-  );
   const ppPendingCurrentSchedulePattern = formatScheduleGrid(
     ppPendingScheduleChange?.effective_grid || ppPendingScheduleChange?.current_grid,
   );
