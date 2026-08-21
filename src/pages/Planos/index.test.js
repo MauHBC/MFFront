@@ -1040,10 +1040,64 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.getByRole("button", { name: /Alterar agenda/i })).toBeInTheDocument();
   });
 
-  it.each([
-    ["vencida", { can_cancel: false }],
-    ["legada", { legacy_without_manifest: true }],
-  ])("não oferece ações para alteração de agenda %s", async (_label, capabilities) => {
+  it("trata a Agenda cuja vigência chegou como atual e oculta o painel futuro", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: { id: 31, name: "Funcional 1x", sessions_per_week: 1 },
+      agenda_summary: {
+        status: "active_recurrence",
+        pattern_summary: "Ter às 09:00",
+        weekdays: [2],
+        time: "09:00",
+        professional_user_id: 21,
+        future_sessions_count: 4,
+      },
+    };
+    const pending = {
+      schedule_change_id: 91,
+      status: "pending",
+      effective_on: "2000-08-25",
+      is_effective: true,
+      awaiting_promotion: true,
+      current_grid: [{ weekday: 2, time: "09:00", professional_user_id: 21 }],
+      effective_grid: [{ weekday: 2, time: "09:00", professional_user_id: 21 }],
+      predecessor_grid: [{ weekday: 1, time: "08:00", professional_user_id: 21 }],
+      proposed_grid: [{ weekday: 2, time: "09:00", professional_user_id: 21 }],
+      professional_changed: false,
+      can_cancel: false,
+    };
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({
+          data: {
+            plan_data_summary: { service_plan_name: "Funcional 1x", sessions_per_week: 1 },
+            agenda_summary: patientPlan.agenda_summary,
+            pending_schedule_change: pending,
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
+    const recurringSchedule = await screen.findByRole("list", {
+      name: "Horários da agenda recorrente",
+    });
+    expect(within(recurringSchedule).getByText("Ter 09h")).toBeInTheDocument();
+    expect(within(recurringSchedule).queryByText("Seg 08h")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nova agenda · a partir de/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/awaiting|promotion|overdue|lifecycle|pending|revisão/i))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar alteração" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Cancelar alteração")).not.toBeInTheDocument();
+  });
+
+  it("mantém o painel da alteração futura legada, sem oferecer cancelamento", async () => {
     const patientPlan = {
       id: 41,
       patient_id: 11,
@@ -1059,13 +1113,15 @@ describe("Planos no contêiner do App Shell", () => {
       },
     };
     const pending = {
-      schedule_change_id: 91,
+      revision_id: 92,
       status: "pending",
-      effective_on: _label === "vencida" ? "2000-08-25" : "2030-08-25",
+      effective_on: "2030-08-25",
+      is_effective: false,
       current_grid: [{ weekday: 1, time: "08:00", professional_user_id: 21 }],
       proposed_grid: [{ weekday: 2, time: "09:00", professional_user_id: 21 }],
       professional_changed: false,
-      ...capabilities,
+      legacy_without_manifest: true,
+      can_cancel: false,
     };
     axios.get.mockImplementation((url) => {
       if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });

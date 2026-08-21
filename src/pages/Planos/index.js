@@ -3356,7 +3356,7 @@ export default function Planos() {
     ppPendingScheduleChange,
   );
   const ppPendingCurrentSchedulePattern = formatScheduleGrid(
-    ppPendingScheduleChange?.current_grid,
+    ppPendingScheduleChange?.effective_grid || ppPendingScheduleChange?.current_grid,
   );
   const ppDetailAgendaPattern = ppDetailAgendaHasActiveRecurrence
     ? ppPendingCurrentSchedulePattern
@@ -3364,6 +3364,7 @@ export default function Planos() {
     : "";
   const ppDetailCurrentAgendaProfessional = String(
     ppPendingScheduleChange?.current_professional?.name
+    || ppPendingScheduleChange?.effective_grid?.find((row) => row?.professional_name)?.professional_name
     || ppPendingScheduleChange?.current_grid?.find((row) => row?.professional_name)?.professional_name
     || ppDetailAgendaSummary?.professional_name
     || "",
@@ -3391,7 +3392,7 @@ export default function Planos() {
     actorName: ppCancellationHistoryEvent?.actor?.name,
     prefix: "Solicitado em",
   });
-  const hasOperationalScheduleChange = Boolean(ppPendingScheduleChangePresentation);
+  const hasOperationalScheduleChange = Boolean(ppPendingScheduleChange);
   let agendaBlockedByLifecycle = "";
   if (ppPendingPlanChange) {
     agendaBlockedByLifecycle = "Resolva a troca de plano agendada antes de alterar a Agenda.";
@@ -4826,7 +4827,7 @@ export default function Planos() {
                       menuActions={ppDetailAgendaMenuActions}
                       blockedMessage={ppDetailAgendaBlockedMessage}
                     >
-                      {hasOperationalScheduleChange && (
+                      {ppPendingScheduleChangePresentation && (
                         <ScheduledChangePanel
                           eyebrow={`Nova agenda · a partir de ${formatCompactDate(ppPendingScheduleChangePresentation.effectiveOn)}`}
                           metadata={ppPendingScheduleRequestMetadata}

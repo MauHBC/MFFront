@@ -204,7 +204,7 @@ const firstProfessionalName = (grid) => (
 );
 
 export const buildPendingScheduleChangePresentation = (pendingScheduleChange) => {
-  if (!pendingScheduleChange?.effective_on) return null;
+  if (!pendingScheduleChange?.effective_on || pendingScheduleChange.is_effective === true) return null;
   const currentPattern = formatScheduleGrid(pendingScheduleChange.current_grid);
   const proposedPattern = formatScheduleGrid(pendingScheduleChange.proposed_grid);
   if (!currentPattern || !proposedPattern) return null;

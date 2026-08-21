@@ -66,6 +66,12 @@ describe("patient plan detail presentation", () => {
       current_grid: [],
       proposed_grid: [],
     })).toBeNull();
+    expect(buildPendingScheduleChangePresentation({
+      effective_on: "2030-08-25",
+      is_effective: true,
+      current_grid: pendingScheduleChange.current_grid,
+      proposed_grid: pendingScheduleChange.proposed_grid,
+    })).toBeNull();
   });
 
   it("apresenta grade atual → futura e a mudança autoritativa de profissional", () => {
