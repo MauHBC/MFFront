@@ -3057,6 +3057,11 @@ export default function Planos() {
   const ppPendingPlanChange = ppAdminSummary?.pending_plan_change || null;
   const ppPendingScheduleChange = ppAdminSummary?.pending_schedule_change || null;
   const planActionsBlockedByScheduleChange = Boolean(ppPendingScheduleChange);
+  const scheduleChangeAwaitingPromotion = Boolean(
+    ppPendingScheduleChange?.is_effective === true
+    && ppPendingScheduleChange?.awaiting_promotion === true
+    && ppPendingScheduleChange?.can_cancel === false,
+  );
   const ppPendingPlanChangeOverdue = ppPendingPlanChange?.lifecycle_state
     === "overdue_awaiting_lifecycle";
   const ppCommercialDisplay = buildPlanCommercialDisplay({
@@ -3338,9 +3343,12 @@ export default function Planos() {
       disabled: isPpStatusActionBusy || planActionsBlockedByScheduleChange,
     },
   ];
-  const ppDetailPlanBlockedMessage = planActionsBlockedByScheduleChange
-    ? "Para alterações no plano, primeiro cancele a troca de agenda."
-    : "";
+  let ppDetailPlanBlockedMessage = "";
+  if (planActionsBlockedByScheduleChange) {
+    ppDetailPlanBlockedMessage = scheduleChangeAwaitingPromotion
+      ? "A nova Agenda já está vigente. Alterações no plano serão liberadas após a atualização automática."
+      : "Para alterações no plano, primeiro cancele a troca de agenda.";
+  }
 
   const agendaStatusPresentation = {
     active_recurrence: { label: "Ativa", tone: "active" },

@@ -926,6 +926,8 @@ describe("Planos no contêiner do App Shell", () => {
       revision_id: 72,
       status: "pending",
       effective_on: "2030-08-25",
+      is_effective: false,
+      awaiting_promotion: false,
       current_grid: currentGrid,
       proposed_grid: [
         { weekday: 2, time: "09:00", professional_user_id: 36, professional_name: "Mariana" },
@@ -1040,7 +1042,7 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.getByRole("button", { name: /Alterar agenda/i })).toBeInTheDocument();
   });
 
-  it("trata a Agenda cuja vigência chegou como atual e oculta o painel futuro", async () => {
+  it("mantém o bloqueio enquanto a Agenda vigente aguarda promoção e libera depois", async () => {
     const patientPlan = {
       id: 41,
       patient_id: 11,
@@ -1056,7 +1058,7 @@ describe("Planos no contêiner do App Shell", () => {
         future_sessions_count: 4,
       },
     };
-    const pending = {
+    let pending = {
       schedule_change_id: 91,
       status: "pending",
       effective_on: "2000-08-25",
@@ -1083,7 +1085,19 @@ describe("Planos no contêiner do App Shell", () => {
       return Promise.resolve({ data: {} });
     });
 
-    renderPlans("/planos/pacientes/41");
+    const awaitingPromotionRender = renderPlans("/planos/pacientes/41");
+    expect(await screen.findByText(
+      "A nova Agenda já está vigente. Alterações no plano serão liberadas após a atualização automática.",
+    )).toBeInTheDocument();
+    expect(screen.queryByText(
+      "Para alterações no plano, primeiro cancele a troca de agenda.",
+    )).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Trocar plano" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Ações do plano" }));
+    expect(screen.getByRole("menuitem", { name: "Pausar plano" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "Cancelar plano" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Cancelar alteração" })).not.toBeInTheDocument();
+
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
     const recurringSchedule = await screen.findByRole("list", {
       name: "Horários da agenda recorrente",
@@ -1095,6 +1109,20 @@ describe("Planos no contêiner do App Shell", () => {
       .not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Editar alteração" })).not.toBeInTheDocument();
     expect(screen.queryByText("Cancelar alteração")).not.toBeInTheDocument();
+
+    awaitingPromotionRender.unmount();
+    pending = null;
+    renderPlans("/planos/pacientes/41");
+    expect(await screen.findByRole("button", { name: "Trocar plano" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Ações do plano" }));
+    expect(screen.getByRole("menuitem", { name: "Pausar plano" })).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: "Cancelar plano" })).toBeEnabled();
+    expect(screen.queryByText(
+      "A nova Agenda já está vigente. Alterações no plano serão liberadas após a atualização automática.",
+    )).not.toBeInTheDocument();
+    expect(screen.queryByText(
+      "Para alterações no plano, primeiro cancele a troca de agenda.",
+    )).not.toBeInTheDocument();
   });
 
   it("mantém o painel da alteração futura legada, sem oferecer cancelamento", async () => {
