@@ -125,9 +125,7 @@ describe("PatientPlanDetailView", () => {
         title="Agenda"
         statusLabel={statusLabel}
         pattern={pattern}
-        supportingText={pattern
-          ? "Profissional: Leonardo\nPróxima sessão: 20 ago às 08h"
-          : ""}
+        supportingText={pattern ? "Profissional: Leonardo" : ""}
         empty={pattern ? "" : "Sem agenda recorrente"}
         primaryAction={actionLabel ? { label: actionLabel, onClick: noop } : null}
         menuActions={[]}
@@ -150,6 +148,7 @@ describe("PatientPlanDetailView", () => {
         fontSize: "0.9rem",
         fontWeight: "400",
         gap: "4px",
+        paddingLeft: "16px",
       });
       expect(within(scheduleList).getAllByRole("listitem")).toHaveLength(2);
       expect(within(scheduleList).getByText("Ter 08h")).toBeInTheDocument();
@@ -164,8 +163,7 @@ describe("PatientPlanDetailView", () => {
       });
       expect(within(support).getByText("Toda semana")).toBeInTheDocument();
       expect(within(support).getByText("Profissional: Leonardo")).toBeInTheDocument();
-      expect(within(support).getByText("Próxima sessão: 20 ago às 08h"))
-        .toBeInTheDocument();
+      expect(within(support).queryByText(/Próxima sessão:/)).not.toBeInTheDocument();
     }
     unmount();
   });

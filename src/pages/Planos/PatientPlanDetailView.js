@@ -875,7 +875,7 @@ const AgendaPattern = styled.ul`
   gap: ${spacing.xs};
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding-left: ${spacing.lg};
 `;
 
 const AgendaSupport = styled.div`

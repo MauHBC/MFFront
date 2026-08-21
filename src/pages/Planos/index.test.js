@@ -949,8 +949,7 @@ describe("Planos no contêiner do App Shell", () => {
     const agendaSupport = screen.getByLabelText("Informações da agenda");
     expect(within(agendaSupport).getByText("Toda semana")).toBeInTheDocument();
     expect(within(agendaSupport).getByText("Profissional: Leonardo")).toBeInTheDocument();
-    expect(within(agendaSupport).getByText("Próxima sessão: 25 ago às 18h"))
-      .toBeInTheDocument();
+    expect(within(agendaSupport).queryByText(/Próxima sessão:/)).not.toBeInTheDocument();
     expect(screen.getByText(/Nova agenda · a partir de/)).toBeInTheDocument();
     expect(screen.queryByText(/Alteração de agenda · a partir de/)).not.toBeInTheDocument();
     expect(screen.queryByText("Alteração programada")).not.toBeInTheDocument();
