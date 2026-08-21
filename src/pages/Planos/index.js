@@ -3475,27 +3475,31 @@ export default function Planos() {
               const presentation = buildPlanHistoryPresentation(event, patientProfessionals);
               return (
                 <PlanHistoryItem key={event.id || `${event.type}-${event.sequence}`}>
-                  <strong>{presentation.singleLine}</strong>
-                  {presentation.vigency && <span>{presentation.vigency}</span>}
+                  <PlanHistoryPrimary>{presentation.singleLine}</PlanHistoryPrimary>
+                  {presentation.vigency && (
+                    <PlanHistoryVigency>{presentation.vigency}</PlanHistoryVigency>
+                  )}
                   {presentation.changes.map((change) => (
-                    <small key={`${event.id}-${change}`}>{change}</small>
+                    <PlanHistoryDetail key={`${event.id}-${change}`}>
+                      {change}
+                    </PlanHistoryDetail>
                   ))}
                   {event.type !== "schedule_change_canceled" && event.legacy?.is_incomplete && (
-                    <small>Evidência histórica incompleta</small>
+                    <PlanHistoryDetail>Evidência histórica incompleta</PlanHistoryDetail>
                   )}
                 </PlanHistoryItem>
               );
             })}
-            {ppHistoryPageInfo.has_more && (
-              <GhostButton
-                type="button"
-                onClick={loadMorePatientPlanHistory}
-                disabled={ppHistoryLoadingMore}
-              >
-                {ppHistoryLoadingMore ? "Carregando..." : "Carregar eventos anteriores"}
-              </GhostButton>
-            )}
           </PlanHistorySection>
+          {ppHistoryPageInfo.has_more && (
+            <GhostButton
+              type="button"
+              onClick={loadMorePatientPlanHistory}
+              disabled={ppHistoryLoadingMore}
+            >
+              {ppHistoryLoadingMore ? "Carregando..." : "Carregar eventos anteriores"}
+            </GhostButton>
+          )}
         </PlanHistorySections>
       </HistoryTimelineCard>
     );
@@ -5388,34 +5392,61 @@ const PlanHistorySections = styled.div`
 
 const PlanHistorySection = styled.div`
   display: grid;
-  gap: 8px;
+  gap: 12px;
+  padding-left: 22px;
+  position: relative;
+
+  &::before {
+    background: rgba(138, 101, 29, 0.24);
+    bottom: 16px;
+    content: "";
+    left: 6px;
+    position: absolute;
+    top: 16px;
+    width: 2px;
+  }
 `;
 
-const PlanHistoryItem = styled.div`
-  border-left: 3px solid rgba(138, 101, 29, 0.35);
+const PlanHistoryItem = styled.article`
+  background: rgba(106, 121, 92, 0.055);
+  border-radius: 10px;
   display: grid;
-  gap: 4px;
-  padding: 2px 0 2px 12px;
+  gap: 5px;
+  padding: 10px 12px;
+  position: relative;
 
-  strong {
-    color: #1f2a1c;
-    font-size: 0.9rem;
-    font-weight: 900;
+  &::before {
+    background: #fff;
+    border: 2px solid rgba(138, 101, 29, 0.58);
+    border-radius: 50%;
+    content: "";
+    height: 8px;
+    left: -20px;
+    position: absolute;
+    top: 14px;
+    width: 8px;
   }
+`;
 
-  span {
-    color: #1f2a1c;
-    font-size: 0.9rem;
-    font-weight: 800;
-    line-height: 1.35;
-  }
+const PlanHistoryPrimary = styled.strong`
+  color: #1f2a1c;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.4;
+`;
 
-  small {
-    color: #6a795c;
-    font-size: 0.82rem;
-    font-weight: 700;
-    line-height: 1.35;
-  }
+const PlanHistoryVigency = styled.span`
+  color: #556159;
+  font-size: 0.86rem;
+  font-weight: 400;
+  line-height: 1.4;
+`;
+
+const PlanHistoryDetail = styled.small`
+  color: #78827b;
+  font-size: 0.86rem;
+  font-weight: 400;
+  line-height: 1.4;
 `;
 
 const PlanDetailField = styled.input`

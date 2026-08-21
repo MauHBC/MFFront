@@ -383,8 +383,16 @@ describe("Planos no contêiner do App Shell", () => {
     renderPlans("/planos/pacientes/41");
     fireEvent.click(await screen.findByRole("tab", { name: "Histórico" }));
 
-    expect(await screen.findByText("20 ago 2026, 20h · Alteração de agenda cancelada"))
-      .toBeInTheDocument();
+    const canceledScheduleChange = await screen.findByText(
+      "20 ago 2026, 20h · Alteração de agenda cancelada",
+    );
+    const canceledBlock = canceledScheduleChange.closest("article");
+    expect(canceledBlock).toBeInTheDocument();
+    expect(canceledBlock.children).toHaveLength(1);
+    expect(canceledScheduleChange).toHaveStyle({
+      fontSize: "0.9rem",
+      fontWeight: "800",
+    });
     expect(screen.queryByText(/Registrado em 20 ago 2026/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Estado da alteração da Agenda/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Sessões restauradas da Agenda/)).not.toBeInTheDocument();
@@ -398,8 +406,24 @@ describe("Planos no contêiner do App Shell", () => {
     expect(scheduled).toHaveTextContent(/^6 ago 2026, \d{1,2}h · Troca de plano agendada$/);
     expect(screen.queryByText(/Leonardo|Sistema|MHBC/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Solicitada em|Registrado em/)).not.toBeInTheDocument();
-    expect(screen.getByText("A partir de 18 ago 2026")).toBeInTheDocument();
-    expect(screen.getByText("Frequência: 2x → 3x por semana")).toBeInTheDocument();
+    const scheduledBlock = scheduled.closest("article");
+    const vigency = screen.getByText("A partir de 18 ago 2026");
+    const changeDetail = screen.getByText("Frequência: 2x → 3x por semana");
+    expect(scheduledBlock).toHaveStyle({
+      background: "rgba(106, 121, 92, 0.055)",
+      borderRadius: "10px",
+      gap: "5px",
+      padding: "10px 12px",
+    });
+    expect(vigency).toHaveStyle({
+      fontSize: "0.86rem",
+      fontWeight: "400",
+    });
+    expect(changeDetail).toHaveStyle({
+      color: "#78827b",
+      fontSize: "0.86rem",
+      fontWeight: "400",
+    });
     expect(screen.queryByText(/Sessões por semana:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Plano comercial:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Valor contratado:/)).not.toBeInTheDocument();
