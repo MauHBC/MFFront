@@ -69,8 +69,17 @@ const PLAN_HISTORY_EVENT_LABELS = {
   plan_resumed: "Plano retomado",
   schedule_changed: "Agenda alterada",
   schedule_change_canceled: "Alteração de agenda cancelada",
-  schedule_change_applied: "Alteração de agenda aplicada",
+  schedule_change_applied: "Nova agenda vigente",
 };
+
+const SINGLE_LINE_SCHEDULE_CHANGE_EVENTS = new Set([
+  "schedule_change_canceled",
+  "schedule_change_applied",
+]);
+
+export const isSingleLinePlanHistoryEvent = (event) => (
+  SINGLE_LINE_SCHEDULE_CHANGE_EVENTS.has(event?.type)
+);
 
 const HISTORY_TIMING_FIELDS = new Set([
   "starts_on",
@@ -150,11 +159,13 @@ const formatHistoryInstant = (value) => {
   }).format(date).replace(/ de /g, " ").replace(/\./g, "");
 };
 
-const formatCompactHistoryInstant = (value) => formatHistoryInstant(value)
+const formatCompactHistoryInstant = (value, { preserveMidnight = false } = {}) => (
+  formatHistoryInstant(value)
   .replace(/, (\d{2}):(\d{2})$/, (_, hour, minute) => {
-    const compactHour = hour.replace(/^0/, "");
+    const compactHour = preserveMidnight && hour === "00" ? hour : hour.replace(/^0/, "");
     return `, ${compactHour}h${minute === "00" ? "" : minute}`;
-  });
+  })
+);
 
 const addOneDay = (value) => {
   const date = parseDateOnly(value);
@@ -559,9 +570,12 @@ export const formatPlanHistoryEventLabel = (event) => {
 };
 
 export const buildPlanHistoryPresentation = (event, professionals = []) => {
-  const singleLine = `${formatCompactHistoryInstant(event?.occurred_at)} · ${formatPlanHistoryEventLabel(event)}`;
+  const instant = formatCompactHistoryInstant(event?.occurred_at, {
+    preserveMidnight: event?.type === "schedule_change_applied",
+  });
+  const singleLine = `${instant} · ${formatPlanHistoryEventLabel(event)}`;
 
-  if (event?.type === "schedule_change_canceled") {
+  if (isSingleLinePlanHistoryEvent(event)) {
     return {
       singleLine,
       vigency: "",

@@ -458,6 +458,38 @@ describe("patient plan detail presentation", () => {
     });
   });
 
+  it("apresenta a aplicação da Agenda como vigência em uma única linha", () => {
+    const presentation = buildPlanHistoryPresentation({
+      type: "schedule_change_applied",
+      occurred_at: "2026-08-21T00:05:00",
+      origin: "automatic",
+      actor: { name: "Sistema" },
+      changes: [
+        {
+          field: "schedule_change_status",
+          label: "Estado da alteração da Agenda",
+          before: "pending",
+          after: "applied",
+        },
+        { field: "schedule_revision_id", label: "Revisão", before: 4, after: 6 },
+        { field: "version", label: "Versão", before: 1, after: 2 },
+        {
+          field: "lifecycle_status",
+          label: "Lifecycle",
+          before: "future",
+          after: "current",
+        },
+        { field: "materialized_sessions", label: "Sessões materializadas", after: 15 },
+      ],
+    });
+
+    expect(presentation).toEqual({
+      singleLine: "21 ago 2026, 00h05 · Nova agenda vigente",
+      vigency: "",
+      changes: [],
+    });
+  });
+
   it.each([
     ["schedule_changed", "2026-08-20T20:00:00", "20 ago 2026, 20h · Agenda alterada"],
     ["pause_started", "2026-08-20T15:59:00", "20 ago 2026, 15h59 · Pausa iniciada"],
@@ -519,7 +551,7 @@ describe("patient plan detail presentation", () => {
     ["plan_resumed", "Plano retomado"],
     ["schedule_changed", "Agenda alterada"],
     ["schedule_change_canceled", "Alteração de agenda cancelada"],
-    ["schedule_change_applied", "Alteração de agenda aplicada"],
+    ["schedule_change_applied", "Nova agenda vigente"],
   ])("apresenta %s com linguagem de negócio", (type, expectedLabel) => {
     expect(formatPlanHistoryEventLabel({ type, label: "Rótulo técnico" })).toBe(expectedLabel);
   });

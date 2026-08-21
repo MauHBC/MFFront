@@ -84,6 +84,7 @@ import {
   formatRequestMetadata,
   formatScheduleGrid,
   getScheduleChangeIssues,
+  isSingleLinePlanHistoryEvent,
   scheduleChangeErrorPresentation,
 } from "./patientPlanDetailPresentation";
 import {
@@ -3484,7 +3485,7 @@ export default function Planos() {
                       {change}
                     </PlanHistoryDetail>
                   ))}
-                  {event.type !== "schedule_change_canceled" && event.legacy?.is_incomplete && (
+                  {!isSingleLinePlanHistoryEvent(event) && event.legacy?.is_incomplete && (
                     <PlanHistoryDetail>Evidência histórica incompleta</PlanHistoryDetail>
                   )}
                 </PlanHistoryItem>

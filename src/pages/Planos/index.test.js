@@ -253,6 +253,27 @@ describe("Planos no contêiner do App Shell", () => {
         data: {
           events: [
             {
+              id: 14,
+              sequence: 14,
+              type: "schedule_change_applied",
+              label: "Alteração de agenda aplicada",
+              occurred_at: "2026-08-21T00:05:00",
+              origin: "automatic",
+              actor: { name: "Sistema" },
+              changes: [
+                {
+                  field: "schedule_change_status",
+                  label: "Estado da alteração da Agenda",
+                  before: "pending",
+                  after: "applied",
+                },
+                { field: "schedule_revision_id", label: "Revisão", before: 4, after: 6 },
+                { field: "lifecycle_status", label: "Lifecycle", before: "future", after: "current" },
+                { field: "version", label: "Versão", before: 1, after: 2 },
+              ],
+              legacy: { is_legacy: false, is_incomplete: true },
+            },
+            {
               id: 13,
               sequence: 13,
               type: "schedule_change_canceled",
@@ -383,6 +404,10 @@ describe("Planos no contêiner do App Shell", () => {
     renderPlans("/planos/pacientes/41");
     fireEvent.click(await screen.findByRole("tab", { name: "Histórico" }));
 
+    const appliedScheduleChange = await screen.findByText(
+      "21 ago 2026, 00h05 · Nova agenda vigente",
+    );
+    expect(appliedScheduleChange.closest("article").children).toHaveLength(1);
     const canceledScheduleChange = await screen.findByText(
       "20 ago 2026, 20h · Alteração de agenda cancelada",
     );
