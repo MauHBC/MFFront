@@ -122,7 +122,7 @@ describe("PatientPlanDetailView", () => {
   ])("renderiza estado da Agenda %s", (statusLabel, pattern, actionLabel) => {
     const { unmount } = render(
       <AgendaSummaryCard
-        title="Agenda recorrente"
+        title="Agenda"
         statusLabel={statusLabel}
         pattern={pattern}
         supportingText={pattern ? "Leonardo · próxima sessão 20 ago às 08h" : ""}
@@ -132,6 +132,7 @@ describe("PatientPlanDetailView", () => {
       />,
     );
     expect(screen.getByText(statusLabel)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Agenda" })).toBeInTheDocument();
     if (actionLabel) {
       expect(screen.getByRole("button", { name: new RegExp(actionLabel, "i") }))
         .toBeInTheDocument();
@@ -141,6 +142,12 @@ describe("PatientPlanDetailView", () => {
     if (pattern) {
       const scheduleList = screen.getByRole("list", {
         name: "Horários da agenda recorrente",
+      });
+      expect(scheduleList).toHaveStyle({
+        color: "#556159",
+        fontSize: "0.9rem",
+        fontWeight: "400",
+        gap: "2px",
       });
       expect(within(scheduleList).getAllByRole("listitem")).toHaveLength(2);
       expect(within(scheduleList).getByText("Ter 08h")).toBeInTheDocument();

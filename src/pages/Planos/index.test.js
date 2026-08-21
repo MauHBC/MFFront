@@ -862,7 +862,7 @@ describe("Planos no contêiner do App Shell", () => {
       ServicePlan: { id: 31, name: "Funcional 2x", sessions_per_week: 2 },
       agenda_summary: {
         status: "active_recurrence",
-        pattern_summary: "Seg às 08:00 · Qua às 08:00",
+        pattern_summary: "Ter às 09:00 · Qua às 10:00",
         weekdays: [1, 3],
         time: "08:00",
         professional_user_id: 21,
@@ -919,6 +919,7 @@ describe("Planos no contêiner do App Shell", () => {
     axios.post.mockImplementation((url) => {
       if (url.endsWith("/schedule-change/cancel")) {
         pendingScheduleChange = null;
+        patientPlan.agenda_summary.pattern_summary = "Seg às 08:00 · Qua às 08:00";
         return Promise.resolve({ data: { ok: true } });
       }
       return Promise.resolve({ data: {} });
@@ -936,6 +937,14 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.queryByRole("button", { name: "Cancelar alteração" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Agenda" }));
+    expect(screen.getByRole("heading", { name: "Agenda" })).toBeInTheDocument();
+    const recurringSchedule = screen.getByRole("list", {
+      name: "Horários da agenda recorrente",
+    });
+    expect(within(recurringSchedule).getByText("Seg 08h")).toBeInTheDocument();
+    expect(within(recurringSchedule).getByText("Qua 08h")).toBeInTheDocument();
+    expect(within(recurringSchedule).queryByText("Ter 09h")).not.toBeInTheDocument();
+    expect(within(recurringSchedule).queryByText("Qua 10h")).not.toBeInTheDocument();
     const currentAgenda = await screen.findByRole("group", { name: "Agenda atual" });
     const newAgenda = screen.getByRole("group", { name: "Agenda nova" });
     expect(within(currentAgenda).getAllByRole("listitem")).toHaveLength(2);
@@ -947,6 +956,8 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.getByText("Profissional: Leonardo → Mariana")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Editar alteração" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ações de Alteração de agenda/i }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText("Já existe uma alteração de Agenda agendada."))
       .not.toBeInTheDocument();
     expect(axios.post.mock.calls.some(([url]) => url.endsWith("/schedule-change/replace")))
       .toBe(false);

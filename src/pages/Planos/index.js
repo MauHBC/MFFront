@@ -3356,19 +3356,29 @@ export default function Planos() {
     label: ppDetailAgendaSummary?.status_label || "Indisponível",
     tone: "neutral",
   };
+  const ppPendingScheduleChangePresentation = buildPendingScheduleChangePresentation(
+    ppPendingScheduleChange,
+  );
+  const ppPendingCurrentSchedulePattern = formatScheduleGrid(
+    ppPendingScheduleChange?.current_grid,
+  );
   const ppDetailAgendaPattern = ppDetailAgendaHasActiveRecurrence
-    ? formatAgendaPattern(ppDetailAgendaSummary)
+    ? ppPendingCurrentSchedulePattern
+      || formatAgendaPattern(ppDetailAgendaSummary)
     : "";
   const ppDetailNextSessionCompact = ppDetailAgendaSummary?.next_session
     ? `${formatCompactDate(ppDetailAgendaSummary.next_session.date)} às ${ppDetailAgendaSummary.next_session.time}`
     : "";
+  const ppDetailCurrentAgendaProfessional = String(
+    ppPendingScheduleChange?.current_professional?.name
+    || ppPendingScheduleChange?.current_grid?.find((row) => row?.professional_name)?.professional_name
+    || ppDetailAgendaSummary?.professional_name
+    || "",
+  ).trim();
   const ppDetailAgendaSupportingText = [
-    ppDetailAgendaSummary?.professional_name || null,
+    ppDetailCurrentAgendaProfessional || null,
     ppDetailNextSessionCompact ? `próxima sessão ${ppDetailNextSessionCompact}` : null,
   ].filter(Boolean).join(" · ");
-  const ppPendingScheduleChangePresentation = buildPendingScheduleChangePresentation(
-    ppPendingScheduleChange,
-  );
   const ppPendingScheduleHistoryEvent = findPlanHistoryEvent({
     events: ppHistoryEvents,
     types: ["schedule_changed"],
@@ -3395,11 +3405,10 @@ export default function Planos() {
     agendaBlockedByLifecycle = "Resolva a troca de plano agendada antes de alterar a Agenda.";
   } else if (ppDetailHasFutureCancellation) {
     agendaBlockedByLifecycle = "Resolva o cancelamento programado antes de alterar a Agenda.";
-  } else if (hasOperationalScheduleChange) {
-    agendaBlockedByLifecycle = "Já existe uma alteração de Agenda agendada.";
   }
+  const agendaActionsBlocked = Boolean(agendaBlockedByLifecycle || hasOperationalScheduleChange);
   let ppDetailAgendaPrimary = null;
-  if (!isPpDetailDataLoading && !agendaBlockedByLifecycle && ppDetailPlan?.status === "active") {
+  if (!isPpDetailDataLoading && !agendaActionsBlocked && ppDetailPlan?.status === "active") {
     if (ppDetailAgendaHasActiveRecurrence) {
       ppDetailAgendaPrimary = { label: "Alterar agenda", onClick: openScheduleChange };
     } else if (ppDetailAgendaCanConfigure) {
@@ -3417,7 +3426,7 @@ export default function Planos() {
       onClick: openFutureRemovalPreview,
       visible: ppDetailPlan?.status === "active"
         && ppDetailAgendaCanRemoveFuture
-        && !agendaBlockedByLifecycle,
+        && !agendaActionsBlocked,
       critical: true,
       disabled: futureRemovalLoading || futureRemovalConfirming,
     },
@@ -4815,7 +4824,7 @@ export default function Planos() {
                   >
                     <AgendaSummaryCard
                       loading={isPpDetailDataLoading}
-                      title="Agenda recorrente"
+                      title="Agenda"
                       statusLabel={agendaStatusPresentation.label}
                       statusTone={agendaStatusPresentation.tone}
                       pattern={ppDetailAgendaPattern}

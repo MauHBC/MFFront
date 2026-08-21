@@ -870,11 +870,11 @@ const SummaryLead = styled.p`
 `;
 
 const AgendaPattern = styled.ul`
-  color: ${colors.textPrimary};
+  color: ${colors.textSecondary};
   display: grid;
-  font-size: 1.08rem;
-  font-weight: 700;
-  gap: ${spacing.xs};
+  font-size: ${fontSizes.body};
+  font-weight: 400;
+  gap: 2px;
   list-style: none;
   margin: 0;
   padding: 0;
