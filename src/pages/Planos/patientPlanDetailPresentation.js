@@ -82,6 +82,15 @@ const PLAN_HISTORY_EVENT_LABELS = {
   schedule_change_applied: "Nova agenda vigente",
 };
 
+const NON_FUNCTIONAL_PLAN_HISTORY_EVENT_TYPES = new Set([
+  "schedule_revision_cutover",
+  "legacy_pause_financial_regularized",
+]);
+
+export const isFunctionalPlanHistoryEvent = (event) => (
+  !NON_FUNCTIONAL_PLAN_HISTORY_EVENT_TYPES.has(String(event?.type || ""))
+);
+
 const SINGLE_LINE_SCHEDULE_CHANGE_EVENTS = new Set([
   "schedule_change_canceled",
   "schedule_change_applied",
@@ -130,6 +139,16 @@ const HISTORY_PAUSE_TECHNICAL_FIELDS = new Set([
   "revision_id",
   "manifest",
 ]);
+
+const isTechnicalHistoryField = (field, label) => (
+  field === "status"
+  || /(?:^|_)id(?:_|$)/i.test(field)
+  || /(?:^|_)(?:status|version|revision|lifecycle)(?:_|$)/i.test(field)
+  || /(?:^|_)(?:legacy|cutover|backfill|migration|migrated)(?:_|$)/i.test(field)
+  || /(?:adopted|adotad[ao]s?)/i.test(field)
+  || /(?:status|versão|version|revisão|revision|lifecycle|ciclo de vida|cutover|backfill|migra(?:ção|cao|tion|ted)|legad[ao]|adotad[ao]s?)/i
+    .test(label)
+);
 
 const parseDateOnly = (value) => {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -484,7 +503,11 @@ const formatHistoryChange = (change) => {
     service_plan_name: "Plano",
     frequency_label: "Frequência",
     price_cents: "Valor",
+    cancellation_reason: "Motivo",
   }[field] || change?.label || "Alteração";
+  if (change?.before === null || change?.before === undefined || change?.before === "") {
+    return `${label}: ${after}`;
+  }
   return `${label}: ${before} → ${after}`;
 };
 
@@ -545,6 +568,7 @@ export function getVisiblePlanHistoryChanges(event) {
   return (Array.isArray(event?.changes) ? event.changes : []).filter((change) => {
     const field = String(change?.field || "").trim().toLowerCase();
     const label = String(change?.label || "").trim().toLocaleLowerCase("pt-BR");
+    const technicalMetadata = isTechnicalHistoryField(field, label);
     const pauseTechnicalMetadata = isPauseHistoryEvent(event)
       && (HISTORY_PAUSE_TECHNICAL_FIELDS.has(field)
         || /(?:^|_)(?:status|version|cas|manifest|revision|lifecycle)(?:_|$)/i.test(field)
@@ -558,7 +582,8 @@ export function getVisiblePlanHistoryChanges(event) {
       && field === "change_status"
       && (change?.before == null || change.before === "")
       && String(change?.after || "").trim().toLowerCase() === "pending";
-    return field !== "change_version"
+    return !technicalMetadata
+      && field !== "change_version"
       && label !== "versão da alteração"
       && !pauseTechnicalMetadata
       && !pauseLifecycleMetadata

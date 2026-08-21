@@ -253,6 +253,36 @@ describe("Planos no contêiner do App Shell", () => {
         data: {
           events: [
             {
+              id: 16,
+              sequence: 16,
+              type: "schedule_revision_cutover",
+              label: "Estrutura versionada da Agenda iniciada",
+              occurred_at: "2026-08-20T00:00:00.000Z",
+              origin: "backfill",
+              changes: [{
+                field: "schedule_cutover_series_count",
+                label: "Séries legadas adotadas",
+                before: null,
+                after: 2,
+              }],
+              legacy: { is_legacy: true, is_incomplete: false },
+            },
+            {
+              id: 15,
+              sequence: 15,
+              type: "legacy_pause_financial_regularized",
+              label: "Estado legado após pausa regularizado",
+              occurred_at: "2026-08-20T00:00:00.000Z",
+              origin: "backfill",
+              changes: [{
+                field: "legacy_regularization_reactivated_sessions",
+                label: "Sessões reativadas",
+                before: 0,
+                after: 10,
+              }],
+              legacy: { is_legacy: true, is_incomplete: false },
+            },
+            {
               id: 14,
               sequence: 14,
               type: "schedule_change_applied",
@@ -453,6 +483,10 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.queryByText(/Plano comercial:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Valor contratado:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Não informado → Pendente/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Estrutura versionada|Séries legadas adotadas/))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText(/Estado legado após pausa|Sessões reativadas/))
+      .not.toBeInTheDocument();
     expect(screen.queryByText(/Status da pausa|Não informado → Encerrada|Versão da pausa/i))
       .not.toBeInTheDocument();
     expect(screen.queryByText(/\{"/)).not.toBeInTheDocument();

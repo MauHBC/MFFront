@@ -29,6 +29,19 @@ Depois de confirmar ou cancelar, a interface recarrega o resumo administrativo.
 Ela não edita nem substitui uma alteração operacional pendente: para programar
 outra grade, cancela a existente e inicia um novo fluxo.
 
+## Histórico funcional
+
+A timeline apresenta somente eventos de negócio retornados pela projeção
+funcional do Backend. `schedule_revision_cutover` e
+`legacy_pause_financial_regularized` permanecem no ledger interno, mas são
+excluídos antes da paginação e também bloqueados defensivamente na renderização.
+
+Metadados de revisão, versão, lifecycle, migração, backfill, legado, cutover,
+identificadores, contagens de adoção e status internos não usam o fallback
+genérico. No cancelamento efetivo, a interface mantém a data útil e apresenta
+eventual motivo diretamente, sem mostrar versão, transição de status ou
+`Não informado → valor`.
+
 ## Conflitos recorrentes
 
 Conflitos individuais `PATIENT_SCHEDULE_CONFLICT` são agrupados por dia da

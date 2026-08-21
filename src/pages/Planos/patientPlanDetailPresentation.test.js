@@ -14,6 +14,7 @@ import {
   getPatientScheduleConflictIssues,
   getVisiblePlanHistoryChanges,
   getScheduleChangeIssues,
+  isFunctionalPlanHistoryEvent,
   scheduleChangeErrorPresentation,
 } from "./patientPlanDetailPresentation";
 
@@ -275,6 +276,71 @@ describe("patient plan detail presentation", () => {
     expect(schedule.changes).toEqual([
       "Agenda: Seg 08h → Ter 09h",
     ]);
+  });
+
+  it("remove status e versão do cancelamento efetivo e apresenta o motivo diretamente", () => {
+    const event = {
+      type: "cancellation_effective",
+      occurred_at: "2026-08-20T14:51:00.000Z",
+      changes: [
+        { field: "status", label: "Status do plano", before: "active", after: "canceled" },
+        {
+          field: "cancellation_effective_on",
+          label: "Data do cancelamento",
+          before: null,
+          after: "2026-08-20",
+        },
+        {
+          field: "cancellation_reason",
+          label: "Motivo do cancelamento",
+          before: null,
+          after: "Alta administrativa",
+        },
+        {
+          field: "cancellation_version",
+          label: "Versão do cancelamento",
+          before: 0,
+          after: 1,
+        },
+      ],
+    };
+
+    const presentation = buildPlanHistoryPresentation(event);
+    expect(presentation.vigency).toBe("Último dia ativo: 20 ago 2026");
+    expect(presentation.changes).toEqual(["Motivo: Alta administrativa"]);
+    expect(presentation.changes.join(" ")).not.toMatch(/status|versão|não informado|ativo|cancelado/i);
+    expect(getVisiblePlanHistoryChanges(event).map((change) => change.field)).toEqual([
+      "cancellation_effective_on",
+      "cancellation_reason",
+    ]);
+  });
+
+  it("classifica eventos internos como não funcionais", () => {
+    expect(isFunctionalPlanHistoryEvent({ type: "schedule_revision_cutover" })).toBe(false);
+    expect(isFunctionalPlanHistoryEvent({ type: "legacy_pause_financial_regularized" }))
+      .toBe(false);
+    expect(isFunctionalPlanHistoryEvent({ type: "cancellation_effective" })).toBe(true);
+  });
+
+  it("bloqueia metadados técnicos no fallback genérico", () => {
+    const presentation = buildPlanHistoryPresentation({
+      type: "business_event_without_formatter",
+      label: "Evento funcional",
+      occurred_at: "2026-08-20T14:51:00.000Z",
+      changes: [
+        { field: "version", label: "Versão", before: 1, after: 2 },
+        { field: "revision_id", label: "Revisão", before: 7, after: 8 },
+        { field: "lifecycle_status", label: "Lifecycle", before: "future", after: "current" },
+        { field: "legacy_adopted_series", label: "Séries legadas adotadas", before: null, after: 2 },
+        { field: "backfill_count", label: "Contagem de backfill", before: null, after: 4 },
+        { field: "migration_count", label: "Itens migrados", before: null, after: 6 },
+        { field: "internal_id", label: "Identificador interno", before: null, after: 91 },
+        { field: "status", label: "Status interno", before: "open", after: "closed" },
+        { field: "service_plan_name", label: "Plano comercial", before: "Plano A", after: "Plano B" },
+      ],
+    });
+
+    expect(presentation.changes).toEqual(["Plano: Plano A → Plano B"]);
   });
 
   it("apresenta pausa iniciada finita sem metadados técnicos", () => {
@@ -557,7 +623,7 @@ describe("patient plan detail presentation", () => {
     expect(formatPlanHistoryEventLabel({ type, label: "Rótulo técnico" })).toBe(expectedLabel);
   });
 
-  it("oculta somente o status redundante do agendamento comercial", () => {
+  it("oculta status interno em todas as fases da troca comercial", () => {
     const redundantStatus = {
       field: "change_status",
       label: "Status da alteração",
@@ -577,7 +643,7 @@ describe("patient plan detail presentation", () => {
     expect(getVisiblePlanHistoryChanges({
       type: "commercial_change_applied",
       changes: [redundantStatus],
-    })).toEqual([redundantStatus]);
+    })).toEqual([]);
   });
 
   it("traduz sessões protegidas, conflitos e stale sem expor detalhes técnicos", () => {

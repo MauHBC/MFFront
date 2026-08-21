@@ -85,6 +85,7 @@ import {
   formatScheduleGrid,
   getPatientScheduleConflictIssues,
   getScheduleChangeIssues,
+  isFunctionalPlanHistoryEvent,
   isSingleLinePlanHistoryEvent,
   scheduleChangeErrorPresentation,
 } from "./patientPlanDetailPresentation";
@@ -3473,17 +3474,19 @@ export default function Planos() {
     ? `Profissional: ${ppDetailAgendaSummary?.professional_name || "atual"} → ${selectedScheduleChangeProfessional?.name || "novo"}`
     : "";
 
+  const ppFunctionalHistoryEvents = ppHistoryEvents.filter(isFunctionalPlanHistoryEvent);
   let ppDetailAgendaHistoryContent = null;
   if (ppHistoryLoading) {
     ppDetailAgendaHistoryContent = <DataLoadingState text="Carregando histórico..." compact />;
   } else if (ppHistoryError) {
     ppDetailAgendaHistoryContent = <InlineAlert $tone="danger">{ppHistoryError}</InlineAlert>;
-  } else if (ppHistoryLoaded && ppHistoryEvents.length > 0) {
+  } else if (ppHistoryLoaded
+    && (ppFunctionalHistoryEvents.length > 0 || ppHistoryPageInfo.has_more)) {
     ppDetailAgendaHistoryContent = (
       <HistoryTimelineCard>
         <PlanHistorySections>
           <PlanHistorySection>
-            {ppHistoryEvents.map((event) => {
+            {ppFunctionalHistoryEvents.map((event) => {
               const presentation = buildPlanHistoryPresentation(event, patientProfessionals);
               return (
                 <PlanHistoryItem key={event.id || `${event.type}-${event.sequence}`}>
@@ -3502,6 +3505,11 @@ export default function Planos() {
                 </PlanHistoryItem>
               );
             })}
+            {ppFunctionalHistoryEvents.length === 0 && (
+              <AgendaSummaryMessage>
+                Nenhum evento funcional nesta página.
+              </AgendaSummaryMessage>
+            )}
           </PlanHistorySection>
           {ppHistoryPageInfo.has_more && (
             <GhostButton
