@@ -409,6 +409,44 @@ describe("patient plan detail presentation", () => {
     expect(presentation.changes.join(" ")).not.toMatch(/substituídas|preservadas|revisão/i);
   });
 
+  it("resume o cancelamento de alteração da Agenda em uma única linha sem detalhes técnicos", () => {
+    const presentation = buildPlanHistoryPresentation({
+      type: "schedule_change_canceled",
+      occurred_at: "2026-08-20T20:00:00",
+      origin: "manual",
+      actor: { name: "MHBC" },
+      changes: [
+        {
+          field: "schedule_change_status",
+          label: "Estado da alteração da Agenda",
+          before: "pending",
+          after: "canceled",
+        },
+        {
+          field: "schedule_change_restored_sessions",
+          label: "Sessões restauradas da Agenda",
+          before: null,
+          after: 15,
+        },
+        { field: "schedule_revision_id", label: "Revisão da grade", before: 4, after: 6 },
+        { field: "version", label: "Versão", before: 1, after: 2 },
+        {
+          field: "lifecycle_status",
+          label: "Lifecycle",
+          before: "pending",
+          after: "canceled",
+        },
+      ],
+    });
+
+    expect(presentation).toEqual({
+      singleLine: "20 ago 2026, 20h · Alteração de agenda cancelada",
+      moment: "",
+      vigency: "",
+      changes: [],
+    });
+  });
+
   it("correlaciona solicitação pelo recurso autoritativo ou pela vigência exata", () => {
     const events = [
       {

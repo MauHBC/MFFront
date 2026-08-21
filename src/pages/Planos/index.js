@@ -3459,14 +3459,20 @@ export default function Planos() {
               const presentation = buildPlanHistoryPresentation(event, patientProfessionals);
               return (
                 <PlanHistoryItem key={event.id || `${event.type}-${event.sequence}`}>
-                  <strong>{formatPlanHistoryEventLabel(event)}</strong>
-                  <span>{presentation.moment}</span>
-                  {presentation.vigency && <span>{presentation.vigency}</span>}
-                  {presentation.changes.map((change) => (
-                    <small key={`${event.id}-${change}`}>{change}</small>
-                  ))}
-                  {event.legacy?.is_incomplete && (
-                    <small>Evidência histórica incompleta</small>
+                  {presentation.singleLine ? (
+                    <strong>{presentation.singleLine}</strong>
+                  ) : (
+                    <>
+                      <strong>{formatPlanHistoryEventLabel(event)}</strong>
+                      <span>{presentation.moment}</span>
+                      {presentation.vigency && <span>{presentation.vigency}</span>}
+                      {presentation.changes.map((change) => (
+                        <small key={`${event.id}-${change}`}>{change}</small>
+                      ))}
+                      {event.legacy?.is_incomplete && (
+                        <small>Evidência histórica incompleta</small>
+                      )}
+                    </>
                   )}
                 </PlanHistoryItem>
               );

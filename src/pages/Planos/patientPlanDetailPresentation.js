@@ -168,6 +168,9 @@ const formatHistoryInstant = (value) => {
   }).format(date).replace(/ de /g, " ").replace(/\./g, "");
 };
 
+const formatCompactHistoryInstant = (value) => formatHistoryInstant(value)
+  .replace(/, (\d{2}):(\d{2})$/, (_, hour, minute) => `, ${hour}h${minute === "00" ? "" : minute}`);
+
 const addOneDay = (value) => {
   const date = parseDateOnly(value);
   if (!date) return null;
@@ -559,6 +562,15 @@ export function getVisiblePlanHistoryChanges(event) {
 }
 
 export const buildPlanHistoryPresentation = (event, professionals = []) => {
+  if (event?.type === "schedule_change_canceled") {
+    return {
+      singleLine: `${formatCompactHistoryInstant(event?.occurred_at)} · ${PLAN_HISTORY_EVENT_LABELS.schedule_change_canceled}`,
+      moment: "",
+      vigency: "",
+      changes: [],
+    };
+  }
+
   const actorName = event?.actor?.name
     || (event?.origin === "automatic" ? "Sistema" : "Responsável não identificado");
   const momentPrefix = REQUEST_EVENT_TYPES.has(event?.type) ? "Solicitada em" : "Registrado em";

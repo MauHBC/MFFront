@@ -253,6 +253,43 @@ describe("Planos no contêiner do App Shell", () => {
         data: {
           events: [
             {
+              id: 13,
+              sequence: 13,
+              type: "schedule_change_canceled",
+              label: "Alteração futura da Agenda cancelada",
+              occurred_at: "2026-08-20T20:00:00",
+              origin: "manual",
+              actor: { name: "MHBC" },
+              changes: [
+                {
+                  field: "schedule_change_status",
+                  label: "Estado da alteração da Agenda",
+                  before: "pending",
+                  after: "canceled",
+                },
+                {
+                  field: "schedule_change_restored_sessions",
+                  label: "Sessões restauradas da Agenda",
+                  before: null,
+                  after: 15,
+                },
+                {
+                  field: "schedule_revision_id",
+                  label: "Revisão da grade",
+                  before: 4,
+                  after: 6,
+                },
+                { field: "version", label: "Versão", before: 1, after: 2 },
+                {
+                  field: "lifecycle_status",
+                  label: "Lifecycle",
+                  before: "pending",
+                  after: "canceled",
+                },
+              ],
+              legacy: { is_legacy: false, is_incomplete: false },
+            },
+            {
               id: 12,
               sequence: 12,
               type: "commercial_change_requested",
@@ -346,6 +383,13 @@ describe("Planos no contêiner do App Shell", () => {
     renderPlans("/planos/pacientes/41");
     fireEvent.click(await screen.findByRole("tab", { name: "Histórico" }));
 
+    expect(await screen.findByText("20 ago 2026, 20h · Alteração de agenda cancelada"))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/Registrado em 20 ago 2026/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Estado da alteração da Agenda/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sessões restauradas da Agenda/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Revisão da grade|Lifecycle/)).not.toBeInTheDocument();
+    expect(screen.queryByText("MHBC")).not.toBeInTheDocument();
     const scheduled = await screen.findByText("Troca de plano agendada");
     const endedPause = screen.getByText("Pausa encerrada automaticamente");
     expect(scheduled.compareDocumentPosition(endedPause))
