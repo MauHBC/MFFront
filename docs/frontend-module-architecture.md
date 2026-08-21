@@ -660,72 +660,9 @@ Use este shell para módulos CRUD administrativos simples, com uma entidade prin
 **Template canônico:** `src/templates/StandardModuleTemplate.js`
 **Referência real:** `src/pages/Planos/index.js`
 
-Na Administração do plano mensal, a aba Histórico consome o endpoint paginado
-`GET /patient-plans/:id/history`. Ela não reconstrói pausas, cancelamentos ou
-trocas comerciais a partir do estado atual do vínculo e nunca renderiza os
-snapshots JSON internos.
-
-O detalhe desse vínculo usa o paciente como título principal e separa os
-domínios `Plano`, `Agenda` e `Histórico` em tabs semânticas. Cada domínio mostra
-o estado corrente, no máximo uma ação principal contextual e painéis datados
-para mudanças futuras. A alteração operacional da grade é independente da
-troca comercial: o frontend chama primeiro
-`POST /patient-plans/:id/schedule-change-preview` e só confirma em
-`POST /patient-plans/:id/schedule-change` com o token, a revisão observada, a
-versão esperada e `Idempotency-Key` devolvidos ou exigidos pelo contrato. A UI
-não lê `ScheduleRevision` cru para inferir uma pendência futura; ela apresenta
-somente `pending_schedule_change` do resumo administrativo. Essa projeção
-fornece `effective_on`, `current_grid`, `proposed_grid` e o indicador
-`professional_changed`; o painel mostra a transição entre as grades e só nomeia
-a troca de profissional quando esse indicador for verdadeiro. Depois da
-confirmação, o Frontend recarrega o resumo e não mantém estado local como fonte
-de verdade, inclusive após refresh completo. Quando a projeção fornece
-`can_cancel=true`, a identidade da alteração e o token opaco de comando, o
-painel oferece somente `Cancelar alteração` e confirma em
-`POST /patient-plans/:id/schedule-change/cancel`. Depois do sucesso, o Frontend
-recarrega o resumo, o painel desaparece e `Alterar agenda` volta a permitir uma
-nova programação criada do zero. Projeções vencidas ou legadas sem essa
-capacidade continuam visíveis, mas não oferecem ações; a UI não infere
-capacidade pela data e não expõe token, versão, revisão, manifesto ou
-restauração. Enquanto existir a pendência operacional, troca, pausa e
-cancelamento do plano ficam desabilitados na aba Plano, com orientação para
-primeiro cancelar a troca de agenda; `Cancelar alteração` permanece restrito à
-aba Agenda e a edição de dados não conflitantes continua independente.
-
-Conflitos globais do paciente em Agenda mensal são apresentados pelo padrão
-semanal, não por cada data materializada. A UI agrupa ocorrências equivalentes
-por dia da semana, horário e `conflicting_patient_plan.patient_plan_id`, e usa
-somente `service_name`, `service_plan_name`, `sessions_per_week` e
-`frequency_label` fornecidos pelo Backend para nomear o outro contrato. Ela não
-resolve a identidade por catálogos locais. Um padrão gera `Conflito de horário`;
-mais de um gera `Conflitos de horário` com uma linha por padrão. Tanto o preview
-de alteração com `can_confirm=false` quanto o `409 PATIENT_SCHEDULE_CONFLICT` da
-criação inicial mantêm a confirmação bloqueada.
-
-Para troca comercial, `pending_plan_change.lifecycle_state` no resumo
-administrativo distingue `future_editable` de
-`overdue_awaiting_lifecycle`. Somente a primeira permite revisar, substituir ou
-cancelar; a segunda é apresentada como atualização operacional pendente, sem
-inferência local por datas e sem abrir o drawer de substituição, preservando no
-painel os dados de negócio disponíveis da troca. A comparação da Agenda futura
-agrupa as linhas compactas `Agenda Atual` e `Agenda Nova`, com recuo leve e sem
-criar outro contêiner visual.
-
-As datas desse detalhe distinguem a ação da sua vigência: `Solicitada em`
-identifica o momento e o ator do comando; `A partir de` identifica o início dos
-efeitos; pausas finitas mostram o intervalo e pausas indefinidas informam
-explicitamente a ausência de retorno; cancelamentos futuros nomeiam
-`cancellation_effective_on` como último dia ativo. `Plano iniciado em` continua
-representando exclusivamente `PatientPlan.starts_at`. A timeline separa o
-momento do evento, sua vigência quando o contrato a fornece e apenas as
-diferenças de negócio, sem duplicar frequência e sessões semanais. Nomes de
-profissionais são exibidos somente quando os IDs comprovam a troca e as
-referências consumidas permitem resolvê-los com segurança; caso contrário, a
-linha de profissional é omitida. Eventos de pausa nunca apresentam versão,
-status técnico ou equivalentes internos: início e retomada mostram apenas
-momento, responsável e período útil; alterações consolidam somente mudanças
-reais de período e motivo em linguagem de negócio. Eventos que registram apenas
-controle técnico não geram detalhe adicional na timeline.
+Os contratos e estados específicos da Administração de Planos ficam em
+[Planos](planos.md); esta arquitetura mantém somente os padrões compartilhados
+de composição do módulo.
 
 > Regra: novo módulo nasce do template, não de uma cópia de Planos ou Agendamentos.
 

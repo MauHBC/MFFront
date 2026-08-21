@@ -18,8 +18,9 @@ recriadas aqui.
   canônica para arquitetura transversal, landing pública, App Shell, padrões de
   composição e comportamento de UI compartilhado.
 - Documentos específicos de módulo em `docs/`, como
-  [team-read-only-module.md](team-read-only-module.md), registram o comportamento
-  vigente da interface e os contratos do Backend consumidos por aquele módulo.
+  [team-read-only-module.md](team-read-only-module.md) e [planos.md](planos.md),
+  registram o comportamento vigente da interface e os contratos do Backend
+  consumidos por aquele módulo.
 - [regras-negocio.md](regras-negocio.md) registra a fronteira de autoridade com
   o MFBackend e ajuda a localizar regras operacionais. Não deve copiar essas
   regras para o Frontend.
