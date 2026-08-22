@@ -18,6 +18,10 @@ const WEEKDAY_FULL_LABELS = {
   6: "Sábado",
 };
 
+const WEEKDAY_BY_SHORT_LABEL = Object.fromEntries(
+  Object.entries(WEEKDAY_SHORT_LABELS).map(([weekday, label]) => [label, Number(weekday)]),
+);
+
 const PROTECTED_REASON_LABELS = {
   has_absence_reason: "possui registro de falta",
   has_evaluation: "possui avaliação vinculada",
@@ -227,8 +231,28 @@ export const formatScheduleGrid = (rows = []) => {
 };
 
 export const formatAgendaPattern = (agendaSummary) => {
+  const configurationGrid = Array.isArray(agendaSummary?.configuration_grid)
+    ? agendaSummary.configuration_grid
+    : [];
+  const configurationPattern = formatScheduleGrid(configurationGrid);
+  if (configurationPattern) return configurationPattern;
+
   const authoritative = String(agendaSummary?.pattern_summary || "").trim();
   if (authoritative) {
+    const scheduleRows = [];
+    const supportingParts = [];
+    authoritative.split(/\s*·\s*/).filter(Boolean).forEach((part) => {
+      const time = part.match(/\b(\d{2}:\d{2})\b/)?.[1];
+      const weekdays = [...part.matchAll(/\b(Dom|Seg|Ter|Qua|Qui|Sex|Sáb)\b/g)]
+        .map((match) => WEEKDAY_BY_SHORT_LABEL[match[1]]);
+      if (time && weekdays.length) {
+        weekdays.forEach((weekday) => scheduleRows.push({ weekday, time }));
+      } else {
+        supportingParts.push(part);
+      }
+    });
+    const legacyGrid = formatScheduleGrid(scheduleRows);
+    if (legacyGrid) return [legacyGrid, ...supportingParts].join(" · ");
     return authoritative.replace(/ às /g, " ").replace(/\b(\d{2}):00\b/g, "$1h");
   }
   const weekdays = Array.isArray(agendaSummary?.weekdays) ? agendaSummary.weekdays : [];

@@ -114,7 +114,7 @@ describe("PatientPlanDetailView", () => {
   });
 
   it.each([
-    ["Ativa", "Ter 08h · Qui 08h", "Alterar agenda"],
+    ["Ativa", "Seg 08h · Qua 08h · Sex 08h", "Alterar agenda"],
     ["Sem agenda", "", "Configurar agenda"],
     ["Sem sessões futuras", "", "Configurar nova agenda"],
     ["Pausada", "", null],
@@ -150,9 +150,10 @@ describe("PatientPlanDetailView", () => {
         gap: "4px",
         paddingLeft: "16px",
       });
-      expect(within(scheduleList).getAllByRole("listitem")).toHaveLength(2);
-      expect(within(scheduleList).getByText("Ter 08h")).toBeInTheDocument();
-      expect(within(scheduleList).getByText("Qui 08h")).toBeInTheDocument();
+      expect(within(scheduleList).getAllByRole("listitem")).toHaveLength(3);
+      expect(within(scheduleList).getByText("Seg 08h")).toBeInTheDocument();
+      expect(within(scheduleList).getByText("Qua 08h")).toBeInTheDocument();
+      expect(within(scheduleList).getByText("Sex 08h")).toBeInTheDocument();
       expect(screen.queryByText(pattern)).not.toBeInTheDocument();
       const support = screen.getByLabelText("Informações da agenda");
       expect(support).toHaveStyle({

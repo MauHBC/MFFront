@@ -3387,10 +3387,9 @@ export default function Planos() {
   const ppPendingCurrentSchedulePattern = formatScheduleGrid(
     ppPendingScheduleChange?.effective_grid || ppPendingScheduleChange?.current_grid,
   );
-  const ppDetailAgendaPattern = ppDetailAgendaHasActiveRecurrence
-    ? ppPendingCurrentSchedulePattern
-      || formatAgendaPattern(ppDetailAgendaSummary)
-    : "";
+  const ppDetailConfiguredAgendaPattern = formatAgendaPattern(ppDetailAgendaSummary);
+  const ppDetailAgendaPattern = ppPendingCurrentSchedulePattern
+    || ppDetailConfiguredAgendaPattern;
   const ppDetailCurrentAgendaProfessional = String(
     ppPendingScheduleChange?.current_professional?.name
     || ppPendingScheduleChange?.effective_grid?.find((row) => row?.professional_name)?.professional_name

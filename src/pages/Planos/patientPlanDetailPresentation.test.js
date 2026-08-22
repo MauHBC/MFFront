@@ -50,6 +50,33 @@ describe("patient plan detail presentation", () => {
     expect(formatCompactDate("2026-08-25")).toContain("25");
   });
 
+  it("mantém fallback antigo, mas expande dias agregados em linhas", () => {
+    expect(formatAgendaPattern({
+      pattern_summary: "Seg, Qua e Sex às 08:00 · Toda semana",
+    })).toBe("Seg 08h · Qua 08h · Sex 08h · Toda semana");
+  });
+
+  it("usa a configuração explícita como autoridade e expande três dias em linhas", () => {
+    expect(formatAgendaPattern({
+      configuration_grid: [
+        { weekday: 5, time: "08:00" },
+        { weekday: 1, time: "08:00" },
+        { weekday: 3, time: "08:00" },
+      ],
+      pattern_summary: "Seg, Qua e Sex às 08:00",
+    })).toBe("Seg 08h · Qua 08h · Sex 08h");
+  });
+
+  it("preserva linhas singleton e horários diferentes na configuração explícita", () => {
+    expect(formatAgendaPattern({
+      configuration_grid: [
+        { weekday: 5, time: "10:00" },
+        { weekday: 3, time: "09:30" },
+      ],
+      pattern_summary: "texto legado divergente",
+    })).toBe("Qua 09:30 · Sex 10h");
+  });
+
   it("constrói somente a grade informada pelo formulário", () => {
     expect(buildScheduleRows({
       weekdays: [4, 2],

@@ -14,6 +14,13 @@ ou de datas calculadas localmente. Quando a data de vigência já chegou, a grad
 efetiva retornada pela API é apresentada como Agenda atual, ainda que a promoção
 persistida aguarde o lifecycle das `00:05`.
 
+A configuração vigente usa `agenda_summary.configuration_grid` como autoridade
+visual aditiva. Cada `{ weekday, time }` gera uma linha própria, em ordem de dia
+e horário, independentemente de a origem ser uma série com vários dias ou
+várias séries singleton. Sessões materializadas não formam essa lista e uma
+remarcação individual não a altera. Respostas antigas continuam compatíveis por
+`pattern_summary` e, na ausência dele, por `weekdays` + `time`.
+
 ## Alteração e cancelamento
 
 A alteração operacional usa, nesta ordem:
