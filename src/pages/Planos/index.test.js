@@ -424,7 +424,13 @@ describe("Planos no contêiner do App Shell", () => {
             occurred_at: "2026-07-01T12:00:00.000Z",
             origin: "backfill",
             actor: null,
-            changes: [],
+            changes: [
+              { field: "starts_on", before: null, after: "2026-07-01" },
+              { field: "ends_on", before: null, after: null },
+              { field: "is_indefinite", before: null, after: true },
+              { field: "pause_status", before: null, after: "ended" },
+              { field: "pause_version", before: null, after: 2 },
+            ],
             legacy: { is_legacy: true, is_incomplete: true },
           }],
           page_info: { has_more: false, next_cursor: null },
@@ -492,10 +498,13 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.queryByText(/\{"/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Carregar eventos anteriores" }));
-    expect(await screen.findByText(/· Pausa$/)).toBeInTheDocument();
-    expect(screen.getByText(/Evidência histórica incompleta/)).toBeInTheDocument();
+    expect(await screen.findByText(/· Pausa iniciada$/)).toBeInTheDocument();
+    expect(screen.getByText("A partir de 1 jul")).toBeInTheDocument();
+    expect(screen.getByText("Sem data de retorno")).toBeInTheDocument();
+    expect(screen.queryByText(/Evidência histórica incompleta/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Versão da alteração/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Registro legado/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/snapshot|backfill/i)).not.toBeInTheDocument();
     expect(getPatientPlanHistory).toHaveBeenLastCalledWith("41", {
       limit: 20,
       cursor: "cursor-11",

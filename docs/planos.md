@@ -49,6 +49,12 @@ genérico. No cancelamento efetivo, a interface mantém a data útil e apresenta
 eventual motivo diretamente, sem mostrar versão, transição de status ou
 `Não informado → valor`.
 
+`legacy_pause_snapshot` é apresentado como o fato funcional “Pausa iniciada”,
+com o instante histórico do evento e somente a vigência útil: início, período
+conhecido ou ausência de data de retorno. Origem de backfill, marcador legado,
+nome de snapshot, versão, status e evidência técnica incompleta não aparecem na
+timeline.
+
 ## Conflitos recorrentes
 
 Conflitos individuais `PATIENT_SCHEDULE_CONFLICT` são agrupados por dia da

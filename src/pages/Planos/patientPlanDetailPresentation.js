@@ -81,6 +81,7 @@ const PLAN_HISTORY_EVENT_LABELS = {
   pause_started: "Pausa iniciada",
   pause_updated: "Pausa alterada",
   plan_resumed: "Plano retomado",
+  legacy_pause_snapshot: "Pausa iniciada",
   schedule_changed: "Agenda alterada",
   schedule_change_canceled: "Alteração de agenda cancelada",
   schedule_change_applied: "Nova agenda vigente",
@@ -484,6 +485,12 @@ const historyVigencyLabel = (event) => {
   const startsOn = changeAfterValue(event, "starts_on");
   const endsOn = changeAfterValue(event, "ends_on");
   const indefinite = changeAfterValue(event, "is_indefinite") === true;
+  if (startsOn && event?.type === "legacy_pause_snapshot") {
+    if (!indefinite && endsOn) {
+      return `Período: ${formatCompactDate(startsOn)} → ${formatCompactDate(endsOn)}`;
+    }
+    return `A partir de ${formatCompactDate(startsOn)}`;
+  }
   if (startsOn && event?.type === "pause_started") {
     if (indefinite) return `Desde ${formatCompactDate(startsOn)} · sem data de retorno`;
     if (endsOn) return `Período: ${formatCompactDate(startsOn)} → ${formatCompactDate(endsOn)}`;
@@ -565,7 +572,15 @@ const buildPauseHistoryBusinessChanges = (event) => {
   const reasonAfter = String(reasonChange?.after || "").trim();
 
   if (event?.type !== "pause_updated") {
-    return reasonAfter ? [`Motivo: ${reasonAfter}`] : [];
+    const result = [];
+    if (
+      event?.type === "legacy_pause_snapshot"
+      && changes.find((change) => change?.field === "is_indefinite")?.after === true
+    ) {
+      result.push("Sem data de retorno");
+    }
+    if (reasonAfter) result.push(`Motivo: ${reasonAfter}`);
+    return result;
   }
 
   const result = [];

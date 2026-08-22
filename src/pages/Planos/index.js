@@ -3498,7 +3498,9 @@ export default function Planos() {
                       {change}
                     </PlanHistoryDetail>
                   ))}
-                  {!isSingleLinePlanHistoryEvent(event) && event.legacy?.is_incomplete && (
+                  {!isSingleLinePlanHistoryEvent(event)
+                    && event.type !== "legacy_pause_snapshot"
+                    && event.legacy?.is_incomplete && (
                     <PlanHistoryDetail>Evidência histórica incompleta</PlanHistoryDetail>
                   )}
                 </PlanHistoryItem>

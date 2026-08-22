@@ -411,6 +411,39 @@ describe("patient plan detail presentation", () => {
     expect(presentation.changes).toEqual([]);
   });
 
+  it("apresenta snapshot legado como início funcional sem metadados técnicos", () => {
+    const event = {
+      type: "legacy_pause_snapshot",
+      label: "Registro legado de pausa",
+      occurred_at: "2026-07-14T11:22:16.000Z",
+      origin: "backfill",
+      changes: [
+        { field: "pause_status", label: "Status da pausa", before: null, after: "ended" },
+        { field: "pause_version", label: "Versão da pausa", before: null, after: 2 },
+        { field: "starts_on", label: "Início da pausa", before: null, after: "2026-07-10" },
+        { field: "ends_on", label: "Fim da pausa", before: null, after: null },
+        { field: "is_indefinite", before: null, after: true },
+      ],
+      legacy: { is_legacy: true, is_incomplete: true },
+    };
+
+    const presentation = buildPlanHistoryPresentation(event);
+    expect(formatPlanHistoryEventLabel(event)).toBe("Pausa iniciada");
+    expect(presentation.singleLine).toMatch(/^14 jul 2026, \d{1,2}h22 · Pausa iniciada$/);
+    expect(presentation.vigency).toBe("A partir de 10 jul");
+    expect(presentation.changes).toEqual(["Sem data de retorno"]);
+    expect(presentation.changes.join(" ")).not.toMatch(/legacy|snapshot|backfill|status|versão/i);
+
+    expect(buildPlanHistoryPresentation({
+      ...event,
+      changes: [
+        { field: "starts_on", before: null, after: "2026-08-11" },
+        { field: "ends_on", before: null, after: "2026-08-18" },
+        { field: "is_indefinite", before: null, after: false },
+      ],
+    }).vigency).toBe("Período: 11 ago → 18 ago");
+  });
+
   it("apresenta retomada somente com a data útil ao usuário", () => {
     const event = {
       type: "plan_resumed",
