@@ -4441,11 +4441,20 @@ export default function Agendamentos() {
 	        ? new Date(editingOriginalSession.starts_at).getTime()
 	        : NaN;
 	      const nextStart = form.starts_at ? new Date(form.starts_at).getTime() : NaN;
+	      const originalEnd = editingOriginalSession?.ends_at
+	        ? new Date(editingOriginalSession.ends_at).getTime()
+	        : null;
+	      const nextEnd = form.ends_at ? new Date(form.ends_at).getTime() : null;
 	      const editingScheduleWasChanged =
 	        !!editingOriginalSession
-	        && Number.isFinite(originalStart)
-	        && Number.isFinite(nextStart)
-	        && originalStart !== nextStart;
+	        && (
+	          (
+	            Number.isFinite(originalStart)
+	            && Number.isFinite(nextStart)
+	            && originalStart !== nextStart
+	          )
+	          || originalEnd !== nextEnd
+	        );
 	      const packageScopeProfessionalChanged =
 	        !!editingOriginalSession
 	        && String(editingOriginalSession.professional_user_id || "") !== String(form.professional_user_id || "");
@@ -4845,12 +4854,7 @@ export default function Agendamentos() {
         };
 	        if (editingId) {
 		          const originalSession = editingOriginalSession;
-		          const isReschedule =
-		            originalSession &&
-		            editingIntent === "reschedule" &&
-		            editingScheduleWasChanged &&
-		            originalSession.status === "scheduled" &&
-		            payload.status === "scheduled";
+	          const isReschedule = originalSession && editingScheduleWasChanged;
 
 	          if (shouldUsePackageScopeUpdate) {
 	            const response = await axios.post(`/sessions/${editingId}/package-scope-update`, {
@@ -5648,6 +5652,7 @@ export default function Agendamentos() {
 	                              return (
 	                                <SlotCell
                                   key={`${day.toISOString()}-${hour}`}
+	                                  data-testid={`week-slot-${formatDateParam(day)}-${hour}`}
                                   $striped={hour % 2 === 0}
                                   onClick={() => handleCreateAt(slotDate)}
                                   onDragOver={handleDragOver}
@@ -5663,6 +5668,7 @@ export default function Agendamentos() {
                                       patientName={getSessionPatientName(session)}
                                       isHistory={isHistoricalSessionStatus(session.status)}
                                       attentionLevel={getSessionPatientAttentionLevel(session)}
+	                                      onDragStart={handleDragStart}
                                       onOpen={(event) => {
                                         event.stopPropagation();
                                         handleOpenGroup(slotDate);
@@ -8145,6 +8151,7 @@ const WeekSlotSessionPill = React.memo(
     patientName,
     attentionLevel,
     isHistory = false,
+    onDragStart,
     onOpen,
   }) {
     const shortPatientName = getCompactWeekPatientName(patientName);
@@ -8153,8 +8160,8 @@ const WeekSlotSessionPill = React.memo(
     if (isHistory) {
       const statusLabel = getSessionStatusLabel(session.status);
       return (
-        <GroupPill
-          $type={group.service_type}
+	      <GroupPill
+	        $type={group.service_type}
           $color={color}
           $history
           $status={statusTone}
@@ -8177,7 +8184,10 @@ const WeekSlotSessionPill = React.memo(
 
 	    return (
       <GroupPill
-        $type={group.service_type}
+	    data-id={session.id}
+	    draggable
+	    onDragStart={onDragStart}
+	    $type={group.service_type}
         $color={color}
         $history={false}
         $status={statusTone}
@@ -8278,6 +8288,7 @@ const MonthAgendaCell = React.memo(
 
 WeekSlotSessionPill.propTypes = {
   session: PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
     status: PropTypes.string,
   }).isRequired,
   group: PropTypes.shape({
@@ -8288,6 +8299,7 @@ WeekSlotSessionPill.propTypes = {
   patientName: PropTypes.string.isRequired,
   attentionLevel: PropTypes.string,
   isHistory: PropTypes.bool,
+  onDragStart: PropTypes.func.isRequired,
   onOpen: PropTypes.func.isRequired,
 };
 

@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import Agendamentos from "./index";
-import axios from "../../services/axios";
+import axios, { sanitizeUserFacingErrorMessage } from "../../services/axios";
 import {
   checkSchedulingAvailability,
   listSpecialSchedulingEvents,
@@ -171,12 +171,26 @@ const selectAssignedProfessional = async (container) => {
   expect(select.value).toBe("30");
 };
 
+const openScheduledSessionEdit = async (container) => {
+  expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Dia" }));
+  const scheduledCard = await waitFor(() => {
+    const element = container.querySelector('[data-id="10"]');
+    expect(element).toBeTruthy();
+    return element;
+  });
+  fireEvent.click(scheduledCard.querySelector("button[aria-label]"));
+  fireEvent.click(await screen.findByRole("button", { name: "Editar agendamento" }));
+  await screen.findByText("Motivo da alteração");
+};
+
 describe("Agendamentos - editar agendamento", () => {
   let sessionsMockData;
 
   beforeEach(() => {
     jest.useFakeTimers().setSystemTime(new Date("2026-06-29T06:00:00"));
     jest.clearAllMocks();
+    sanitizeUserFacingErrorMessage.mockImplementation((message, fallback) => message || fallback);
     sessionsMockData = [baseSession, canceledSession, noShowSession];
     mockProfessionalAssigned = true;
     mockAuthorization = {
@@ -215,12 +229,20 @@ describe("Agendamentos - editar agendamento", () => {
       }
       if (url === "/schedule/references/professionals") {
         return Promise.resolve({
-          data: [{
-            id: 30,
-            name: "Profissional Teste",
-            clinic_professional_id: 300,
-            is_assigned: config?.params?.patient_id ? mockProfessionalAssigned : null,
-          }],
+          data: [
+            {
+              id: 30,
+              name: "Profissional Teste",
+              clinic_professional_id: 300,
+              is_assigned: config?.params?.patient_id ? mockProfessionalAssigned : null,
+            },
+            {
+              id: 31,
+              name: "Profissional Alternativo",
+              clinic_professional_id: 301,
+              is_assigned: config?.params?.patient_id ? mockProfessionalAssigned : null,
+            },
+          ],
         });
       }
       if (url === "/service-limits") {
@@ -385,23 +407,9 @@ describe("Agendamentos - editar agendamento", () => {
     jest.useRealTimers();
   });
 
-  it("usa PUT ao editar horario de uma sessao agendada pelo botao Editar agendamento", async () => {
+  it("usa uma unica remarcacao formal ao editar horario", async () => {
     const { container } = renderAgendamentos();
-
-    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Dia" }));
-    const scheduledCard = await waitFor(() => {
-      const element = container.querySelector('[data-id="10"]');
-      expect(element).toBeTruthy();
-      return element;
-    });
-    const scheduledActionsButton = scheduledCard.querySelector("button[aria-label]");
-    expect(scheduledActionsButton).toBeTruthy();
-    fireEvent.click(scheduledActionsButton);
-    fireEvent.click(await screen.findByRole("button", { name: "Editar agendamento" }));
-
-    await screen.findByText("Motivo da alteração");
+    await openScheduledSessionEdit(container);
     const hourSelect = Array.from(container.querySelectorAll("select"))
       .find((select) => Array.from(select.options).some((option) => option.value === "10"));
     expect(hourSelect).toBeTruthy();
@@ -411,18 +419,140 @@ describe("Agendamentos - editar agendamento", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
 
-    await waitFor(() => expect(axios.put).toHaveBeenCalledWith(
-      "/sessions/10",
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
       expect.objectContaining({
         starts_at: "2026-06-29T10:00",
         ends_at: "2026-06-29T11:00",
         notes: "ajuste administrativo",
+        status: "scheduled",
+        rescheduled_from_id: 10,
       }),
     ));
+    expect(axios.put).not.toHaveBeenCalled();
+    expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(1);
+  });
 
-    const sessionPostCalls = axios.post.mock.calls.filter(([url]) => url === "/sessions");
-    expect(sessionPostCalls).toHaveLength(0);
-    expect(axios.put.mock.calls[0][1]).not.toHaveProperty("rescheduled_from_id");
+  it("mantem PUT quando somente a observacao muda", async () => {
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    fireEvent.change(container.querySelector('textarea[name="notes"]'), {
+      target: { value: "observacao sem mudanca temporal" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.put).toHaveBeenCalledWith(
+      "/sessions/10",
+      expect.objectContaining({
+        starts_at: "2026-06-29T07:00",
+        ends_at: "2026-06-29T08:00",
+        notes: "observacao sem mudanca temporal",
+      }),
+    ));
+    expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(0);
+  });
+
+  it("mantem PUT quando somente o profissional muda", async () => {
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    fireEvent.change(container.querySelector('select[name="professional_user_id"]'), {
+      target: { value: "31" },
+    });
+    fireEvent.change(container.querySelector('textarea[name="notes"]'), {
+      target: { value: "troca de profissional" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.put).toHaveBeenCalledWith(
+      "/sessions/10",
+      expect.objectContaining({
+        professional_user_id: 31,
+        starts_at: "2026-06-29T07:00",
+        ends_at: "2026-06-29T08:00",
+      }),
+    ));
+    expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(0);
+  });
+
+  it("combina horario profissional e observacao em uma unica remarcacao", async () => {
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    fireEvent.change(container.querySelector('select[name="professional_user_id"]'), {
+      target: { value: "31" },
+    });
+    fireEvent.change(container.querySelector('textarea[name="notes"]'), {
+      target: { value: "excecao com outro profissional" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        starts_at: "2026-06-29T10:00",
+        ends_at: "2026-06-29T11:00",
+        professional_user_id: 31,
+        notes: "excecao com outro profissional",
+        rescheduled_from_id: 10,
+      }),
+    ));
+    expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(1);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it("mostra o erro funcional retornado pela remarcacao", async () => {
+    const apiError = new Error("reschedule rejected");
+    apiError.response = { data: { error: "Limite mensal de remarcações atingido." } };
+    axios.post.mockImplementation((url) => (
+      url === "/sessions" ? Promise.reject(apiError) : Promise.resolve({ data: {} })
+    ));
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    fireEvent.change(container.querySelector('textarea[name="notes"]'), {
+      target: { value: "tentativa bloqueada" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Limite mensal de remarcações atingido.",
+    ));
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it("mantem drag-and-drop na mesma semantica formal de remarcacao", async () => {
+    const { container } = renderAgendamentos();
+    expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
+    const source = await waitFor(() => {
+      const element = container.querySelector('[data-id="10"][draggable="true"]');
+      expect(element).toBeTruthy();
+      return element;
+    });
+    const target = await screen.findByTestId("week-slot-2026-06-29-10");
+    const transferData = {};
+    const dataTransfer = {
+      effectAllowed: "",
+      dropEffect: "",
+      setData: jest.fn((type, value) => { transferData[type] = value; }),
+      getData: jest.fn((type) => transferData[type] || ""),
+    };
+
+    fireEvent.dragStart(source, { dataTransfer });
+    fireEvent.drop(target, { dataTransfer });
+
+    const expectedStart = new Date("2026-06-29T10:00:00").toISOString();
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        starts_at: expectedStart,
+        rescheduled_from_id: 10,
+      }),
+    ));
+    expect(axios.put).not.toHaveBeenCalled();
   });
 
   it("mostra cancelados e faltas na visao Dia apenas quando a opcao esta ativa", async () => {
