@@ -5,6 +5,7 @@ import styled from "styled-components";
 import { FaPlus } from "react-icons/fa";
 
 import { PrimaryButton } from "../../components/AppButton";
+import { AppMetricCard } from "../../components/AppMetricCard";
 import AppPagination from "../../components/AppPagination";
 import DataLoadingState from "../../components/DataLoadingState";
 import { InteractiveListRowSurface } from "../../components/InteractiveListRow";
@@ -67,21 +68,40 @@ export default function PatientPlansOverview({
 
   return (
     <OverviewRoot>
-      <OperationalSummary aria-label="Resumo operacional de Planos">
-        <SummaryMetric $muted={summary.active_plans === 0}>
-          <strong>{summary.active_plans}</strong> ativos
-        </SummaryMetric>
-        <SummaryDivider aria-hidden="true">·</SummaryDivider>
-        <SummaryMetric $muted={summary.paused_plans === 0}>
-          <strong>{summary.paused_plans}</strong> pausados
-        </SummaryMetric>
-        <SummaryDivider aria-hidden="true">·</SummaryDivider>
-        <SummaryMetric
-          $attention={summary.pending_agendas > 0}
-          $muted={summary.pending_agendas === 0}
-        >
-          <strong>{summary.pending_agendas}</strong> agendas pendentes
-        </SummaryMetric>
+      <OperationalSummary role="group" aria-label="Resumo operacional de Planos">
+        <AppMetricCard
+          compact
+          attention={false}
+          label="Ativos"
+          value={summary.active_plans}
+          ariaLabel={`Filtrar Planos ativos: ${summary.active_plans}`}
+          onClick={() => {
+            onStatusChange("active");
+            onPageChange(1);
+          }}
+        />
+        <AppMetricCard
+          compact
+          attention={false}
+          label="Pausados"
+          value={summary.paused_plans}
+          ariaLabel={`Filtrar Planos pausados: ${summary.paused_plans}`}
+          onClick={() => {
+            onStatusChange("paused");
+            onPageChange(1);
+          }}
+        />
+        <AppMetricCard
+          compact
+          attention={summary.pending_agendas > 0}
+          label="Agendas pendentes"
+          value={summary.pending_agendas}
+          ariaLabel={`Filtrar Planos com Agenda pendente: ${summary.pending_agendas}`}
+          onClick={() => {
+            onAgendaChange("pending");
+            onPageChange(1);
+          }}
+        />
       </OperationalSummary>
 
       <Filters aria-label="Filtros de Planos">
@@ -262,30 +282,17 @@ const OverviewRoot = styled.div`
   gap: 12px;
 `;
 
-const OperationalSummary = styled.p`
-  color: ${colors.textSecondary};
-  display: flex;
-  font-size: ${fontSizes.body};
-  flex-wrap: wrap;
+const OperationalSummary = styled.div`
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
   margin: 0;
-`;
+  max-width: 720px;
+  width: 100%;
 
-const SummaryMetric = styled.span`
-  color: ${(props) => {
-    if (props.$attention) return colors.pausedText;
-    if (props.$muted) return colors.textMuted;
-    return colors.textSecondary;
-  }};
-
-  strong {
-    color: inherit;
-    font-weight: ${(props) => (props.$muted ? 600 : 800)};
+  @media (max-width: 640px) {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
-`;
-
-const SummaryDivider = styled.span`
-  color: ${colors.textMuted};
-  margin: 0 8px;
 `;
 
 const Filters = styled.div`

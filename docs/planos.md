@@ -22,9 +22,12 @@ dez `PatientPlans` por página e não calcula totais a partir de `items`.
 
 O Backend devolve uma coleção plana já filtrada e paginada por `PatientPlan`.
 Cada item contém o paciente como contexto; por isso, o mesmo paciente aparece
-em mais de uma linha quando possui mais de um vínculo. O resumo compacto usa
-diretamente `active_plans`, `paused_plans` e `pending_agendas`; nenhuma métrica é
-recalculada a partir da página visível.
+em mais de uma linha quando possui mais de um vínculo. Três cards compactos de
+resumo usam diretamente `active_plans`, `paused_plans` e `pending_agendas`;
+nenhuma métrica é recalculada a partir da página visível. Os cards permanecem
+visíveis quando o valor é zero e funcionam como atalhos: Ativos e Pausados
+aplicam o Status correspondente, enquanto Agendas pendentes aplica Agenda =
+Pendente. Cada atalho preserva os demais filtros e volta à primeira página.
 
 Uma única linha de cabeçalho secundária apresenta Paciente, Plano, Agenda e
 Status. Cada `PatientPlan` ocupa uma linha compacta que faz sentido isoladamente:

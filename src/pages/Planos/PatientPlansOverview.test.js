@@ -1,6 +1,7 @@
 import React from "react";
 import "@testing-library/jest-dom";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryHistory } from "history";
 import { Router } from "react-router-dom";
 
@@ -90,12 +91,19 @@ beforeEach(() => {
   });
 });
 
-it("renderiza resumo, status padrão e uma linha por PatientPlan", () => {
+it("renderiza os três cards com os valores do summary e uma linha por PatientPlan", () => {
   renderOverview();
   const summary = screen.getByLabelText("Resumo operacional de Planos");
-  expect(summary).toHaveTextContent("38 ativos");
-  expect(summary).toHaveTextContent("4 pausados");
-  expect(summary).toHaveTextContent("3 agendas pendentes");
+  const activeCard = within(summary).getByRole("button", { name: /Planos ativos: 38/i });
+  const pausedCard = within(summary).getByRole("button", { name: /Planos pausados: 4/i });
+  const pendingCard = within(summary).getByRole("button", { name: /Agenda pendente: 3/i });
+  expect(within(activeCard).getByText("Ativos")).toBeInTheDocument();
+  expect(within(activeCard).getByText("38")).toBeInTheDocument();
+  expect(within(pausedCard).getByText("Pausados")).toBeInTheDocument();
+  expect(within(pausedCard).getByText("4")).toBeInTheDocument();
+  expect(within(pendingCard).getByText("Agendas pendentes")).toBeInTheDocument();
+  expect(within(pendingCard).getByText("3")).toBeInTheDocument();
+  expect(within(summary).getAllByRole("button")).toHaveLength(3);
   expect(screen.queryByRole("tablist", { name: "Visão dos Planos" })).not.toBeInTheDocument();
   expect(screen.queryByText("Atuais")).not.toBeInTheDocument();
   expect(screen.queryByText("Encerrados")).not.toBeInTheDocument();
@@ -114,6 +122,57 @@ it("renderiza resumo, status padrão e uma linha por PatientPlan", () => {
     .toHaveAttribute("href", "/planos/pacientes/101");
   expect(screen.getByRole("link", { name: /Carla FerreiraA.*Funcional/i }))
     .toHaveAttribute("href", "/planos/pacientes/102");
+});
+
+it.each([
+  ["Filtrar Planos ativos: 38", "onStatusChange", "active"],
+  ["Filtrar Planos pausados: 4", "onStatusChange", "paused"],
+  ["Filtrar Planos com Agenda pendente: 3", "onAgendaChange", "pending"],
+])("usa o card %s como atalho e volta à página 1", (accessibleName, handlerName, value) => {
+  renderOverview({
+    patientSearch: "Alda",
+    serviceId: "2",
+    status: "paused",
+    agenda: "configured",
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: accessibleName }));
+
+  expect(defaultProps[handlerName]).toHaveBeenCalledWith(value);
+  expect(defaultProps.onPageChange).toHaveBeenCalledWith(1);
+  expect(defaultProps.onPatientSearchChange).not.toHaveBeenCalled();
+  expect(defaultProps.onServiceChange).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Paciente")).toHaveValue("Alda");
+  expect(screen.getByLabelText("Serviço")).toHaveValue("2");
+});
+
+it("mantém o card de Agendas pendentes visível quando o valor é zero", () => {
+  renderOverview({
+    overview: {
+      ...overview,
+      summary: { ...overview.summary, pending_agendas: 0 },
+    },
+  });
+
+  const pendingCard = screen.getByRole("button", { name: /Agenda pendente: 0/i });
+  expect(within(pendingCard).getByText("Agendas pendentes")).toBeInTheDocument();
+  expect(within(pendingCard).getByText("0")).toBeInTheDocument();
+});
+
+it("permite acionar os atalhos por teclado com foco no card", () => {
+  renderOverview();
+  const activeCard = screen.getByRole("button", { name: /Planos ativos: 38/i });
+  const pendingCard = screen.getByRole("button", { name: /Agenda pendente: 3/i });
+
+  activeCard.focus();
+  expect(activeCard).toHaveFocus();
+  userEvent.type(activeCard, "{enter}", { skipClick: true });
+  expect(defaultProps.onStatusChange).toHaveBeenCalledWith("active");
+
+  pendingCard.focus();
+  expect(pendingCard).toHaveFocus();
+  userEvent.type(pendingCard, " ", { skipClick: true });
+  expect(defaultProps.onAgendaChange).toHaveBeenCalledWith("pending");
 });
 
 it("usa a linha inteira como link e aceita Space", () => {
@@ -201,6 +260,10 @@ it.each([
 it("mantém estrutura responsiva sem tabela rígida e com rótulos internos", () => {
   renderOverview();
   expect(document.querySelector("table")).not.toBeInTheDocument();
+  const summary = screen.getByLabelText("Resumo operacional de Planos");
+  expect(summary).toHaveStyle("display: grid");
+  expect(summary).toHaveStyle("width: 100%");
+  expect(within(summary).getAllByRole("button")).toHaveLength(3);
   const funcional = screen.getByText("Funcional recorrente").closest("a");
   expect(within(funcional).getAllByText("Agenda").length).toBeGreaterThan(0);
   expect(within(funcional).getByText("Status")).toBeInTheDocument();

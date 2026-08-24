@@ -17,6 +17,11 @@ import {
   GhostButton as SharedGhostButton,
 } from "../../components/AppButton";
 import { UnsavedChangesDialog } from "../../components/AppDrawer";
+import {
+  MetricCardLabel,
+  MetricCardSurface,
+  MetricCardValue,
+} from "../../components/AppMetricCard";
 import { DataTable as SharedDataTable } from "../../components/AppTable";
 import PatientSearchField from "../../components/PatientSearchField";
 import { colors as appColors } from "../../styles/tokens";
@@ -7872,12 +7877,11 @@ const OverviewSummaryHeader = styled.div`
   letter-spacing: 0.05em;
 `;
 
-const AttendanceMetricCard = styled.div`
-  position: relative;
-  padding: ${ATTENDANCE_UI.spacing[2]};
-  border-radius: ${ATTENDANCE_UI.radius.md};
-  border: 1px solid ${ATTENDANCE_UI.colors.border};
-  background: ${ATTENDANCE_UI.colors.surfaceMuted};
+const AttendanceMetricCard = styled(MetricCardSurface)`
+  --app-metric-card-background: ${ATTENDANCE_UI.colors.surfaceMuted};
+  --app-metric-card-border: ${ATTENDANCE_UI.colors.border};
+  --app-metric-card-padding: ${ATTENDANCE_UI.spacing[2]};
+  --app-metric-card-radius: ${ATTENDANCE_UI.radius.md};
 
   ${(props) => props.$summaryFinal && `
     margin-top: ${ATTENDANCE_UI.spacing[3]};
@@ -7895,23 +7899,19 @@ const AttendanceMetricCard = styled.div`
   `}
 `;
 
-const AttendanceMetricLabel = styled.span`
-  display: block;
-  color: ${ATTENDANCE_UI.colors.textTertiary};
-  font-size: ${ATTENDANCE_UI.font.size.xs};
-  line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
-  font-weight: ${ATTENDANCE_UI.font.weight.medium};
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+const AttendanceMetricLabel = styled(MetricCardLabel)`
+  --app-metric-label-color: ${ATTENDANCE_UI.colors.textTertiary};
+  --app-metric-label-line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+  --app-metric-label-size: ${ATTENDANCE_UI.font.size.xs};
+  --app-metric-label-weight: ${ATTENDANCE_UI.font.weight.medium};
 `;
 
-const AttendanceMetricValue = styled.strong`
-  display: block;
-  margin-top: ${ATTENDANCE_UI.spacing[1]};
-  color: ${ATTENDANCE_UI.colors.textPrimary};
-  font-size: ${ATTENDANCE_UI.font.size.lg};
-  line-height: ${ATTENDANCE_UI.font.lineHeight.lg};
-  font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+const AttendanceMetricValue = styled(MetricCardValue)`
+  --app-metric-value-color: ${ATTENDANCE_UI.colors.textPrimary};
+  --app-metric-value-line-height: ${ATTENDANCE_UI.font.lineHeight.lg};
+  --app-metric-value-margin-top: ${ATTENDANCE_UI.spacing[1]};
+  --app-metric-value-size: ${ATTENDANCE_UI.font.size.lg};
+  --app-metric-value-weight: ${ATTENDANCE_UI.font.weight.semibold};
 `;
 
 const AttendanceFilterGrid = styled.div`
