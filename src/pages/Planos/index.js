@@ -10,6 +10,7 @@ import {
 } from "react-icons/fa";
 
 import { ModuleBody } from "../../components/AppModuleShell";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import { colors as appColors } from "../../styles/tokens";
 import { AppToolbar, AppToolbarLeft } from "../../components/AppToolbar";
 import {
@@ -41,7 +42,7 @@ import {
   listServicePrices,
   createServicePrice,
   updateServicePrice,
-  listPatientPlans,
+  getPatientPlansOverview,
   createPatientPlan,
   updatePatientPlan,
   pausePatientPlan,
@@ -55,8 +56,6 @@ import {
 import axios from "../../services/axios";
 import {
   getPatientDisplayName,
-  getPatientSearchText,
-  normalizeSearchText,
 } from "../../utils/patientSearch";
 import {
   buildPlanChangePreviewPresentation,
@@ -95,6 +94,9 @@ import {
   WeekdayButton as WeekdayBtn,
   WeekdayPicker,
 } from "./PlanScheduleFields";
+import PatientPlansOverview, {
+  EMPTY_PATIENT_PLAN_OVERVIEW,
+} from "./PatientPlansOverview";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -133,7 +135,6 @@ const DEFAULT_OPERATIONAL_POLICY = {
   allow_broken_time_scheduling: false,
 };
 
-const PROFESSIONAL_GROUP_SLUG = "profissional";
 const PATIENT_PLAN_DETAIL_SECTIONS = {
   plan: "plan",
   agenda: "agenda",
@@ -377,18 +378,6 @@ const isAlternatingFromPlanStartSelected = (weeks) => cycleWeeksKey(weeks) === "
 
 const isAlternatingFromNextWeekSelected = (weeks) => cycleWeeksKey(weeks) === "2,4";
 
-const formatWeekdayList = (value) => {
-  const weekdays = normalizeWeekdays(value);
-  if (weekdays.length === 0) return "-";
-  const labels = weekdays
-    .map((day) => WEEKDAY_OPTIONS.find((opt) => opt.value === day)?.label)
-    .filter(Boolean);
-  if (labels.length === 0) return "-";
-  if (labels.length === 1) return labels[0];
-  if (labels.length === 2) return `${labels[0]} e ${labels[1]}`;
-  return `${labels.slice(0, -1).join(", ")} e ${labels[labels.length - 1]}`;
-};
-
 const getPatientPlanBackendAgendaSummary = (pp) => {
   const summary = pp?.agenda_summary;
   if (!summary || typeof summary !== "object") {
@@ -442,28 +431,6 @@ const getSessionStatusLabel = (status) => (
   SESSION_STATUS_LABELS[status] || status || "—"
 );
 
-const getPatientPlanScheduleInfo = (pp, professionals = []) => {
-  let seriesList = [];
-  if (Array.isArray(pp?.sessionSeries)) {
-    seriesList = pp.sessionSeries;
-  } else if (Array.isArray(pp?.SessionSeries)) {
-    seriesList = pp.SessionSeries;
-  }
-  const series = seriesList.find((item) => item.lifecycle_status !== "ended")
-    || seriesList[0]
-    || null;
-
-  const professionalId = series?.professional_user_id;
-  const professional = series?.professional
-    || series?.Professional
-    || professionals.find((item) => String(item.id) === String(professionalId));
-
-  return {
-    professionalName: professional?.name || "-",
-    weekdayText: formatWeekdayList(series?.weekdays),
-  };
-};
-
 const getPlanSeriesList = (pp) => {
   if (Array.isArray(pp?.sessionSeries)) return pp.sessionSeries;
   if (Array.isArray(pp?.SessionSeries)) return pp.SessionSeries;
@@ -486,22 +453,6 @@ const getPlanIncludedCycleWeeks = (pp) => {
   }
   if (pp?.included_cycle_weeks) return normalizeIncludedCycleWeeks(pp.included_cycle_weeks);
   return [...DEFAULT_INCLUDED_CYCLE_WEEKS];
-};
-
-const getSeriesSessions = (series) => {
-  if (Array.isArray(series?.sessions)) return series.sessions;
-  if (Array.isArray(series?.Sessions)) return series.Sessions;
-  return [];
-};
-
-const formatTimeBR = (value) => {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 };
 
 const getHourTimeValue = (value) => {
@@ -565,45 +516,6 @@ const formatHourLabel = (time) => {
   return normalized.endsWith(":00") ? `${normalized.slice(0, 2)}h` : normalized;
 };
 
-const getPatientPlanAgendaInfo = (pp, professionals = []) => {
-  const activeSeriesList = getPlanSeriesList(pp)
-    .filter((item) => item?.lifecycle_status !== "ended");
-  const activeSeries = [...activeSeriesList].sort((left, right) => {
-    const leftDate = String(left?.starts_at || "");
-    const rightDate = String(right?.starts_at || "");
-    const dateComparison = rightDate.localeCompare(leftDate);
-    if (dateComparison !== 0) return dateComparison;
-    return Number(right?.id || 0) - Number(left?.id || 0);
-  })[0] || null;
-  const futureSessionsById = new Map();
-
-  const sessionCandidates = activeSeriesList.flatMap(getSeriesSessions);
-
-  sessionCandidates.forEach((session) => {
-    if (session?.id) futureSessionsById.set(String(session.id), session);
-  });
-
-  const futureSessions = Array.from(futureSessionsById.values())
-    .sort((left, right) => String(left.starts_at || "").localeCompare(String(right.starts_at || "")));
-  const hasFutureSessions = futureSessions.length > 0;
-  const scheduleInfo = getPatientPlanScheduleInfo(pp, professionals);
-  const firstFutureSession = futureSessions[0] || null;
-
-  return {
-    label: hasFutureSessions ? "Configurada" : "Pendente",
-    tone: hasFutureSessions ? "active" : "paused",
-    isConfigured: hasFutureSessions,
-    futureSessionsCount: futureSessions.length,
-    seriesId: activeSeries?.id || null,
-    professionalUserId: activeSeries?.professional_user_id || "",
-    weekdays: normalizeWeekdays(activeSeries?.weekdays),
-    professionalName: scheduleInfo.professionalName,
-    weekdayText: scheduleInfo.weekdayText,
-    timeText: formatTimeBR(activeSeries?.starts_at || firstFutureSession?.starts_at),
-    includedCycleWeeks: getPlanIncludedCycleWeeks(pp),
-  };
-};
-
 const normalizeSessionsPerWeek = (value) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 1) return null;
@@ -618,24 +530,6 @@ const slugify = (name) =>
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 40) || `svc_${Date.now()}`;
-
-const getPatientPlanPatientName = (pp) =>
-  pp?.Patient ? getPatientDisplayName(pp.Patient) : "";
-
-const comparePatientPlans = (left, right) => {
-  const byName = getPatientPlanPatientName(left).localeCompare(
-    getPatientPlanPatientName(right),
-    "pt-BR",
-    { sensitivity: "base" },
-  );
-  if (byName !== 0) return byName;
-
-  const statusOrder = { active: 0, paused: 1, canceled: 2 };
-  const byStatus = (statusOrder[left?.status] ?? 9) - (statusOrder[right?.status] ?? 9);
-  if (byStatus !== 0) return byStatus;
-
-  return String(right?.starts_at || "").localeCompare(String(left?.starts_at || ""));
-};
 
 const isPlanCancellationProgrammed = (pp) => (
   pp?.status !== "canceled"
@@ -670,6 +564,9 @@ const getServicePlanDisplayName = (plan, fallback = "Plano") => {
   if (serviceName && frequency) return `${serviceName} ${frequency}`;
   return serviceName || fallback;
 };
+
+const getPatientPlanPatientName = (pp) =>
+  pp?.Patient ? getPatientDisplayName(pp.Patient) : "";
 
 const getPatientPlanSummary = (pp) => {
   const plan = pp?.ServicePlan;
@@ -862,6 +759,7 @@ export default function Planos() {
   const history = useHistory();
   const location = useLocation();
   const { patientPlanId } = useParams();
+  const authorization = useAuthorization();
   const isPatientPlanDetailPage = !!patientPlanId;
   const [activeTab, setActiveTab] = useState("patient-plans");
   const [isSaving, setIsSaving] = useState(false);
@@ -872,7 +770,6 @@ export default function Planos() {
   const [isServicesLoading, setIsServicesLoading] = useState(false);
   const [servicesError, setServicesError] = useState("");
   const [patients, setPatients] = useState([]);
-  const [professionals, setProfessionals] = useState([]);
   const [patientProfessionals, setPatientProfessionals] = useState([]);
   const [patientProfessionalsLoading, setPatientProfessionalsLoading] = useState(false);
   const [patientProfessionalsError, setPatientProfessionalsError] = useState("");
@@ -892,12 +789,19 @@ export default function Planos() {
   const [spForm, setSpForm] = useState(EMPTY_SP);
 
   // Patient Plans tab
-  const [patientPlans, setPatientPlans] = useState([]);
+  const [patientPlanOverview, setPatientPlanOverview] = useState(
+    EMPTY_PATIENT_PLAN_OVERVIEW,
+  );
   const [isPatientPlansLoading, setIsPatientPlansLoading] = useState(false);
   const [patientPlansError, setPatientPlansError] = useState("");
+  const [ppView, setPpView] = useState("current");
   const [ppPatientSearch, setPpPatientSearch] = useState("");
+  const [ppPatientQuery, setPpPatientQuery] = useState("");
+  const [ppFilterPatientId, setPpFilterPatientId] = useState("");
+  const [ppFilterServiceId, setPpFilterServiceId] = useState("");
   const [ppFilterStatus, setPpFilterStatus] = useState("");
-  const [ppFocusedPlanId, setPpFocusedPlanId] = useState("");
+  const [ppFilterAgenda, setPpFilterAgenda] = useState("");
+  const [ppPage, setPpPage] = useState(1);
   const [ppDrawerOpen, setPpDrawerOpen] = useState(false);
   const [ppEditingId, setPpEditingId] = useState(null);
   const [ppEditingStatus, setPpEditingStatus] = useState(null);
@@ -972,17 +876,15 @@ export default function Planos() {
     setIsServicesLoading(true);
     setServicesError("");
     try {
-      const [servicesRes, pricesRes, patientsRes, profsRes, operationalPolicyRes] = await Promise.all([
+      const [servicesRes, pricesRes, patientsRes, operationalPolicyRes] = await Promise.all([
         axios.get("/services"),
         listServicePrices(),
         axios.get("/patients"),
-        axios.get("/users", { params: { group: PROFESSIONAL_GROUP_SLUG } }),
         axios.get("/unit-scheduling-policy"),
       ]);
       setServices(Array.isArray(servicesRes.data) ? servicesRes.data : []);
       setServicePrices(Array.isArray(pricesRes.data) ? pricesRes.data : []);
       setPatients(Array.isArray(patientsRes.data) ? patientsRes.data : []);
-      setProfessionals(Array.isArray(profsRes.data) ? profsRes.data : []);
       setOperationalPolicy({
         ...DEFAULT_OPERATIONAL_POLICY,
         ...(operationalPolicyRes.data || {}),
@@ -1015,18 +917,34 @@ export default function Planos() {
     setIsPatientPlansLoading(true);
     setPatientPlansError("");
     try {
-      const params = {};
+      const params = {
+        view: ppView,
+        page: ppPage,
+        page_size: 25,
+      };
+      if (ppPatientQuery) params.patient_query = ppPatientQuery;
+      if (ppFilterPatientId) params.patient_id = ppFilterPatientId;
+      if (ppFilterServiceId) params.service_id = ppFilterServiceId;
       if (ppFilterStatus) params.status = ppFilterStatus;
-      const res = await listPatientPlans(params);
-      setPatientPlans(Array.isArray(res.data) ? res.data : []);
+      if (ppFilterAgenda) params.agenda = ppFilterAgenda;
+      const res = await getPatientPlansOverview(params);
+      setPatientPlanOverview(res.data || null);
     } catch (err) {
-      const message = err?.response?.data?.error || "Erro ao carregar vínculos.";
+      const message = err?.response?.data?.error || "Erro ao carregar Planos.";
       setPatientPlansError(message);
       toast.error(message);
     } finally {
       setIsPatientPlansLoading(false);
     }
-  }, [ppFilterStatus]);
+  }, [
+    ppFilterAgenda,
+    ppFilterPatientId,
+    ppFilterServiceId,
+    ppFilterStatus,
+    ppPage,
+    ppPatientQuery,
+    ppView,
+  ]);
 
   const loadPatientProfessionals = useCallback(async (patientId) => {
     setPatientProfessionals([]);
@@ -1144,6 +1062,14 @@ export default function Planos() {
   }, [loadBaseData, loadServicePlans]);
 
   useEffect(() => {
+    const debounce = setTimeout(() => {
+      setPpPatientQuery(ppPatientSearch.trim());
+      setPpPage(1);
+    }, 300);
+    return () => clearTimeout(debounce);
+  }, [ppPatientSearch]);
+
+  useEffect(() => {
     const params = new URLSearchParams(location.search || "");
     const tab = params.get("tab");
     const patientId = params.get("patient_id");
@@ -1162,17 +1088,22 @@ export default function Planos() {
       setPpFilterStatus(status);
     }
 
-    if (queryPatientPlanId) {
-      setPpFocusedPlanId(queryPatientPlanId);
+    if (queryPatientPlanId && !patientPlanId) {
+      history.replace(`/planos/pacientes/${queryPatientPlanId}`);
+      return;
     }
 
     if (patientId) {
       const patient = patients.find((item) => String(item.id) === String(patientId));
       setPpPatientSearch(patient ? getPatientDisplayName(patient) : patientName || "");
+      setPpFilterPatientId(patientId);
     } else if (patientName) {
       setPpPatientSearch(patientName);
+      setPpFilterPatientId("");
+    } else {
+      setPpFilterPatientId("");
     }
-  }, [location.search, patients]);
+  }, [history, location.search, patientPlanId, patients]);
 
   useEffect(() => {
     if (activeTab === "patient-plans") loadPatientPlans();
@@ -1217,9 +1148,11 @@ export default function Planos() {
     loadPatientPlanDetail(patientPlanId);
   }, [loadPatientPlanDetail, patientPlanId]);
 
-	  // ---- Derived ----
+  // ---- Derived ----
 
   const allowBrokenTimeScheduling = !!operationalPolicy.allow_broken_time_scheduling;
+  const canLinkPlan = authorization.canAccessModule?.("plans", "edit") === true
+    && authorization.hasCapability?.("plans.patient.contract") === true;
 
 	  const filteredServicePlans = useMemo(() => {
     if (!spFilterServiceId) return servicePlans;
@@ -1253,17 +1186,6 @@ export default function Planos() {
     });
     return map;
   }, [servicePrices]);
-
-  const displayedPatientPlans = useMemo(() => {
-    const needle = normalizeSearchText(ppPatientSearch);
-    return patientPlans
-      .filter((pp) => {
-        if (ppFocusedPlanId && String(pp.id) !== String(ppFocusedPlanId)) return false;
-        if (!needle) return true;
-        return getPatientSearchText(pp?.Patient).includes(needle);
-      })
-      .sort(comparePatientPlans);
-  }, [patientPlans, ppFocusedPlanId, ppPatientSearch]);
 
   const ppCyclePreview = useMemo(() => {
     if (!ppForm.starts_at) return null;
@@ -1552,11 +1474,6 @@ export default function Planos() {
     setPpForm(makeEmptyPpForm());
     setPpDrawerOpen(true);
   }, []);
-
-  const openPpDetails = useCallback((pp) => {
-    if (!pp?.id) return;
-    history.push(`/planos/pacientes/${pp.id}`);
-  }, [history]);
 
   const handlePpDetailEditChange = useCallback((e) => {
     const { name, type, checked, value } = e.target;
@@ -3038,8 +2955,8 @@ export default function Planos() {
   const ppCancelSummary = ppCancelPlan ? getPatientPlanSummary(ppCancelPlan) : null;
   const activeSectionInfo = {
     "patient-plans": {
-      title: "Pacientes com plano",
-      subtitle: "Acompanhe os pacientes vinculados a planos mensais.",
+      title: "Planos",
+      subtitle: "",
     },
     "service-plans": {
       title: "Planos mensais",
@@ -4916,105 +4833,41 @@ export default function Planos() {
           {/* ---- Patient Plans tab ---- */}
           {activeTab === "patient-plans" && !isPatientPlanDetailPage && (
             <ModuleBody>
-              <AppToolbar>
-                <AppToolbarLeft>
-	                  <PatientSearchField
-	                    mode="filter"
-	                    inputId="patient-plans-search"
-                    value={ppPatientSearch}
-                    onChange={(value) => {
-                      setPpFocusedPlanId("");
-                      setPpPatientSearch(value);
-                    }}
-                  />
-                  <ToolbarFilterField>
-                    <span>Status</span>
-	                    <select
-	                      value={ppFilterStatus}
-	                      onChange={(e) => setPpFilterStatus(e.target.value)}
-	                    >
-	                      <option value="">Todos os status</option>
-	                      <option value="active">Ativo</option>
-	                      <option value="paused">Pausado</option>
-	                      <option value="canceled">Cancelado</option>
-	                    </select>
-                  </ToolbarFilterField>
-                </AppToolbarLeft>
-                <PrimaryButton type="button" onClick={openPpCreate}>
-                  <FaPlus /> Adicionar Paciente
-                </PrimaryButton>
-              </AppToolbar>
-
-              <TableWrap>
-                <DataTable>
-                  <thead>
-                    <tr>
-                      <TH>Paciente</TH>
-                      <TH>Plano</TH>
-                      <TH>Frequência</TH>
-                      <TH>Agenda</TH>
-                      <TH>Status</TH>
-                      <ActionTH>Detalhes</ActionTH>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {isPatientPlansLoading && (
-                      <tr>
-                        <td colSpan={6}>
-                          <DataLoadingState text="Carregando pacientes com plano..." compact />
-                        </td>
-                      </tr>
-                    )}
-                    {!isPatientPlansLoading && patientPlansError && (
-                      <tr>
-                        <td colSpan={6}>
-                          <DataLoadingState tone="error" compact>
-                            {patientPlansError}
-                          </DataLoadingState>
-                        </td>
-                      </tr>
-                    )}
-                    {!isPatientPlansLoading && !patientPlansError && displayedPatientPlans.length === 0 && (
-                      <tr>
-                        <td colSpan={6}>
-                          <Empty>Nenhum vínculo encontrado.</Empty>
-                        </td>
-                      </tr>
-                    )}
-                    {!isPatientPlansLoading && !patientPlansError && displayedPatientPlans.map((pp) => {
-	                      const si = getPatientPlanStatusInfo(pp);
-	                      const freqLabel = pp.ServicePlan?.sessions_per_week
-	                        ? `${pp.ServicePlan.sessions_per_week}x/sem`
-	                        : pp.ServicePlan?.frequency_label || "-";
-                      const agendaInfo = getPatientPlanAgendaInfo(pp, professionals);
-                      return (
-                        <tr key={pp.id}>
-                          <TD>
-                            <strong>
-                              {pp.Patient ? getPatientDisplayName(pp.Patient) : "-"}
-                            </strong>
-                          </TD>
-                          <TD>{getServicePlanDisplayName(pp.ServicePlan, "-")}</TD>
-                          <TD>{freqLabel}</TD>
-                          <TD>
-                            <StatusPill $tone={agendaInfo.tone}>{agendaInfo.label}</StatusPill>
-                          </TD>
-                          <TD>
-                            <RowStatusStack>
-                              <StatusPill $tone={si.tone}>{si.label}</StatusPill>
-                            </RowStatusStack>
-                          </TD>
-                          <ActionTD>
-                            <RowActionButton type="button" onClick={() => openPpDetails(pp)}>
-                              Detalhes
-                            </RowActionButton>
-                          </ActionTD>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </DataTable>
-              </TableWrap>
+              <PatientPlansOverview
+                overview={patientPlanOverview}
+                loading={isPatientPlansLoading}
+                error={patientPlansError}
+                view={ppView}
+                onViewChange={(nextView) => {
+                  setPpView(nextView);
+                  setPpFilterStatus("");
+                  setPpPage(1);
+                }}
+                patientSearch={ppPatientSearch}
+                onPatientSearchChange={(value) => {
+                  setPpFilterPatientId("");
+                  setPpPatientSearch(value);
+                }}
+                serviceId={ppFilterServiceId}
+                onServiceChange={(value) => {
+                  setPpFilterServiceId(value);
+                  setPpPage(1);
+                }}
+                status={ppFilterStatus}
+                onStatusChange={(value) => {
+                  setPpFilterStatus(value);
+                  setPpPage(1);
+                }}
+                agenda={ppFilterAgenda}
+                onAgendaChange={(value) => {
+                  setPpFilterAgenda(value);
+                  setPpPage(1);
+                }}
+                services={services}
+                onPageChange={setPpPage}
+                canLinkPlan={canLinkPlan}
+                onLinkPlan={openPpCreate}
+              />
             </ModuleBody>
           )}
 
@@ -5265,39 +5118,10 @@ const PlansContent = styled.div`
 
 `;
 
-const ToolbarFilterField = styled.label`
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 160px;
-  color: #354a2c;
-  font-size: 0.92rem;
-  font-weight: 700;
-
-  select {
-    min-height: 40px;
-  }
-`;
-
-const ActionTH = styled(TH)`
-  text-align: right;
-`;
-
-const ActionTD = styled(TD)`
-  text-align: right;
-`;
-
 const RowActions = styled.div`
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-`;
-
-const RowStatusStack = styled.div`
-  align-items: flex-start;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
 `;
 
 const DrawerSectionTitle = styled.h3`

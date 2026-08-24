@@ -90,7 +90,7 @@ describe("rotas de Planos no App Shell", () => {
       "aria-expanded",
       "true",
     );
-    expect(screen.getByRole("link", { name: "Pacientes com plano" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Planos" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -109,7 +109,7 @@ describe("rotas de Planos no App Shell", () => {
       expect(screen.getByRole("button", { name: "Planos" })).not.toHaveAttribute(
         "aria-current",
       );
-      expect(screen.getByRole("link", { name: "Pacientes com plano" })).toHaveAttribute(
+      expect(screen.getByRole("link", { name: "Planos" })).toHaveAttribute(
         "aria-current",
         "page",
       );
@@ -126,7 +126,7 @@ describe("rotas de Planos no App Shell", () => {
 
     expect(screen.getByRole("complementary", { name: "Navegação principal" })).toBe(sidebar);
     fireEvent.mouseEnter(sidebar);
-    expect(screen.getByRole("link", { name: "Pacientes com plano" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Planos" })).toHaveAttribute(
       "aria-current",
       "page",
     );

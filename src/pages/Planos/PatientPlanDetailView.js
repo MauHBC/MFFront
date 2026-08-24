@@ -55,7 +55,7 @@ export function PatientPlanDetailHeader({
   return (
     <DetailHeader>
       <BackButton type="button" onClick={onBack}>
-        <FaArrowLeft aria-hidden="true" /> Pacientes com plano
+        <FaArrowLeft aria-hidden="true" /> Planos
       </BackButton>
       <PatientName>{patientName || "—"}</PatientName>
       <DetailTabs role="tablist" aria-label="Seções do plano mensal">

@@ -137,6 +137,9 @@ export const updateFinancialRecurringExpense = (id, payload) =>
 export const listPatientPlans = (params) =>
   api.get('/patient-plans', { params });
 
+export const getPatientPlansOverview = (params) =>
+  api.get('/patient-plans/overview', { params });
+
 export const listServicePlans = (params) =>
   api.get('/service-plans', { params });
 
@@ -224,6 +227,7 @@ export default {
   createFinancialRecurringExpense,
   updateFinancialRecurringExpense,
   listPatientPlans,
+  getPatientPlansOverview,
   listServicePlans,
   createServicePlan,
   updateServicePlan,

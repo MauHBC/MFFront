@@ -15,7 +15,7 @@ import { createMemoryHistory } from "history";
 import { Router, Route } from "react-router-dom";
 import Planos from ".";
 import {
-  listPatientPlans,
+  getPatientPlansOverview,
   listServicePlans,
   listServicePrices,
   getPatientPlanHistory,
@@ -28,6 +28,12 @@ jest.mock("../../services/axios", () => ({
   post: jest.fn(),
   put: jest.fn(),
 }));
+jest.mock("../../contexts/AuthorizationContext", () => ({
+  useAuthorization: () => ({
+    canAccessModule: () => true,
+    hasCapability: () => true,
+  }),
+}));
 jest.mock("../../services/financial", () => ({
   listServicePlans: jest.fn(),
   createServicePlan: jest.fn(),
@@ -36,7 +42,7 @@ jest.mock("../../services/financial", () => ({
   listServicePrices: jest.fn(),
   createServicePrice: jest.fn(),
   updateServicePrice: jest.fn(),
-  listPatientPlans: jest.fn(),
+  getPatientPlansOverview: jest.fn(),
   createPatientPlan: jest.fn(),
   updatePatientPlan: jest.fn(),
   pausePatientPlan: jest.fn(),
@@ -58,6 +64,40 @@ function renderPlans(pathname = "/planos") {
   );
   return { ...result, history };
 }
+
+const overviewFor = (patientPlans = []) => ({
+  data: {
+    summary: {
+      active_plans: patientPlans.filter((plan) => plan.status === "active").length,
+      paused_plans: patientPlans.filter((plan) => plan.status === "paused").length,
+      pending_agendas: 0,
+      scope: "current_patient_service_filters",
+    },
+    groups: patientPlans.length > 0 ? [{
+      patient: {
+        id: patientPlans[0].patient_id,
+        name: patientPlans[0].Patient?.full_name || patientPlans[0].Patient?.name || "Ana",
+      },
+      plans: patientPlans.map((plan) => ({
+        patient_plan_id: plan.id,
+        commercial_name: plan.ServicePlan?.name || "Plano",
+        service_id: plan.ServicePlan?.service_id || 7,
+        sessions_per_week: plan.ServicePlan?.sessions_per_week || null,
+        frequency_label: plan.ServicePlan?.frequency_label || null,
+        agenda_state: plan.agenda_summary?.status === "not_configured" ? "pending" : "configured",
+        status: plan.status,
+        starts_at: plan.starts_at || null,
+      })),
+    }] : [],
+    page_info: {
+      page: 1,
+      page_size: 25,
+      total_groups: patientPlans.length > 0 ? 1 : 0,
+      total_plans: patientPlans.length,
+      total_pages: patientPlans.length > 0 ? 1 : 0,
+    },
+  },
+});
 
 describe("Planos no contêiner do App Shell", () => {
   beforeEach(() => {
@@ -90,8 +130,7 @@ describe("Planos no contêiner do App Shell", () => {
         Service: { id: 7, name: "Fisioterapia" },
       }],
     });
-    listPatientPlans.mockResolvedValue({
-      data: [{
+    getPatientPlansOverview.mockResolvedValue(overviewFor([{
         id: 41,
         patient_id: 11,
         service_plan_id: 31,
@@ -102,8 +141,7 @@ describe("Planos no contêiner do App Shell", () => {
           name: "Mensal 2x",
           sessions_per_week: 2,
         },
-      }],
-    });
+      }]));
     getPatientPlanHistory.mockResolvedValue({
       data: { events: [], page_info: { has_more: false, next_cursor: null } },
     });
@@ -118,16 +156,16 @@ describe("Planos no contêiner do App Shell", () => {
     renderPlans();
 
     expect(screen.queryByRole("tablist", { name: "Seções de Planos" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Pacientes com plano" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Planos" })).toBeInTheDocument();
     expect(await screen.findByText("Ana")).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Nome do paciente"), {
       target: { value: "inexistente" },
     });
 
-    await waitFor(() => {
-      expect(screen.getByText("Nenhum vínculo encontrado.")).toBeInTheDocument();
-    });
+    await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith(
+      expect.objectContaining({ patient_query: "inexistente" }),
+    ));
   });
 
   it("preserva planos mensais e serviços como destinos controlados pela rota", async () => {
@@ -146,6 +184,25 @@ describe("Planos no contêiner do App Shell", () => {
       expect(screen.getByRole("heading", { name: "Serviços" })).toBeInTheDocument();
     });
     expect((await screen.findAllByText("Fisioterapia")).length).toBeGreaterThan(0);
+  });
+
+  it("consulta o read-model ao alternar visão e filtros operacionais", async () => {
+    renderPlans();
+    expect((await screen.findAllByText("Mensal 2x")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Encerrados" }));
+    fireEvent.change(screen.getByLabelText("Serviço"), { target: { value: "7" } });
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "canceled" } });
+    fireEvent.change(screen.getByLabelText("Agenda"), { target: { value: "pending" } });
+
+    await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
+      view: "closed",
+      page: 1,
+      page_size: 25,
+      service_id: "7",
+      status: "canceled",
+      agenda: "pending",
+    }));
   });
 
   it("exige confirmação explícita antes de enviar pausa retroativa", async () => {
@@ -571,7 +628,7 @@ describe("Planos no contêiner do App Shell", () => {
         future_sessions_count: 0,
       },
     };
-    listPatientPlans.mockResolvedValue({ data: [patientPlan] });
+    getPatientPlansOverview.mockResolvedValue(overviewFor([patientPlan]));
     listServicePlans.mockResolvedValue({ data: [patientPlan.ServicePlan] });
     axios.get.mockImplementation((url) => {
       if (url === "/services") {
@@ -613,7 +670,7 @@ describe("Planos no contêiner do App Shell", () => {
     axios.post.mockResolvedValue({ data: { total_created: 4, total_skipped: 0 } });
 
     renderPlans();
-    fireEvent.click(await screen.findByRole("button", { name: "Detalhes" }));
+    fireEvent.click(await screen.findByRole("link", { name: /Mensal 1x de Ana/i }));
     expect(await screen.findByRole("heading", { name: "Ana Silva" }))
       .toBeInTheDocument();
     await waitFor(() => expect(axios.get).toHaveBeenCalledWith("/patient-plans/41/admin-summary"));
@@ -698,7 +755,7 @@ describe("Planos no contêiner do App Shell", () => {
         future_sessions_count: 0,
       },
     };
-    listPatientPlans.mockResolvedValue({ data: [patientPlan] });
+    getPatientPlansOverview.mockResolvedValue(overviewFor([patientPlan]));
     listServicePlans.mockResolvedValue({ data: [patientPlan.ServicePlan] });
     axios.get.mockImplementation((url) => {
       if (url === "/services") {
@@ -748,7 +805,7 @@ describe("Planos no contêiner do App Shell", () => {
     } } });
 
     renderPlans();
-    fireEvent.click(await screen.findByRole("button", { name: "Detalhes" }));
+    fireEvent.click(await screen.findByRole("link", { name: /Fisioterapia 1x de Ana/i }));
     expect(await screen.findByRole("heading", { name: "Ana Silva" })).toBeInTheDocument();
     await waitFor(() => expect(axios.get).toHaveBeenCalledWith("/patient-plans/41/admin-summary"));
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));

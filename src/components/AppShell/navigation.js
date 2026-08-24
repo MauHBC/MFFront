@@ -74,7 +74,7 @@ const navigationItems = [
     children: [
       {
         key: "plans-patients",
-        label: "Pacientes com plano",
+        label: "Planos",
         path: "/planos?tab=patient-plans",
         isActive: ({ pathname, searchParams }) => (
           pathname.startsWith("/planos/pacientes/")

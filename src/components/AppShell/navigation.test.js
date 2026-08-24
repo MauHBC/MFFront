@@ -63,7 +63,7 @@ describe("AppShell navigation", () => {
     ]);
     expect(patients.children).toBeUndefined();
     expect(plans.children.map(({ label, path }) => ({ label, path }))).toEqual([
-      { label: "Pacientes com plano", path: "/planos?tab=patient-plans" },
+      { label: "Planos", path: "/planos?tab=patient-plans" },
       { label: "Planos mensais", path: "/planos?tab=service-plans" },
       { label: "Serviços", path: "/planos?tab=services" },
     ]);

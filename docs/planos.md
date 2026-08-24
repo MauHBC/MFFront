@@ -5,6 +5,40 @@ Planos e dos contratos de Agenda mensal consumidos por ela. As regras de
 negócio continuam canônicas no MFBackend, conforme a ponte
 [Regras de negócio](regras-negocio.md).
 
+## Visão operacional
+
+A entrada “Planos” consome `GET /patient-plans/overview`. A visão `Atuais`
+contém vínculos `active` e `paused`; `Encerrados` contém somente `canceled`.
+Paciente, serviço, status e situação da Agenda são filtros server-side. A busca
+textual do paciente é enviada com debounce, e qualquer mudança de visão ou
+filtro volta para a primeira página.
+
+O Backend devolve grupos já paginados por paciente. O Frontend não agrupa uma
+página de vínculos individualmente: cada paciente aparece uma vez e todos os
+seus `PatientPlans` filtrados permanecem juntos. O resumo compacto usa
+diretamente `active_plans`, `paused_plans` e `pending_agendas`; nenhuma métrica é
+recalculada a partir da página visível.
+
+Cada linha representa um `patient_plan_id` e é um link completo para
+`/planos/pacientes/:patientPlanId`. O mesmo padrão compartilhado de superfície
+interativa da lista de Pacientes fornece hover, cursor e foco visível. Enter é
+nativo do link e Space aciona o mesmo destino. Não existe ação paralela
+“Detalhes” ou “Gerenciar”.
+
+Em telas estreitas, as colunas viram blocos empilhados dentro da mesma linha,
+sem tabela com rolagem horizontal. Estados de carregamento, erro, resultado
+vazio global e resultado vazio por filtro/visão são distintos.
+
+`Agenda pendente` é apresentada exatamente a partir de `agenda_state` da API.
+A interface não consulta nem conta sessões futuras. O nome comercial é a
+informação principal; frequência contratada aparece como subtítulo somente
+quando não estiver semanticamente contida no nome, evitando a antiga coluna
+redundante.
+
+A ação primária é “Vincular plano”, porque o fluxo cria um vínculo mensal para
+um paciente existente ou criado durante o próprio fluxo. Ela respeita as
+capacidades de edição/contratação de Planos já aplicadas às demais mutações.
+
 ## Agenda atual e futura
 
 O Frontend apresenta a Agenda vigente e uma alteração futura como estados

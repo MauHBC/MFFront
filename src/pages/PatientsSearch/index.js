@@ -16,6 +16,7 @@ import axios from "../../services/axios";
 import DataLoadingState from "../../components/DataLoadingState";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { ModuleHeader, ModuleTitle } from "../../components/AppModuleShell";
+import { InteractiveListRowSurface } from "../../components/InteractiveListRow";
 import { getPatientDisplayName, getPatientSearchText } from "../../utils/patientSearch";
 
 const PATIENTS_PER_PAGE = 10;
@@ -583,29 +584,12 @@ const List = styled.div`
   gap: 10px;
 `;
 
-const ListItem = styled.div`
-  background: #fff;
-  border: 1px solid rgba(106, 121, 92, 0.18);
-  border-radius: 12px;
+const ListItem = styled(InteractiveListRowSurface)`
   padding: 10px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  cursor: ${(props) => (props.$clickable ? "pointer" : "default")};
-  transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
-
-  &:hover,
-  &:focus-within {
-    background: rgba(162, 177, 144, 0.12);
-    border-color: rgba(106, 121, 92, 0.42);
-    box-shadow: 0 6px 16px rgba(106, 121, 92, 0.18);
-  }
-
-  &:focus-visible {
-    outline: 3px solid rgba(106, 121, 92, 0.28);
-    outline-offset: 2px;
-  }
 
   @media (max-width: 620px) {
     flex-direction: column;
