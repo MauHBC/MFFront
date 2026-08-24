@@ -29,11 +29,10 @@ export const EMPTY_PATIENT_PLAN_OVERVIEW = {
     pending_agendas: 0,
     scope: "current_patient_service_filters",
   },
-  groups: [],
+  items: [],
   page_info: {
     page: 1,
-    page_size: 25,
-    total_groups: 0,
+    page_size: 10,
     total_plans: 0,
     total_pages: 0,
   },
@@ -57,15 +56,15 @@ export default function PatientPlansOverview({
   onLinkPlan,
 }) {
   const data = overview || EMPTY_PATIENT_PLAN_OVERVIEW;
-  const { summary, groups, page_info: pageInfo } = data;
+  const { summary, items, page_info: pageInfo } = data;
   const hasFilters = Boolean(patientSearch.trim() || serviceId || status || agenda);
   const isCanceledFilter = status === "canceled";
-  const firstGroup = pageInfo.total_groups === 0
+  const firstItem = pageInfo.total_plans === 0
     ? 0
     : ((pageInfo.page - 1) * pageInfo.page_size) + 1;
-  const lastGroup = Math.min(
+  const lastItem = Math.min(
     pageInfo.page * pageInfo.page_size,
-    pageInfo.total_groups,
+    pageInfo.total_plans,
   );
 
   let emptyText = "Nenhum plano atual encontrado.";
@@ -75,11 +74,20 @@ export default function PatientPlansOverview({
   return (
     <OverviewRoot>
       <OperationalSummary aria-label="Resumo operacional de Planos">
-        <strong>{summary.active_plans}</strong> ativos
+        <SummaryMetric $muted={summary.active_plans === 0}>
+          <strong>{summary.active_plans}</strong> ativos
+        </SummaryMetric>
         <SummaryDivider aria-hidden="true">·</SummaryDivider>
-        <strong>{summary.paused_plans}</strong> pausados
+        <SummaryMetric $muted={summary.paused_plans === 0}>
+          <strong>{summary.paused_plans}</strong> pausados
+        </SummaryMetric>
         <SummaryDivider aria-hidden="true">·</SummaryDivider>
-        <strong>{summary.pending_agendas}</strong> agendas pendentes
+        <SummaryMetric
+          $attention={summary.pending_agendas > 0}
+          $muted={summary.pending_agendas === 0}
+        >
+          <strong>{summary.pending_agendas}</strong> agendas pendentes
+        </SummaryMetric>
       </OperationalSummary>
 
       <Filters aria-label="Filtros de Planos">
@@ -134,7 +142,7 @@ export default function PatientPlansOverview({
       {!loading && error && (
         <DataLoadingState tone="error" compact>{error}</DataLoadingState>
       )}
-      {!loading && !error && groups.length === 0 && (
+      {!loading && !error && items.length === 0 && (
         <EmptyState>
           <span>{emptyText}</span>
           {!isCanceledFilter && !hasFilters && canLinkPlan && (
@@ -144,63 +152,67 @@ export default function PatientPlansOverview({
           )}
         </EmptyState>
       )}
-      {!loading && !error && groups.length > 0 && (
-        <Groups>
-          {groups.map((group) => {
-            const headingId = `patient-plan-group-${group.patient.id}`;
-            return (
-              <PatientGroup key={group.patient.id} aria-labelledby={headingId}>
-                <PatientHeading id={headingId}>{group.patient.name}</PatientHeading>
-                <PlanRows>
-                  {group.plans.map((plan) => {
-                    const agendaInfo = getOverviewAgendaPresentation(plan.agenda_state);
-                    const statusInfo = getOverviewStatusPresentation(plan.status);
-                    const frequencySubtitle = getPlanFrequencySubtitle(plan);
-                    return (
-                      <PlanRow
-                        as={Link}
-                        key={plan.patient_plan_id}
-                        to={`/planos/pacientes/${plan.patient_plan_id}`}
-                        $clickable
-                        aria-label={`${plan.commercial_name} de ${group.patient.name}. Agenda ${agendaInfo.label}. Status ${statusInfo.label}.`}
-                        onKeyDown={(event) => {
-                          if (event.key === " ") {
-                            event.preventDefault();
-                            event.currentTarget.click();
-                          }
-                        }}
-                      >
-                        <PlanIdentity>
-                          <strong>{plan.commercial_name}</strong>
-                          {frequencySubtitle && <small>{frequencySubtitle}</small>}
-                        </PlanIdentity>
-                        <RowDatum>
-                          <MobileLabel>Agenda</MobileLabel>
-                          <AgendaState
-                            $attention={plan.agenda_state === "pending"}
-                            $tone={agendaInfo.tone}
-                          >
-                            <DesktopAgendaPrefix>Agenda </DesktopAgendaPrefix>
-                            {agendaInfo.label}
-                          </AgendaState>
-                        </RowDatum>
-                        <RowDatum>
-                          <MobileLabel>Status</MobileLabel>
-                          <StatusPill $tone={statusInfo.tone}>{statusInfo.label}</StatusPill>
-                        </RowDatum>
-                      </PlanRow>
-                    );
-                  })}
-                </PlanRows>
-              </PatientGroup>
-            );
-          })}
-        </Groups>
+      {!loading && !error && items.length > 0 && (
+        <PlanList>
+          <ListHeader aria-label="Colunas da lista de Planos">
+            <span>Paciente</span>
+            <span>Plano</span>
+            <span>Agenda</span>
+            <span>Status</span>
+          </ListHeader>
+          <PlanRows>
+            {items.map((plan) => {
+              const agendaInfo = getOverviewAgendaPresentation(plan.agenda_state);
+              const statusInfo = getOverviewStatusPresentation(plan.status);
+              const frequencySubtitle = getPlanFrequencySubtitle(plan);
+              return (
+                <PlanRow
+                  as={Link}
+                  key={plan.patient_plan_id}
+                  to={`/planos/pacientes/${plan.patient_plan_id}`}
+                  $clickable
+                  aria-label={`${plan.patient.name}. ${plan.commercial_name}. Agenda ${agendaInfo.label}. Status ${statusInfo.label}.`}
+                  onKeyDown={(event) => {
+                    if (event.key === " ") {
+                      event.preventDefault();
+                      event.currentTarget.click();
+                    }
+                  }}
+                >
+                  <PatientIdentity>
+                    <MobileLabel>Paciente</MobileLabel>
+                    <strong>{plan.patient.name}</strong>
+                  </PatientIdentity>
+                  <PlanIdentity>
+                    <MobileLabel>Plano</MobileLabel>
+                    <strong>{plan.commercial_name}</strong>
+                    {frequencySubtitle && <small>{frequencySubtitle}</small>}
+                  </PlanIdentity>
+                  <RowDatum>
+                    <MobileLabel>Agenda</MobileLabel>
+                    <AgendaState
+                      $attention={plan.agenda_state === "pending"}
+                      $tone={agendaInfo.tone}
+                    >
+                      {agendaInfo.label}
+                    </AgendaState>
+                  </RowDatum>
+                  <RowDatum>
+                    <MobileLabel>Status</MobileLabel>
+                    <StatusPill $tone={statusInfo.tone}>{statusInfo.label}</StatusPill>
+                  </RowDatum>
+                </PlanRow>
+              );
+            })}
+          </PlanRows>
+        </PlanList>
       )}
 
-      {!loading && !error && pageInfo.total_groups > 0 && (
-        <Pagination aria-label="Paginação de pacientes com Planos">
-          <span>{firstGroup}–{lastGroup} de {pageInfo.total_groups} pacientes</span>
+      {!loading && !error && pageInfo.total_plans > 0 && (
+        <Pagination aria-label="Paginação de Planos">
+          <PaginationInfo>
+            Mostrando {firstItem}-{lastItem} de {pageInfo.total_plans}
+          </PaginationInfo>
           <PaginationActions>
             <PaginationButton
               type="button"
@@ -233,19 +245,17 @@ PatientPlansOverview.propTypes = {
       paused_plans: PropTypes.number,
       pending_agendas: PropTypes.number,
     }),
-    groups: PropTypes.arrayOf(PropTypes.shape({
+    items: PropTypes.arrayOf(PropTypes.shape({
       patient: PropTypes.shape({
         id: PropTypes.number,
         name: PropTypes.string,
       }),
-      plans: PropTypes.arrayOf(PropTypes.shape({
-        patient_plan_id: PropTypes.number,
-      })),
+      patient_plan_id: PropTypes.number,
     })),
     page_info: PropTypes.shape({
       page: PropTypes.number,
       page_size: PropTypes.number,
-      total_groups: PropTypes.number,
+      total_plans: PropTypes.number,
       total_pages: PropTypes.number,
     }),
   }).isRequired,
@@ -275,12 +285,22 @@ const OverviewRoot = styled.div`
 
 const OperationalSummary = styled.p`
   color: ${colors.textSecondary};
+  display: flex;
   font-size: ${fontSizes.body};
+  flex-wrap: wrap;
   margin: 0;
+`;
+
+const SummaryMetric = styled.span`
+  color: ${(props) => {
+    if (props.$attention) return colors.pausedText;
+    if (props.$muted) return colors.textMuted;
+    return colors.textSecondary;
+  }};
 
   strong {
-    color: ${colors.textPrimary};
-    font-weight: 800;
+    color: inherit;
+    font-weight: ${(props) => (props.$muted ? 600 : 800)};
   }
 `;
 
@@ -297,7 +317,10 @@ const Filters = styled.div`
 `;
 
 const PatientFilter = styled(PatientSearchField)`
+  color: ${colors.brandDark};
   flex: 1 1 320px;
+  font-size: ${fontSizes.compact};
+  font-weight: 700;
   max-width: 480px;
   min-width: 280px;
 
@@ -327,28 +350,29 @@ const FilterField = styled.label`
   }
 `;
 
-const Groups = styled.div`
-  display: grid;
-  gap: 18px;
-`;
-
-const PatientGroup = styled.section`
+const PlanList = styled.div`
   display: grid;
   gap: 4px;
 `;
 
-const PatientHeading = styled.h2`
-  color: ${colors.textPrimary};
-  font-size: 1.06rem;
-  font-weight: 800;
-  margin: 0;
-  padding: 0 2px;
+const ListHeader = styled.div`
+  color: ${colors.textMuted};
+  display: grid;
+  font-size: ${fontSizes.tiny};
+  font-weight: 700;
+  gap: 16px;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.25fr) 140px 120px;
+  padding: 0 12px 4px;
+  text-transform: uppercase;
+
+  @media (max-width: 720px) {
+    display: none;
+  }
 `;
 
 const PlanRows = styled.div`
   display: grid;
   gap: 2px;
-  margin-left: 10px;
 `;
 
 const PlanRow = styled(InteractiveListRowSurface)`
@@ -360,9 +384,9 @@ const PlanRow = styled(InteractiveListRowSurface)`
   box-shadow: none;
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(0, 1fr) 140px 120px;
-  min-height: 44px;
-  padding: 6px 12px;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.25fr) 140px 120px;
+  min-height: 48px;
+  padding: 7px 12px;
 
   &:hover,
   &:focus-within {
@@ -374,6 +398,22 @@ const PlanRow = styled(InteractiveListRowSurface)`
     gap: 10px;
     grid-template-columns: 1fr 1fr;
     padding: 8px 10px;
+  }
+`;
+
+const PatientIdentity = styled.div`
+  min-width: 0;
+
+  strong {
+    color: ${colors.textPrimary};
+    display: block;
+    font-size: 0.95rem;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 720px) {
+    grid-column: 1 / -1;
   }
 `;
 
@@ -414,12 +454,6 @@ const AgendaState = styled(StatusPill)`
   padding: ${(props) => (props.$attention ? "3px 9px" : "3px 0")};
 `;
 
-const DesktopAgendaPrefix = styled.span`
-  @media (max-width: 720px) {
-    display: none;
-  }
-`;
-
 const MobileLabel = styled.span`
   color: ${colors.textMuted};
   display: none;
@@ -448,32 +482,41 @@ const EmptyState = styled.div`
 
 const Pagination = styled.nav`
   align-items: center;
-  color: ${colors.textSecondary};
+  color: ${colors.brand};
   display: flex;
-  font-size: ${fontSizes.compact};
-  gap: 16px;
+  gap: 14px;
   justify-content: space-between;
+  margin-top: 18px;
 
-  @media (max-width: 640px) {
+  @media (max-width: 620px) {
     align-items: stretch;
     flex-direction: column;
   }
+`;
+
+const PaginationInfo = styled.span`
+  font-size: 0.92rem;
 `;
 
 const PaginationActions = styled.div`
   align-items: center;
   display: flex;
   gap: 8px;
+
+  @media (max-width: 620px) {
+    justify-content: space-between;
+  }
 `;
 
 const PaginationButton = styled.button`
   background: ${colors.surface};
-  border: 1px solid ${alpha.brand022};
-  border-radius: ${radii.sm};
+  border: 1px solid ${alpha.brand030};
+  border-radius: ${radii.md};
   color: ${colors.brand};
   cursor: pointer;
   font-weight: 700;
-  padding: 7px 11px;
+  min-width: 92px;
+  padding: 9px 12px;
 
   &:disabled {
     background: ${colors.disabledBackground};
@@ -481,13 +524,17 @@ const PaginationButton = styled.button`
     cursor: not-allowed;
   }
 
-  &:focus-visible {
-    outline: 2px solid ${colors.focus};
-    outline-offset: 2px;
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible {
+    border-color: rgba(106, 121, 92, 0.55);
+    box-shadow: 0 0 0 3px ${alpha.brand014};
+    outline: none;
   }
 `;
 
 const PaginationPage = styled.span`
-  min-width: 112px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  min-width: 108px;
   text-align: center;
 `;

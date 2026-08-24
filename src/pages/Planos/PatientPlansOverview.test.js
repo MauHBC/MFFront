@@ -13,37 +13,43 @@ const overview = {
     pending_agendas: 3,
     scope: "current_patient_service_filters",
   },
-  groups: [
+  items: [
     {
-      patient: { id: 1, name: "Flávia de Souza da Ros", nickname: "Flávia" },
-      plans: [
-        {
-          patient_plan_id: 101,
-          commercial_name: "Pilates 2x na semana",
-          service_id: 1,
-          sessions_per_week: 2,
-          frequency_label: "2x por semana",
-          agenda_state: "configured",
-          status: "active",
-        },
-        {
-          patient_plan_id: 102,
-          commercial_name: "Funcional recorrente",
-          service_id: 2,
-          sessions_per_week: 2,
-          frequency_label: "2x por semana",
-          agenda_state: "pending",
-          status: "paused",
-        },
-      ],
+      patient: { id: 1, name: "Alda Borges", nickname: "Alda" },
+      patient_plan_id: 100,
+      commercial_name: "Pilates 2x na semana",
+      service_id: 1,
+      sessions_per_week: 2,
+      frequency_label: "2x por semana",
+      agenda_state: "configured",
+      status: "active",
+    },
+    {
+      patient: { id: 2, name: "Carla FerreiraA", nickname: "Carla" },
+      patient_plan_id: 101,
+      commercial_name: "Pilates 2x na semana",
+      service_id: 1,
+      sessions_per_week: 2,
+      frequency_label: "2x por semana",
+      agenda_state: "configured",
+      status: "active",
+    },
+    {
+      patient: { id: 2, name: "Carla FerreiraA", nickname: "Carla" },
+      patient_plan_id: 102,
+      commercial_name: "Funcional recorrente",
+      service_id: 2,
+      sessions_per_week: 2,
+      frequency_label: "2x por semana",
+      agenda_state: "pending",
+      status: "paused",
     },
   ],
   page_info: {
     page: 1,
-    page_size: 25,
-    total_groups: 42,
+    page_size: 10,
     total_plans: 43,
-    total_pages: 2,
+    total_pages: 5,
   },
 };
 
@@ -84,7 +90,7 @@ beforeEach(() => {
   });
 });
 
-it("renderiza resumo compacto, status padrão e paciente uma única vez", () => {
+it("renderiza resumo, status padrão e uma linha por PatientPlan", () => {
   renderOverview();
   const summary = screen.getByLabelText("Resumo operacional de Planos");
   expect(summary).toHaveTextContent("38 ativos");
@@ -96,14 +102,24 @@ it("renderiza resumo compacto, status padrão e paciente uma única vez", () => 
   expect(screen.getByLabelText("Status")).toHaveValue("");
   expect(screen.getByRole("option", { name: "Ativos e pausados" })).toBeInTheDocument();
   expect(screen.queryByRole("option", { name: /Todos os status/i })).not.toBeInTheDocument();
-  expect(screen.getAllByRole("heading", { name: "Flávia de Souza da Ros" })).toHaveLength(1);
-  expect(screen.getAllByRole("link")).toHaveLength(2);
+  expect(screen.getAllByText("Alda Borges")).toHaveLength(1);
+  expect(screen.getAllByText("Carla FerreiraA")).toHaveLength(2);
+  expect(screen.getAllByRole("link")).toHaveLength(3);
+  expect(screen.getAllByRole("link", { name: /Agenda Configurada/i })).toHaveLength(2);
+  expect(screen.getByRole("link", { name: /Agenda Pendente/i })).toBeInTheDocument();
+  expect(screen.queryByText(/Agenda Configurada/i)).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Alda Borges.*Pilates/i }))
+    .toHaveAttribute("href", "/planos/pacientes/100");
+  expect(screen.getByRole("link", { name: /Carla FerreiraA.*Pilates/i }))
+    .toHaveAttribute("href", "/planos/pacientes/101");
+  expect(screen.getByRole("link", { name: /Carla FerreiraA.*Funcional/i }))
+    .toHaveAttribute("href", "/planos/pacientes/102");
 });
 
 it("usa a linha inteira como link e aceita Space", () => {
   const history = renderOverview();
   const funcional = screen.getByRole("link", {
-    name: /Funcional recorrente de Flávia.*Agenda Pendente.*Status Pausado/i,
+    name: /Carla FerreiraA.*Funcional recorrente.*Agenda Pendente.*Status Pausado/i,
   });
   expect(funcional).toHaveAttribute("href", "/planos/pacientes/102");
   funcional.focus();
@@ -115,8 +131,11 @@ it("usa a linha inteira como link e aceita Space", () => {
 
 it("não duplica frequência no nome e preserva subtítulo quando necessário", () => {
   renderOverview();
-  const pilates = screen.getByText("Pilates 2x na semana").closest("a");
-  expect(within(pilates).queryByText("2x por semana")).not.toBeInTheDocument();
+  const pilatesRows = screen.getAllByText("Pilates 2x na semana")
+    .map((element) => element.closest("a"));
+  pilatesRows.forEach((row) => {
+    expect(within(row).queryByText("2x por semana")).not.toBeInTheDocument();
+  });
   const funcional = screen.getByText("Funcional recorrente").closest("a");
   expect(within(funcional).getByText("2x por semana")).toBeInTheDocument();
 });
@@ -137,18 +156,23 @@ it("expõe filtros acessíveis e todas as opções operacionais de Status", () =
   expect(screen.getByRole("option", { name: "Cancelados" })).toBeInTheDocument();
 });
 
-it("remove o cabeçalho tabular e mantém dois planos no mesmo grupo", () => {
+it("mostra um cabeçalho único e não cria agrupamento por paciente", () => {
   renderOverview();
-  expect(screen.queryByLabelText("Colunas da lista de Planos")).not.toBeInTheDocument();
+  const header = screen.getByLabelText("Colunas da lista de Planos");
+  expect(within(header).getByText("Paciente")).toBeInTheDocument();
+  expect(within(header).getByText("Plano")).toBeInTheDocument();
+  expect(within(header).getByText("Agenda")).toBeInTheDocument();
+  expect(within(header).getByText("Status")).toBeInTheDocument();
+  expect(screen.getAllByLabelText("Colunas da lista de Planos")).toHaveLength(1);
   expect(screen.queryByText(/^Plano comercial$/i)).not.toBeInTheDocument();
-
-  const group = screen.getByRole("heading", { name: "Flávia de Souza da Ros" }).closest("section");
-  expect(within(group).getAllByRole("link")).toHaveLength(2);
+  expect(screen.queryByRole("heading", { name: "Carla FerreiraA" })).not.toBeInTheDocument();
+  expect(screen.getAllByText("Carla FerreiraA")).toHaveLength(2);
 });
 
-it("pagina por pacientes com informação coerente", () => {
+it("pagina PatientPlans com o padrão textual de Pacientes", () => {
   renderOverview();
-  expect(screen.getByText("1–25 de 42 pacientes")).toBeInTheDocument();
+  expect(screen.getByText("Mostrando 1-10 de 43")).toBeInTheDocument();
+  expect(screen.getByText("Página 1 de 5")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Próxima" }));
   expect(defaultProps.onPageChange).toHaveBeenCalledWith(2);
 });
@@ -161,8 +185,8 @@ it.each([
   renderOverview({
     overview: {
       ...overview,
-      groups: [],
-      page_info: { ...overview.page_info, total_groups: 0, total_plans: 0, total_pages: 0 },
+      items: [],
+      page_info: { ...overview.page_info, total_plans: 0, total_pages: 0 },
     },
     status,
     patientSearch,

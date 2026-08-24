@@ -15,24 +15,27 @@ sem alterar o contrato da API. Paciente, serviço, status e situação da Agenda
 são filtros server-side. A busca textual do paciente é enviada com debounce, e
 qualquer mudança de filtro volta para a primeira página.
 
-O Backend devolve grupos já paginados por paciente. O Frontend não agrupa uma
-página de vínculos individualmente: cada paciente aparece uma vez e todos os
-seus `PatientPlans` filtrados permanecem juntos. O resumo compacto usa
+O Backend devolve uma coleção plana já filtrada e paginada por `PatientPlan`.
+Cada item contém o paciente como contexto; por isso, o mesmo paciente aparece
+em mais de uma linha quando possui mais de um vínculo. O resumo compacto usa
 diretamente `active_plans`, `paused_plans` e `pending_agendas`; nenhuma métrica é
 recalculada a partir da página visível.
 
-Não há cabeçalho tabular na lista. Os pacientes são cabeçalhos tipográficos dos
-grupos e seus contratos aparecem abaixo como linhas compactas, com Agenda mais
-discreta que o Status e destaque de atenção preservado para pendências. Cada
-linha representa um `patient_plan_id` e é um link completo para
+Uma única linha de cabeçalho secundária apresenta Paciente, Plano, Agenda e
+Status. Cada `PatientPlan` ocupa uma linha compacta que faz sentido isoladamente:
+o paciente é a identificação principal, o plano é o segundo elemento relevante,
+Agenda configurada é discreta e Agenda pendente preserva o destaque de atenção.
+Cada linha representa um `patient_plan_id` e é um link completo para
 `/planos/pacientes/:patientPlanId`. O mesmo padrão compartilhado de superfície
 interativa da lista de Pacientes fornece hover, cursor e foco visível. Enter é
 nativo do link e Space aciona o mesmo destino. Não existe ação paralela
 “Detalhes” ou “Gerenciar”.
 
 Em telas estreitas, as colunas viram blocos empilhados dentro da mesma linha,
-sem tabela com rolagem horizontal. Estados de carregamento, erro, resultado
-vazio global e resultado vazio por filtro/visão são distintos.
+o cabeçalho global é ocultado e não há tabela com rolagem horizontal. A
+paginação segue os limites, textos, controles e comportamento visual da lista
+de Pacientes, com dez `PatientPlans` por página. Estados de carregamento, erro,
+resultado vazio global e resultado vazio por filtro/visão são distintos.
 
 `Agenda pendente` é apresentada exatamente a partir de `agenda_state` da API.
 A interface não consulta nem conta sessões futuras. O nome comercial é a

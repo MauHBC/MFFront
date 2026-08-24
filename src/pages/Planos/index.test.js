@@ -73,26 +73,23 @@ const overviewFor = (patientPlans = []) => ({
       pending_agendas: 0,
       scope: "current_patient_service_filters",
     },
-    groups: patientPlans.length > 0 ? [{
+    items: patientPlans.map((plan) => ({
       patient: {
-        id: patientPlans[0].patient_id,
-        name: patientPlans[0].Patient?.full_name || patientPlans[0].Patient?.name || "Ana",
+        id: plan.patient_id,
+        name: plan.Patient?.full_name || plan.Patient?.name || "Ana",
       },
-      plans: patientPlans.map((plan) => ({
-        patient_plan_id: plan.id,
-        commercial_name: plan.ServicePlan?.name || "Plano",
-        service_id: plan.ServicePlan?.service_id || 7,
-        sessions_per_week: plan.ServicePlan?.sessions_per_week || null,
-        frequency_label: plan.ServicePlan?.frequency_label || null,
-        agenda_state: plan.agenda_summary?.status === "not_configured" ? "pending" : "configured",
-        status: plan.status,
-        starts_at: plan.starts_at || null,
-      })),
-    }] : [],
+      patient_plan_id: plan.id,
+      commercial_name: plan.ServicePlan?.name || "Plano",
+      service_id: plan.ServicePlan?.service_id || 7,
+      sessions_per_week: plan.ServicePlan?.sessions_per_week || null,
+      frequency_label: plan.ServicePlan?.frequency_label || null,
+      agenda_state: plan.agenda_summary?.status === "not_configured" ? "pending" : "configured",
+      status: plan.status,
+      starts_at: plan.starts_at || null,
+    })),
     page_info: {
       page: 1,
-      page_size: 25,
-      total_groups: patientPlans.length > 0 ? 1 : 0,
+      page_size: 10,
       total_plans: patientPlans.length,
       total_pages: patientPlans.length > 0 ? 1 : 0,
     },
@@ -197,10 +194,9 @@ describe("Planos no contêiner do App Shell", () => {
     }]);
     paginatedOverview.data.page_info = {
       page: 1,
-      page_size: 25,
-      total_groups: 30,
+      page_size: 10,
       total_plans: 31,
-      total_pages: 2,
+      total_pages: 4,
     };
     getPatientPlansOverview.mockResolvedValue(paginatedOverview);
     renderPlans();
@@ -209,7 +205,7 @@ describe("Planos no contêiner do App Shell", () => {
     await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
       view: "current",
       page: 1,
-      page_size: 25,
+      page_size: 10,
     }));
     expect(screen.getByLabelText("Status")).toHaveValue("");
 
@@ -218,7 +214,7 @@ describe("Planos no contêiner do App Shell", () => {
     await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
       view: "current",
       page: 1,
-      page_size: 25,
+      page_size: 10,
       service_id: "7",
       agenda: "pending",
     }));
@@ -226,7 +222,7 @@ describe("Planos no contêiner do App Shell", () => {
     await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
       view: "current",
       page: 2,
-      page_size: 25,
+      page_size: 10,
       service_id: "7",
       agenda: "pending",
     }));
@@ -235,7 +231,7 @@ describe("Planos no contêiner do App Shell", () => {
     await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
       view: "current",
       page: 1,
-      page_size: 25,
+      page_size: 10,
       service_id: "7",
       status: "active",
       agenda: "pending",
@@ -245,7 +241,7 @@ describe("Planos no contêiner do App Shell", () => {
     await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
       view: "current",
       page: 1,
-      page_size: 25,
+      page_size: 10,
       service_id: "7",
       status: "paused",
       agenda: "pending",
@@ -256,7 +252,7 @@ describe("Planos no contêiner do App Shell", () => {
     await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
       view: "closed",
       page: 1,
-      page_size: 25,
+      page_size: 10,
       service_id: "7",
       status: "canceled",
       agenda: "pending",
@@ -728,7 +724,7 @@ describe("Planos no contêiner do App Shell", () => {
     axios.post.mockResolvedValue({ data: { total_created: 4, total_skipped: 0 } });
 
     renderPlans();
-    fireEvent.click(await screen.findByRole("link", { name: /Mensal 1x de Ana/i }));
+    fireEvent.click(await screen.findByRole("link", { name: /Ana.*Mensal 1x/i }));
     expect(await screen.findByRole("heading", { name: "Ana Silva" }))
       .toBeInTheDocument();
     await waitFor(() => expect(axios.get).toHaveBeenCalledWith("/patient-plans/41/admin-summary"));
@@ -863,7 +859,7 @@ describe("Planos no contêiner do App Shell", () => {
     } } });
 
     renderPlans();
-    fireEvent.click(await screen.findByRole("link", { name: /Fisioterapia 1x de Ana/i }));
+    fireEvent.click(await screen.findByRole("link", { name: /Ana.*Fisioterapia 1x/i }));
     expect(await screen.findByRole("heading", { name: "Ana Silva" })).toBeInTheDocument();
     await waitFor(() => expect(axios.get).toHaveBeenCalledWith("/patient-plans/41/admin-summary"));
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));

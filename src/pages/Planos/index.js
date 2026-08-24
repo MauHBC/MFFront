@@ -919,7 +919,7 @@ export default function Planos() {
       const params = {
         view: ppFilterStatus === "canceled" ? "closed" : "current",
         page: ppPage,
-        page_size: 25,
+        page_size: 10,
       };
       if (ppPatientQuery) params.patient_query = ppPatientQuery;
       if (ppFilterPatientId) params.patient_id = ppFilterPatientId;
