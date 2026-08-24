@@ -51,8 +51,6 @@ const defaultProps = {
   overview,
   loading: false,
   error: "",
-  view: "current",
-  onViewChange: jest.fn(),
   patientSearch: "",
   onPatientSearchChange: jest.fn(),
   serviceId: "",
@@ -86,14 +84,18 @@ beforeEach(() => {
   });
 });
 
-it("renderiza resumo compacto, visões e paciente uma única vez", () => {
+it("renderiza resumo compacto, status padrão e paciente uma única vez", () => {
   renderOverview();
   const summary = screen.getByLabelText("Resumo operacional de Planos");
   expect(summary).toHaveTextContent("38 ativos");
   expect(summary).toHaveTextContent("4 pausados");
   expect(summary).toHaveTextContent("3 agendas pendentes");
-  expect(screen.getByRole("tab", { name: "Atuais" })).toHaveAttribute("aria-selected", "true");
-  expect(screen.getByRole("tab", { name: "Encerrados" })).toBeInTheDocument();
+  expect(screen.queryByRole("tablist", { name: "Visão dos Planos" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Atuais")).not.toBeInTheDocument();
+  expect(screen.queryByText("Encerrados")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Status")).toHaveValue("");
+  expect(screen.getByRole("option", { name: "Ativos e pausados" })).toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: /Todos os status/i })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Vincular plano" })).toBeInTheDocument();
   expect(screen.getAllByRole("heading", { name: "Flávia de Souza da Ros" })).toHaveLength(1);
   expect(screen.getAllByRole("link")).toHaveLength(2);
@@ -120,19 +122,33 @@ it("não duplica frequência no nome e preserva subtítulo quando necessário", 
   expect(within(funcional).getByText("2x por semana")).toBeInTheDocument();
 });
 
-it("expõe filtros acessíveis e encaminha as alterações", () => {
+it("expõe filtros acessíveis e todas as opções operacionais de Status", () => {
   renderOverview();
   fireEvent.change(screen.getByLabelText("Paciente"), { target: { value: "Flávia" } });
   fireEvent.change(screen.getByLabelText("Serviço"), { target: { value: "2" } });
   fireEvent.change(screen.getByLabelText("Status"), { target: { value: "paused" } });
   fireEvent.change(screen.getByLabelText("Agenda"), { target: { value: "pending" } });
-  fireEvent.click(screen.getByRole("tab", { name: "Encerrados" }));
 
   expect(defaultProps.onPatientSearchChange).toHaveBeenCalledWith("Flávia");
   expect(defaultProps.onServiceChange).toHaveBeenCalledWith("2");
   expect(defaultProps.onStatusChange).toHaveBeenCalledWith("paused");
   expect(defaultProps.onAgendaChange).toHaveBeenCalledWith("pending");
-  expect(defaultProps.onViewChange).toHaveBeenCalledWith("closed");
+  expect(screen.getByRole("option", { name: "Ativos" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "Pausados" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "Cancelados" })).toBeInTheDocument();
+});
+
+it("mostra um único cabeçalho global alinhado e mantém dois planos no grupo", () => {
+  renderOverview();
+  const columns = screen.getByLabelText("Colunas da lista de Planos");
+  expect(within(columns).getByText("Plano")).toBeInTheDocument();
+  expect(within(columns).getByText("Agenda")).toBeInTheDocument();
+  expect(within(columns).getByText("Status")).toBeInTheDocument();
+  expect(screen.getAllByLabelText("Colunas da lista de Planos")).toHaveLength(1);
+  expect(screen.queryByText(/^Plano comercial$/i)).not.toBeInTheDocument();
+
+  const group = screen.getByRole("heading", { name: "Flávia de Souza da Ros" }).closest("section");
+  expect(within(group).getAllByRole("link")).toHaveLength(2);
 });
 
 it("pagina por pacientes com informação coerente", () => {
@@ -143,20 +159,28 @@ it("pagina por pacientes com informação coerente", () => {
 });
 
 it.each([
-  ["current", "", "Nenhum plano atual encontrado."],
-  ["current", "Flávia", "Nenhum plano encontrado com estes filtros."],
-  ["closed", "", "Nenhum plano encerrado."],
-])("renderiza vazio contextual para %s", (view, patientSearch, expected) => {
+  ["", "", "Nenhum plano atual encontrado."],
+  ["", "Flávia", "Nenhum plano encontrado com estes filtros."],
+  ["canceled", "", "Nenhum plano encerrado."],
+])("renderiza vazio contextual para status %s", (status, patientSearch, expected) => {
   renderOverview({
     overview: {
       ...overview,
       groups: [],
       page_info: { ...overview.page_info, total_groups: 0, total_plans: 0, total_pages: 0 },
     },
-    view,
+    status,
     patientSearch,
   });
   expect(screen.getByText(expected)).toBeInTheDocument();
+});
+
+it("mantém estrutura responsiva sem tabela rígida e com rótulos internos", () => {
+  renderOverview();
+  expect(document.querySelector("table")).not.toBeInTheDocument();
+  const funcional = screen.getByText("Funcional recorrente").closest("a");
+  expect(within(funcional).getByText("Agenda")).toBeInTheDocument();
+  expect(within(funcional).getByText("Status")).toBeInTheDocument();
 });
 
 it("renderiza estados de loading e erro pelo padrão do módulo", () => {

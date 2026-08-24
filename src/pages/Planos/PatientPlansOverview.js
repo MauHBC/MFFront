@@ -37,8 +37,6 @@ export default function PatientPlansOverview({
   overview = EMPTY_PATIENT_PLAN_OVERVIEW,
   loading = false,
   error = "",
-  view,
-  onViewChange,
   patientSearch,
   onPatientSearchChange,
   serviceId,
@@ -55,6 +53,7 @@ export default function PatientPlansOverview({
   const data = overview || EMPTY_PATIENT_PLAN_OVERVIEW;
   const { summary, groups, page_info: pageInfo } = data;
   const hasFilters = Boolean(patientSearch.trim() || serviceId || status || agenda);
+  const isCanceledFilter = status === "canceled";
   const firstGroup = pageInfo.total_groups === 0
     ? 0
     : ((pageInfo.page - 1) * pageInfo.page_size) + 1;
@@ -64,7 +63,7 @@ export default function PatientPlansOverview({
   );
 
   let emptyText = "Nenhum plano atual encontrado.";
-  if (view === "closed") emptyText = "Nenhum plano encerrado.";
+  if (isCanceledFilter) emptyText = "Nenhum plano encerrado.";
   else if (hasFilters) emptyText = "Nenhum plano encontrado com estes filtros.";
 
   return (
@@ -83,27 +82,6 @@ export default function PatientPlansOverview({
           </PrimaryButton>
         )}
       </OverviewTopLine>
-
-      <ViewTabs role="tablist" aria-label="Visão dos Planos">
-        <ViewTab
-          type="button"
-          role="tab"
-          aria-selected={view === "current"}
-          $active={view === "current"}
-          onClick={() => onViewChange("current")}
-        >
-          Atuais
-        </ViewTab>
-        <ViewTab
-          type="button"
-          role="tab"
-          aria-selected={view === "closed"}
-          $active={view === "closed"}
-          onClick={() => onViewChange("closed")}
-        >
-          Encerrados
-        </ViewTab>
-      </ViewTabs>
 
       <Filters aria-label="Filtros de Planos">
         <PatientSearchField
@@ -133,15 +111,10 @@ export default function PatientPlansOverview({
             value={status}
             onChange={(event) => onStatusChange(event.target.value)}
           >
-            <option value="">Todos os status</option>
-            {view === "current" ? (
-              <>
-                <option value="active">Ativo</option>
-                <option value="paused">Pausado</option>
-              </>
-            ) : (
-              <option value="canceled">Cancelado</option>
-            )}
+            <option value="">Ativos e pausados</option>
+            <option value="active">Ativos</option>
+            <option value="paused">Pausados</option>
+            <option value="canceled">Cancelados</option>
           </select>
         </FilterField>
         <FilterField>
@@ -165,7 +138,7 @@ export default function PatientPlansOverview({
       {!loading && !error && groups.length === 0 && (
         <EmptyState>
           <span>{emptyText}</span>
-          {view === "current" && !hasFilters && canLinkPlan && (
+          {!isCanceledFilter && !hasFilters && canLinkPlan && (
             <PrimaryButton type="button" onClick={onLinkPlan}>
               <FaPlus aria-hidden="true" /> Vincular plano
             </PrimaryButton>
@@ -173,56 +146,58 @@ export default function PatientPlansOverview({
         </EmptyState>
       )}
       {!loading && !error && groups.length > 0 && (
-        <Groups>
-          {groups.map((group) => {
-            const headingId = `patient-plan-group-${group.patient.id}`;
-            return (
-              <PatientGroup key={group.patient.id} aria-labelledby={headingId}>
-                <PatientHeading id={headingId}>{group.patient.name}</PatientHeading>
-                <ColumnLabels aria-hidden="true">
-                  <span>Plano comercial</span>
-                  <span>Agenda</span>
-                  <span>Status</span>
-                </ColumnLabels>
-                <PlanRows>
-                  {group.plans.map((plan) => {
-                    const agendaInfo = getOverviewAgendaPresentation(plan.agenda_state);
-                    const statusInfo = getOverviewStatusPresentation(plan.status);
-                    const frequencySubtitle = getPlanFrequencySubtitle(plan);
-                    return (
-                      <PlanRow
-                        as={Link}
-                        key={plan.patient_plan_id}
-                        to={`/planos/pacientes/${plan.patient_plan_id}`}
-                        $clickable
-                        aria-label={`${plan.commercial_name} de ${group.patient.name}. Agenda ${agendaInfo.label}. Status ${statusInfo.label}.`}
-                        onKeyDown={(event) => {
-                          if (event.key === " ") {
-                            event.preventDefault();
-                            event.currentTarget.click();
-                          }
-                        }}
-                      >
-                        <PlanIdentity>
-                          <strong>{plan.commercial_name}</strong>
-                          {frequencySubtitle && <small>{frequencySubtitle}</small>}
-                        </PlanIdentity>
-                        <RowDatum>
-                          <MobileLabel>Agenda</MobileLabel>
-                          <StatusPill $tone={agendaInfo.tone}>{agendaInfo.label}</StatusPill>
-                        </RowDatum>
-                        <RowDatum>
-                          <MobileLabel>Status</MobileLabel>
-                          <StatusPill $tone={statusInfo.tone}>{statusInfo.label}</StatusPill>
-                        </RowDatum>
-                      </PlanRow>
-                    );
-                  })}
-                </PlanRows>
-              </PatientGroup>
-            );
-          })}
-        </Groups>
+        <PlanList>
+          <ColumnLabels aria-label="Colunas da lista de Planos">
+            <span>Plano</span>
+            <span>Agenda</span>
+            <span>Status</span>
+          </ColumnLabels>
+          <Groups>
+            {groups.map((group) => {
+              const headingId = `patient-plan-group-${group.patient.id}`;
+              return (
+                <PatientGroup key={group.patient.id} aria-labelledby={headingId}>
+                  <PatientHeading id={headingId}>{group.patient.name}</PatientHeading>
+                  <PlanRows>
+                    {group.plans.map((plan) => {
+                      const agendaInfo = getOverviewAgendaPresentation(plan.agenda_state);
+                      const statusInfo = getOverviewStatusPresentation(plan.status);
+                      const frequencySubtitle = getPlanFrequencySubtitle(plan);
+                      return (
+                        <PlanRow
+                          as={Link}
+                          key={plan.patient_plan_id}
+                          to={`/planos/pacientes/${plan.patient_plan_id}`}
+                          $clickable
+                          aria-label={`${plan.commercial_name} de ${group.patient.name}. Agenda ${agendaInfo.label}. Status ${statusInfo.label}.`}
+                          onKeyDown={(event) => {
+                            if (event.key === " ") {
+                              event.preventDefault();
+                              event.currentTarget.click();
+                            }
+                          }}
+                        >
+                          <PlanIdentity>
+                            <strong>{plan.commercial_name}</strong>
+                            {frequencySubtitle && <small>{frequencySubtitle}</small>}
+                          </PlanIdentity>
+                          <RowDatum>
+                            <MobileLabel>Agenda</MobileLabel>
+                            <StatusPill $tone={agendaInfo.tone}>{agendaInfo.label}</StatusPill>
+                          </RowDatum>
+                          <RowDatum>
+                            <MobileLabel>Status</MobileLabel>
+                            <StatusPill $tone={statusInfo.tone}>{statusInfo.label}</StatusPill>
+                          </RowDatum>
+                        </PlanRow>
+                      );
+                    })}
+                  </PlanRows>
+                </PatientGroup>
+              );
+            })}
+          </Groups>
+        </PlanList>
       )}
 
       {!loading && !error && pageInfo.total_groups > 0 && (
@@ -278,8 +253,6 @@ PatientPlansOverview.propTypes = {
   }).isRequired,
   loading: PropTypes.bool.isRequired,
   error: PropTypes.string.isRequired,
-  view: PropTypes.oneOf(["current", "closed"]).isRequired,
-  onViewChange: PropTypes.func.isRequired,
   patientSearch: PropTypes.string.isRequired,
   onPatientSearchChange: PropTypes.func.isRequired,
   serviceId: PropTypes.string.isRequired,
@@ -299,7 +272,7 @@ PatientPlansOverview.propTypes = {
 
 const OverviewRoot = styled.div`
   display: grid;
-  gap: 18px;
+  gap: 14px;
 `;
 
 const OverviewTopLine = styled.div`
@@ -328,33 +301,6 @@ const OperationalSummary = styled.p`
 const SummaryDivider = styled.span`
   color: ${colors.textMuted};
   margin: 0 8px;
-`;
-
-const ViewTabs = styled.div`
-  align-items: center;
-  background: ${colors.surfaceSecondary};
-  border: 1px solid ${colors.borderSubtle};
-  border-radius: ${radii.md};
-  display: inline-flex;
-  padding: 3px;
-  width: fit-content;
-`;
-
-const ViewTab = styled.button`
-  background: ${(props) => (props.$active ? colors.surface : "transparent")};
-  border: 0;
-  border-radius: ${radii.sm};
-  box-shadow: ${(props) => (props.$active ? "0 1px 2px rgba(24, 33, 29, 0.08)" : "none")};
-  color: ${(props) => (props.$active ? colors.textPrimary : colors.textSecondary)};
-  cursor: pointer;
-  font-size: ${fontSizes.compact};
-  font-weight: 700;
-  padding: 7px 14px;
-
-  &:focus-visible {
-    outline: 2px solid ${colors.focus};
-    outline-offset: 2px;
-  }
 `;
 
 const Filters = styled.div`
@@ -386,6 +332,11 @@ const FilterField = styled.label`
 const Groups = styled.div`
   display: grid;
   gap: 24px;
+`;
+
+const PlanList = styled.div`
+  display: grid;
+  gap: 10px;
 `;
 
 const PatientGroup = styled.section`

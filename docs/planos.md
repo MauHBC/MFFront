@@ -7,11 +7,13 @@ negócio continuam canônicas no MFBackend, conforme a ponte
 
 ## Visão operacional
 
-A entrada “Planos” consome `GET /patient-plans/overview`. A visão `Atuais`
-contém vínculos `active` e `paused`; `Encerrados` contém somente `canceled`.
-Paciente, serviço, status e situação da Agenda são filtros server-side. A busca
-textual do paciente é enviada com debounce, e qualquer mudança de visão ou
-filtro volta para a primeira página.
+A entrada “Planos” consome `GET /patient-plans/overview`. Não há navegação
+separada entre atuais e encerrados: o filtro Status oferece `Ativos e pausados`
+como padrão, além de `Ativos`, `Pausados` e `Cancelados`. A seleção deriva
+`view=current` para os três primeiros estados e `view=closed` para cancelados,
+sem alterar o contrato da API. Paciente, serviço, status e situação da Agenda
+são filtros server-side. A busca textual do paciente é enviada com debounce, e
+qualquer mudança de filtro volta para a primeira página.
 
 O Backend devolve grupos já paginados por paciente. O Frontend não agrupa uma
 página de vínculos individualmente: cada paciente aparece uma vez e todos os
@@ -19,7 +21,9 @@ seus `PatientPlans` filtrados permanecem juntos. O resumo compacto usa
 diretamente `active_plans`, `paused_plans` e `pending_agendas`; nenhuma métrica é
 recalculada a partir da página visível.
 
-Cada linha representa um `patient_plan_id` e é um link completo para
+O cabeçalho `Plano / Agenda / Status` aparece uma única vez acima da lista; os
+pacientes permanecem como cabeçalhos leves dos grupos. Cada linha representa
+um `patient_plan_id` e é um link completo para
 `/planos/pacientes/:patientPlanId`. O mesmo padrão compartilhado de superfície
 interativa da lista de Pacientes fornece hover, cursor e foco visível. Enter é
 nativo do link e Space aciona o mesmo destino. Não existe ação paralela

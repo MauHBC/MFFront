@@ -186,14 +186,71 @@ describe("Planos no contêiner do App Shell", () => {
     expect((await screen.findAllByText("Fisioterapia")).length).toBeGreaterThan(0);
   });
 
-  it("consulta o read-model ao alternar visão e filtros operacionais", async () => {
+  it("mapeia Status para view/status, preserva filtros e volta à página 1", async () => {
+    const paginatedOverview = overviewFor([{
+      id: 41,
+      patient_id: 11,
+      status: "active",
+      Patient: { id: 11, name: "Ana" },
+      ServicePlan: { id: 31, name: "Mensal 2x", service_id: 7 },
+    }]);
+    paginatedOverview.data.page_info = {
+      page: 1,
+      page_size: 25,
+      total_groups: 30,
+      total_plans: 31,
+      total_pages: 2,
+    };
+    getPatientPlansOverview.mockResolvedValue(paginatedOverview);
     renderPlans();
     expect((await screen.findAllByText("Mensal 2x")).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Encerrados" }));
+    await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
+      view: "current",
+      page: 1,
+      page_size: 25,
+    }));
+    expect(screen.getByLabelText("Status")).toHaveValue("");
+
     fireEvent.change(screen.getByLabelText("Serviço"), { target: { value: "7" } });
-    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "canceled" } });
     fireEvent.change(screen.getByLabelText("Agenda"), { target: { value: "pending" } });
+    await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
+      view: "current",
+      page: 1,
+      page_size: 25,
+      service_id: "7",
+      agenda: "pending",
+    }));
+    fireEvent.click(await screen.findByRole("button", { name: "Próxima" }));
+    await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
+      view: "current",
+      page: 2,
+      page_size: 25,
+      service_id: "7",
+      agenda: "pending",
+    }));
+
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "active" } });
+    await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
+      view: "current",
+      page: 1,
+      page_size: 25,
+      service_id: "7",
+      status: "active",
+      agenda: "pending",
+    }));
+
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "paused" } });
+    await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
+      view: "current",
+      page: 1,
+      page_size: 25,
+      service_id: "7",
+      status: "paused",
+      agenda: "pending",
+    }));
+
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "canceled" } });
 
     await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
       view: "closed",

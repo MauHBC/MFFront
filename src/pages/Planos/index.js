@@ -794,7 +794,6 @@ export default function Planos() {
   );
   const [isPatientPlansLoading, setIsPatientPlansLoading] = useState(false);
   const [patientPlansError, setPatientPlansError] = useState("");
-  const [ppView, setPpView] = useState("current");
   const [ppPatientSearch, setPpPatientSearch] = useState("");
   const [ppPatientQuery, setPpPatientQuery] = useState("");
   const [ppFilterPatientId, setPpFilterPatientId] = useState("");
@@ -918,7 +917,7 @@ export default function Planos() {
     setPatientPlansError("");
     try {
       const params = {
-        view: ppView,
+        view: ppFilterStatus === "canceled" ? "closed" : "current",
         page: ppPage,
         page_size: 25,
       };
@@ -943,7 +942,6 @@ export default function Planos() {
     ppFilterStatus,
     ppPage,
     ppPatientQuery,
-    ppView,
   ]);
 
   const loadPatientProfessionals = useCallback(async (patientId) => {
@@ -4837,12 +4835,6 @@ export default function Planos() {
                 overview={patientPlanOverview}
                 loading={isPatientPlansLoading}
                 error={patientPlansError}
-                view={ppView}
-                onViewChange={(nextView) => {
-                  setPpView(nextView);
-                  setPpFilterStatus("");
-                  setPpPage(1);
-                }}
                 patientSearch={ppPatientSearch}
                 onPatientSearchChange={(value) => {
                   setPpFilterPatientId("");
