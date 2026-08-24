@@ -96,7 +96,6 @@ it("renderiza resumo compacto, status padrão e paciente uma única vez", () => 
   expect(screen.getByLabelText("Status")).toHaveValue("");
   expect(screen.getByRole("option", { name: "Ativos e pausados" })).toBeInTheDocument();
   expect(screen.queryByRole("option", { name: /Todos os status/i })).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Vincular plano" })).toBeInTheDocument();
   expect(screen.getAllByRole("heading", { name: "Flávia de Souza da Ros" })).toHaveLength(1);
   expect(screen.getAllByRole("link")).toHaveLength(2);
 });
@@ -138,13 +137,9 @@ it("expõe filtros acessíveis e todas as opções operacionais de Status", () =
   expect(screen.getByRole("option", { name: "Cancelados" })).toBeInTheDocument();
 });
 
-it("mostra um único cabeçalho global alinhado e mantém dois planos no grupo", () => {
+it("remove o cabeçalho tabular e mantém dois planos no mesmo grupo", () => {
   renderOverview();
-  const columns = screen.getByLabelText("Colunas da lista de Planos");
-  expect(within(columns).getByText("Plano")).toBeInTheDocument();
-  expect(within(columns).getByText("Agenda")).toBeInTheDocument();
-  expect(within(columns).getByText("Status")).toBeInTheDocument();
-  expect(screen.getAllByLabelText("Colunas da lista de Planos")).toHaveLength(1);
+  expect(screen.queryByLabelText("Colunas da lista de Planos")).not.toBeInTheDocument();
   expect(screen.queryByText(/^Plano comercial$/i)).not.toBeInTheDocument();
 
   const group = screen.getByRole("heading", { name: "Flávia de Souza da Ros" }).closest("section");
@@ -179,7 +174,7 @@ it("mantém estrutura responsiva sem tabela rígida e com rótulos internos", ()
   renderOverview();
   expect(document.querySelector("table")).not.toBeInTheDocument();
   const funcional = screen.getByText("Funcional recorrente").closest("a");
-  expect(within(funcional).getByText("Agenda")).toBeInTheDocument();
+  expect(within(funcional).getAllByText("Agenda").length).toBeGreaterThan(0);
   expect(within(funcional).getByText("Status")).toBeInTheDocument();
 });
 

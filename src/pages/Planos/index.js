@@ -4695,6 +4695,11 @@ export default function Planos() {
 	              <Title>{activeSectionInfo.title}</Title>
 	              {activeSectionInfo.subtitle && <Subtitle>{activeSectionInfo.subtitle}</Subtitle>}
 	            </HeaderText>
+	            {activeTab === "patient-plans" && canLinkPlan && (
+	              <PrimaryButton type="button" onClick={openPpCreate}>
+	                <FaPlus aria-hidden="true" /> Vincular plano
+	              </PrimaryButton>
+	            )}
 	          </Header>}
 
           {isPatientPlanDetailPage && (
@@ -5066,10 +5071,10 @@ export default function Planos() {
 // ---------------------------------------------------------------------------
 
 const Header = styled.div`
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 16px;
 
   @media (max-width: 960px) {
@@ -5082,7 +5087,7 @@ const HeaderText = styled.div`
 `;
 
 const Title = styled.h1`
-  margin: 0 0 8px;
+  margin: 0;
   color: #2b2b2b;
   font-size: 28px;
 `;

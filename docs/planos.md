@@ -21,9 +21,10 @@ seus `PatientPlans` filtrados permanecem juntos. O resumo compacto usa
 diretamente `active_plans`, `paused_plans` e `pending_agendas`; nenhuma métrica é
 recalculada a partir da página visível.
 
-O cabeçalho `Plano / Agenda / Status` aparece uma única vez acima da lista; os
-pacientes permanecem como cabeçalhos leves dos grupos. Cada linha representa
-um `patient_plan_id` e é um link completo para
+Não há cabeçalho tabular na lista. Os pacientes são cabeçalhos tipográficos dos
+grupos e seus contratos aparecem abaixo como linhas compactas, com Agenda mais
+discreta que o Status e destaque de atenção preservado para pendências. Cada
+linha representa um `patient_plan_id` e é um link completo para
 `/planos/pacientes/:patientPlanId`. O mesmo padrão compartilhado de superfície
 interativa da lista de Pacientes fornece hover, cursor e foco visível. Enter é
 nativo do link e Space aciona o mesmo destino. Não existe ação paralela

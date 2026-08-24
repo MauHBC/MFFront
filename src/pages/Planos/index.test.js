@@ -157,6 +157,7 @@ describe("Planos no contêiner do App Shell", () => {
 
     expect(screen.queryByRole("tablist", { name: "Seções de Planos" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Planos" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Vincular plano" })).toBeInTheDocument();
     expect(await screen.findByText("Ana")).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Nome do paciente"), {

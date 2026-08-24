@@ -9,7 +9,13 @@ import DataLoadingState from "../../components/DataLoadingState";
 import { InteractiveListRowSurface } from "../../components/InteractiveListRow";
 import PatientSearchField from "../../components/PatientSearchField";
 import { StatusPill } from "../../components/AppStatus";
-import { alpha, colors, fontSizes, radii } from "../../styles/tokens";
+import {
+  alpha,
+  colors,
+  fontSizes,
+  radii,
+  shadows,
+} from "../../styles/tokens";
 import {
   getOverviewAgendaPresentation,
   getOverviewStatusPresentation,
@@ -68,23 +74,16 @@ export default function PatientPlansOverview({
 
   return (
     <OverviewRoot>
-      <OverviewTopLine>
-        <OperationalSummary aria-label="Resumo operacional de Planos">
-          <strong>{summary.active_plans}</strong> ativos
-          <SummaryDivider aria-hidden="true">·</SummaryDivider>
-          <strong>{summary.paused_plans}</strong> pausados
-          <SummaryDivider aria-hidden="true">·</SummaryDivider>
-          <strong>{summary.pending_agendas}</strong> agendas pendentes
-        </OperationalSummary>
-        {canLinkPlan && (
-          <PrimaryButton type="button" onClick={onLinkPlan}>
-            <FaPlus aria-hidden="true" /> Vincular plano
-          </PrimaryButton>
-        )}
-      </OverviewTopLine>
+      <OperationalSummary aria-label="Resumo operacional de Planos">
+        <strong>{summary.active_plans}</strong> ativos
+        <SummaryDivider aria-hidden="true">·</SummaryDivider>
+        <strong>{summary.paused_plans}</strong> pausados
+        <SummaryDivider aria-hidden="true">·</SummaryDivider>
+        <strong>{summary.pending_agendas}</strong> agendas pendentes
+      </OperationalSummary>
 
       <Filters aria-label="Filtros de Planos">
-        <PatientSearchField
+        <PatientFilter
           mode="filter"
           inputId="patient-plans-search"
           label="Paciente"
@@ -146,58 +145,57 @@ export default function PatientPlansOverview({
         </EmptyState>
       )}
       {!loading && !error && groups.length > 0 && (
-        <PlanList>
-          <ColumnLabels aria-label="Colunas da lista de Planos">
-            <span>Plano</span>
-            <span>Agenda</span>
-            <span>Status</span>
-          </ColumnLabels>
-          <Groups>
-            {groups.map((group) => {
-              const headingId = `patient-plan-group-${group.patient.id}`;
-              return (
-                <PatientGroup key={group.patient.id} aria-labelledby={headingId}>
-                  <PatientHeading id={headingId}>{group.patient.name}</PatientHeading>
-                  <PlanRows>
-                    {group.plans.map((plan) => {
-                      const agendaInfo = getOverviewAgendaPresentation(plan.agenda_state);
-                      const statusInfo = getOverviewStatusPresentation(plan.status);
-                      const frequencySubtitle = getPlanFrequencySubtitle(plan);
-                      return (
-                        <PlanRow
-                          as={Link}
-                          key={plan.patient_plan_id}
-                          to={`/planos/pacientes/${plan.patient_plan_id}`}
-                          $clickable
-                          aria-label={`${plan.commercial_name} de ${group.patient.name}. Agenda ${agendaInfo.label}. Status ${statusInfo.label}.`}
-                          onKeyDown={(event) => {
-                            if (event.key === " ") {
-                              event.preventDefault();
-                              event.currentTarget.click();
-                            }
-                          }}
-                        >
-                          <PlanIdentity>
-                            <strong>{plan.commercial_name}</strong>
-                            {frequencySubtitle && <small>{frequencySubtitle}</small>}
-                          </PlanIdentity>
-                          <RowDatum>
-                            <MobileLabel>Agenda</MobileLabel>
-                            <StatusPill $tone={agendaInfo.tone}>{agendaInfo.label}</StatusPill>
-                          </RowDatum>
-                          <RowDatum>
-                            <MobileLabel>Status</MobileLabel>
-                            <StatusPill $tone={statusInfo.tone}>{statusInfo.label}</StatusPill>
-                          </RowDatum>
-                        </PlanRow>
-                      );
-                    })}
-                  </PlanRows>
-                </PatientGroup>
-              );
-            })}
-          </Groups>
-        </PlanList>
+        <Groups>
+          {groups.map((group) => {
+            const headingId = `patient-plan-group-${group.patient.id}`;
+            return (
+              <PatientGroup key={group.patient.id} aria-labelledby={headingId}>
+                <PatientHeading id={headingId}>{group.patient.name}</PatientHeading>
+                <PlanRows>
+                  {group.plans.map((plan) => {
+                    const agendaInfo = getOverviewAgendaPresentation(plan.agenda_state);
+                    const statusInfo = getOverviewStatusPresentation(plan.status);
+                    const frequencySubtitle = getPlanFrequencySubtitle(plan);
+                    return (
+                      <PlanRow
+                        as={Link}
+                        key={plan.patient_plan_id}
+                        to={`/planos/pacientes/${plan.patient_plan_id}`}
+                        $clickable
+                        aria-label={`${plan.commercial_name} de ${group.patient.name}. Agenda ${agendaInfo.label}. Status ${statusInfo.label}.`}
+                        onKeyDown={(event) => {
+                          if (event.key === " ") {
+                            event.preventDefault();
+                            event.currentTarget.click();
+                          }
+                        }}
+                      >
+                        <PlanIdentity>
+                          <strong>{plan.commercial_name}</strong>
+                          {frequencySubtitle && <small>{frequencySubtitle}</small>}
+                        </PlanIdentity>
+                        <RowDatum>
+                          <MobileLabel>Agenda</MobileLabel>
+                          <AgendaState
+                            $attention={plan.agenda_state === "pending"}
+                            $tone={agendaInfo.tone}
+                          >
+                            <DesktopAgendaPrefix>Agenda </DesktopAgendaPrefix>
+                            {agendaInfo.label}
+                          </AgendaState>
+                        </RowDatum>
+                        <RowDatum>
+                          <MobileLabel>Status</MobileLabel>
+                          <StatusPill $tone={statusInfo.tone}>{statusInfo.label}</StatusPill>
+                        </RowDatum>
+                      </PlanRow>
+                    );
+                  })}
+                </PlanRows>
+              </PatientGroup>
+            );
+          })}
+        </Groups>
       )}
 
       {!loading && !error && pageInfo.total_groups > 0 && (
@@ -272,19 +270,7 @@ PatientPlansOverview.propTypes = {
 
 const OverviewRoot = styled.div`
   display: grid;
-  gap: 14px;
-`;
-
-const OverviewTopLine = styled.div`
-  align-items: center;
-  display: flex;
-  gap: 16px;
-  justify-content: space-between;
-
-  @media (max-width: 640px) {
-    align-items: flex-start;
-    flex-direction: column;
-  }
+  gap: 12px;
 `;
 
 const OperationalSummary = styled.p`
@@ -310,6 +296,17 @@ const Filters = styled.div`
   gap: 10px;
 `;
 
+const PatientFilter = styled(PatientSearchField)`
+  flex: 1 1 320px;
+  max-width: 480px;
+  min-width: 280px;
+
+  @media (max-width: 640px) {
+    max-width: none;
+    min-width: 100%;
+  }
+`;
+
 const FilterField = styled.label`
   color: ${colors.brandDark};
   display: flex;
@@ -317,7 +314,8 @@ const FilterField = styled.label`
   font-size: ${fontSizes.compact};
   font-weight: 700;
   gap: 6px;
-  min-width: 160px;
+  flex: 0 1 172px;
+  min-width: 148px;
 
   select {
     background: ${colors.surface};
@@ -331,59 +329,51 @@ const FilterField = styled.label`
 
 const Groups = styled.div`
   display: grid;
-  gap: 24px;
-`;
-
-const PlanList = styled.div`
-  display: grid;
-  gap: 10px;
+  gap: 18px;
 `;
 
 const PatientGroup = styled.section`
   display: grid;
-  gap: 8px;
+  gap: 4px;
 `;
 
 const PatientHeading = styled.h2`
   color: ${colors.textPrimary};
-  font-size: 1rem;
+  font-size: 1.06rem;
   font-weight: 800;
   margin: 0;
-  padding: 0 10px;
-`;
-
-const ColumnLabels = styled.div`
-  color: ${colors.textMuted};
-  display: grid;
-  font-size: ${fontSizes.tiny};
-  font-weight: 700;
-  gap: 16px;
-  grid-template-columns: minmax(0, 1fr) 140px 120px;
-  padding: 0 14px;
-  text-transform: uppercase;
-
-  @media (max-width: 720px) {
-    display: none;
-  }
+  padding: 0 2px;
 `;
 
 const PlanRows = styled.div`
   display: grid;
-  gap: 7px;
+  gap: 2px;
+  margin-left: 10px;
 `;
 
 const PlanRow = styled(InteractiveListRowSurface)`
   align-items: center;
+  background: transparent;
+  border-color: transparent;
+  border-bottom-color: ${alpha.brand014};
+  border-radius: ${radii.sm};
+  box-shadow: none;
   display: grid;
   gap: 16px;
   grid-template-columns: minmax(0, 1fr) 140px 120px;
-  min-height: 54px;
-  padding: 10px 14px;
+  min-height: 44px;
+  padding: 6px 12px;
+
+  &:hover,
+  &:focus-within {
+    box-shadow: ${shadows.subtle};
+  }
 
   @media (max-width: 720px) {
     align-items: start;
     gap: 10px;
     grid-template-columns: 1fr 1fr;
+    padding: 8px 10px;
   }
 `;
 
@@ -393,8 +383,8 @@ const PlanIdentity = styled.div`
   strong {
     color: ${colors.textPrimary};
     display: block;
-    font-size: 0.94rem;
-    font-weight: 700;
+    font-size: 0.92rem;
+    font-weight: 600;
     overflow-wrap: anywhere;
   }
 
@@ -415,6 +405,19 @@ const RowDatum = styled.div`
   display: flex;
   flex-direction: column;
   gap: 4px;
+`;
+
+const AgendaState = styled(StatusPill)`
+  background: ${(props) => (props.$attention ? alpha.paused018 : "transparent")};
+  color: ${(props) => (props.$attention ? colors.pausedText : colors.textSecondary)};
+  font-weight: ${(props) => (props.$attention ? 700 : 600)};
+  padding: ${(props) => (props.$attention ? "3px 9px" : "3px 0")};
+`;
+
+const DesktopAgendaPrefix = styled.span`
+  @media (max-width: 720px) {
+    display: none;
+  }
 `;
 
 const MobileLabel = styled.span`
