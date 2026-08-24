@@ -13,6 +13,7 @@ import {
 import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
+import AppPagination from "../../components/AppPagination";
 import DataLoadingState from "../../components/DataLoadingState";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { ModuleHeader, ModuleTitle } from "../../components/AppModuleShell";
@@ -102,11 +103,6 @@ export default function PatientsSearch() {
     const firstPatientIndex = (currentPage - 1) * PATIENTS_PER_PAGE;
     return sortedPatients.slice(firstPatientIndex, firstPatientIndex + PATIENTS_PER_PAGE);
   }, [currentPage, sortedPatients]);
-  const firstVisiblePatient = sortedPatients.length === 0
-    ? 0
-    : (currentPage - 1) * PATIENTS_PER_PAGE + 1;
-  const lastVisiblePatient = Math.min(currentPage * PATIENTS_PER_PAGE, sortedPatients.length);
-
   useEffect(() => {
     setCurrentPage((page) => Math.min(page, totalPages));
   }, [totalPages]);
@@ -323,32 +319,15 @@ export default function PatientsSearch() {
           </Grid>
         ))}
 
-        {!isLoading && sortedPatients.length > 0 && (
-          <PaginationBar>
-            <PaginationInfo>
-              Mostrando {firstVisiblePatient}-{lastVisiblePatient} de {sortedPatients.length}
-            </PaginationInfo>
-            <PaginationControls>
-              <PaginationButton
-                type="button"
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-              >
-                Anterior
-              </PaginationButton>
-              <PaginationPage>
-                Página {currentPage} de {totalPages}
-              </PaginationPage>
-              <PaginationButton
-                type="button"
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-              >
-                Próxima
-              </PaginationButton>
-            </PaginationControls>
-          </PaginationBar>
-        )}
+        <AppPagination
+          page={currentPage}
+          pageSize={PATIENTS_PER_PAGE}
+          total={sortedPatients.length}
+          totalPages={totalPages}
+          loading={isLoading}
+          onPageChange={setCurrentPage}
+          ariaLabel="Paginação de pacientes"
+        />
       </PageContent>
     </PageWrapper>
   );
@@ -701,63 +680,4 @@ const ResultsPanel = styled.div`
   border: 1px solid rgba(106, 121, 92, 0.16);
   border-radius: 12px;
   background: #fff;
-`;
-
-const PaginationBar = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-top: 18px;
-  color: #6a795c;
-
-  @media (max-width: 620px) {
-    align-items: stretch;
-    flex-direction: column;
-  }
-`;
-
-const PaginationInfo = styled.span`
-  font-size: 0.92rem;
-`;
-
-const PaginationControls = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  @media (max-width: 620px) {
-    justify-content: space-between;
-  }
-`;
-
-const PaginationButton = styled.button`
-  border: 1px solid rgba(106, 121, 92, 0.3);
-  border-radius: 10px;
-  background: #fff;
-  color: #6a795c;
-  cursor: pointer;
-  font-weight: 700;
-  min-width: 92px;
-  padding: 9px 12px;
-
-  &:disabled {
-    background: #f2f4ef;
-    color: #a3ad99;
-    cursor: not-allowed;
-  }
-
-  &:not(:disabled):hover,
-  &:not(:disabled):focus-visible {
-    border-color: rgba(106, 121, 92, 0.55);
-    box-shadow: 0 0 0 3px rgba(106, 121, 92, 0.14);
-    outline: none;
-  }
-`;
-
-const PaginationPage = styled.span`
-  min-width: 108px;
-  text-align: center;
-  font-size: 0.92rem;
-  font-weight: 700;
 `;

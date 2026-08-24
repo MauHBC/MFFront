@@ -48,7 +48,7 @@ const overview = {
   page_info: {
     page: 1,
     page_size: 10,
-    total_plans: 43,
+    total: 43,
     total_pages: 5,
   },
 };
@@ -142,6 +142,10 @@ it("não duplica frequência no nome e preserva subtítulo quando necessário", 
 
 it("expõe filtros acessíveis e todas as opções operacionais de Status", () => {
   renderOverview();
+  expect(screen.getByRole("option", { name: "Todos" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "Todas" })).toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: "Todos os serviços" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: "Todas as situações" })).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Paciente"), { target: { value: "Flávia" } });
   fireEvent.change(screen.getByLabelText("Serviço"), { target: { value: "2" } });
   fireEvent.change(screen.getByLabelText("Status"), { target: { value: "paused" } });
@@ -186,7 +190,7 @@ it.each([
     overview: {
       ...overview,
       items: [],
-      page_info: { ...overview.page_info, total_plans: 0, total_pages: 0 },
+      page_info: { ...overview.page_info, total: 0, total_pages: 0 },
     },
     status,
     patientSearch,

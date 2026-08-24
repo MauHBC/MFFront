@@ -15,6 +15,11 @@ sem alterar o contrato da API. Paciente, serviço, status e situação da Agenda
 são filtros server-side. A busca textual do paciente é enviada com debounce, e
 qualquer mudança de filtro volta para a primeira página.
 
+A busca textual usa debounce de 300 ms e respostas de consultas antigas são
+ignoradas quando uma consulta mais recente já foi iniciada. O read-model expõe
+`page_info` no padrão `page`, `page_size`, `total` e `total_pages`; a tela usa
+dez `PatientPlans` por página e não calcula totais a partir de `items`.
+
 O Backend devolve uma coleção plana já filtrada e paginada por `PatientPlan`.
 Cada item contém o paciente como contexto; por isso, o mesmo paciente aparece
 em mais de uma linha quando possui mais de um vínculo. O resumo compacto usa
@@ -34,7 +39,7 @@ nativo do link e Space aciona o mesmo destino. Não existe ação paralela
 Em telas estreitas, as colunas viram blocos empilhados dentro da mesma linha,
 o cabeçalho global é ocultado e não há tabela com rolagem horizontal. A
 paginação segue os limites, textos, controles e comportamento visual da lista
-de Pacientes, com dez `PatientPlans` por página. Estados de carregamento, erro,
+de Pacientes por meio de `AppPagination`. Estados de carregamento, erro,
 resultado vazio global e resultado vazio por filtro/visão são distintos.
 
 `Agenda pendente` é apresentada exatamente a partir de `agenda_state` da API.

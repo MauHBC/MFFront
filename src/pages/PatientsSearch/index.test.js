@@ -73,11 +73,27 @@ describe("PatientsSearch", () => {
     renderPage();
 
     expect(await screen.findByText("Mostrando 1-10 de 12")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Paginação de pacientes" }))
+      .toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Próxima" }));
     expect(screen.getByText("Mostrando 11-12 de 12")).toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Layout grade" }));
     expect(screen.getByText("paciente12@teste.local")).toBeInTheDocument();
+  });
+
+  it("mantém busca e paginação locais sem novas consultas ao Backend", async () => {
+    renderPage();
+    expect(await screen.findByText("12 pacientes cadastrados")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Digite para buscar"), {
+      target: { value: "Paciente" },
+    });
+    expect(screen.getByText("12 resultados na busca")).toBeInTheDocument();
+    expect(screen.getByText("Página 1 de 2")).toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledTimes(1);
   });
 
   it("mostra o estado vazio sem remover as ações da página", async () => {

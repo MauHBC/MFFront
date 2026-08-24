@@ -856,6 +856,7 @@ export default function Planos() {
   const scheduleChangePreviewRequestRef = useRef(0);
   const scheduleChangeIdempotencyRef = useRef(null);
   const scheduleChangeCancelIdempotencyRef = useRef(null);
+  const patientPlansOverviewRequestRef = useRef(0);
   const [operationalPolicy, setOperationalPolicy] = useState(DEFAULT_OPERATIONAL_POLICY);
 
   // Schedule sessions drawer (open from PatientPlan row)
@@ -913,6 +914,8 @@ export default function Planos() {
   }, []);
 
   const loadPatientPlans = useCallback(async () => {
+    const requestId = patientPlansOverviewRequestRef.current + 1;
+    patientPlansOverviewRequestRef.current = requestId;
     setIsPatientPlansLoading(true);
     setPatientPlansError("");
     try {
@@ -927,13 +930,17 @@ export default function Planos() {
       if (ppFilterStatus) params.status = ppFilterStatus;
       if (ppFilterAgenda) params.agenda = ppFilterAgenda;
       const res = await getPatientPlansOverview(params);
+      if (requestId !== patientPlansOverviewRequestRef.current) return;
       setPatientPlanOverview(res.data || null);
     } catch (err) {
+      if (requestId !== patientPlansOverviewRequestRef.current) return;
       const message = err?.response?.data?.error || "Erro ao carregar Planos.";
       setPatientPlansError(message);
       toast.error(message);
     } finally {
-      setIsPatientPlansLoading(false);
+      if (requestId === patientPlansOverviewRequestRef.current) {
+        setIsPatientPlansLoading(false);
+      }
     }
   }, [
     ppFilterAgenda,

@@ -652,6 +652,24 @@ Estrutura de campos em formulários simples de drawer.
 
 ---
 
+### `AppPagination` — `src/components/AppPagination`
+
+Controle visual compartilhado para paginação. Recebe `page`, `pageSize`,
+`total`, `totalPages`, `loading`, `onPageChange` e `ariaLabel`; não busca dados,
+não conhece endpoints e não decide se a paginação é local ou server-side. O
+contrato interno canônico usa `page`, `page_size`, `total` e `total_pages`, mas
+o componente aceita `pageSize` e `totalPages` por convenção de props React. O
+tamanho de página é configurável por tela.
+
+Planos usa paginação server-side e dez `PatientPlans` por página. Pacientes
+adota o mesmo componente visual sem mudança de dados: ainda faz uma única
+leitura de `GET /patients`, mantém o conjunto completo no navegador e executa
+busca, ordenação e `slice` localmente. Essa carga integral é dívida técnica para
+uma evolução futura do endpoint; não deve ser copiada por telas novas nem
+confundida com o padrão canônico, que é busca, filtros e paginação server-side.
+
+---
+
 ## Padrão oficial: módulo sem sidebar (Shell 1)
 
 Use este shell para módulos CRUD administrativos simples, com uma entidade principal, drawer lateral e opcionalmente abas. Sem navegação lateral.

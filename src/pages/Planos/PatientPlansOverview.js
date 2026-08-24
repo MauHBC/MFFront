@@ -5,6 +5,7 @@ import styled from "styled-components";
 import { FaPlus } from "react-icons/fa";
 
 import { PrimaryButton } from "../../components/AppButton";
+import AppPagination from "../../components/AppPagination";
 import DataLoadingState from "../../components/DataLoadingState";
 import { InteractiveListRowSurface } from "../../components/InteractiveListRow";
 import PatientSearchField from "../../components/PatientSearchField";
@@ -33,7 +34,7 @@ export const EMPTY_PATIENT_PLAN_OVERVIEW = {
   page_info: {
     page: 1,
     page_size: 10,
-    total_plans: 0,
+    total: 0,
     total_pages: 0,
   },
 };
@@ -59,13 +60,6 @@ export default function PatientPlansOverview({
   const { summary, items, page_info: pageInfo } = data;
   const hasFilters = Boolean(patientSearch.trim() || serviceId || status || agenda);
   const isCanceledFilter = status === "canceled";
-  const firstItem = pageInfo.total_plans === 0
-    ? 0
-    : ((pageInfo.page - 1) * pageInfo.page_size) + 1;
-  const lastItem = Math.min(
-    pageInfo.page * pageInfo.page_size,
-    pageInfo.total_plans,
-  );
 
   let emptyText = "Nenhum plano atual encontrado.";
   if (isCanceledFilter) emptyText = "Nenhum plano encerrado.";
@@ -105,7 +99,7 @@ export default function PatientPlansOverview({
             value={serviceId}
             onChange={(event) => onServiceChange(event.target.value)}
           >
-            <option value="">Todos os serviços</option>
+            <option value="">Todos</option>
             {services.map((service) => (
               <option key={service.id} value={service.id}>{service.name}</option>
             ))}
@@ -131,7 +125,7 @@ export default function PatientPlansOverview({
             value={agenda}
             onChange={(event) => onAgendaChange(event.target.value)}
           >
-            <option value="">Todas as situações</option>
+            <option value="">Todas</option>
             <option value="configured">Configurada</option>
             <option value="pending">Pendente</option>
           </select>
@@ -208,31 +202,16 @@ export default function PatientPlansOverview({
         </PlanList>
       )}
 
-      {!loading && !error && pageInfo.total_plans > 0 && (
-        <Pagination aria-label="Paginação de Planos">
-          <PaginationInfo>
-            Mostrando {firstItem}-{lastItem} de {pageInfo.total_plans}
-          </PaginationInfo>
-          <PaginationActions>
-            <PaginationButton
-              type="button"
-              disabled={pageInfo.page <= 1}
-              onClick={() => onPageChange(pageInfo.page - 1)}
-            >
-              Anterior
-            </PaginationButton>
-            <PaginationPage>
-              Página {pageInfo.page} de {pageInfo.total_pages}
-            </PaginationPage>
-            <PaginationButton
-              type="button"
-              disabled={pageInfo.page >= pageInfo.total_pages}
-              onClick={() => onPageChange(pageInfo.page + 1)}
-            >
-              Próxima
-            </PaginationButton>
-          </PaginationActions>
-        </Pagination>
+      {!error && (
+        <AppPagination
+          page={pageInfo.page}
+          pageSize={pageInfo.page_size}
+          total={pageInfo.total}
+          totalPages={pageInfo.total_pages}
+          loading={loading}
+          onPageChange={onPageChange}
+          ariaLabel="Paginação de Planos"
+        />
       )}
     </OverviewRoot>
   );
@@ -255,7 +234,7 @@ PatientPlansOverview.propTypes = {
     page_info: PropTypes.shape({
       page: PropTypes.number,
       page_size: PropTypes.number,
-      total_plans: PropTypes.number,
+      total: PropTypes.number,
       total_pages: PropTypes.number,
     }),
   }).isRequired,
@@ -477,64 +456,5 @@ const EmptyState = styled.div`
   justify-content: center;
   min-height: 150px;
   padding: 24px;
-  text-align: center;
-`;
-
-const Pagination = styled.nav`
-  align-items: center;
-  color: ${colors.brand};
-  display: flex;
-  gap: 14px;
-  justify-content: space-between;
-  margin-top: 18px;
-
-  @media (max-width: 620px) {
-    align-items: stretch;
-    flex-direction: column;
-  }
-`;
-
-const PaginationInfo = styled.span`
-  font-size: 0.92rem;
-`;
-
-const PaginationActions = styled.div`
-  align-items: center;
-  display: flex;
-  gap: 8px;
-
-  @media (max-width: 620px) {
-    justify-content: space-between;
-  }
-`;
-
-const PaginationButton = styled.button`
-  background: ${colors.surface};
-  border: 1px solid ${alpha.brand030};
-  border-radius: ${radii.md};
-  color: ${colors.brand};
-  cursor: pointer;
-  font-weight: 700;
-  min-width: 92px;
-  padding: 9px 12px;
-
-  &:disabled {
-    background: ${colors.disabledBackground};
-    color: ${colors.disabledText};
-    cursor: not-allowed;
-  }
-
-  &:not(:disabled):hover,
-  &:not(:disabled):focus-visible {
-    border-color: rgba(106, 121, 92, 0.55);
-    box-shadow: 0 0 0 3px ${alpha.brand014};
-    outline: none;
-  }
-`;
-
-const PaginationPage = styled.span`
-  font-size: 0.92rem;
-  font-weight: 700;
-  min-width: 108px;
   text-align: center;
 `;

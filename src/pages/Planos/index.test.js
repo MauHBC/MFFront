@@ -90,7 +90,7 @@ const overviewFor = (patientPlans = []) => ({
     page_info: {
       page: 1,
       page_size: 10,
-      total_plans: patientPlans.length,
+      total: patientPlans.length,
       total_pages: patientPlans.length > 0 ? 1 : 0,
     },
   },
@@ -166,6 +166,54 @@ describe("Planos no contêiner do App Shell", () => {
     ));
   });
 
+  it("ignora resposta antiga quando uma busca mais recente já terminou", async () => {
+    let resolveSlowSearch;
+    getPatientPlansOverview.mockImplementation((params) => {
+      if (params.patient_query === "busca lenta") {
+        return new Promise((resolve) => {
+          resolveSlowSearch = resolve;
+        });
+      }
+      if (params.patient_query === "busca nova") {
+        return Promise.resolve(overviewFor([{
+          id: 52,
+          patient_id: 22,
+          status: "active",
+          Patient: { id: 22, full_name: "Resposta Nova" },
+          ServicePlan: { id: 31, name: "Plano Novo", service_id: 7 },
+        }]));
+      }
+      return Promise.resolve(overviewFor([]));
+    });
+    renderPlans();
+    await waitFor(() => expect(getPatientPlansOverview).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByPlaceholderText("Nome do paciente"), {
+      target: { value: "busca lenta" },
+    });
+    await waitFor(() => expect(getPatientPlansOverview).toHaveBeenCalledWith(
+      expect.objectContaining({ patient_query: "busca lenta" }),
+    ));
+
+    fireEvent.change(screen.getByPlaceholderText("Nome do paciente"), {
+      target: { value: "busca nova" },
+    });
+    expect(await screen.findByText("Resposta Nova")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveSlowSearch(overviewFor([{
+        id: 53,
+        patient_id: 23,
+        status: "active",
+        Patient: { id: 23, full_name: "Resposta Antiga" },
+        ServicePlan: { id: 31, name: "Plano Antigo", service_id: 7 },
+      }]));
+    });
+
+    expect(screen.getByText("Resposta Nova")).toBeInTheDocument();
+    expect(screen.queryByText("Resposta Antiga")).not.toBeInTheDocument();
+  });
+
   it("preserva planos mensais e serviços como destinos controlados pela rota", async () => {
     const { history } = renderPlans();
 
@@ -195,7 +243,7 @@ describe("Planos no contêiner do App Shell", () => {
     paginatedOverview.data.page_info = {
       page: 1,
       page_size: 10,
-      total_plans: 31,
+      total: 31,
       total_pages: 4,
     };
     getPatientPlansOverview.mockResolvedValue(paginatedOverview);
@@ -218,7 +266,9 @@ describe("Planos no contêiner do App Shell", () => {
       service_id: "7",
       agenda: "pending",
     }));
-    fireEvent.click(await screen.findByRole("button", { name: "Próxima" }));
+    const nextPageButton = await screen.findByRole("button", { name: "Próxima" });
+    await waitFor(() => expect(nextPageButton).toBeEnabled());
+    fireEvent.click(nextPageButton);
     await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith({
       view: "current",
       page: 2,
