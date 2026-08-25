@@ -312,14 +312,17 @@ describe("Financeiro - caracterização focada de Mensalidades", () => {
       due_date: "2026-08-15",
       notes: "Entrada técnica automática para viabilizar recebimento por sessão.",
     }));
-    await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledWith(expect.objectContaining({
-      entry_id: 990,
-      patient_id: 30,
-      payment_method_id: 3,
-      amount_cents: 70000,
-      allocation_mode: "manual",
-      allocations: [{ entry_id: 901, amount_cents: 70000 }],
-    })));
+    await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entry_id: 990,
+        patient_id: 30,
+        payment_method_id: 3,
+        amount_cents: 70000,
+        allocation_mode: "manual",
+        allocations: [{ entry_id: 901, amount_cents: 70000 }],
+      }),
+      expect.stringMatching(/\S/),
+    ));
     expect(createFinancialPayment.mock.calls[0][0]).not.toHaveProperty("clinic_id");
     await waitFor(() => expect(screen.queryByRole("button", { name: "Registrar recebimento" })).not.toBeInTheDocument());
     expect(listBillingCycles.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -336,12 +339,15 @@ describe("Financeiro - caracterização focada de Mensalidades", () => {
     expect(screen.getByText("Total final").parentElement).toHaveTextContent("R$ ••••");
     await userEvent.click(screen.getByRole("button", { name: "Confirmar recebimento" }));
 
-    await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledWith(expect.objectContaining({
-      amount_cents: 60000,
-      discount_cents: 10000,
-      allocation_mode: "manual",
-      allocations: [{ entry_id: 901, amount_cents: 60000 }],
-    })));
+    await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount_cents: 60000,
+        discount_cents: 10000,
+        allocation_mode: "manual",
+        allocations: [{ entry_id: 901, amount_cents: 60000 }],
+      }),
+      expect.stringMatching(/\S/),
+    ));
   });
 
   it("mantém a UI no erro de carregamento e apresenta o erro da prévia", async () => {
