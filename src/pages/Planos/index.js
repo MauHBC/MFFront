@@ -44,7 +44,8 @@ import {
   updateServicePrice,
   getPatientPlansOverview,
   createPatientPlan,
-  updatePatientPlan,
+  previewPatientPlanConfiguration,
+  changePatientPlanConfiguration,
   pausePatientPlan,
   updatePatientPlanPause,
   previewResumePatientPlan,
@@ -709,6 +710,13 @@ const makeEmptyScheduleChangeForm = () => ({
   times_by_weekday: {},
 });
 
+const createPlanConfigurationIdempotencyKey = (patientPlanId) => {
+  const randomValue = globalThis.crypto?.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+  return `plan-configuration-${patientPlanId}-${Date.now()}-${randomValue}`.slice(0, 100);
+};
+
 const EMPTY_SCHEDULE_CHANGE_PREVIEW = {
   status: "idle",
   data: null,
@@ -743,12 +751,6 @@ const EMPTY_SVC = {
   price: "",
   color: "#6a795c",
   default_duration_minutes: 60,
-};
-
-const STATUS_INFO = {
-  active: { label: "Ativo", tone: "active" },
-  paused: { label: "Pausado", tone: "paused" },
-  canceled: { label: "Cancelado", tone: "canceled" },
 };
 
 // ---------------------------------------------------------------------------
@@ -802,8 +804,6 @@ export default function Planos() {
   const [ppFilterAgenda, setPpFilterAgenda] = useState("");
   const [ppPage, setPpPage] = useState(1);
   const [ppDrawerOpen, setPpDrawerOpen] = useState(false);
-  const [ppEditingId, setPpEditingId] = useState(null);
-  const [ppEditingStatus, setPpEditingStatus] = useState(null);
   const [ppForm, setPpForm] = useState(makeEmptyPpForm);
   const [ppPausePlan, setPpPausePlan] = useState(null);
   const [ppPauseForm, setPpPauseForm] = useState(makeEmptyPauseForm);
@@ -831,6 +831,9 @@ export default function Planos() {
   const [ppDetailError, setPpDetailError] = useState("");
   const [ppDetailEditing, setPpDetailEditing] = useState(false);
   const [ppDetailEditForm, setPpDetailEditForm] = useState(makeEmptyPpForm);
+  const [ppConfigurationPreview, setPpConfigurationPreview] = useState(null);
+  const [ppConfigurationConfirmOpen, setPpConfigurationConfirmOpen] = useState(false);
+  const ppConfigurationIdempotencyRef = useRef(null);
   const [ppDetailSection, setPpDetailSection] = useState(PATIENT_PLAN_DETAIL_SECTIONS.plan);
   const [futureRemovalPreview, setFutureRemovalPreview] = useState(null);
   const [futureRemovalLoading, setFutureRemovalLoading] = useState(false);
@@ -1474,14 +1477,15 @@ export default function Planos() {
   }, []);
 
   const openPpCreate = useCallback(() => {
-    setPpEditingId(null);
-    setPpEditingStatus(null);
     setPpForm(makeEmptyPpForm());
     setPpDrawerOpen(true);
   }, []);
 
   const handlePpDetailEditChange = useCallback((e) => {
     const { name, type, checked, value } = e.target;
+    setPpConfigurationPreview(null);
+    setPpConfigurationConfirmOpen(false);
+    ppConfigurationIdempotencyRef.current = null;
     setPpDetailEditForm((prev) => {
       if (name === "service_plan_id") {
         const selectedPlan = [
@@ -1507,11 +1511,17 @@ export default function Planos() {
       return;
     }
     setPpDetailEditForm(buildPpEditFormFromPlan(ppDetailPlan));
+    setPpConfigurationPreview(null);
+    setPpConfigurationConfirmOpen(false);
+    ppConfigurationIdempotencyRef.current = null;
     setPpDetailEditing(true);
   }, [ppDetailPlan]);
 
   const cancelPpDetailEditing = useCallback(() => {
     setPpDetailEditForm(buildPpEditFormFromPlan(ppDetailPlan));
+    setPpConfigurationPreview(null);
+    setPpConfigurationConfirmOpen(false);
+    ppConfigurationIdempotencyRef.current = null;
     setPpDetailEditing(false);
   }, [ppDetailPlan]);
 
@@ -1522,81 +1532,76 @@ export default function Planos() {
       toast.error("Dia de vencimento deve ser entre 1 e 31.");
       return;
     }
-    const canEditStartsAt = ppDetailPlan?.edit_permissions?.can_edit_starts_at !== false;
-    if (canEditStartsAt && !ppDetailEditForm.starts_at) {
-      toast.error("Informe a data de início do plano.");
-      return;
-    }
-    if (canEditStartsAt && !isValidDateOnly(ppDetailEditForm.starts_at)) {
-      toast.error("Informe uma data de início válida.");
-      return;
-    }
-    const seriesId = null;
-    const weekdayLimit = null;
-    if (seriesId && !ppDetailEditForm.professional_user_id) {
-      toast.error("Selecione o profissional.");
-      return;
-    }
-    if (seriesId && ppDetailEditForm.weekdays.length === 0) {
-      toast.error("Selecione pelo menos um dia da semana.");
-      return;
-    }
-    if (seriesId && weekdayLimit && ppDetailEditForm.weekdays.length !== weekdayLimit) {
-      toast.error(`Selecione exatamente ${weekdayLimit} dia(s) da semana para este plano.`);
-      return;
-    }
-    if (seriesId && !ppDetailEditForm.time) {
-      toast.error("Informe o horário.");
-      return;
-    }
-    const detailIncludedCycleWeeks = normalizeIncludedCycleWeeks(
-      ppDetailEditForm.included_cycle_weeks,
-    );
-    if (seriesId && detailIncludedCycleWeeks.length === 0) {
-      toast.error("Selecione pelo menos uma semana do ciclo.");
-      return;
-    }
     setIsSaving(true);
     try {
-        const payload = {
-          patient_id: Number(ppDetailPlan.patient_id),
-          anchor_day: anchor,
-          notes: ppDetailEditForm.notes.trim() || null,
-          is_no_charge: ppDetailEditForm.is_no_charge === true,
-        };
-      if (canEditStartsAt) {
-        payload.starts_at = ppDetailEditForm.starts_at;
+      const response = await previewPatientPlanConfiguration(ppDetailPlan.id, {
+        anchor_day: anchor,
+        notes: ppDetailEditForm.notes.trim() || null,
+        is_no_charge: ppDetailEditForm.is_no_charge === true,
+        expected_configuration_version: Number(ppDetailPlan.configuration_version || 1),
+      });
+      if (!response.data?.can_confirm) {
+        toast.info("Nenhuma alteração foi identificada.");
+        return;
       }
-      await updatePatientPlan(ppDetailPlan.id, payload);
-      if (seriesId) {
-        const currentSeries = getPrimaryPlanSeries(ppDetailPlan);
-        const rawSeriesDate = String(currentSeries?.starts_at || "").slice(0, 10);
-        const rawPlanDate = String(ppDetailPlan.starts_at || "").slice(0, 10);
-        let seriesDate = ppDetailEditForm.starts_at;
-        if (isValidDateOnly(rawPlanDate)) seriesDate = rawPlanDate;
-        if (isValidDateOnly(rawSeriesDate)) seriesDate = rawSeriesDate;
-        await axios.put(`/session-series/${seriesId}`, {
-          professional_user_id: Number(ppDetailEditForm.professional_user_id),
-          weekdays: ppDetailEditForm.weekdays,
-          included_cycle_weeks: detailIncludedCycleWeeks,
-	          starts_at: buildDateTimeWithHour(seriesDate, ppDetailEditForm.time, allowBrokenTimeScheduling),
-        });
-      }
-      toast.success("Vínculo atualizado.");
-      setPpDetailEditing(false);
-      await loadPatientPlans();
-      await loadPatientPlanDetail(ppDetailPlan.id);
+      ppConfigurationIdempotencyRef.current = createPlanConfigurationIdempotencyKey(
+        ppDetailPlan.id,
+      );
+      setPpConfigurationPreview(response.data);
+      setPpConfigurationConfirmOpen(true);
     } catch (err) {
-      toast.error(err?.response?.data?.error || "Erro ao salvar vínculo.");
+      toast.error(err?.response?.data?.error || "Erro ao revisar os dados do plano.");
     } finally {
       setIsSaving(false);
     }
-  }, [allowBrokenTimeScheduling, loadPatientPlanDetail, loadPatientPlans, ppDetailEditForm, ppDetailPlan]);
+  }, [ppDetailEditForm, ppDetailPlan]);
+
+  const confirmPpDetailEditing = useCallback(async () => {
+    if (!ppDetailPlan?.id || !ppConfigurationPreview?.preview_token || isSaving) return;
+    const anchor = Number(ppDetailEditForm.anchor_day);
+    const idempotencyKey = ppConfigurationIdempotencyRef.current
+      || createPlanConfigurationIdempotencyKey(ppDetailPlan.id);
+    ppConfigurationIdempotencyRef.current = idempotencyKey;
+    setIsSaving(true);
+    try {
+      await changePatientPlanConfiguration(ppDetailPlan.id, {
+        anchor_day: anchor,
+        notes: ppDetailEditForm.notes.trim() || null,
+        is_no_charge: ppDetailEditForm.is_no_charge === true,
+        expected_configuration_version: Number(ppDetailPlan.configuration_version || 1),
+        preview_token: ppConfigurationPreview.preview_token,
+      }, idempotencyKey);
+      toast.success("Dados do plano atualizados.");
+      setPpConfigurationConfirmOpen(false);
+      setPpConfigurationPreview(null);
+      setPpDetailEditing(false);
+      ppConfigurationIdempotencyRef.current = null;
+      await loadPatientPlans();
+      await loadPatientPlanDetail(ppDetailPlan.id);
+    } catch (err) {
+      toast.error(err?.response?.data?.error || "Erro ao alterar os dados do plano.");
+      if ([
+        "PLAN_CONFIGURATION_PREVIEW_STALE",
+        "PLAN_CONFIGURATION_VERSION_CONFLICT",
+      ].includes(err?.response?.data?.code)) {
+        setPpConfigurationConfirmOpen(false);
+        setPpConfigurationPreview(null);
+        ppConfigurationIdempotencyRef.current = null;
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    isSaving,
+    loadPatientPlanDetail,
+    loadPatientPlans,
+    ppConfigurationPreview,
+    ppDetailEditForm,
+    ppDetailPlan,
+  ]);
 
   const closePpDrawer = useCallback(() => {
     setPpDrawerOpen(false);
-    setPpEditingId(null);
-    setPpEditingStatus(null);
     setPpForm(makeEmptyPpForm());
   }, []);
 
@@ -1634,30 +1639,22 @@ export default function Planos() {
           notes: ppForm.notes.trim() || null,
           is_no_charge: ppForm.is_no_charge === true,
         };
-        if (ppEditingId) {
-          await updatePatientPlan(ppEditingId, payload);
-          toast.success("Vínculo atualizado.");
-          closePpDrawer();
-          await loadPatientPlans();
-          if (patientPlanId) await loadPatientPlanDetail(patientPlanId);
-        } else {
-          const res = await createPatientPlan(payload);
-          toast.success("Vínculo criado!");
-          closePpDrawer();
-          await loadPatientPlans();
-          // Offer to schedule sessions right away
-          const sp = activeServicePlans.find(
-            (s) => String(s.id) === String(ppForm.service_plan_id),
-          );
-          setSchedPrompt({ ...res.data, ServicePlan: sp });
-        }
+        const res = await createPatientPlan(payload);
+        toast.success("Vínculo criado!");
+        closePpDrawer();
+        await loadPatientPlans();
+        // Offer to schedule sessions right away
+        const sp = activeServicePlans.find(
+          (s) => String(s.id) === String(ppForm.service_plan_id),
+        );
+        setSchedPrompt({ ...res.data, ServicePlan: sp });
       } catch (err) {
         toast.error(err?.response?.data?.error || "Erro ao salvar vínculo.");
       } finally {
         setIsSaving(false);
       }
     },
-    [ppForm, ppEditingId, closePpDrawer, loadPatientPlans, activeServicePlans, patientPlanId, loadPatientPlanDetail],
+    [ppForm, closePpDrawer, loadPatientPlans, activeServicePlans],
   );
 
 	  const handlePpPause = useCallback(
@@ -2885,8 +2882,7 @@ export default function Planos() {
     || hasFilledText(spForm.sessions_per_week),
   );
   const ppDrawerHasInput = Boolean(
-    ppEditingId
-    || hasFilledText(ppForm.patient_id)
+    hasFilledText(ppForm.patient_id)
     || hasFilledText(ppForm.service_plan_id)
     || hasFilledText(ppForm.anchor_day)
     || hasFilledText(ppForm.notes)
@@ -2948,7 +2944,6 @@ export default function Planos() {
   // ---- Render ----
 
   let ppSubmitLabel = "Vincular";
-  if (ppEditingId) ppSubmitLabel = "Salvar";
   if (isSaving) ppSubmitLabel = "Salvando...";
   const ppPauseSummary = ppPausePlan ? getPatientPlanSummary(ppPausePlan) : null;
   const ppPauseEditSummary = ppPauseEditPlan ? getPatientPlanSummary(ppPauseEditPlan) : null;
@@ -3080,7 +3075,8 @@ export default function Planos() {
   const ppDetailEditingFrequency = ppDetailEditingPlan?.sessions_per_week
     ? `${ppDetailEditingPlan.sessions_per_week}x/sem`
     : ppDetailEditingPlan?.frequency_label || ppDetailSummary?.frequency || "-";
-  const canEditPpDetailStartsAt = ppDetailEditPermissions.can_edit_starts_at !== false;
+  const canEditPpDetailFinancialFields = ppDetailEditPermissions.can_edit_anchor_day === true
+    && ppDetailEditPermissions.can_edit_is_no_charge === true;
   const planChangeOptions = useMemo(
     () => buildPlanChangeOptions(ppDetailPlanOptions, ppDetailPlan),
     [ppDetailPlanOptions, ppDetailPlan],
@@ -3132,82 +3128,7 @@ export default function Planos() {
     ppAdminPlanData?.anchor_day || ppDetailPlan?.anchor_day,
   );
   const ppDetailPlanNotes = String(ppAdminPlanData?.notes || ppDetailPlan?.notes || "").trim();
-  const ppDetailPlanDataContent = (() => {
-    if (!ppDetailEditing) return null;
-    return (
-      <PlanSummaryList>
-        <PlanSummaryItem>
-          <PlanSummaryLabel>Plano comercial</PlanSummaryLabel>
-          <PlanSummaryValue>
-            <strong>{ppDetailSummary?.planName || ppDetailEditingPlan?.name || "-"}</strong>
-          </PlanSummaryValue>
-        </PlanSummaryItem>
-        <PlanSummaryItem>
-          <PlanSummaryLabel>Frequência</PlanSummaryLabel>
-          <PlanSummaryValue><strong>{ppDetailEditingFrequency}</strong></PlanSummaryValue>
-        </PlanSummaryItem>
-        <PlanSummaryItem>
-          <PlanSummaryLabel>Financeiro</PlanSummaryLabel>
-          <PlanSummaryValue>
-            <PauseCheckboxLabel>
-              <input
-                type="checkbox"
-                name="is_no_charge"
-                checked={ppDetailEditForm.is_no_charge === true}
-                onChange={handlePpDetailEditChange}
-              />
-              Plano sem cobrança
-            </PauseCheckboxLabel>
-          </PlanSummaryValue>
-        </PlanSummaryItem>
-        <PlanSummaryItem>
-          <PlanSummaryLabel>Data de início</PlanSummaryLabel>
-          <PlanSummaryValue>
-            {canEditPpDetailStartsAt ? (
-              <PlanDetailField
-                name="starts_at"
-                type="date"
-                $compact
-                value={ppDetailEditForm.starts_at}
-                onChange={handlePpDetailEditChange}
-              />
-            ) : (
-              <strong>{formatDateBR(ppDetailPlan?.starts_at)}</strong>
-            )}
-          </PlanSummaryValue>
-        </PlanSummaryItem>
-        <PlanSummaryItem>
-          <PlanSummaryLabel>Dia de vencimento</PlanSummaryLabel>
-          <PlanSummaryValue>
-            <PlanDetailField
-              as="select"
-              name="anchor_day"
-              $compact
-              value={ppDetailEditForm.anchor_day}
-              onChange={handlePpDetailEditChange}
-            >
-              <option value="">Selecione...</option>
-              {ANCHOR_DAY_OPTIONS.map((day) => (
-                <option key={day} value={day}>{day}</option>
-              ))}
-            </PlanDetailField>
-          </PlanSummaryValue>
-        </PlanSummaryItem>
-        <PlanSummaryItem>
-          <PlanSummaryLabel>Observações</PlanSummaryLabel>
-          <PlanSummaryValue>
-            <PlanDetailField
-              as="textarea"
-              name="notes"
-              value={ppDetailEditForm.notes}
-              onChange={handlePpDetailEditChange}
-              rows={3}
-            />
-          </PlanSummaryValue>
-        </PlanSummaryItem>
-      </PlanSummaryList>
-    );
-  })();
+  const ppDetailPlanDataContent = null;
 
   const ppDetailCurrentStatusLabel = ppDetailHasFutureCancellation
     ? "Ativo"
@@ -3232,18 +3153,7 @@ export default function Planos() {
     : "";
   let ppDetailPlanPrimaryAction = null;
   let ppDetailPlanSecondaryAction = null;
-  if (!isPpDetailDataLoading && ppDetailEditing) {
-    ppDetailPlanPrimaryAction = {
-      label: isSaving ? "Salvando..." : "Salvar",
-      onClick: savePpDetailEditing,
-      disabled: isSaving,
-    };
-    ppDetailPlanSecondaryAction = {
-      label: "Cancelar edição",
-      onClick: cancelPpDetailEditing,
-      disabled: isSaving,
-    };
-  } else if (!isPpDetailDataLoading && ppDetailPlan?.status !== "canceled") {
+  if (!isPpDetailDataLoading && !ppDetailEditing && ppDetailPlan?.status !== "canceled") {
     ppDetailPlanSecondaryAction = { label: "Editar dados", onClick: startPpDetailEditing };
     if (ppDetailPlan?.status === "paused") {
       ppDetailPlanPrimaryAction = {
@@ -3461,13 +3371,170 @@ export default function Planos() {
 	  return (
 	    <PlansPage>
       {anyDrawerOpen && <DrawerBackdrop onClick={handleBackdropClick} />}
-      <UnsavedChangesDialog
+	      <UnsavedChangesDialog
 	        open={Boolean(discardDrawerClose)}
 	        onKeepEditing={keepDrawerEditing}
 	        onDiscard={discardDrawerChanges}
-      />
+	      />
 
-      <ScheduleChangeDrawer
+      {ppDetailEditing && ppDetailPlan && !ppConfigurationConfirmOpen && (
+        <PromptOverlay>
+          <PromptCard role="dialog" aria-modal="true" aria-labelledby="plan-data-edit-title">
+            <PromptTitle id="plan-data-edit-title">Editar dados</PromptTitle>
+            <PlanSummaryList>
+              <PlanSummaryItem>
+                <PlanSummaryLabel>Plano</PlanSummaryLabel>
+                <PlanSummaryValue>
+                  <strong>{ppDetailSummary?.planName || ppDetailEditingPlan?.name || "-"}</strong>
+                </PlanSummaryValue>
+              </PlanSummaryItem>
+              <PlanSummaryItem>
+                <PlanSummaryLabel>Frequência</PlanSummaryLabel>
+                <PlanSummaryValue><strong>{ppDetailEditingFrequency}</strong></PlanSummaryValue>
+              </PlanSummaryItem>
+              <PlanSummaryItem>
+                <PlanSummaryLabel>Data de início</PlanSummaryLabel>
+                <PlanSummaryValue><strong>{formatDateBR(ppDetailPlan.starts_at)}</strong></PlanSummaryValue>
+              </PlanSummaryItem>
+              <PlanSummaryItem>
+                <PlanSummaryLabel>Dia de vencimento</PlanSummaryLabel>
+                <PlanSummaryValue>
+                  <PlanDetailField
+                    as="select"
+                    name="anchor_day"
+                    $compact
+                    value={ppDetailEditForm.anchor_day}
+                    onChange={handlePpDetailEditChange}
+                    disabled={!canEditPpDetailFinancialFields || isSaving}
+                  >
+                    <option value="">Selecione...</option>
+                    {ANCHOR_DAY_OPTIONS.map((day) => (
+                      <option key={day} value={day}>{day}</option>
+                    ))}
+                  </PlanDetailField>
+                </PlanSummaryValue>
+              </PlanSummaryItem>
+              <PlanSummaryItem>
+                <PlanSummaryLabel>Financeiro</PlanSummaryLabel>
+                <PlanSummaryValue>
+                  <PauseCheckboxLabel>
+                    <input
+                      type="checkbox"
+                      name="is_no_charge"
+                      checked={ppDetailEditForm.is_no_charge === true}
+                      onChange={handlePpDetailEditChange}
+                      disabled={!canEditPpDetailFinancialFields || isSaving}
+                    />
+                    Plano sem cobrança
+                  </PauseCheckboxLabel>
+                </PlanSummaryValue>
+              </PlanSummaryItem>
+              <PlanSummaryItem>
+                <PlanSummaryLabel>Observações</PlanSummaryLabel>
+                <PlanSummaryValue>
+                  <PlanDetailField
+                    as="textarea"
+                    name="notes"
+                    value={ppDetailEditForm.notes}
+                    onChange={handlePpDetailEditChange}
+                    disabled={isSaving}
+                    rows={3}
+                  />
+                </PlanSummaryValue>
+              </PlanSummaryItem>
+            </PlanSummaryList>
+            {!canEditPpDetailFinancialFields && ppDetailEditPermissions.financial_fields_message && (
+              <InlineAlert $tone="warning">
+                {ppDetailEditPermissions.financial_fields_message}
+              </InlineAlert>
+            )}
+            {canEditPpDetailFinancialFields && (
+              <InlineAlert $tone="info">
+                As alterações financeiras passarão a valer a partir do próximo ciclo. O ciclo atual não será alterado.
+              </InlineAlert>
+            )}
+            <PromptActions>
+              <GhostButton type="button" onClick={cancelPpDetailEditing} disabled={isSaving}>
+                Cancelar
+              </GhostButton>
+              <PrimaryButton type="button" onClick={savePpDetailEditing} disabled={isSaving}>
+                {isSaving ? "Revisando..." : "Revisar alterações"}
+              </PrimaryButton>
+            </PromptActions>
+          </PromptCard>
+        </PromptOverlay>
+      )}
+
+      {ppConfigurationConfirmOpen && ppConfigurationPreview && (
+        <PromptOverlay>
+          <PromptCard role="dialog" aria-modal="true" aria-labelledby="plan-data-confirm-title">
+            <PromptTitle id="plan-data-confirm-title">Confirmar alteração</PromptTitle>
+            {ppConfigurationPreview.effective_on && (
+              <InlineAlert $tone="info">
+                As alterações financeiras passarão a valer a partir do próximo ciclo. O ciclo atual não será alterado.
+                {` Válido a partir do ciclo iniciado em ${formatDateBR(ppConfigurationPreview.effective_on).slice(0, 5)}.`}
+              </InlineAlert>
+            )}
+            <ScheduleConfirmSummary>
+              {ppConfigurationPreview.changes?.anchor_day && (
+                <ScheduleConfirmLine>
+                  <span>Vencimento atual</span>
+                  <strong>dia {ppConfigurationPreview.changes.anchor_day.before}</strong>
+                </ScheduleConfirmLine>
+              )}
+              {ppConfigurationPreview.changes?.anchor_day && (
+                <ScheduleConfirmLine>
+                  <span>A partir do próximo ciclo</span>
+                  <strong>dia {ppConfigurationPreview.changes.anchor_day.after}</strong>
+                </ScheduleConfirmLine>
+              )}
+              {ppConfigurationPreview.changes?.is_no_charge?.after === true && (
+                <ScheduleConfirmLine>
+                  <span>A partir do próximo ciclo</span>
+                  <strong>Este plano não gerará cobrança.</strong>
+                </ScheduleConfirmLine>
+              )}
+              {ppConfigurationPreview.changes?.is_no_charge?.after === false && (
+                <ScheduleConfirmLine>
+                  <span>A partir do próximo ciclo</span>
+                  <strong>Este plano voltará a gerar cobrança.</strong>
+                </ScheduleConfirmLine>
+              )}
+              {ppConfigurationPreview.changes?.notes_changed && (
+                <ScheduleConfirmLine>
+                  <span>Observações</span>
+                  <strong>Serão atualizadas.</strong>
+                </ScheduleConfirmLine>
+              )}
+              {Number(ppConfigurationPreview.future_charges_affected || 0) > 0 && (
+                <ScheduleConfirmLine>
+                  <span>Cobranças futuras</span>
+                  <strong>
+                    {ppConfigurationPreview.future_charges_affected}{" "}
+                    {Number(ppConfigurationPreview.future_charges_affected) === 1
+                      ? "cobrança futura será ajustada."
+                      : "cobranças futuras serão ajustadas."}
+                  </strong>
+                </ScheduleConfirmLine>
+              )}
+            </ScheduleConfirmSummary>
+            <PromptActions>
+              <GhostButton
+                type="button"
+                onClick={() => setPpConfigurationConfirmOpen(false)}
+                disabled={isSaving}
+              >
+                Voltar
+              </GhostButton>
+              <PrimaryButton type="button" onClick={confirmPpDetailEditing} disabled={isSaving}>
+                {isSaving ? "Salvando..." : "Confirmar alteração"}
+              </PrimaryButton>
+            </PromptActions>
+          </PromptCard>
+        </PromptOverlay>
+      )}
+
+	      <ScheduleChangeDrawer
         open={scheduleChangeOpen}
         busy={scheduleChangeSaving}
         form={scheduleChangeForm}
@@ -4273,7 +4340,7 @@ export default function Planos() {
       <AppDrawer $open={ppDrawerOpen}>
         <DrawerHeader>
           <DrawerTitle>
-            {ppEditingId ? "Editar Vínculo" : "Vincular Paciente ao Plano"}
+            Vincular Paciente ao Plano
           </DrawerTitle>
           <DrawerCloseBtn type="button" onClick={closePpDrawer}>
             <FaTimes />
@@ -4281,17 +4348,6 @@ export default function Planos() {
         </DrawerHeader>
         <DrawerBody>
           <form onSubmit={handlePpSubmit}>
-            {ppEditingStatus && (
-              <StatusRow>
-                <span>Status atual:</span>
-                <StatusPill $tone={ppEditingStatus}>
-                  {STATUS_INFO[ppEditingStatus]?.label || ppEditingStatus}
-                </StatusPill>
-                <StatusNote>
-                  Use Pausar / Retomar / Cancelar na tabela para alterar o status.
-                </StatusNote>
-              </StatusRow>
-            )}
             <PatientSearchField
               mode="select"
               inputId="patient-plan-patient"
@@ -4317,7 +4373,6 @@ export default function Planos() {
                   patient_search: getPatientDisplayName(patient),
                 }));
               }}
-              disabled={!!ppEditingId}
             />
             <Field>
               Plano comercial *
@@ -5351,26 +5406,6 @@ const Empty = styled.div`
 const SaveBtn = styled(PrimaryButton)`
   padding: 9px 22px;
   font-size: 0.9rem;
-`;
-
-const StatusRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 10px 12px;
-  background: #f9faf6;
-  border-radius: 8px;
-  border: 1px solid rgba(106, 121, 92, 0.14);
-  margin-bottom: 16px;
-  font-size: 0.85rem;
-  color: #555;
-`;
-
-const StatusNote = styled.span`
-  font-size: 0.77rem;
-  color: #aaa;
-  flex-basis: 100%;
 `;
 
 const ServiceColorDot = styled.div`

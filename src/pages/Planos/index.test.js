@@ -20,6 +20,9 @@ import {
   listServicePrices,
   getPatientPlanHistory,
   pausePatientPlan,
+  previewPatientPlanConfiguration,
+  changePatientPlanConfiguration,
+  updatePatientPlan,
 } from "../../services/financial";
 import axios from "../../services/axios";
 
@@ -45,6 +48,8 @@ jest.mock("../../services/financial", () => ({
   getPatientPlansOverview: jest.fn(),
   createPatientPlan: jest.fn(),
   updatePatientPlan: jest.fn(),
+  previewPatientPlanConfiguration: jest.fn(),
+  changePatientPlanConfiguration: jest.fn(),
   pausePatientPlan: jest.fn(),
   updatePatientPlanPause: jest.fn(),
   previewResumePatientPlan: jest.fn(),
@@ -164,6 +169,104 @@ describe("Planos no contêiner do App Shell", () => {
     await waitFor(() => expect(getPatientPlansOverview).toHaveBeenLastCalledWith(
       expect.objectContaining({ patient_query: "inexistente" }),
     ));
+  });
+
+  it("edita configuração por prévia autoritativa sem enviar campos proibidos", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      starts_at: "2026-05-18",
+      anchor_day: 10,
+      is_no_charge: false,
+      notes: "Atual",
+      status: "active",
+      configuration_version: 3,
+      edit_permissions: {
+        can_edit_starts_at: false,
+        can_edit_anchor_day: true,
+        can_edit_is_no_charge: true,
+        can_edit_notes: true,
+      },
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: { id: 31, name: "Funcional 2x", sessions_per_week: 2 },
+      agenda_summary: { status: "not_configured", can_configure_agenda: true },
+    };
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({
+          data: {
+            header_summary: { patient_name: "Ana Silva", plan_status_label: "Plano ativo" },
+            plan_data_summary: {
+              service_plan_name: "Funcional 2x",
+              sessions_per_week: 2,
+              starts_at: patientPlan.starts_at,
+              anchor_day: patientPlan.anchor_day,
+              notes: patientPlan.notes,
+              is_no_charge: false,
+            },
+            agenda_summary: patientPlan.agenda_summary,
+          },
+        });
+      }
+      if (url === "/services") return Promise.resolve({ data: [] });
+      if (url === "/patients") return Promise.resolve({ data: [patientPlan.Patient] });
+      if (url === "/schedule/references/professionals") return Promise.resolve({ data: [] });
+      if (url === "/unit-scheduling-policy") return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: {} });
+    });
+    previewPatientPlanConfiguration.mockResolvedValue({
+      data: {
+        can_confirm: true,
+        configuration_version: 3,
+        effective_on: "2026-09-18",
+        future_charges_affected: 2,
+        preview_token: "configuration-preview-token",
+        changes: {
+          anchor_day: { before: 10, after: 15 },
+          is_no_charge: { before: false, after: true },
+          notes_changed: true,
+        },
+      },
+    });
+    changePatientPlanConfiguration.mockResolvedValue({ data: { ok: true } });
+
+    renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("button", { name: "Editar dados" }));
+    const editDialog = screen.getByRole("dialog", { name: "Editar dados" });
+    expect(within(editDialog).getByText("18/05/2026")).toBeInTheDocument();
+    expect(within(editDialog).queryByDisplayValue("2026-05-18")).not.toBeInTheDocument();
+    fireEvent.change(within(editDialog).getByRole("combobox"), { target: { value: "15" } });
+    fireEvent.click(within(editDialog).getByRole("checkbox", { name: "Plano sem cobrança" }));
+    fireEvent.change(within(editDialog).getByRole("textbox"), { target: { value: "Nova" } });
+    fireEvent.click(within(editDialog).getByRole("button", { name: "Revisar alterações" }));
+
+    await waitFor(() => expect(previewPatientPlanConfiguration).toHaveBeenCalledWith(41, {
+      anchor_day: 15,
+      is_no_charge: true,
+      notes: "Nova",
+      expected_configuration_version: 3,
+    }));
+    const confirmDialog = await screen.findByRole("dialog", { name: "Confirmar alteração" });
+    expect(within(confirmDialog).getByText(/Válido a partir do ciclo iniciado em 18\/09/))
+      .toBeInTheDocument();
+    expect(within(confirmDialog).getByText("2 cobranças futuras serão ajustadas."))
+      .toBeInTheDocument();
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "Confirmar alteração" }));
+
+    await waitFor(() => expect(changePatientPlanConfiguration).toHaveBeenCalledWith(
+      41,
+      {
+        anchor_day: 15,
+        is_no_charge: true,
+        notes: "Nova",
+        expected_configuration_version: 3,
+        preview_token: "configuration-preview-token",
+      },
+      expect.stringMatching(/^plan-configuration-41-/),
+    ));
+    expect(updatePatientPlan).not.toHaveBeenCalled();
   });
 
   it("ignora resposta antiga quando uma busca mais recente já terminou", async () => {

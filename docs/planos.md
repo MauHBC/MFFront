@@ -55,6 +55,28 @@ A ação primária é “Vincular plano”, porque o fluxo cria um vínculo mens
 um paciente existente ou criado durante o próprio fluxo. Ela respeita as
 capacidades de edição/contratação de Planos já aplicadas às demais mutações.
 
+## Editar dados do vínculo
+
+No detalhe do plano mensal, “Editar dados” mantém plano comercial, frequência e
+data de início somente leitura. Observações permanecem editáveis. Dia de
+vencimento e “Plano sem cobrança” são editáveis apenas no vínculo ativo sem
+cancelamento programado; em plano pausado ou com cancelamento programado a tela
+explica que somente observações podem mudar. Plano cancelado não oferece edição.
+
+Salvar primeiro chama `POST /patient-plans/:id/configuration-preview`, enviando
+somente `anchor_day`, `is_no_charge`, `notes` e
+`expected_configuration_version`. A confirmação apresenta a data concreta do
+próximo ciclo, os valores anterior e novo, a alteração de cobrança e a quantidade
+de cobranças futuras afetadas, sem IDs técnicos. Ela então chama
+`POST /patient-plans/:id/configuration-change` com o token autoritativo e uma
+`Idempotency-Key` estável durante o retry.
+
+A interface informa que alterações financeiras valem a partir do próximo ciclo
+e que o ciclo atual não será alterado. Ela não calcula efeitos financeiros, não
+envia `starts_at`, plano comercial ou vigência e não usa o `PUT` genérico para
+esse fluxo. Conflitos de versão, prévia obsoleta ou estado futuro inconsistente
+fecham a confirmação e exigem recarregar a situação do vínculo.
+
 ## Agenda atual e futura
 
 O Frontend apresenta a Agenda vigente e uma alteração futura como estados

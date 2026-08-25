@@ -158,6 +158,14 @@ export const createPatientPlan = (payload) =>
 export const updatePatientPlan = (id, payload) =>
   api.put(`/patient-plans/${id}`, payload);
 
+export const previewPatientPlanConfiguration = (id, payload) =>
+  api.post(`/patient-plans/${id}/configuration-preview`, payload);
+
+export const changePatientPlanConfiguration = (id, payload, idempotencyKey) =>
+  api.post(`/patient-plans/${id}/configuration-change`, payload, {
+    headers: { 'Idempotency-Key': idempotencyKey },
+  });
+
 export const pausePatientPlan = (id, payload = {}) =>
   api.post(`/patient-plans/${id}/pause`, payload);
 
@@ -234,6 +242,8 @@ export default {
   deactivateServicePlan,
   createPatientPlan,
   updatePatientPlan,
+  previewPatientPlanConfiguration,
+  changePatientPlanConfiguration,
   pausePatientPlan,
   updatePatientPlanPause,
   previewResumePatientPlan,
