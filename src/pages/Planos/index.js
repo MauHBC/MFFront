@@ -72,6 +72,7 @@ import {
   ScheduledChangePanel,
 } from "./PatientPlanDetailView";
 import {
+  buildConfigurationTransitionPresentation,
   buildPausePresentation,
   buildPendingCommercialChangePresentation,
   buildPendingScheduleChangePresentation,
@@ -2989,8 +2990,12 @@ export default function Planos() {
   const ppPendingScheduleChangePresentation = buildPendingScheduleChangePresentation(
     ppPendingScheduleChange,
   );
+  const ppConfigurationTransitionPresentation = buildConfigurationTransitionPresentation(
+    ppAdminSummary?.agenda_summary?.configuration_transition
+      || ppDetailPlan?.agenda_summary?.configuration_transition,
+  );
   const ppDetailHasScheduledAgendaContinuity = Boolean(
-    ppPendingScheduleChangePresentation,
+    ppPendingScheduleChangePresentation || ppConfigurationTransitionPresentation,
   );
   const planActionsBlockedByScheduleChange = Boolean(ppPendingScheduleChange);
   const scheduleChangeAwaitingPromotion = Boolean(
@@ -4879,6 +4884,19 @@ export default function Planos() {
                             label: "Cancelar alteração",
                             onClick: openScheduleChangeCancellation,
                           } : null}
+                        />
+                      )}
+                      {!ppPendingScheduleChangePresentation
+                        && ppConfigurationTransitionPresentation && (
+                        <ScheduledChangePanel
+                          eyebrow="Transição de agenda"
+                          agendaComparison={{
+                            current: ppConfigurationTransitionPresentation.currentPattern,
+                            proposed: ppConfigurationTransitionPresentation.nextPattern,
+                            currentLabel: ppConfigurationTransitionPresentation.currentLabel,
+                            proposedLabel: ppConfigurationTransitionPresentation.nextLabel,
+                          }}
+                          verticalAgendaComparison
                         />
                       )}
                     </AgendaSummaryCard>

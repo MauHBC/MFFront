@@ -93,6 +93,18 @@ várias séries singleton. Sessões materializadas não formam essa lista e uma
 remarcação individual não a altera. Respostas antigas continuam compatíveis por
 `pattern_summary` e, na ausência dele, por `weekdays` + `time`.
 
+Quando `agenda_summary.configuration_transition` estiver presente, a aba Agenda
+mantém a grade efetiva como configuração principal e apresenta também, em
+linguagem funcional, o último dia dessa grade e a nova grade com sua data de
+início. A continuidade autoritativa mantém a Agenda ativa, impede o falso estado
+“Sem sessões futuras” e não oferece “Configurar nova agenda”. Se também existir
+`pending_schedule_change`, o painel editável/cancelável desse fluxo prevalece e
+a transição aditiva não é duplicada.
+
+Status históricos de sessões não são reinterpretados pela aba do plano. Explicar
+a origem de uma sessão suspensa depende de uma projeção específica de histórico
+de Agenda/pausa e permanece fora deste contrato.
+
 ## Alteração e cancelamento
 
 A alteração operacional usa, nesta ordem:

@@ -1513,6 +1513,99 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.getByRole("button", { name: /Alterar agenda/i })).toBeInTheDocument();
   });
 
+  it("mostra grade vigente e sucessora já existente sem oferecer nova configuração", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      starts_at: "2026-05-18",
+      anchor_day: 18,
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: { id: 31, name: "Pilates 2x", sessions_per_week: 2 },
+    };
+    const agendaSummary = {
+      status: "active_recurrence",
+      status_label: "Recorrência ativa",
+      configuration_grid: [
+        { weekday: 1, time: "08:00" },
+        { weekday: 3, time: "08:00" },
+        { weekday: 5, time: "08:00" },
+      ],
+      configuration_transition: {
+        current_effective_until: "2026-08-25",
+        next_effective_from: "2026-08-26",
+        current_configuration_grid: [
+          { weekday: 1, time: "08:00" },
+          { weekday: 3, time: "08:00" },
+          { weekday: 5, time: "08:00" },
+        ],
+        next_configuration_grid: [
+          { weekday: 1, time: "08:00" },
+          { weekday: 3, time: "08:00" },
+        ],
+      },
+      professional_name: "Leonardo",
+      future_sessions_count: 24,
+      can_configure_agenda: false,
+      can_manage_agenda: true,
+      can_remove_future_sessions: true,
+      primary_action: "manage_agenda",
+    };
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") {
+        return Promise.resolve({ data: { ...patientPlan, agenda_summary: agendaSummary } });
+      }
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({
+          data: {
+            header_summary: { patient_name: "Ana Silva", plan_status_label: "Plano ativo" },
+            plan_data_summary: {
+              service_plan_name: "Pilates 2x",
+              sessions_per_week: 2,
+              price_cents: 48000,
+              anchor_day: 18,
+              starts_at: "2026-05-18",
+            },
+            agenda_summary: agendaSummary,
+            pending_schedule_change: null,
+          },
+        });
+      }
+      if (url === "/schedule/references/professionals") return Promise.resolve({ data: [] });
+      if (url === "/services") return Promise.resolve({ data: [] });
+      if (url === "/patients") return Promise.resolve({ data: [patientPlan.Patient] });
+      if (url === "/unit-scheduling-policy") return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
+
+    const agendaCard = (await screen.findByRole("heading", { name: "Agenda" }))
+      .closest("section");
+    expect(within(agendaCard).getByText("Ativa")).toBeInTheDocument();
+    expect(within(agendaCard).queryByText("Sem sessões futuras")).not.toBeInTheDocument();
+    expect(within(agendaCard).queryByRole("button", { name: "Configurar nova agenda" }))
+      .not.toBeInTheDocument();
+    expect(within(agendaCard).getByRole("button", { name: /Alterar agenda/i }))
+      .toBeInTheDocument();
+
+    const currentSchedule = within(agendaCard).getByRole("list", {
+      name: "Horários da agenda recorrente",
+    });
+    expect(within(currentSchedule).getByText("Seg 08h")).toBeInTheDocument();
+    expect(within(currentSchedule).getByText("Qua 08h")).toBeInTheDocument();
+    expect(within(currentSchedule).getByText("Sex 08h")).toBeInTheDocument();
+
+    expect(within(agendaCard).getByText("Agenda vigente até 25 ago")).toBeInTheDocument();
+    expect(within(agendaCard).getByText("Nova agenda a partir de 26 ago")).toBeInTheDocument();
+    const nextSchedule = within(agendaCard).getByRole("group", { name: "Agenda nova" });
+    expect(within(nextSchedule).getByText("Seg 08h")).toBeInTheDocument();
+    expect(within(nextSchedule).getByText("Qua 08h")).toBeInTheDocument();
+    expect(within(nextSchedule).queryByText("Sex 08h")).not.toBeInTheDocument();
+  });
+
   it("mantém Sem sessões futuras quando não há alteração programada", async () => {
     const patientPlan = {
       id: 41,

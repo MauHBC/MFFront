@@ -262,6 +262,29 @@ export const formatAgendaPattern = (agendaSummary) => {
   return formatScheduleGrid(weekdays.map((weekday) => ({ weekday, time })));
 };
 
+export const buildConfigurationTransitionPresentation = (transition) => {
+  const currentEffectiveUntil = String(transition?.current_effective_until || "");
+  const nextEffectiveFrom = String(transition?.next_effective_from || "");
+  const currentPattern = formatScheduleGrid(transition?.current_configuration_grid);
+  const nextPattern = formatScheduleGrid(transition?.next_configuration_grid);
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(currentEffectiveUntil)
+    || !/^\d{4}-\d{2}-\d{2}$/.test(nextEffectiveFrom)
+    || !currentPattern
+    || !nextPattern
+  ) {
+    return null;
+  }
+  return {
+    currentEffectiveUntil,
+    nextEffectiveFrom,
+    currentPattern,
+    nextPattern,
+    currentLabel: `Agenda vigente até ${formatCompactDate(currentEffectiveUntil)}`,
+    nextLabel: `Nova agenda a partir de ${formatCompactDate(nextEffectiveFrom)}`,
+  };
+};
+
 const firstProfessionalName = (grid) => (
   (Array.isArray(grid) ? grid : [])
     .map((row) => String(row?.professional_name || "").trim())

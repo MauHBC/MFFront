@@ -1,4 +1,5 @@
 import {
+  buildConfigurationTransitionPresentation,
   buildPausePresentation,
   buildPendingCommercialChangePresentation,
   buildPendingScheduleChangePresentation,
@@ -75,6 +76,39 @@ describe("patient plan detail presentation", () => {
       ],
       pattern_summary: "texto legado divergente",
     })).toBe("Qua 09:30 · Sex 10h");
+  });
+
+  it("apresenta a transição autoritativa sem termos técnicos", () => {
+    expect(buildConfigurationTransitionPresentation({
+      current_effective_until: "2026-08-25",
+      next_effective_from: "2026-08-26",
+      current_configuration_grid: [
+        { weekday: 1, time: "08:00" },
+        { weekday: 3, time: "08:00" },
+        { weekday: 5, time: "08:00" },
+      ],
+      next_configuration_grid: [
+        { weekday: 1, time: "08:00" },
+        { weekday: 3, time: "08:00" },
+      ],
+    })).toEqual({
+      currentEffectiveUntil: "2026-08-25",
+      nextEffectiveFrom: "2026-08-26",
+      currentPattern: "Seg 08h · Qua 08h · Sex 08h",
+      nextPattern: "Seg 08h · Qua 08h",
+      currentLabel: "Agenda vigente até 25 ago",
+      nextLabel: "Nova agenda a partir de 26 ago",
+    });
+  });
+
+  it("não inventa transição quando o contrato está incompleto", () => {
+    expect(buildConfigurationTransitionPresentation(null)).toBeNull();
+    expect(buildConfigurationTransitionPresentation({
+      current_effective_until: "2026-08-25",
+      next_effective_from: "2026-08-26",
+      current_configuration_grid: [],
+      next_configuration_grid: [{ weekday: 1, time: "08:00" }],
+    })).toBeNull();
   });
 
   it("constrói somente a grade informada pelo formulário", () => {

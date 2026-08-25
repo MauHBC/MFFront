@@ -189,7 +189,7 @@ export function ScheduledChangePanel({
         {agendaComparison && verticalAgendaComparison && (
           <FutureAgendaComparison>
             <FutureAgendaColumn role="group" aria-label="Agenda atual">
-              <FutureAgendaLabel>Atual</FutureAgendaLabel>
+              <FutureAgendaLabel>{agendaComparison.currentLabel || "Atual"}</FutureAgendaLabel>
               <FutureAgendaList>
                 {splitSchedulePattern(agendaComparison.current).map((item) => (
                   <li key={item}>{item}</li>
@@ -197,7 +197,7 @@ export function ScheduledChangePanel({
               </FutureAgendaList>
             </FutureAgendaColumn>
             <FutureAgendaColumn role="group" aria-label="Agenda nova">
-              <FutureAgendaLabel>Nova</FutureAgendaLabel>
+              <FutureAgendaLabel>{agendaComparison.proposedLabel || "Nova"}</FutureAgendaLabel>
               <FutureAgendaList>
                 {splitSchedulePattern(agendaComparison.proposed).map((item) => (
                   <li key={item}>{item}</li>
@@ -244,6 +244,8 @@ ScheduledChangePanel.propTypes = {
   agendaComparison: PropTypes.shape({
     current: PropTypes.string.isRequired,
     proposed: PropTypes.string.isRequired,
+    currentLabel: PropTypes.string,
+    proposedLabel: PropTypes.string,
   }),
   verticalAgendaComparison: PropTypes.bool,
   trailingDetail: PropTypes.string,
