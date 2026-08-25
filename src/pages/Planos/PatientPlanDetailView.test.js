@@ -7,6 +7,7 @@ import {
   PlanSummaryCard,
   ScheduleChangeDrawer,
   ScheduledChangePanel,
+  UpcomingAgendaPanel,
 } from "./PatientPlanDetailView";
 
 const noop = () => {};
@@ -220,6 +221,64 @@ describe("PatientPlanDetailView", () => {
     expect(screen.getByRole("group", { name: "Agenda nova" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancelar alteração" }))
       .not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      name: "somente profissional",
+      currentPattern: "Seg 08h · Qua 08h",
+      nextPattern: "Seg 08h · Qua 08h",
+      nextProfessional: "Maria",
+      weeklyLabel: "Toda semana",
+    },
+    {
+      name: "dias, horários e profissional",
+      currentPattern: "Seg 08h · Qua 08h · Sex 08h",
+      nextPattern: "Ter 09h · Qui 10h",
+      nextProfessional: "Maria",
+      weeklyLabel: "1ª e 3ª semanas",
+    },
+  ])("separa a configuração vigente da nova agenda: $name", ({
+    currentPattern,
+    nextPattern,
+    nextProfessional,
+    weeklyLabel,
+  }) => {
+    render(
+      <AgendaSummaryCard
+        title="Agenda"
+        statusLabel="Ativa até 25 ago"
+        pattern={currentPattern}
+        supportingText="Profissional: Jéssica"
+        menuActions={[]}
+      >
+        <UpcomingAgendaPanel
+          startsLabel="A partir de 26 ago"
+          pattern={nextPattern}
+          weeklyLabel={weeklyLabel}
+          professionalName={nextProfessional}
+        />
+      </AgendaSummaryCard>,
+    );
+
+    expect(screen.getByText("Ativa até 25 ago")).toBeInTheDocument();
+    const currentAgenda = screen.getByRole("list", {
+      name: "Horários da agenda recorrente",
+    });
+    expect(within(currentAgenda).getAllByRole("listitem")).toHaveLength(
+      currentPattern.split(" · ").length,
+    );
+    expect(within(screen.getByLabelText("Informações da agenda"))
+      .getByText("Profissional: Jéssica")).toBeInTheDocument();
+
+    const nextAgenda = screen.getByLabelText("Nova agenda");
+    expect(within(nextAgenda).getByText("A partir de 26 ago")).toBeInTheDocument();
+    expect(within(nextAgenda).getByText(`Profissional: ${nextProfessional}`))
+      .toBeInTheDocument();
+    expect(within(nextAgenda).getByText(weeklyLabel)).toBeInTheDocument();
+    expect(within(nextAgenda).queryByText("Profissional: Jéssica"))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText(/Agenda vigente até/i)).not.toBeInTheDocument();
   });
 
   it("mantém o dialog rotulado, campos associados e sem confirmação quando há bloqueio", () => {

@@ -1544,8 +1544,12 @@ describe("Planos no contêiner do App Shell", () => {
           { weekday: 1, time: "08:00" },
           { weekday: 3, time: "08:00" },
         ],
+        next_professional_user_id: 21,
+        next_professional_name: "Jéssica",
+        next_included_cycle_weeks: [1, 2, 3, 4],
+        next_included_cycle_weeks_label: "Toda semana",
       },
-      professional_name: "Leonardo",
+      professional_name: "Jéssica",
       future_sessions_count: 24,
       can_configure_agenda: false,
       can_manage_agenda: true,
@@ -1584,7 +1588,7 @@ describe("Planos no contêiner do App Shell", () => {
 
     const agendaCard = (await screen.findByRole("heading", { name: "Agenda" }))
       .closest("section");
-    expect(within(agendaCard).getByText("Ativa")).toBeInTheDocument();
+    expect(within(agendaCard).getByText("Ativa até 25 ago")).toBeInTheDocument();
     expect(within(agendaCard).queryByText("Sem sessões futuras")).not.toBeInTheDocument();
     expect(within(agendaCard).queryByRole("button", { name: "Configurar nova agenda" }))
       .not.toBeInTheDocument();
@@ -1598,12 +1602,18 @@ describe("Planos no contêiner do App Shell", () => {
     expect(within(currentSchedule).getByText("Qua 08h")).toBeInTheDocument();
     expect(within(currentSchedule).getByText("Sex 08h")).toBeInTheDocument();
 
-    expect(within(agendaCard).getByText("Agenda vigente até 25 ago")).toBeInTheDocument();
-    expect(within(agendaCard).getByText("Nova agenda a partir de 26 ago")).toBeInTheDocument();
-    const nextSchedule = within(agendaCard).getByRole("group", { name: "Agenda nova" });
+    expect(within(agendaCard).queryByText(/Agenda vigente até/i)).not.toBeInTheDocument();
+    const nextAgenda = within(agendaCard).getByLabelText("Nova agenda");
+    expect(within(nextAgenda).getByText("A partir de 26 ago")).toBeInTheDocument();
+    expect(within(nextAgenda).getByText("Toda semana")).toBeInTheDocument();
+    expect(within(nextAgenda).getByText("Profissional: Jéssica")).toBeInTheDocument();
+    const nextSchedule = within(nextAgenda).getByRole("list", {
+      name: "Horários da nova agenda",
+    });
     expect(within(nextSchedule).getByText("Seg 08h")).toBeInTheDocument();
     expect(within(nextSchedule).getByText("Qua 08h")).toBeInTheDocument();
     expect(within(nextSchedule).queryByText("Sex 08h")).not.toBeInTheDocument();
+    expect(within(agendaCard).getAllByText("Sex 08h")).toHaveLength(1);
   });
 
   it("mantém Sem sessões futuras quando não há alteração programada", async () => {

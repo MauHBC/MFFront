@@ -274,6 +274,38 @@ ScheduledChangePanel.defaultProps = {
   menuActions: [],
 };
 
+export function UpcomingAgendaPanel({
+  startsLabel,
+  pattern,
+  weeklyLabel,
+  professionalName,
+}) {
+  return (
+    <FuturePanel aria-label="Nova agenda">
+      <FuturePanelContent>
+        <FutureEyebrow>Nova agenda</FutureEyebrow>
+        <FutureTitle>{startsLabel}</FutureTitle>
+        <FutureAgendaList aria-label="Horários da nova agenda">
+          {splitSchedulePattern(pattern).map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </FutureAgendaList>
+        <AgendaSupport aria-label="Informações da nova agenda">
+          <span>{weeklyLabel}</span>
+          {professionalName && <span>Profissional: {professionalName}</span>}
+        </AgendaSupport>
+      </FuturePanelContent>
+    </FuturePanel>
+  );
+}
+
+UpcomingAgendaPanel.propTypes = {
+  startsLabel: PropTypes.string.isRequired,
+  pattern: PropTypes.string.isRequired,
+  weeklyLabel: PropTypes.string.isRequired,
+  professionalName: PropTypes.string.isRequired,
+};
+
 export function PlanSummaryCard({
   loading,
   title,

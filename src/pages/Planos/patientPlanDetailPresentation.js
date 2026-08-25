@@ -280,8 +280,12 @@ export const buildConfigurationTransitionPresentation = (transition) => {
     nextEffectiveFrom,
     currentPattern,
     nextPattern,
-    currentLabel: `Agenda vigente até ${formatCompactDate(currentEffectiveUntil)}`,
-    nextLabel: `Nova agenda a partir de ${formatCompactDate(nextEffectiveFrom)}`,
+    activeUntilLabel: `Ativa até ${formatCompactDate(currentEffectiveUntil)}`,
+    nextStartsLabel: `A partir de ${formatCompactDate(nextEffectiveFrom)}`,
+    nextProfessionalName: String(transition?.next_professional_name || "").trim(),
+    nextWeeklyLabel: String(
+      transition?.next_included_cycle_weeks_label || "Toda semana",
+    ).trim(),
   };
 };
 

@@ -70,6 +70,7 @@ import {
   PlanSummaryCard,
   ScheduleChangeDrawer,
   ScheduledChangePanel,
+  UpcomingAgendaPanel,
 } from "./PatientPlanDetailView";
 import {
   buildConfigurationTransitionPresentation,
@@ -3221,6 +3222,9 @@ export default function Planos() {
     label: ppDetailAgendaSummary?.status_label || "Indisponível",
     tone: "neutral",
   };
+  if (!ppPendingScheduleChangePresentation && ppConfigurationTransitionPresentation) {
+    agendaStatusPresentation.label = ppConfigurationTransitionPresentation.activeUntilLabel;
+  }
   const ppPendingCurrentSchedulePattern = formatScheduleGrid(
     ppPendingScheduleChange?.effective_grid || ppPendingScheduleChange?.current_grid,
   );
@@ -4888,15 +4892,11 @@ export default function Planos() {
                       )}
                       {!ppPendingScheduleChangePresentation
                         && ppConfigurationTransitionPresentation && (
-                        <ScheduledChangePanel
-                          eyebrow="Transição de agenda"
-                          agendaComparison={{
-                            current: ppConfigurationTransitionPresentation.currentPattern,
-                            proposed: ppConfigurationTransitionPresentation.nextPattern,
-                            currentLabel: ppConfigurationTransitionPresentation.currentLabel,
-                            proposedLabel: ppConfigurationTransitionPresentation.nextLabel,
-                          }}
-                          verticalAgendaComparison
+                        <UpcomingAgendaPanel
+                          startsLabel={ppConfigurationTransitionPresentation.nextStartsLabel}
+                          pattern={ppConfigurationTransitionPresentation.nextPattern}
+                          weeklyLabel={ppConfigurationTransitionPresentation.nextWeeklyLabel}
+                          professionalName={ppConfigurationTransitionPresentation.nextProfessionalName}
                         />
                       )}
                     </AgendaSummaryCard>

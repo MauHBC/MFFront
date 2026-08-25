@@ -91,14 +91,30 @@ describe("patient plan detail presentation", () => {
         { weekday: 1, time: "08:00" },
         { weekday: 3, time: "08:00" },
       ],
+      next_professional_name: "Maria",
+      next_included_cycle_weeks_label: "1ª e 3ª semanas",
     })).toEqual({
       currentEffectiveUntil: "2026-08-25",
       nextEffectiveFrom: "2026-08-26",
       currentPattern: "Seg 08h · Qua 08h · Sex 08h",
       nextPattern: "Seg 08h · Qua 08h",
-      currentLabel: "Agenda vigente até 25 ago",
-      nextLabel: "Nova agenda a partir de 26 ago",
+      activeUntilLabel: "Ativa até 25 ago",
+      nextStartsLabel: "A partir de 26 ago",
+      nextProfessionalName: "Maria",
+      nextWeeklyLabel: "1ª e 3ª semanas",
     });
+  });
+
+  it("mantém fallback funcional para recorrência semanal da sucessora", () => {
+    const presentation = buildConfigurationTransitionPresentation({
+      current_effective_until: "2026-08-25",
+      next_effective_from: "2026-08-26",
+      current_configuration_grid: [{ weekday: 1, time: "08:00" }],
+      next_configuration_grid: [{ weekday: 1, time: "08:00" }],
+    });
+
+    expect(presentation.nextWeeklyLabel).toBe("Toda semana");
+    expect(presentation.nextProfessionalName).toBe("");
   });
 
   it("não inventa transição quando o contrato está incompleto", () => {

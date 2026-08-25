@@ -94,9 +94,10 @@ remarcação individual não a altera. Respostas antigas continuam compatíveis 
 `pattern_summary` e, na ausência dele, por `weekdays` + `time`.
 
 Quando `agenda_summary.configuration_transition` estiver presente, a aba Agenda
-mantém a grade efetiva como configuração principal e apresenta também, em
-linguagem funcional, o último dia dessa grade e a nova grade com sua data de
-início. A continuidade autoritativa mantém a Agenda ativa, impede o falso estado
+mantém a grade efetiva como configuração principal, troca seu badge por “Ativa
+até {data}” e apresenta abaixo somente a nova grade, com data de início,
+recorrência semanal e profissional próprios. A continuidade autoritativa mantém
+a Agenda ativa, impede o falso estado
 “Sem sessões futuras” e não oferece “Configurar nova agenda”. Se também existir
 `pending_schedule_change`, o painel editável/cancelável desse fluxo prevalece e
 a transição aditiva não é duplicada.
