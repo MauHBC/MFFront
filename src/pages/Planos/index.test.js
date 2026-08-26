@@ -20,6 +20,7 @@ import {
   listServicePrices,
   getPatientPlanHistory,
   pausePatientPlan,
+  cancelPatientPlan,
   previewPatientPlanConfiguration,
   changePatientPlanConfiguration,
   updatePatientPlan,
@@ -1833,9 +1834,10 @@ describe("Planos no contêiner do App Shell", () => {
     )).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Trocar plano" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Editar dados" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "Ações do plano" }));
-    expect(screen.getByRole("menuitem", { name: "Pausar plano" })).toBeDisabled();
-    expect(screen.getByRole("menuitem", { name: "Cancelar plano" })).toBeDisabled();
+    const planMenu = screen.getByRole("button", { name: "Ações do plano" });
+    expect(planMenu).toBeDisabled();
+    fireEvent.click(planMenu);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancelar alteração" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Agenda" }));
@@ -1967,11 +1969,19 @@ describe("Planos no contêiner do App Shell", () => {
     expect(screen.getByText(
       "Disponível após 27/08, quando a nova agenda entrar em vigor.",
     )).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Trocar plano" })).toBeDisabled();
+    const changePlan = screen.getByRole("button", { name: "Trocar plano" });
+    expect(changePlan).toBeDisabled();
+    expect(changePlan).toHaveStyle({ cursor: "not-allowed", opacity: "0.55" });
     expect(screen.getByRole("button", { name: "Editar dados" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "Ações do plano" }));
-    expect(screen.getByRole("menuitem", { name: "Pausar plano" })).toBeDisabled();
-    expect(screen.getByRole("menuitem", { name: "Cancelar plano" })).toBeDisabled();
+    fireEvent.click(changePlan);
+    const planMenu = screen.getByRole("button", { name: "Ações do plano" });
+    expect(planMenu).toBeDisabled();
+    fireEvent.click(planMenu);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(pausePatientPlan).not.toHaveBeenCalled();
+    expect(cancelPatientPlan).not.toHaveBeenCalled();
+    expect(axios.post.mock.calls.some(([url]) => url.includes("/change-plan-preview")))
+      .toBe(false);
 
     fireEvent.click(screen.getByRole("tab", { name: "Agenda" }));
     const alterSchedule = await screen.findByRole("button", { name: /Alterar agenda/i });
@@ -2231,9 +2241,10 @@ describe("Planos no contêiner do App Shell", () => {
       "Para alterações no plano, primeiro cancele a troca de agenda.",
     )).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Trocar plano" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Ações do plano" }));
-    expect(screen.getByRole("menuitem", { name: "Pausar plano" })).toBeDisabled();
-    expect(screen.getByRole("menuitem", { name: "Cancelar plano" })).toBeDisabled();
+    const blockedPlanMenu = screen.getByRole("button", { name: "Ações do plano" });
+    expect(blockedPlanMenu).toBeDisabled();
+    fireEvent.click(blockedPlanMenu);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancelar alteração" })).not.toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));

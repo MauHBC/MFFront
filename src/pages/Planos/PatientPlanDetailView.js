@@ -358,7 +358,11 @@ export function PlanSummaryCard({
               {secondaryAction.label}
             </InlineAction>
           )}
-          <DetailActionMenu label="Ações do plano" actions={menuActions} />
+          <DetailActionMenu
+            label="Ações do plano"
+            actions={menuActions}
+            disableWhenAllActionsDisabled
+          />
         </ContextActions>
       </SummaryHeader>
       {stateNote && <StateNote>{stateNote}</StateNote>}

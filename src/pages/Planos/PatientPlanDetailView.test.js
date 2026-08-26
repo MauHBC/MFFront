@@ -63,6 +63,62 @@ describe("PatientPlanDetailView", () => {
     expect(screen.getByRole("menuitem", { name: "Cancelar plano" })).toBeInTheDocument();
   });
 
+  it("desabilita o menu do Plano quando todas as ações visíveis estão bloqueadas", () => {
+    const onChangePlan = jest.fn();
+    const onEditData = jest.fn();
+    const onPause = jest.fn();
+    const onCancel = jest.fn();
+    render(
+      <PlanSummaryCard
+        title="Funcional 2x por semana"
+        statusLabel="Ativo"
+        primaryAction={{ label: "Trocar plano", onClick: onChangePlan, disabled: true }}
+        secondaryAction={{ label: "Editar dados", onClick: onEditData }}
+        menuActions={[
+          { label: "Pausar plano", onClick: onPause, disabled: true },
+          { label: "Cancelar plano", onClick: onCancel, disabled: true, critical: true },
+        ]}
+        blockedMessage="Disponível após 27/08, quando a nova agenda entrar em vigor."
+      />,
+    );
+
+    const changePlan = screen.getByRole("button", { name: "Trocar plano" });
+    expect(changePlan).toBeDisabled();
+    expect(changePlan).toHaveStyle({ cursor: "not-allowed", opacity: "0.55" });
+    fireEvent.click(changePlan);
+    expect(onChangePlan).not.toHaveBeenCalled();
+
+    const menuTrigger = screen.getByRole("button", { name: "Ações do plano" });
+    expect(menuTrigger).toBeDisabled();
+    fireEvent.click(menuTrigger);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(onPause).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Editar dados" })).toBeEnabled();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Disponível após 27/08, quando a nova agenda entrar em vigor.",
+    );
+  });
+
+  it("mantém o menu do Plano ativo quando outra ação visível está disponível", () => {
+    render(
+      <PlanSummaryCard
+        title="Funcional 2x por semana"
+        statusLabel="Ativo"
+        menuActions={[
+          { label: "Pausar plano", onClick: noop, disabled: true },
+          { label: "Outra ação", onClick: noop, disabled: false },
+        ]}
+      />,
+    );
+
+    const menuTrigger = screen.getByRole("button", { name: "Ações do plano" });
+    expect(menuTrigger).toBeEnabled();
+    fireEvent.click(menuTrigger);
+    expect(screen.getByRole("menuitem", { name: "Pausar plano" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "Outra ação" })).toBeEnabled();
+  });
+
   it("resume o plano ativo e a troca futura sem tabela de chave/valor", () => {
     render(
       <PlanSummaryCard
