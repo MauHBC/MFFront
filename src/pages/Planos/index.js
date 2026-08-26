@@ -2358,6 +2358,7 @@ export default function Planos() {
       ...(name === "service_plan_id" ? { weekdays: [], times_by_weekday: {} } : {}),
     }));
     if (["service_plan_id", "effective_mode"].includes(name)) {
+      planChangePreviewRequestRef.current += 1;
       setPlanChangeConfirmOpen(false);
       setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
     }

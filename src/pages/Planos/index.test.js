@@ -498,6 +498,130 @@ describe("Planos no contêiner do App Shell", () => {
     expect(source).toMatch(/Desprogramar cancelamento/);
   });
 
+  it.each([
+    ["modo", async (dialog) => {
+      fireEvent.click(within(dialog).getByRole("radio", { name: /Ciclo atual/ }));
+    }],
+    ["plano", async (dialog) => {
+      fireEvent.change(within(dialog).getByLabelText(/Novo plano/), {
+        target: { name: "service_plan_id", value: "33" },
+      });
+    }],
+  ])("descarta preview em trânsito depois da troca de %s", async (_kind, changeSelection) => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      starts_at: "2030-09-01",
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: {
+        id: 31,
+        name: "Mensal atual",
+        service_id: 7,
+        sessions_per_week: 1,
+      },
+      agenda_summary: {
+        status: "active_recurrence",
+        weekdays: [1],
+        time: "08:00",
+        professional_user_id: 21,
+        future_sessions_count: 4,
+      },
+    };
+    listServicePlans.mockResolvedValue({
+      data: [
+        { ...patientPlan.ServicePlan, is_active: true },
+        {
+          id: 32,
+          name: "Mensal novo 2x",
+          service_id: 7,
+          sessions_per_week: 2,
+          price_cents: 50000,
+          is_active: true,
+        },
+        {
+          id: 33,
+          name: "Mensal novo 3x",
+          service_id: 7,
+          sessions_per_week: 3,
+          price_cents: 60000,
+          is_active: true,
+        },
+      ],
+    });
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({
+          data: {
+            plan_data_summary: {
+              service_plan_name: "Mensal atual",
+              sessions_per_week: 1,
+              starts_at: "2030-09-01",
+            },
+            agenda_summary: patientPlan.agenda_summary,
+          },
+        });
+      }
+      if (url === "/schedule/references/professionals") {
+        return Promise.resolve({
+          data: [{ id: 21, name: "Leonardo", clinic_professional_id: 80, is_assigned: true }],
+        });
+      }
+      if (url === "/services") return Promise.resolve({ data: [] });
+      if (url === "/patients") return Promise.resolve({ data: [patientPlan.Patient] });
+      if (url === "/unit-scheduling-policy") return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: {} });
+    });
+    const requests = [];
+    axios.post.mockImplementation((url, payload) => {
+      if (!url.endsWith("/change-plan-preview")) return Promise.resolve({ data: {} });
+      return new Promise((resolve) => {
+        requests.push({ payload, resolve });
+      });
+    });
+
+    renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("button", { name: "Trocar plano" }));
+    const dialog = await screen.findByRole("heading", { name: "Trocar plano" });
+    const drawer = dialog.closest("aside") || dialog.parentElement.parentElement;
+    await waitFor(() => expect(requests).toHaveLength(1));
+    await changeSelection(drawer);
+    await waitFor(() => expect(requests).toHaveLength(2));
+
+    await act(async () => {
+      requests[1].resolve({
+        data: {
+          can_confirm: true,
+          effective_mode: requests[1].payload.effective_mode,
+          commercial_effective_on: "2030-09-01",
+          schedule_effective_from: "2030-09-20",
+          current_cycle_end: "2030-09-30",
+          next_cycle_start: "2030-10-01",
+          preview_token: "new-active-token",
+        },
+      });
+    });
+    expect(await within(drawer).findByText(/01\/09\/2030|30\/09\/2030/)).toBeInTheDocument();
+
+    await act(async () => {
+      requests[0].resolve({
+        data: {
+          can_confirm: true,
+          effective_mode: "next_cycle",
+          commercial_effective_on: "2040-12-01",
+          schedule_effective_from: "2040-12-01",
+          current_cycle_end: "2040-11-30",
+          next_cycle_start: "2040-12-01",
+          preview_token: "obsolete-token",
+        },
+      });
+    });
+    expect(within(drawer).queryByText(/2040/)).not.toBeInTheDocument();
+    expect(within(drawer).getByText(/01\/09\/2030|30\/09\/2030/)).toBeInTheDocument();
+  });
+
   it("renderiza a linha do tempo paginada sem expor JSON bruto", async () => {
     const patientPlan = {
       id: 41,
