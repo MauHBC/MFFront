@@ -723,6 +723,20 @@ const EMPTY_PLAN_CHANGE_PREVIEW = {
   error: "",
 };
 
+const EMPTY_PLAN_CHANGE_CYCLE_OPTIONS = {
+  service_plan_id: "",
+  current_cycle_start: null,
+  current_cycle_end: null,
+  next_cycle_start: null,
+  next_cycle_end: null,
+  current_cycle_eligibility: null,
+};
+
+const isPlanChangePreviewForMode = (preview, effectiveMode) => (
+  preview?.effective_mode === effectiveMode
+  && !!preview?.preview_token
+);
+
 const makeEmptyScheduleChangeForm = () => ({
   effective_on: tomorrowDateOnly(),
   minimum_effective_on: tomorrowDateOnly(),
@@ -871,6 +885,9 @@ export default function Planos() {
   const [discardDrawerClose, setDiscardDrawerClose] = useState(null);
   const [planChangeForm, setPlanChangeForm] = useState(EMPTY_PLAN_CHANGE);
   const [planChangePreview, setPlanChangePreview] = useState(EMPTY_PLAN_CHANGE_PREVIEW);
+  const [planChangeCycleOptions, setPlanChangeCycleOptions] = useState(
+    EMPTY_PLAN_CHANGE_CYCLE_OPTIONS,
+  );
   const [planChangeConfirmOpen, setPlanChangeConfirmOpen] = useState(false);
   const [planChangeCancelOpen, setPlanChangeCancelOpen] = useState(false);
   const planChangeSubmittingRef = useRef(false);
@@ -2353,6 +2370,7 @@ export default function Planos() {
     });
     setPlanChangeConfirmOpen(false);
     setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
+    setPlanChangeCycleOptions(EMPTY_PLAN_CHANGE_CYCLE_OPTIONS);
     planChangeIdempotencyRef.current = createPlanChangeIdempotencyKey(ppDetailPlan.id);
     setPlanChangeOpen(true);
     loadPatientProfessionals(ppDetailPlan.patient_id);
@@ -2363,6 +2381,7 @@ export default function Planos() {
     setPlanChangeConfirmOpen(false);
     setPlanChangeForm(EMPTY_PLAN_CHANGE);
     setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
+    setPlanChangeCycleOptions(EMPTY_PLAN_CHANGE_CYCLE_OPTIONS);
     planChangePreviewRequestRef.current += 1;
     planChangeSubmittingRef.current = false;
     planChangeIdempotencyRef.current = null;
@@ -2378,11 +2397,14 @@ export default function Planos() {
     if (["service_plan_id", "effective_mode"].includes(name)) {
       planChangePreviewRequestRef.current += 1;
       setPlanChangeConfirmOpen(false);
-      setPlanChangePreview((prev) => (
-        name === "service_plan_id" && !value
-          ? EMPTY_PLAN_CHANGE_PREVIEW
-          : { status: "loading", data: prev.data, error: "" }
-      ));
+      if (name === "service_plan_id") {
+        setPlanChangeCycleOptions(EMPTY_PLAN_CHANGE_CYCLE_OPTIONS);
+        setPlanChangePreview(value
+          ? { status: "loading", data: null, error: "" }
+          : EMPTY_PLAN_CHANGE_PREVIEW);
+      } else {
+        setPlanChangePreview({ status: "revalidating", data: null, error: "" });
+      }
     }
   }, []);
 
@@ -2391,6 +2413,7 @@ export default function Planos() {
     effectiveMode,
     pendingChangeId,
     expectedVersion,
+    revalidateSilently = false,
   }) => {
     if (!ppDetailPlan?.id || !servicePlanId) {
       setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
@@ -2398,7 +2421,13 @@ export default function Planos() {
     }
     const requestId = planChangePreviewRequestRef.current + 1;
     planChangePreviewRequestRef.current = requestId;
-    setPlanChangePreview((prev) => ({ status: "loading", data: prev.data, error: "" }));
+    setPlanChangePreview((prev) => ({
+      status: revalidateSilently || prev.status === "revalidating"
+        ? "revalidating"
+        : "loading",
+      data: null,
+      error: "",
+    }));
     try {
       const response = await axios.post(
         `/patient-plans/${ppDetailPlan.id}/change-plan-preview`,
@@ -2412,6 +2441,25 @@ export default function Planos() {
         },
       );
       if (planChangePreviewRequestRef.current !== requestId) return;
+      const previewData = response.data || {};
+      setPlanChangeCycleOptions((prev) => {
+        const previousOptions = String(prev.service_plan_id) === String(servicePlanId)
+          ? prev
+          : EMPTY_PLAN_CHANGE_CYCLE_OPTIONS;
+        return {
+          service_plan_id: String(servicePlanId),
+          current_cycle_start: previewData.current_cycle_start
+            ?? previousOptions.current_cycle_start,
+          current_cycle_end: previewData.current_cycle_end
+            ?? previousOptions.current_cycle_end,
+          next_cycle_start: previewData.next_cycle_start
+            ?? previousOptions.next_cycle_start,
+          next_cycle_end: previewData.next_cycle_end
+            ?? previousOptions.next_cycle_end,
+          current_cycle_eligibility: previewData.current_cycle_eligibility
+            ?? previousOptions.current_cycle_eligibility,
+        };
+      });
       setPlanChangePreview({ status: "success", data: response.data, error: "" });
     } catch (err) {
       if (planChangePreviewRequestRef.current !== requestId) return;
@@ -2501,7 +2549,10 @@ export default function Planos() {
       toast.error("Informe os horarios.");
       return;
     }
-    if (planChangePreview.status !== "success" || !planChangePreview.data?.preview_token) {
+    if (
+      planChangePreview.status !== "success"
+      || !isPlanChangePreviewForMode(planChangePreview.data, planChangeForm.effective_mode)
+    ) {
       toast.error(planChangePreview.error || "Aguarde o cálculo da vigência antes de continuar.");
       return;
     }
@@ -2514,7 +2565,7 @@ export default function Planos() {
       || isSaving
       || planChangeSubmittingRef.current
       || planChangePreview.status !== "success"
-      || !planChangePreview.data?.preview_token
+      || !isPlanChangePreviewForMode(planChangePreview.data, planChangeForm.effective_mode)
     ) return;
     const selectedPlan = buildPlanChangeOptions(activeServicePlans, ppDetailPlan).find((plan) => (
       String(plan.id) === String(planChangeForm.service_plan_id)
@@ -2569,6 +2620,7 @@ export default function Planos() {
           effectiveMode: planChangeForm.effective_mode,
           pendingChangeId: planChangeForm.pending_change_id,
           expectedVersion: planChangeForm.expected_version,
+          revalidateSilently: true,
         });
       }
       toast.error(err?.response?.data?.error || "Erro ao alterar plano.");
@@ -3171,9 +3223,14 @@ export default function Planos() {
     preview: planChangePreview.data,
     error: planChangePreview.error,
   });
+  const planChangePreviewMatchesSelectedMode = isPlanChangePreviewForMode(
+    planChangePreview.data,
+    planChangeForm.effective_mode,
+  );
   const canContinuePlanChange = Boolean(planChangeForm.service_plan_id)
     && isPlanChangeWeekdayCountValid
-    && planChangePreviewPresentation.ready;
+    && planChangePreviewPresentation.ready
+    && planChangePreviewMatchesSelectedMode;
   const isPpStatusActionBusy = Boolean(
     isSaving || ppPausePlan || ppPauseEditPlan || ppResumePlan || ppCancelPlan,
   );
@@ -3307,24 +3364,29 @@ export default function Planos() {
     relatedEntityType: "schedule_revision",
     relatedEntityId: ppPendingScheduleChange?.revision_id,
   });
-  const planChangeCurrentCycleEligibility = planChangePreview.data
-    ?.current_cycle_eligibility || null;
+  const planChangeCycleOptionsAreComplete = Boolean(
+    String(planChangeCycleOptions.service_plan_id) === String(planChangeForm.service_plan_id)
+    && planChangeCycleOptions.current_cycle_start
+    && planChangeCycleOptions.current_cycle_end
+    && planChangeCycleOptions.next_cycle_start
+    && planChangeCycleOptions.next_cycle_end,
+  );
+  const planChangeCurrentCycleEligibility = planChangeCycleOptions
+    .current_cycle_eligibility || null;
   const planChangeCurrentCycleDisabled = Boolean(
     planChangeForm.pending_change_id
-    || planChangePreview.status !== "success"
+    || !planChangeCycleOptionsAreComplete
     || planChangeCurrentCycleEligibility?.eligible !== true,
   );
   const planChangeNextCyclePeriodLabel = (
-    planChangePreview.data?.next_cycle_start
-    && planChangePreview.data?.next_cycle_end
+    planChangeCycleOptionsAreComplete
   )
-    ? `${formatDateBR(planChangePreview.data.next_cycle_start)} a ${formatDateBR(planChangePreview.data.next_cycle_end)}`
+    ? `${formatDateBR(planChangeCycleOptions.next_cycle_start)} a ${formatDateBR(planChangeCycleOptions.next_cycle_end)}`
     : "";
   const planChangeCurrentCyclePeriodLabel = (
-    planChangePreview.data?.current_cycle_start
-    && planChangePreview.data?.current_cycle_end
+    planChangeCycleOptionsAreComplete
   )
-    ? `${formatDateBR(planChangePreview.data.current_cycle_start)} a ${formatDateBR(planChangePreview.data.current_cycle_end)}`
+    ? `${formatDateBR(planChangeCycleOptions.current_cycle_start)} a ${formatDateBR(planChangeCycleOptions.current_cycle_end)}`
     : "";
   const planChangeFinancialImpact = planChangePreviewPresentation
     .current_cycle_financial_impact;
@@ -4227,7 +4289,11 @@ export default function Planos() {
               <PrimaryButton
                 type="button"
                 onClick={confirmPlanChange}
-                disabled={isSaving || !planChangePreviewPresentation.ready}
+                disabled={
+                  isSaving
+                  || !planChangePreviewPresentation.ready
+                  || !planChangePreviewMatchesSelectedMode
+                }
               >
                 {isSaving ? "Alterando..." : planChangeConfirmationLabel}
               </PrimaryButton>

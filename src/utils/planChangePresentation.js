@@ -56,7 +56,18 @@ export const buildPlanChangePreviewPresentation = ({
   if (status === 'loading') {
     return {
       ready: false,
-      status_text: preview ? 'Atualizando...' : 'Carregando períodos...',
+      status_text: 'Carregando períodos...',
+      effective_label: null,
+      schedule_effective_label: null,
+      current_ends_label: null,
+      period_label: null,
+      confirmation_text: null,
+    };
+  }
+  if (status === 'revalidating') {
+    return {
+      ready: false,
+      status_text: '',
       effective_label: null,
       schedule_effective_label: null,
       current_ends_label: null,

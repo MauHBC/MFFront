@@ -132,15 +132,15 @@ describe('buildPlanChangePreviewPresentation', () => {
     expect(result.confirmation_text).toBeNull();
   });
 
-  it('sinaliza atualização quando preserva uma prévia válida durante o loading', () => {
+  it('mantém a revalidação de modo silenciosa e bloqueada', () => {
     const result = buildPlanChangePreviewPresentation({
-      status: 'loading',
-      preview: { next_cycle_start: '2026-09-25' },
+      status: 'revalidating',
+      preview: null,
       error: '',
     });
 
     expect(result.ready).toBe(false);
-    expect(result.status_text).toBe('Atualizando...');
+    expect(result.status_text).toBe('');
   });
 
   it('recalcula a apresentação quando a prévia muda', () => {

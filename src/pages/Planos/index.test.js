@@ -509,7 +509,10 @@ describe("Planos no contêiner do App Shell", () => {
         target: { name: "service_plan_id", value: "33" },
       });
     }],
-  ])("descarta preview em trânsito depois da troca de %s", async (_kind, changeSelection) => {
+  ])("preserva corretamente as opções e descarta preview stale após troca de %s", async (
+    _kind,
+    changeSelection,
+  ) => {
     const patientPlan = {
       id: 41,
       patient_id: 11,
@@ -610,12 +613,27 @@ describe("Planos no contêiner do App Shell", () => {
     expect(await within(drawer).findByText("01/09/2030 a 30/09/2030"))
       .toBeInTheDocument();
     expect(within(drawer).getByText("01/10/2030 a 31/10/2030")).toBeInTheDocument();
+    if (_kind === "modo") {
+      fireEvent.change(within(drawer).getByLabelText(/Profissional/), {
+        target: { value: "21" },
+      });
+      fireEvent.click(within(drawer).getByRole("button", { name: "Seg" }));
+      fireEvent.click(within(drawer).getByRole("button", { name: "Ter" }));
+      expect(within(drawer).getByRole("button", { name: "Continuar" })).toBeEnabled();
+    }
 
     await changeSelection(drawer);
     await waitFor(() => expect(requests).toHaveLength(2));
-    expect(within(drawer).getByText("01/09/2030 a 30/09/2030")).toBeInTheDocument();
-    expect(within(drawer).getByText("01/10/2030 a 31/10/2030")).toBeInTheDocument();
-    expect(within(drawer).getByText("Atualizando...")).toBeInTheDocument();
+    if (_kind === "modo") {
+      expect(within(drawer).getByText("01/09/2030 a 30/09/2030")).toBeInTheDocument();
+      expect(within(drawer).getByText("01/10/2030 a 31/10/2030")).toBeInTheDocument();
+      expect(within(drawer).queryByText("Atualizando...")).not.toBeInTheDocument();
+      expect(within(drawer).queryByText("Carregando períodos...")).not.toBeInTheDocument();
+      expect(within(drawer).getByRole("button", { name: "Continuar" })).toBeDisabled();
+    } else {
+      expect(within(drawer).queryByText(/2030/)).not.toBeInTheDocument();
+      expect(within(drawer).getByText("Carregando períodos...")).toBeInTheDocument();
+    }
 
     fireEvent.change(within(drawer).getByLabelText(/Novo plano/), {
       target: {
@@ -624,6 +642,8 @@ describe("Planos no contêiner do App Shell", () => {
       },
     });
     await waitFor(() => expect(requests).toHaveLength(3));
+    expect(within(drawer).queryByText(/2030/)).not.toBeInTheDocument();
+    expect(within(drawer).getByText("Carregando períodos...")).toBeInTheDocument();
 
     await act(async () => {
       requests[2].resolve({
@@ -677,9 +697,8 @@ describe("Planos no contêiner do App Shell", () => {
       },
     });
     await waitFor(() => expect(requests).toHaveLength(4));
-    expect(within(drawer).getByText("01/01/2031 a 31/01/2031")).toBeInTheDocument();
-    expect(within(drawer).getByText("01/02/2031 a 28/02/2031")).toBeInTheDocument();
-    expect(within(drawer).getByText("Atualizando...")).toBeInTheDocument();
+    expect(within(drawer).queryByText(/2031/)).not.toBeInTheDocument();
+    expect(within(drawer).getByText("Carregando períodos...")).toBeInTheDocument();
     await act(async () => {
       requests[3].reject({
         response: { data: { error: "Não foi possível atualizar os períodos." } },
@@ -761,8 +780,10 @@ describe("Planos no contêiner do App Shell", () => {
           effective_mode: payload.effective_mode,
           current_cycle_start: "2026-08-25",
           current_cycle_end: "2026-09-24",
-          next_cycle_start: "2026-09-25",
-          next_cycle_end: "2026-10-24",
+          ...(currentCycle ? {} : {
+            next_cycle_start: "2026-09-25",
+            next_cycle_end: "2026-10-24",
+          }),
           commercial_effective_on: currentCycle ? "2026-08-25" : "2026-09-25",
           schedule_effective_from: currentCycle ? "2026-08-27" : "2026-09-25",
           preserved_sessions_through: currentCycle ? "2026-08-26" : "2026-09-24",
@@ -800,6 +821,13 @@ describe("Planos no contêiner do App Shell", () => {
     expect(within(drawer).queryByText("Selecione o novo plano para calcular a vigência."))
       .not.toBeInTheDocument();
     fireEvent.click(within(drawer).getByRole("radio", { name: /Ciclo atual/ }));
+    expect(within(modeFieldset).getByRole("radio", { name: /Ciclo atual/ })).toBeChecked();
+    expect(within(modeFieldset).getByText("25/08/2026 a 24/09/2026"))
+      .toBeInTheDocument();
+    expect(within(modeFieldset).getByText("25/09/2026 a 24/10/2026"))
+      .toBeInTheDocument();
+    expect(within(drawer).queryByText("Atualizando...")).not.toBeInTheDocument();
+    expect(within(drawer).queryByText("Carregando períodos...")).not.toBeInTheDocument();
     const currentCycleSummary = await within(drawer).findByText(
       /^A alteração será aplicada ao ciclo atual/,
     );
@@ -810,6 +838,16 @@ describe("Planos no contêiner do App Shell", () => {
     expect(currentCycleSummary).toHaveTextContent(
       "Os atendimentos até 26/08 permanecem como estão.",
     );
+    fireEvent.click(within(drawer).getByRole("radio", { name: /Próximo ciclo/ }));
+    expect(within(modeFieldset).getByRole("radio", { name: /Próximo ciclo/ })).toBeChecked();
+    expect(within(modeFieldset).getByText("25/08/2026 a 24/09/2026"))
+      .toBeInTheDocument();
+    expect(within(modeFieldset).getByText("25/09/2026 a 24/10/2026"))
+      .toBeInTheDocument();
+    expect(within(drawer).queryByText("Atualizando...")).not.toBeInTheDocument();
+    await within(drawer).findByText(/^A alteração será aplicada ao próximo ciclo/);
+    fireEvent.click(within(drawer).getByRole("radio", { name: /Ciclo atual/ }));
+    await within(drawer).findByText(/^A alteração será aplicada ao ciclo atual/);
     fireEvent.change(within(drawer).getByLabelText(/Profissional/), {
       target: { value: "21" },
     });
@@ -833,6 +871,15 @@ describe("Planos no contêiner do App Shell", () => {
       "Atendimentos até 26/08 não serão alterados.",
     )).toBeInTheDocument();
     expect(within(confirmation).queryByText(/Vigência comercial/i)).not.toBeInTheDocument();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Confirmar alteração" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/patient-plans/41/change-plan",
+      expect.objectContaining({
+        effective_mode: "current_cycle",
+        preview_token: "preview-current_cycle",
+      }),
+      expect.any(Object),
+    ));
   });
 
   it("renderiza a linha do tempo paginada sem expor JSON bruto", async () => {
