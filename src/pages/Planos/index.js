@@ -568,6 +568,24 @@ const getServicePlanDisplayName = (plan, fallback = "Plano") => {
   return serviceName || fallback;
 };
 
+const formatDayMonth = (value) => {
+  const match = String(value || "").match(/^\d{4}-(\d{2})-(\d{2})/);
+  return match ? `${match[2]}/${match[1]}` : "-";
+};
+
+const getPlanChangeConfirmationLabel = (plan, fallback = "Plano") => {
+  const name = getServicePlanDisplayName(plan, fallback);
+  const sessionsPerWeek = normalizeSessionsPerWeek(plan?.sessions_per_week);
+  const frequency = String(
+    plan?.frequency_label || (sessionsPerWeek ? `${sessionsPerWeek}x na semana` : ""),
+  ).trim();
+  if (!frequency || name.toLocaleLowerCase("pt-BR").includes(frequency.toLocaleLowerCase("pt-BR"))) {
+    return name;
+  }
+  if (sessionsPerWeek && new RegExp(`\\b${sessionsPerWeek}x\\b`, "i").test(name)) return name;
+  return `${name} ${frequency}`;
+};
+
 const getPatientPlanPatientName = (pp) =>
   pp?.Patient ? getPatientDisplayName(pp.Patient) : "";
 
@@ -1997,7 +2015,7 @@ export default function Planos() {
       );
       setFutureRemovalPreview(res.data || null);
     } catch (err) {
-      toast.error(err?.response?.data?.error || "Erro ao revisar lançamentos futuros.");
+      toast.error(err?.response?.data?.error || "Erro ao revisar o encerramento da agenda.");
     } finally {
       setFutureRemovalLoading(false);
     }
@@ -2022,13 +2040,13 @@ export default function Planos() {
         `/patient-plans/${ppDetailPlan.id}/future-sessions-removal`,
         { include_today: futureRemovalIncludeToday },
       );
-      toast.success("Lançamentos futuros removidos com segurança. Agora você pode configurar uma nova agenda para este plano.");
+      toast.success("Agenda encerrada com segurança. Agora você pode configurar uma nova agenda para este plano.");
       setFutureRemovalPreview(null);
       setFutureRemovalIncludeToday(false);
       await loadPatientPlanDetail(ppDetailPlan.id);
       await loadPatientPlans();
     } catch (err) {
-      toast.error(err?.response?.data?.error || "Erro ao remover lançamentos futuros.");
+      toast.error(err?.response?.data?.error || "Erro ao encerrar a agenda.");
     } finally {
       setFutureRemovalConfirming(false);
     }
@@ -3239,10 +3257,12 @@ export default function Planos() {
     },
   ];
   let ppDetailPlanBlockedMessage = "";
-  if (planActionsBlockedByScheduleChange) {
-    ppDetailPlanBlockedMessage = scheduleChangeAwaitingPromotion
-      ? "A nova Agenda já está vigente. Alterações no plano serão liberadas após a atualização automática."
-      : "Para alterações no plano, primeiro cancele a troca de agenda.";
+  if (ppPendingCommercialScheduleCutover?.schedule_effective_from) {
+    ppDetailPlanBlockedMessage = `Disponível após ${formatDayMonth(ppPendingCommercialScheduleCutover.schedule_effective_from)}, quando a nova agenda entrar em vigor.`;
+  } else if (scheduleChangeAwaitingPromotion) {
+    ppDetailPlanBlockedMessage = "A nova Agenda já está vigente. Alterações no plano serão liberadas após a atualização automática.";
+  } else if (planActionsBlockedByScheduleChange) {
+    ppDetailPlanBlockedMessage = "Alterações no plano ficam disponíveis após cancelar a alteração de agenda programada.";
   }
 
   const ppDetailAgendaPresentationStatus = ppDetailHasScheduledAgendaContinuity
@@ -3290,14 +3310,33 @@ export default function Planos() {
     || planChangePreview.status !== "success"
     || planChangeCurrentCycleEligibility?.eligible !== true,
   );
-  const planChangeNextCycleLabel = formatCompactDate(
+  const planChangeNextCycleLabel = formatDayMonth(
     planChangePreview.data?.next_cycle_start,
   );
-  const planChangeCurrentCycleLabel = formatCompactDate(
+  const planChangeCurrentCycleLabel = formatDayMonth(
     planChangePreview.data?.current_cycle_start,
+  );
+  const planChangeNextCycleEndLabel = formatDayMonth(
+    planChangePreview.data?.next_cycle_end,
+  );
+  const planChangeCurrentCycleEndLabel = formatDayMonth(
+    planChangePreview.data?.current_cycle_end,
   );
   const planChangeFinancialImpact = planChangePreviewPresentation
     .current_cycle_financial_impact;
+  const planChangeCurrentPlanLabel = getPlanChangeConfirmationLabel({
+    name: ppAdminPlanData?.service_plan_name || ppDetailPlan?.ServicePlan?.name,
+    sessions_per_week: ppAdminPlanData?.sessions_per_week
+      || ppDetailPlan?.contracted_sessions_per_week
+      || ppDetailPlan?.ServicePlan?.sessions_per_week,
+    frequency_label: ppAdminPlanData?.frequency_label
+      || ppDetailPlan?.contracted_frequency_label
+      || ppDetailPlan?.ServicePlan?.frequency_label,
+  }, ppDetailSummary?.planName || "-");
+  const planChangeNewPlanLabel = getPlanChangeConfirmationLabel(
+    planChangeSelectedPlan,
+    planChangeSelectedPlan?.name || "-",
+  );
   const ppPendingScheduleRequestMetadata = formatRequestMetadata({
     requestedAt: ppPendingScheduleHistoryEvent?.occurred_at,
     actorName: ppPendingScheduleHistoryEvent?.actor?.name,
@@ -3312,7 +3351,9 @@ export default function Planos() {
     actorName: ppCancellationHistoryEvent?.actor?.name,
     prefix: "Solicitado em",
   });
-  const hasOperationalScheduleChange = Boolean(ppPendingScheduleChange);
+  const hasOperationalScheduleChange = Boolean(
+    ppPendingScheduleChange || ppPendingCommercialScheduleCutover,
+  );
   let agendaBlockedByLifecycle = "";
   if (ppPendingPlanChange) {
     agendaBlockedByLifecycle = "Resolva a troca de plano agendada antes de alterar a Agenda.";
@@ -3321,34 +3362,44 @@ export default function Planos() {
   }
   const agendaActionsBlocked = Boolean(agendaBlockedByLifecycle || hasOperationalScheduleChange);
   let ppDetailAgendaPrimary = null;
-  if (!isPpDetailDataLoading && !agendaActionsBlocked && ppDetailPlan?.status === "active") {
+  if (!isPpDetailDataLoading && ppDetailPlan?.status === "active") {
     if (ppDetailAgendaHasActiveRecurrence) {
-      ppDetailAgendaPrimary = { label: "Alterar agenda", onClick: openScheduleChange };
+      ppDetailAgendaPrimary = {
+        label: "Alterar agenda",
+        onClick: openScheduleChange,
+        disabled: agendaActionsBlocked,
+      };
     } else if (ppDetailAgendaCanConfigure) {
       ppDetailAgendaPrimary = {
         label: ppDetailAgendaNeedsNewSchedule ? "Configurar nova agenda" : "Configurar agenda",
         onClick: () => openSchedDrawer(ppDetailPlan, {
           mode: ppDetailAgendaNeedsNewSchedule ? "new" : "manage",
         }),
+        disabled: agendaActionsBlocked,
       };
     }
   }
   const ppDetailAgendaMenuActions = [
     {
-      label: "Remover lançamentos futuros",
+      label: "Encerrar agenda",
       onClick: openFutureRemovalPreview,
       visible: ppDetailPlan?.status === "active"
-        && ppDetailAgendaCanRemoveFuture
-        && !agendaActionsBlocked,
+        && ppDetailAgendaCanRemoveFuture,
       critical: true,
-      disabled: futureRemovalLoading || futureRemovalConfirming,
+      disabled: agendaActionsBlocked || futureRemovalLoading || futureRemovalConfirming,
     },
   ];
-  const ppDetailAgendaBlockedMessage = agendaBlockedByLifecycle
+  let ppDetailAgendaBlockedMessage = agendaBlockedByLifecycle
     || (["plan_paused", "plan_canceled"].includes(ppDetailAgendaStatus)
       ? ppDetailAgendaSummary?.status_message
       : "")
     || "";
+  if (ppPendingScheduleChange) {
+    ppDetailAgendaBlockedMessage = "Cancele a alteração de agenda programada para liberar esta ação.";
+  }
+  if (ppPendingCommercialScheduleCutover?.schedule_effective_from) {
+    ppDetailAgendaBlockedMessage = `Disponível após ${formatDayMonth(ppPendingCommercialScheduleCutover.schedule_effective_from)}, quando a nova agenda entrar em vigor.`;
+  }
   const scheduleChangeFrequency = normalizeSessionsPerWeek(
     ppAdminPlanData?.sessions_per_week
     || ppDetailPlan?.contracted_sessions_per_week
@@ -3987,9 +4038,9 @@ export default function Planos() {
       {futureRemovalPreview && (
         <PromptOverlay>
           <PromptCard $wide>
-            <PromptTitle>Remover lançamentos futuros</PromptTitle>
+            <PromptTitle>Encerrar agenda</PromptTitle>
             <FutureRemovalCountLine>
-              <span>Sessões futuras que serão removidas</span>
+              <span>Atendimentos futuros que serão removidos</span>
               <strong>{Number(futureRemovalPreview.removable_count || 0)}</strong>
             </FutureRemovalCountLine>
 
@@ -4014,14 +4065,14 @@ export default function Planos() {
                     disabled={futureRemovalLoading || futureRemovalConfirming}
                     onChange={handleFutureRemovalIncludeTodayChange}
                   />
-                  Remover a sessão lançada hoje.
+                  Remover também o atendimento de hoje.
                 </PauseCheckboxLabel>
               </FutureRemovalTodayBox>
             )}
 
             {Number(futureRemovalPreview.removable_count || 0) === 0 && (
               <AgendaSummaryMessage $tone="warning">
-                Nenhuma sessão limpa encontrada para remoção.
+                Nenhum atendimento futuro disponível para remoção.
               </AgendaSummaryMessage>
             )}
 
@@ -4043,7 +4094,7 @@ export default function Planos() {
                 onClick={confirmFutureRemoval}
                 disabled={!futureRemovalCanConfirm}
               >
-                {futureRemovalConfirming ? "Removendo..." : "Confirmar remoção"}
+                {futureRemovalConfirming ? "Encerrando..." : "Encerrar agenda"}
               </DangerButton>
             </PromptActions>
           </PromptCard>
@@ -4129,28 +4180,28 @@ export default function Planos() {
             <ScheduleConfirmSummary>
               <ScheduleConfirmLine>
                 <span>Atual</span>
-                <strong>{getServicePlanDisplayName(ppDetailPlan.ServicePlan, ppDetailSummary?.planName || "-")}</strong>
+                <strong>{planChangeCurrentPlanLabel}</strong>
               </ScheduleConfirmLine>
               <ScheduleConfirmLine>
                 <span>Novo</span>
-                <strong>{planChangeSelectedPlan.name}</strong>
+                <strong>{planChangeNewPlanLabel}</strong>
               </ScheduleConfirmLine>
               <ScheduleConfirmLine>
-                <span>Vigência comercial</span>
-                <strong>{planChangePreviewPresentation.effective_label}</strong>
-              </ScheduleConfirmLine>
-              <ScheduleConfirmLine>
-                <span>Nova Agenda</span>
-                <strong>{planChangePreviewPresentation.schedule_effective_label}</strong>
+                <span>Período alterado</span>
+                <strong>{planChangePreviewPresentation.period_label}</strong>
               </ScheduleConfirmLine>
               {planChangeForm.effective_mode === "current_cycle" && planChangeFinancialImpact && (
                 <ScheduleConfirmLine>
-                  <span>Mensalidade atual</span>
+                  <span>Mensalidade deste ciclo</span>
                   <strong>
                     {formatPrice(planChangeFinancialImpact.current_amount_cents)} → {formatPrice(planChangeFinancialImpact.new_amount_cents)}
                   </strong>
                 </ScheduleConfirmLine>
               )}
+              <ScheduleConfirmLine>
+                <span>Nova agenda</span>
+                <strong>A partir de {planChangePreviewPresentation.schedule_effective_label}</strong>
+              </ScheduleConfirmLine>
               <ScheduleConfirmLine>
                 <span>Agenda</span>
                 <strong>
@@ -4594,7 +4645,8 @@ export default function Planos() {
                     onChange={handlePlanChangeField}
                   />
                   <span>
-                    <strong>Próximo ciclo</strong>
+                    <strong>PRÓXIMO CICLO</strong>
+                    <small>{planChangeNextCycleLabel} a {planChangeNextCycleEndLabel}</small>
                     <small>A partir de {planChangeNextCycleLabel}</small>
                   </span>
                 </PlanChangeModeOption>
@@ -4608,8 +4660,9 @@ export default function Planos() {
                     disabled={planChangeCurrentCycleDisabled}
                   />
                   <span>
-                    <strong>Ciclo atual</strong>
-                    <small>Desde {planChangeCurrentCycleLabel}</small>
+                    <strong>CICLO ATUAL</strong>
+                    <small>{planChangeCurrentCycleLabel} a {planChangeCurrentCycleEndLabel}</small>
+                    <small>A partir de {planChangeCurrentCycleLabel}</small>
                   </span>
                 </PlanChangeModeOption>
               </PlanChangeModeOptions>
@@ -4944,9 +4997,12 @@ export default function Planos() {
                       )}
                       {ppPendingCommercialScheduleCutover && (
                         <ScheduledChangePanel
-                          eyebrow="Nova Agenda programada"
-                          title={ppPendingCommercialScheduleCutover.message}
-                          detail={`A nova Agenda começa em ${formatCompactDate(ppPendingCommercialScheduleCutover.schedule_effective_from)}.`}
+                          eyebrow="NOVA AGENDA PROGRAMADA"
+                          title={`O plano já foi alterado para o ciclo de ${formatDayMonth(ppPendingCommercialScheduleCutover.current_cycle_start)} a ${formatDayMonth(ppPendingCommercialScheduleCutover.current_cycle_end)}.`}
+                          detail={[
+                            `A nova agenda começa em ${formatDayMonth(ppPendingCommercialScheduleCutover.schedule_effective_from)}.`,
+                            `Até ${formatDayMonth(ppPendingCommercialScheduleCutover.preserved_sessions_through)}, os atendimentos permanecem como estão.`,
+                          ].join("\n")}
                         />
                       )}
                       {ppDetailHasFutureCancellation && (
@@ -5921,6 +5977,7 @@ const PlanChangeSmallSummary = styled.div`
   font-size: 0.88rem;
   font-weight: 800;
   margin: 2px 0 14px;
+  white-space: pre-line;
 `;
 
 const PlanChangeModeOptions = styled.div`

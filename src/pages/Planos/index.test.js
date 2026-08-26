@@ -492,6 +492,8 @@ describe("Planos no contêiner do App Shell", () => {
     expect(source).toMatch(/preview_token:\s*planChangePreview\.data\.preview_token/);
     expect(source).toMatch(/expected_version:\s*Number\(planChangeForm\.expected_version\)/);
     expect(source).toMatch(/future-sessions-removal-preview/);
+    expect(source).toMatch(/label:\s*"Encerrar agenda"/);
+    expect(source).not.toMatch(/Remover lançamentos futuros/);
     expect(source).toMatch(/change-plan\/cancel/);
     expect(source).toMatch(/getPatientPlanHistory/);
     expect(source).toMatch(/expected_pause_version/);
@@ -500,7 +502,7 @@ describe("Planos no contêiner do App Shell", () => {
 
   it.each([
     ["modo", async (dialog) => {
-      fireEvent.click(within(dialog).getByRole("radio", { name: /Ciclo atual/ }));
+      fireEvent.click(within(dialog).getByRole("radio", { name: /CICLO ATUAL/ }));
     }],
     ["plano", async (dialog) => {
       fireEvent.change(within(dialog).getByLabelText(/Novo plano/), {
@@ -595,31 +597,171 @@ describe("Planos no contêiner do App Shell", () => {
         data: {
           can_confirm: true,
           effective_mode: requests[1].payload.effective_mode,
-          commercial_effective_on: "2030-09-01",
-          schedule_effective_from: "2030-09-20",
+          current_cycle_start: "2030-09-01",
           current_cycle_end: "2030-09-30",
           next_cycle_start: "2030-10-01",
+          next_cycle_end: "2030-10-31",
+          commercial_effective_on: requests[1].payload.effective_mode === "current_cycle"
+            ? "2030-09-01" : "2030-10-01",
+          schedule_effective_from: requests[1].payload.effective_mode === "current_cycle"
+            ? "2030-09-20" : "2030-10-01",
+          preserved_sessions_through: requests[1].payload.effective_mode === "current_cycle"
+            ? "2030-09-19" : "2030-09-30",
           preview_token: "new-active-token",
         },
       });
     });
-    expect(await within(drawer).findByText(/01\/09\/2030|30\/09\/2030/)).toBeInTheDocument();
+    const activeSummaryPattern = _kind === "modo"
+      ? /^A alteração será aplicada ao ciclo atual/
+      : /^A alteração será aplicada ao próximo ciclo/;
+    expect(await within(drawer).findByText(activeSummaryPattern)).toBeInTheDocument();
 
     await act(async () => {
       requests[0].resolve({
         data: {
           can_confirm: true,
           effective_mode: "next_cycle",
-          commercial_effective_on: "2040-12-01",
-          schedule_effective_from: "2040-12-01",
+          current_cycle_start: "2040-11-01",
           current_cycle_end: "2040-11-30",
           next_cycle_start: "2040-12-01",
+          next_cycle_end: "2040-12-31",
+          commercial_effective_on: "2040-12-01",
+          schedule_effective_from: "2040-12-01",
+          preserved_sessions_through: "2040-11-30",
           preview_token: "obsolete-token",
         },
       });
     });
     expect(within(drawer).queryByText(/2040/)).not.toBeInTheDocument();
-    expect(within(drawer).getByText(/01\/09\/2030|30\/09\/2030/)).toBeInTheDocument();
+    expect(within(drawer).getByText(activeSummaryPattern)).toBeInTheDocument();
+  });
+
+  it("confirma current_cycle com período, mensalidade e preservação autoritativos", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      starts_at: "2026-05-24",
+      status: "active",
+      contracted_sessions_per_week: 2,
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: {
+        id: 31,
+        name: "Pilates",
+        service_id: 7,
+        sessions_per_week: 2,
+      },
+      agenda_summary: {
+        status: "active_recurrence",
+        weekdays: [2, 3],
+        time: "08:00",
+        professional_user_id: 21,
+        future_sessions_count: 8,
+      },
+    };
+    listServicePlans.mockResolvedValue({
+      data: [
+        { ...patientPlan.ServicePlan, is_active: true, price_cents: 48000 },
+        {
+          id: 32,
+          name: "Cuidados Especiais",
+          service_id: 7,
+          sessions_per_week: 2,
+          price_cents: 64000,
+          is_active: true,
+        },
+      ],
+    });
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({
+          data: {
+            plan_data_summary: {
+              service_plan_name: "Pilates",
+              sessions_per_week: 2,
+              price_cents: 48000,
+              starts_at: "2026-05-24",
+            },
+            agenda_summary: patientPlan.agenda_summary,
+          },
+        });
+      }
+      if (url === "/schedule/references/professionals") {
+        return Promise.resolve({
+          data: [{ id: 21, name: "Leonardo", clinic_professional_id: 80, is_assigned: true }],
+        });
+      }
+      if (url === "/services") return Promise.resolve({ data: [] });
+      if (url === "/patients") return Promise.resolve({ data: [patientPlan.Patient] });
+      if (url === "/unit-scheduling-policy") return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: {} });
+    });
+    axios.post.mockImplementation((url, payload) => {
+      if (!url.endsWith("/change-plan-preview")) return Promise.resolve({ data: {} });
+      const currentCycle = payload.effective_mode === "current_cycle";
+      return Promise.resolve({
+        data: {
+          can_confirm: true,
+          effective_mode: payload.effective_mode,
+          current_cycle_start: "2026-08-24",
+          current_cycle_end: "2026-09-23",
+          next_cycle_start: "2026-09-24",
+          next_cycle_end: "2026-10-23",
+          commercial_effective_on: currentCycle ? "2026-08-24" : "2026-09-24",
+          schedule_effective_from: currentCycle ? "2026-08-27" : "2026-09-24",
+          preserved_sessions_through: currentCycle ? "2026-08-26" : "2026-09-23",
+          current_cycle_eligibility: { eligible: true, code: null, message: null },
+          current_cycle_financial_impact: {
+            current_amount_cents: 48000,
+            new_amount_cents: 64000,
+            currency: "BRL",
+          },
+          preview_token: `preview-${payload.effective_mode}`,
+        },
+      });
+    });
+
+    renderPlans("/planos/pacientes/41");
+    fireEvent.click(await screen.findByRole("button", { name: "Trocar plano" }));
+    const drawerTitle = await screen.findByRole("heading", { name: "Trocar plano" });
+    const drawer = drawerTitle.closest("aside") || drawerTitle.parentElement.parentElement;
+    expect(await within(drawer).findByText("24/09 a 23/10")).toBeInTheDocument();
+    expect(within(drawer).getByText("24/08 a 23/09")).toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole("radio", { name: /CICLO ATUAL/ }));
+    const currentCycleSummary = await within(drawer).findByText(
+      /^A alteração será aplicada ao ciclo atual/,
+    );
+    expect(currentCycleSummary).toHaveTextContent(
+      "A alteração será aplicada ao ciclo atual, de 24/08 a 23/09.",
+    );
+    expect(currentCycleSummary).toHaveTextContent("A nova agenda começa em 27/08.");
+    expect(currentCycleSummary).toHaveTextContent(
+      "Os atendimentos até 26/08 permanecem como estão.",
+    );
+    fireEvent.change(within(drawer).getByLabelText(/Profissional/), {
+      target: { value: "21" },
+    });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Ter" }));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Qua" }));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Continuar" }));
+
+    const confirmationTitle = await screen.findByRole("heading", { name: "Confirmar alteração" });
+    const confirmation = confirmationTitle.parentElement;
+    expect(within(confirmation).getByText("Pilates 2x na semana")).toBeInTheDocument();
+    expect(within(confirmation).getByText("Cuidados Especiais 2x na semana"))
+      .toBeInTheDocument();
+    expect(within(confirmation).getByText("Período alterado")).toBeInTheDocument();
+    expect(within(confirmation).getByText("24/08 a 23/09")).toBeInTheDocument();
+    expect(within(confirmation).getByText("Mensalidade deste ciclo")).toBeInTheDocument();
+    expect(within(confirmation).getByText(/R\$\s*480,00 → R\$\s*640,00/))
+      .toBeInTheDocument();
+    expect(within(confirmation).getByText("A partir de 27/08")).toBeInTheDocument();
+    expect(within(confirmation).getByText("Ter 08h · Qua 08h")).toBeInTheDocument();
+    expect(within(confirmation).getByText(
+      "Atendimentos até 26/08 não serão alterados.",
+    )).toBeInTheDocument();
+    expect(within(confirmation).queryByText(/Vigência comercial/i)).not.toBeInTheDocument();
   });
 
   it("renderiza a linha do tempo paginada sem expor JSON bruto", async () => {
@@ -1569,7 +1711,7 @@ describe("Planos no contêiner do App Shell", () => {
 
     renderPlans("/planos/pacientes/41");
     expect(await screen.findByText(
-      "Para alterações no plano, primeiro cancele a troca de agenda.",
+      "Alterações no plano ficam disponíveis após cancelar a alteração de agenda programada.",
     )).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Trocar plano" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Editar dados" })).toBeEnabled();
@@ -1640,6 +1782,89 @@ describe("Planos no contêiner do App Shell", () => {
       expect(screen.queryByText(/Nova agenda · a partir de/)).not.toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: /Alterar agenda/i })).toBeInTheDocument();
+  });
+
+  it("espelha os bloqueios do corte current_cycle e mantém Editar dados disponível", async () => {
+    const patientPlan = {
+      id: 41,
+      patient_id: 11,
+      service_plan_id: 31,
+      starts_at: "2026-05-24",
+      status: "active",
+      Patient: { id: 11, name: "Ana", surname: "Silva" },
+      ServicePlan: { id: 31, name: "Pilates", sessions_per_week: 2 },
+      agenda_summary: {
+        status: "active_recurrence",
+        pattern_summary: "Ter às 08:00 · Qua às 08:00",
+        weekdays: [2, 3],
+        time: "08:00",
+        professional_user_id: 21,
+        future_sessions_count: 8,
+        can_manage_agenda: true,
+        can_remove_future_sessions: true,
+      },
+    };
+    axios.get.mockImplementation((url) => {
+      if (url === "/patient-plans/41") return Promise.resolve({ data: patientPlan });
+      if (url === "/patient-plans/41/admin-summary") {
+        return Promise.resolve({
+          data: {
+            header_summary: { patient_name: "Ana Silva", plan_status_label: "Plano ativo" },
+            plan_data_summary: {
+              service_plan_name: "Cuidados Especiais",
+              sessions_per_week: 2,
+              price_cents: 64000,
+              starts_at: "2026-05-24",
+            },
+            agenda_summary: patientPlan.agenda_summary,
+            pending_plan_change: null,
+            pending_schedule_change: null,
+            pending_commercial_schedule_cutover: {
+              status: "scheduled",
+              current_cycle_start: "2026-08-24",
+              current_cycle_end: "2026-09-23",
+              schedule_effective_from: "2026-08-27",
+              preserved_sessions_through: "2026-08-26",
+            },
+          },
+        });
+      }
+      if (url === "/services") return Promise.resolve({ data: [] });
+      if (url === "/patients") return Promise.resolve({ data: [patientPlan.Patient] });
+      if (url === "/unit-scheduling-policy") return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPlans("/planos/pacientes/41");
+
+    expect(await screen.findByText("NOVA AGENDA PROGRAMADA")).toBeInTheDocument();
+    expect(screen.getByText(
+      "O plano já foi alterado para o ciclo de 24/08 a 23/09.",
+    )).toBeInTheDocument();
+    const scheduledAgendaDetail = screen.getByText(/^A nova agenda começa em 27\/08/);
+    expect(scheduledAgendaDetail).toHaveTextContent("A nova agenda começa em 27/08.");
+    expect(scheduledAgendaDetail).toHaveTextContent(
+      "Até 26/08, os atendimentos permanecem como estão.",
+    );
+    expect(screen.getByText(
+      "Disponível após 27/08, quando a nova agenda entrar em vigor.",
+    )).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Trocar plano" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Editar dados" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Ações do plano" }));
+    expect(screen.getByRole("menuitem", { name: "Pausar plano" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "Cancelar plano" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Agenda" }));
+    const alterSchedule = await screen.findByRole("button", { name: /Alterar agenda/i });
+    expect(alterSchedule).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Ações da agenda recorrente" }));
+    const endSchedule = screen.getByRole("menuitem", { name: "Encerrar agenda" });
+    expect(endSchedule).toBeDisabled();
+    fireEvent.click(endSchedule);
+    expect(axios.post.mock.calls.some(([url]) => (
+      url === "/patient-plans/41/future-sessions-removal-preview"
+    ))).toBe(false);
   });
 
   it("mostra grade vigente e sucessora já existente sem oferecer nova configuração", async () => {

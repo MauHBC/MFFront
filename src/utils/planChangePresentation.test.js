@@ -94,24 +94,32 @@ describe('buildPlanCommercialDisplay', () => {
 });
 
 describe('buildPlanChangePreviewPresentation', () => {
-  it('exibe as datas exatas calculadas pelo backend', () => {
+  it('exibe o período completo do próximo ciclo calculado pelo backend', () => {
     const result = buildPlanChangePreviewPresentation({
       status: 'success',
       preview: {
-        effective_on: '2026-08-18',
+        effective_mode: 'next_cycle',
+        current_cycle_start: '2026-07-18',
         current_plan_ends_on: '2026-08-17',
+        next_cycle_start: '2026-08-18',
+        next_cycle_end: '2026-09-17',
+        effective_on: '2026-08-18',
+        schedule_effective_from: '2026-08-18',
+        preserved_sessions_through: '2026-08-17',
         preview_token: 'token-sintetico',
       },
     });
 
     expect(result.ready).toBe(true);
-    expect(result.effective_label).toBe('18/08/2026');
-    expect(result.current_ends_label).toBe('17/08/2026');
+    expect(result.effective_label).toBe('18/08');
+    expect(result.current_ends_label).toBe('17/08');
+    expect(result.period_label).toBe('18/08 a 17/09');
     expect(result.confirmation_text).toBe(
-      'Plano atual segue até 17/08/2026.',
+      'Atendimentos até 17/08 não serão alterados.',
     );
-    expect(result.confirmation_text).not.toMatch(/novo plano começa|passam a valer/i);
-    expect(result.confirmation_text).not.toMatch(/backend|próximo ciclo/i);
+    expect(result.status_text).toContain(
+      'A alteração será aplicada ao próximo ciclo, de 18/08 a 17/09.',
+    );
   });
 
   it.each([
@@ -128,22 +136,36 @@ describe('buildPlanChangePreviewPresentation', () => {
     const first = buildPlanChangePreviewPresentation({
       status: 'success',
       preview: {
+        effective_mode: 'next_cycle',
+        current_cycle_start: '2026-07-18',
+        current_cycle_end: '2026-08-17',
+        next_cycle_start: '2026-08-18',
+        next_cycle_end: '2026-09-17',
         effective_on: '2026-08-18',
         current_plan_ends_on: '2026-08-17',
+        schedule_effective_from: '2026-08-18',
+        preserved_sessions_through: '2026-08-17',
         preview_token: 'primeiro',
       },
     });
     const second = buildPlanChangePreviewPresentation({
       status: 'success',
       preview: {
+        effective_mode: 'next_cycle',
+        current_cycle_start: '2026-08-18',
+        current_cycle_end: '2026-09-17',
+        next_cycle_start: '2026-09-18',
+        next_cycle_end: '2026-10-17',
         effective_on: '2026-09-18',
         current_plan_ends_on: '2026-09-17',
+        schedule_effective_from: '2026-09-18',
+        preserved_sessions_through: '2026-09-17',
         preview_token: 'segundo',
       },
     });
 
-    expect(first.effective_label).toBe('18/08/2026');
-    expect(second.effective_label).toBe('18/09/2026');
+    expect(first.effective_label).toBe('18/08');
+    expect(second.effective_label).toBe('18/09');
   });
 
   it('separa vigência comercial, nova Agenda e preservação no ciclo atual', () => {
@@ -155,6 +177,7 @@ describe('buildPlanChangePreviewPresentation', () => {
         current_cycle_end: '2026-09-13',
         commercial_effective_on: '2026-08-14',
         schedule_effective_from: '2026-08-27',
+        preserved_sessions_through: '2026-08-26',
         can_confirm: true,
         preview_token: 'current-cycle-token',
         current_cycle_financial_impact: {
@@ -165,14 +188,16 @@ describe('buildPlanChangePreviewPresentation', () => {
     });
 
     expect(result.ready).toBe(true);
-    expect(result.effective_label).toBe('14/08/2026');
-    expect(result.schedule_effective_label).toBe('27/08/2026');
+    expect(result.effective_label).toBe('14/08');
+    expect(result.schedule_effective_label).toBe('27/08');
+    expect(result.period_label).toBe('14/08 a 13/09');
     expect(result.status_text).toBe(
-      'Vigência comercial desde 14/08/2026 · Nova Agenda em 27/08/2026',
+      'A alteração será aplicada ao ciclo atual, de 14/08 a 13/09.\nA nova agenda começa em 27/08.\nOs atendimentos até 26/08 permanecem como estão.',
     );
     expect(result.confirmation_text).toBe(
-      'Sessões anteriores a 27/08/2026 serão preservadas.',
+      'Atendimentos até 26/08 não serão alterados.',
     );
+    expect(result.status_text).not.toMatch(/Vigência comercial/i);
   });
 
   it('mantém confirmação bloqueada com o motivo funcional do ciclo atual', () => {
