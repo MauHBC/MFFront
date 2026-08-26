@@ -112,11 +112,13 @@ PatientPlanTabPanel.propTypes = {
   children: PropTypes.node.isRequired,
 };
 
-function DetailActionMenu({ label, actions }) {
+function DetailActionMenu({ label, actions, disableWhenAllActionsDisabled }) {
   const visibleActions = actions.filter((action) => action?.visible !== false);
   if (!visibleActions.length) return null;
+  const allActionsDisabled = disableWhenAllActionsDisabled
+    && visibleActions.every((action) => action.disabled === true);
   return (
-    <AppActionMenu label={label} compact>
+    <AppActionMenu label={label} compact disabled={allActionsDisabled}>
       {visibleActions.map((action) => (
         <DetailMenuItem
           key={action.label}
@@ -134,6 +136,7 @@ function DetailActionMenu({ label, actions }) {
 
 DetailActionMenu.propTypes = {
   label: PropTypes.string.isRequired,
+  disableWhenAllActionsDisabled: PropTypes.bool,
   actions: PropTypes.arrayOf(PropTypes.shape({
     label: PropTypes.string.isRequired,
     onClick: PropTypes.func.isRequired,
@@ -143,7 +146,10 @@ DetailActionMenu.propTypes = {
   })),
 };
 
-DetailActionMenu.defaultProps = { actions: [] };
+DetailActionMenu.defaultProps = {
+  actions: [],
+  disableWhenAllActionsDisabled: false,
+};
 
 const splitSchedulePattern = (pattern) => String(pattern || "")
   .split(/\s*·\s*/)
@@ -458,7 +464,11 @@ export function AgendaSummaryCard({
           {onOpenAgenda && (
             <InlineAction type="button" onClick={onOpenAgenda}>Abrir Agenda</InlineAction>
           )}
-          <DetailActionMenu label="Ações da agenda recorrente" actions={menuActions} />
+          <DetailActionMenu
+            label="Ações da agenda recorrente"
+            actions={menuActions}
+            disableWhenAllActionsDisabled
+          />
         </ContextActions>
       </SummaryHeader>
       {empty && !pattern && <CompactEmpty>{empty}</CompactEmpty>}

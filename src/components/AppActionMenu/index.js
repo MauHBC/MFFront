@@ -19,6 +19,7 @@ export default function AppActionMenu({
   label,
   visibleLabel = "Ações",
   compact = false,
+  disabled = false,
   children,
 }) {
   const [open, setOpen] = useState(false);
@@ -30,6 +31,10 @@ export default function AppActionMenu({
     setOpen(false);
     triggerRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (disabled && open) setOpen(false);
+  }, [disabled, open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -92,13 +97,16 @@ export default function AppActionMenu({
         $compact={compact}
         aria-label={label}
         aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        aria-expanded={disabled ? false : open}
+        disabled={disabled}
+        onClick={() => {
+          if (!disabled) setOpen((current) => !current);
+        }}
       >
         {!compact && visibleLabel}
         <span aria-hidden="true">⋯</span>
       </MenuTrigger>
-      {open && (
+      {open && !disabled && (
         <MenuPopover
           ref={menuRef}
           role="menu"
@@ -116,11 +124,13 @@ AppActionMenu.propTypes = {
   label: PropTypes.string.isRequired,
   visibleLabel: PropTypes.string,
   compact: PropTypes.bool,
+  disabled: PropTypes.bool,
   children: PropTypes.node.isRequired,
 };
 
 AppActionMenu.defaultProps = {
   compact: false,
+  disabled: false,
   visibleLabel: "Ações",
 };
 
@@ -139,6 +149,11 @@ const MenuTrigger = styled(RowActionButton)`
   span {
     font-size: 1.1rem;
     line-height: 0.7;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 `;
 

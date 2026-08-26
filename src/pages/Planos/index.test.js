@@ -492,7 +492,7 @@ describe("Planos no contêiner do App Shell", () => {
     expect(source).toMatch(/preview_token:\s*planChangePreview\.data\.preview_token/);
     expect(source).toMatch(/expected_version:\s*Number\(planChangeForm\.expected_version\)/);
     expect(source).toMatch(/future-sessions-removal-preview/);
-    expect(source).toMatch(/label:\s*"Encerrar agenda"/);
+    expect(source).toMatch(/label:\s*"Encerrar agenda atual"/);
     expect(source).not.toMatch(/Remover lançamentos futuros/);
     expect(source).toMatch(/change-plan\/cancel/);
     expect(source).toMatch(/getPatientPlanHistory/);
@@ -1976,10 +1976,12 @@ describe("Planos no contêiner do App Shell", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Agenda" }));
     const alterSchedule = await screen.findByRole("button", { name: /Alterar agenda/i });
     expect(alterSchedule).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Ações da agenda recorrente" }));
-    const endSchedule = screen.getByRole("menuitem", { name: "Encerrar agenda" });
-    expect(endSchedule).toBeDisabled();
-    fireEvent.click(endSchedule);
+    const agendaMenu = screen.getByRole("button", { name: "Ações da agenda recorrente" });
+    expect(agendaMenu).toBeDisabled();
+    fireEvent.click(agendaMenu);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Encerrar agenda atual" }))
+      .not.toBeInTheDocument();
     expect(axios.post.mock.calls.some(([url]) => (
       url === "/patient-plans/41/future-sessions-removal-preview"
     ))).toBe(false);
@@ -2054,6 +2056,17 @@ describe("Planos no contêiner do App Shell", () => {
       if (url === "/unit-scheduling-policy") return Promise.resolve({ data: {} });
       return Promise.resolve({ data: {} });
     });
+    axios.post.mockImplementation((url) => {
+      if (url === "/patient-plans/41/future-sessions-removal-preview") {
+        return Promise.resolve({
+          data: {
+            removable_count: 4,
+            today_sessions: [],
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
 
     renderPlans("/planos/pacientes/41");
     fireEvent.click(await screen.findByRole("tab", { name: "Agenda" }));
@@ -2086,6 +2099,33 @@ describe("Planos no contêiner do App Shell", () => {
     expect(within(nextSchedule).getByText("Qua 08h")).toBeInTheDocument();
     expect(within(nextSchedule).queryByText("Sex 08h")).not.toBeInTheDocument();
     expect(within(agendaCard).getAllByText("Sex 08h")).toHaveLength(1);
+
+    expect(within(agendaCard).getByRole("button", { name: "Abrir Agenda" })).toBeEnabled();
+    const agendaMenu = within(agendaCard).getByRole("button", {
+      name: "Ações da agenda recorrente",
+    });
+    expect(agendaMenu).toBeEnabled();
+    fireEvent.click(agendaMenu);
+    const endSchedule = screen.getByRole("menuitem", { name: "Encerrar agenda atual" });
+    expect(endSchedule).toBeEnabled();
+    fireEvent.click(endSchedule);
+
+    expect(await screen.findByText("Encerrar agenda atual?")).toBeInTheDocument();
+    const confirmationCopy = screen.getByText(
+      /Os atendimentos futuros que ainda podem ser removidos serão retirados\./,
+    );
+    expect(confirmationCopy).toHaveTextContent(
+      "Os atendimentos já realizados e o histórico serão preservados.",
+    );
+    expect(confirmationCopy).toHaveTextContent(
+      "O plano continuará ativo e uma nova agenda poderá ser configurada depois.",
+    );
+    expect(screen.getByRole("button", { name: "Encerrar agenda atual" }))
+      .toBeEnabled();
+    expect(axios.post).toHaveBeenCalledWith(
+      "/patient-plans/41/future-sessions-removal-preview",
+      { include_today: false },
+    );
   });
 
   it("mantém Sem sessões futuras quando não há alteração programada", async () => {

@@ -3447,7 +3447,7 @@ export default function Planos() {
   }
   const ppDetailAgendaMenuActions = [
     {
-      label: "Encerrar agenda",
+      label: "Encerrar agenda atual",
       onClick: openFutureRemovalPreview,
       visible: ppDetailPlan?.status === "active"
         && ppDetailAgendaCanRemoveFuture,
@@ -4104,7 +4104,7 @@ export default function Planos() {
       {futureRemovalPreview && (
         <PromptOverlay>
           <PromptCard $wide>
-            <PromptTitle>Encerrar agenda</PromptTitle>
+            <PromptTitle>Encerrar agenda atual?</PromptTitle>
             <FutureRemovalCountLine>
               <span>Atendimentos futuros que serão removidos</span>
               <strong>{Number(futureRemovalPreview.removable_count || 0)}</strong>
@@ -4143,8 +4143,9 @@ export default function Planos() {
             )}
 
             <InlineAlert>
-              Esta remoção não mexe em sessões realizadas, faltas ou financeiro.
-              Depois será possível configurar novamente a agenda deste plano.
+              Os atendimentos futuros que ainda podem ser removidos serão retirados.
+              Os atendimentos já realizados e o histórico serão preservados.
+              O plano continuará ativo e uma nova agenda poderá ser configurada depois.
             </InlineAlert>
 
             <PromptActions>
@@ -4160,7 +4161,7 @@ export default function Planos() {
                 onClick={confirmFutureRemoval}
                 disabled={!futureRemovalCanConfirm}
               >
-                {futureRemovalConfirming ? "Encerrando..." : "Encerrar agenda"}
+                {futureRemovalConfirming ? "Encerrando..." : "Encerrar agenda atual"}
               </DangerButton>
             </PromptActions>
           </PromptCard>

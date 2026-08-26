@@ -170,6 +170,55 @@ describe("PatientPlanDetailView", () => {
     unmount();
   });
 
+  it("desabilita o menu da Agenda quando todas as ações visíveis estão bloqueadas", () => {
+    const onEndSchedule = jest.fn();
+    render(
+      <AgendaSummaryCard
+        title="Agenda"
+        statusLabel="Ativa"
+        pattern="Ter 08h · Qua 08h"
+        primaryAction={{ label: "Alterar agenda", onClick: noop, disabled: true }}
+        onOpenAgenda={noop}
+        menuActions={[{
+          label: "Encerrar agenda atual",
+          onClick: onEndSchedule,
+          disabled: true,
+        }]}
+        blockedMessage="Disponível após 27/08, quando a nova agenda entrar em vigor."
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Ações da agenda recorrente" });
+    expect(trigger).toBeDisabled();
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abrir Agenda" })).toBeEnabled();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Disponível após 27/08, quando a nova agenda entrar em vigor.",
+    );
+    expect(onEndSchedule).not.toHaveBeenCalled();
+  });
+
+  it("mantém o menu da Agenda ativo quando outra ação visível está disponível", () => {
+    render(
+      <AgendaSummaryCard
+        title="Agenda"
+        statusLabel="Ativa"
+        pattern="Ter 08h · Qua 08h"
+        menuActions={[
+          { label: "Encerrar agenda atual", onClick: noop, disabled: true },
+          { label: "Outra ação", onClick: noop, disabled: false },
+        ]}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Ações da agenda recorrente" });
+    expect(trigger).toBeEnabled();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menuitem", { name: "Encerrar agenda atual" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "Outra ação" })).toBeEnabled();
+  });
+
   it("mostra a alteração futura da Agenda em listas e com cancelamento direto", () => {
     const onCancel = jest.fn();
     render(

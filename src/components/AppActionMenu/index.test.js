@@ -37,4 +37,18 @@ describe("AppActionMenu", () => {
     fireEvent.mouseDown(screen.getByRole("button", { name: "Fora" }));
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
+
+  it("não abre quando o acionador está desabilitado", () => {
+    render(
+      <AppActionMenu label="Ações indisponíveis" disabled>
+        <AppActionMenuItem type="button">Arquivar</AppActionMenuItem>
+      </AppActionMenu>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Ações indisponíveis" });
+    expect(trigger).toBeDisabled();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
 });
