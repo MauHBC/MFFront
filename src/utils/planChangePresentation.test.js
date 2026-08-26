@@ -145,4 +145,57 @@ describe('buildPlanChangePreviewPresentation', () => {
     expect(first.effective_label).toBe('18/08/2026');
     expect(second.effective_label).toBe('18/09/2026');
   });
+
+  it('separa vigência comercial, nova Agenda e preservação no ciclo atual', () => {
+    const result = buildPlanChangePreviewPresentation({
+      status: 'success',
+      preview: {
+        effective_mode: 'current_cycle',
+        current_cycle_start: '2026-08-14',
+        current_cycle_end: '2026-09-13',
+        commercial_effective_on: '2026-08-14',
+        schedule_effective_from: '2026-08-27',
+        can_confirm: true,
+        preview_token: 'current-cycle-token',
+        current_cycle_financial_impact: {
+          current_amount_cents: 60000,
+          new_amount_cents: 48000,
+        },
+      },
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.effective_label).toBe('14/08/2026');
+    expect(result.schedule_effective_label).toBe('27/08/2026');
+    expect(result.status_text).toBe(
+      'Vigência comercial desde 14/08/2026 · Nova Agenda em 27/08/2026',
+    );
+    expect(result.confirmation_text).toBe(
+      'Sessões anteriores a 27/08/2026 serão preservadas.',
+    );
+  });
+
+  it('mantém confirmação bloqueada com o motivo funcional do ciclo atual', () => {
+    const result = buildPlanChangePreviewPresentation({
+      status: 'success',
+      preview: {
+        effective_mode: 'current_cycle',
+        current_cycle_start: '2026-08-14',
+        current_cycle_end: '2026-09-13',
+        commercial_effective_on: '2026-08-14',
+        schedule_effective_from: '2026-08-27',
+        can_confirm: false,
+        preview_token: 'blocked-token',
+        current_cycle_eligibility: {
+          eligible: false,
+          message: 'Este ciclo já possui pagamento ou movimentação financeira.',
+        },
+      },
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.status_text).toBe(
+      'Este ciclo já possui pagamento ou movimentação financeira.',
+    );
+  });
 });

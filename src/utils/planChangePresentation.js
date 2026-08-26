@@ -26,15 +26,26 @@ export const buildPlanChangePreviewPresentation = ({
   preview,
   error,
 }) => {
-  const effectiveOn = preview?.effective_on || preview?.next_cycle_start || null;
+  const effectiveMode = preview?.effective_mode || 'next_cycle';
+  const effectiveOn = preview?.commercial_effective_on
+    || preview?.effective_on
+    || preview?.next_cycle_start
+    || null;
+  const scheduleEffectiveFrom = preview?.schedule_effective_from || effectiveOn;
   const currentEndsOn = preview?.current_plan_ends_on || preview?.current_cycle_end || null;
-  const ready = status === 'success' && !!effectiveOn && !!currentEndsOn && !!preview?.preview_token;
+  const ready = status === 'success'
+    && preview?.can_confirm !== false
+    && !!effectiveOn
+    && !!currentEndsOn
+    && !!scheduleEffectiveFrom
+    && !!preview?.preview_token;
 
   if (status === 'loading') {
     return {
       ready: false,
       status_text: 'Calculando a vigência...',
       effective_label: null,
+      schedule_effective_label: null,
       current_ends_label: null,
       confirmation_text: null,
     };
@@ -44,6 +55,7 @@ export const buildPlanChangePreviewPresentation = ({
       ready: false,
       status_text: error || 'Não foi possível calcular a vigência. Tente novamente.',
       effective_label: null,
+      schedule_effective_label: null,
       current_ends_label: null,
       confirmation_text: null,
     };
@@ -51,20 +63,42 @@ export const buildPlanChangePreviewPresentation = ({
   if (!ready) {
     return {
       ready: false,
-      status_text: 'Selecione o novo plano para calcular a vigência.',
+      status_text: status === 'success' && preview?.can_confirm === false
+        ? preview?.current_cycle_eligibility?.message
+          || 'Esta opção não pode ser aplicada automaticamente.'
+        : 'Selecione o novo plano para calcular a vigência.',
       effective_label: null,
+      schedule_effective_label: null,
       current_ends_label: null,
       confirmation_text: null,
     };
   }
 
   const effectiveLabel = formatDateBR(effectiveOn);
+  const scheduleEffectiveLabel = formatDateBR(scheduleEffectiveFrom);
   const currentEndsLabel = formatDateBR(currentEndsOn);
+  if (effectiveMode === 'current_cycle') {
+    return {
+      ready: true,
+      effective_mode: effectiveMode,
+      status_text: `Vigência comercial desde ${effectiveLabel} · Nova Agenda em ${scheduleEffectiveLabel}`,
+      effective_label: effectiveLabel,
+      schedule_effective_label: scheduleEffectiveLabel,
+      current_ends_label: currentEndsLabel,
+      preserved_before_label: scheduleEffectiveLabel,
+      current_cycle_financial_impact: preview?.current_cycle_financial_impact || null,
+      confirmation_text: `Sessões anteriores a ${scheduleEffectiveLabel} serão preservadas.`,
+    };
+  }
   return {
     ready: true,
+    effective_mode: effectiveMode,
     status_text: `Plano atual até ${currentEndsLabel} · Novo em ${effectiveLabel}`,
     effective_label: effectiveLabel,
+    schedule_effective_label: scheduleEffectiveLabel,
     current_ends_label: currentEndsLabel,
+    preserved_before_label: scheduleEffectiveLabel,
+    current_cycle_financial_impact: preview?.current_cycle_financial_impact || null,
     confirmation_text: `Plano atual segue até ${currentEndsLabel}.`,
   };
 };

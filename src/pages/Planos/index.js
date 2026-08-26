@@ -689,6 +689,7 @@ const EMPTY_SCHED = {
 };
 
 const EMPTY_PLAN_CHANGE = {
+  effective_mode: "next_cycle",
   service_plan_id: "",
   professional_user_id: "",
   weekdays: [],
@@ -717,6 +718,13 @@ const createPlanConfigurationIdempotencyKey = (patientPlanId) => {
     ? globalThis.crypto.randomUUID()
     : Math.random().toString(36).slice(2);
   return `plan-configuration-${patientPlanId}-${Date.now()}-${randomValue}`.slice(0, 100);
+};
+
+const createPlanChangeIdempotencyKey = (patientPlanId) => {
+  const randomValue = globalThis.crypto?.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+  return `plan-change-${patientPlanId}-${Date.now()}-${randomValue}`.slice(0, 100);
 };
 
 const EMPTY_SCHEDULE_CHANGE_PREVIEW = {
@@ -849,6 +857,7 @@ export default function Planos() {
   const [planChangeCancelOpen, setPlanChangeCancelOpen] = useState(false);
   const planChangeSubmittingRef = useRef(false);
   const planChangePreviewRequestRef = useRef(0);
+  const planChangeIdempotencyRef = useRef(null);
   const planChangeCancelSubmittingRef = useRef(false);
   const [scheduleChangeOpen, setScheduleChangeOpen] = useState(false);
   const [scheduleChangeForm, setScheduleChangeForm] = useState(makeEmptyScheduleChangeForm);
@@ -2297,7 +2306,10 @@ export default function Planos() {
 
   const openPlanChange = useCallback(() => {
     if (!ppDetailPlan) return;
-    if (ppAdminSummary?.pending_schedule_change) return;
+    if (
+      ppAdminSummary?.pending_schedule_change
+      || ppAdminSummary?.pending_commercial_schedule_cutover
+    ) return;
     const pendingChange = ppAdminSummary?.pending_plan_change || null;
     if (pendingChange && pendingChange.lifecycle_state !== "future_editable") return;
     const pendingSchedule = Array.isArray(pendingChange?.new_schedule)
@@ -2323,6 +2335,7 @@ export default function Planos() {
     });
     setPlanChangeConfirmOpen(false);
     setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
+    planChangeIdempotencyRef.current = createPlanChangeIdempotencyKey(ppDetailPlan.id);
     setPlanChangeOpen(true);
     loadPatientProfessionals(ppDetailPlan.patient_id);
   }, [activeServicePlans, loadPatientProfessionals, ppAdminSummary, ppDetailPlan]);
@@ -2334,6 +2347,7 @@ export default function Planos() {
     setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
     planChangePreviewRequestRef.current += 1;
     planChangeSubmittingRef.current = false;
+    planChangeIdempotencyRef.current = null;
   }, []);
 
   const handlePlanChangeField = useCallback((event) => {
@@ -2343,7 +2357,7 @@ export default function Planos() {
       [name]: value,
       ...(name === "service_plan_id" ? { weekdays: [], times_by_weekday: {} } : {}),
     }));
-    if (name === "service_plan_id") {
+    if (["service_plan_id", "effective_mode"].includes(name)) {
       setPlanChangeConfirmOpen(false);
       setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
     }
@@ -2351,6 +2365,7 @@ export default function Planos() {
 
   const loadPlanChangePreview = useCallback(async ({
     servicePlanId,
+    effectiveMode,
     pendingChangeId,
     expectedVersion,
   }) => {
@@ -2366,6 +2381,7 @@ export default function Planos() {
         `/patient-plans/${ppDetailPlan.id}/change-plan-preview`,
         {
           service_plan_id: Number(servicePlanId),
+          effective_mode: effectiveMode || "next_cycle",
           ...(pendingChangeId ? {
             pending_change_id: Number(pendingChangeId),
             expected_version: Number(expectedVersion),
@@ -2388,6 +2404,7 @@ export default function Planos() {
     if (!planChangeOpen || !planChangeForm.service_plan_id) return undefined;
     loadPlanChangePreview({
       servicePlanId: planChangeForm.service_plan_id,
+      effectiveMode: planChangeForm.effective_mode,
       pendingChangeId: planChangeForm.pending_change_id,
       expectedVersion: planChangeForm.expected_version,
     });
@@ -2395,6 +2412,7 @@ export default function Planos() {
   }, [
     loadPlanChangePreview,
     planChangeForm.expected_version,
+    planChangeForm.effective_mode,
     planChangeForm.pending_change_id,
     planChangeForm.service_plan_id,
     planChangeOpen,
@@ -2487,10 +2505,16 @@ export default function Planos() {
     toast.dismiss();
     setIsSaving(true);
     try {
+      const idempotencyKey = planChangeIdempotencyRef.current
+        || createPlanChangeIdempotencyKey(ppDetailPlan.id);
+      planChangeIdempotencyRef.current = idempotencyKey;
       await axios.post(`/patient-plans/${ppDetailPlan.id}/change-plan`, {
         service_plan_id: Number(selectedPlan.id),
+        effective_mode: planChangeForm.effective_mode,
         professional_user_id: Number(planChangeForm.professional_user_id),
         expected_effective_on: planChangePreview.data.effective_on,
+        expected_commercial_effective_on: planChangePreview.data.commercial_effective_on,
+        expected_schedule_effective_from: planChangePreview.data.schedule_effective_from,
         preview_token: planChangePreview.data.preview_token,
         assign_patient_care: planChangeRequiresCareAssignment,
         ...(planChangeForm.pending_change_id ? {
@@ -2501,10 +2525,16 @@ export default function Planos() {
           weekday: entry.weekday,
           time: entry.time,
         })),
-      });
-      toast.success(planChangeForm.pending_change_id
-        ? "Troca futura substituída com sucesso."
-        : "Troca de plano programada para o próximo ciclo.");
+      }, { headers: { "Idempotency-Key": idempotencyKey } });
+      if (planChangeForm.effective_mode === "current_cycle") {
+        toast.success(
+          `Plano alterado no ciclo atual. A nova Agenda começa em ${formatCompactDate(planChangePreview.data.schedule_effective_from)}.`,
+        );
+      } else {
+        toast.success(planChangeForm.pending_change_id
+          ? "Troca futura substituída com sucesso."
+          : "Troca programada para o próximo ciclo.");
+      }
       closePlanChange();
       await loadPatientPlans();
       await loadPatientPlanDetail(ppDetailPlan.id);
@@ -2513,6 +2543,7 @@ export default function Planos() {
         setPlanChangeConfirmOpen(false);
         await loadPlanChangePreview({
           servicePlanId: planChangeForm.service_plan_id,
+          effectiveMode: planChangeForm.effective_mode,
           pendingChangeId: planChangeForm.pending_change_id,
           expectedVersion: planChangeForm.expected_version,
         });
@@ -2988,6 +3019,8 @@ export default function Planos() {
   const ppAdminPlanData = ppAdminSummary?.plan_data_summary || null;
   const ppPendingPlanChange = ppAdminSummary?.pending_plan_change || null;
   const ppPendingScheduleChange = ppAdminSummary?.pending_schedule_change || null;
+  const ppPendingCommercialScheduleCutover = ppAdminSummary
+    ?.pending_commercial_schedule_cutover || null;
   const ppPendingScheduleChangePresentation = buildPendingScheduleChangePresentation(
     ppPendingScheduleChange,
   );
@@ -2998,7 +3031,9 @@ export default function Planos() {
   const ppDetailHasScheduledAgendaContinuity = Boolean(
     ppPendingScheduleChangePresentation || ppConfigurationTransitionPresentation,
   );
-  const planActionsBlockedByScheduleChange = Boolean(ppPendingScheduleChange);
+  const planActionsBlockedByScheduleChange = Boolean(
+    ppPendingScheduleChange || ppPendingCommercialScheduleCutover,
+  );
   const scheduleChangeAwaitingPromotion = Boolean(
     ppPendingScheduleChange?.is_effective === true
     && ppPendingScheduleChange?.awaiting_promotion === true
@@ -3247,6 +3282,21 @@ export default function Planos() {
     relatedEntityType: "schedule_revision",
     relatedEntityId: ppPendingScheduleChange?.revision_id,
   });
+  const planChangeCurrentCycleEligibility = planChangePreview.data
+    ?.current_cycle_eligibility || null;
+  const planChangeCurrentCycleDisabled = Boolean(
+    planChangeForm.pending_change_id
+    || planChangePreview.status !== "success"
+    || planChangeCurrentCycleEligibility?.eligible !== true,
+  );
+  const planChangeNextCycleLabel = formatCompactDate(
+    planChangePreview.data?.next_cycle_start,
+  );
+  const planChangeCurrentCycleLabel = formatCompactDate(
+    planChangePreview.data?.current_cycle_start,
+  );
+  const planChangeFinancialImpact = planChangePreviewPresentation
+    .current_cycle_financial_impact;
   const ppPendingScheduleRequestMetadata = formatRequestMetadata({
     requestedAt: ppPendingScheduleHistoryEvent?.occurred_at,
     actorName: ppPendingScheduleHistoryEvent?.actor?.name,
@@ -4085,9 +4135,21 @@ export default function Planos() {
                 <strong>{planChangeSelectedPlan.name}</strong>
               </ScheduleConfirmLine>
               <ScheduleConfirmLine>
-                <span>Início do novo plano</span>
+                <span>Vigência comercial</span>
                 <strong>{planChangePreviewPresentation.effective_label}</strong>
               </ScheduleConfirmLine>
+              <ScheduleConfirmLine>
+                <span>Nova Agenda</span>
+                <strong>{planChangePreviewPresentation.schedule_effective_label}</strong>
+              </ScheduleConfirmLine>
+              {planChangeForm.effective_mode === "current_cycle" && planChangeFinancialImpact && (
+                <ScheduleConfirmLine>
+                  <span>Mensalidade atual</span>
+                  <strong>
+                    {formatPrice(planChangeFinancialImpact.current_amount_cents)} → {formatPrice(planChangeFinancialImpact.new_amount_cents)}
+                  </strong>
+                </ScheduleConfirmLine>
+              )}
               <ScheduleConfirmLine>
                 <span>Agenda</span>
                 <strong>
@@ -4519,6 +4581,45 @@ export default function Planos() {
                 ))}
               </select>
             </Field>
+            <Field as="fieldset">
+              <legend>Quando a alteração deve valer?</legend>
+              <PlanChangeModeOptions>
+                <PlanChangeModeOption>
+                  <input
+                    type="radio"
+                    name="effective_mode"
+                    value="next_cycle"
+                    checked={planChangeForm.effective_mode === "next_cycle"}
+                    onChange={handlePlanChangeField}
+                  />
+                  <span>
+                    <strong>Próximo ciclo</strong>
+                    <small>A partir de {planChangeNextCycleLabel}</small>
+                  </span>
+                </PlanChangeModeOption>
+                <PlanChangeModeOption $disabled={planChangeCurrentCycleDisabled}>
+                  <input
+                    type="radio"
+                    name="effective_mode"
+                    value="current_cycle"
+                    checked={planChangeForm.effective_mode === "current_cycle"}
+                    onChange={handlePlanChangeField}
+                    disabled={planChangeCurrentCycleDisabled}
+                  />
+                  <span>
+                    <strong>Ciclo atual</strong>
+                    <small>Desde {planChangeCurrentCycleLabel}</small>
+                  </span>
+                </PlanChangeModeOption>
+              </PlanChangeModeOptions>
+              {planChangeCurrentCycleDisabled && planChangePreview.status === "success" && (
+                <FieldHint>
+                  {planChangeForm.pending_change_id
+                    ? "Resolva a troca comercial já programada antes de alterar o ciclo atual."
+                    : planChangeCurrentCycleEligibility?.message}
+                </FieldHint>
+              )}
+            </Field>
             <PlanChangeSmallSummary>
               {planChangePreviewPresentation.status_text}
             </PlanChangeSmallSummary>
@@ -4838,6 +4939,13 @@ export default function Planos() {
                             onClick: openScheduledPlanChangeCancellation,
                             critical: true,
                           }] : []}
+                        />
+                      )}
+                      {ppPendingCommercialScheduleCutover && (
+                        <ScheduledChangePanel
+                          eyebrow="Nova Agenda programada"
+                          title={ppPendingCommercialScheduleCutover.message}
+                          detail={`A nova Agenda começa em ${formatCompactDate(ppPendingCommercialScheduleCutover.schedule_effective_from)}.`}
                         />
                       )}
                       {ppDetailHasFutureCancellation && (
@@ -5812,6 +5920,42 @@ const PlanChangeSmallSummary = styled.div`
   font-size: 0.88rem;
   font-weight: 800;
   margin: 2px 0 14px;
+`;
+
+const PlanChangeModeOptions = styled.div`
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+`;
+
+const PlanChangeModeOption = styled.label`
+  align-items: flex-start;
+  background: ${(props) => (props.$disabled ? "#f3f4f1" : "#f8faf6")};
+  border: 1px solid rgba(106, 121, 92, 0.2);
+  border-radius: 10px;
+  color: ${(props) => (props.$disabled ? "#899083" : "#293225")};
+  cursor: ${(props) => (props.$disabled ? "not-allowed" : "pointer")};
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+
+  input {
+    margin-top: 3px;
+  }
+
+  span {
+    display: grid;
+    gap: 2px;
+  }
+
+  strong {
+    font-size: 0.9rem;
+  }
+
+  small {
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
 `;
 
 const PromptActions = styled.div`

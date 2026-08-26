@@ -484,6 +484,11 @@ describe("Planos no contêiner do App Shell", () => {
     expect(source).toMatch(/Atribuir e agendar sessões/);
     expect(source).toMatch(/schedule\/references\/professionals/);
     expect(source).toMatch(/expected_effective_on:\s*planChangePreview\.data\.effective_on/);
+    expect(source).toMatch(/effective_mode:\s*planChangeForm\.effective_mode/);
+    expect(source).toMatch(/expected_commercial_effective_on:\s*planChangePreview\.data\.commercial_effective_on/);
+    expect(source).toMatch(/expected_schedule_effective_from:\s*planChangePreview\.data\.schedule_effective_from/);
+    expect(source).toMatch(/Quando a alteração deve valer\?/);
+    expect(source).toMatch(/Plano alterado no ciclo atual\. A nova Agenda começa em/);
     expect(source).toMatch(/preview_token:\s*planChangePreview\.data\.preview_token/);
     expect(source).toMatch(/expected_version:\s*Number\(planChangeForm\.expected_version\)/);
     expect(source).toMatch(/future-sessions-removal-preview/);
