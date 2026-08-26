@@ -502,7 +502,7 @@ describe("Planos no contêiner do App Shell", () => {
 
   it.each([
     ["modo", async (dialog) => {
-      fireEvent.click(within(dialog).getByRole("radio", { name: /CICLO ATUAL/ }));
+      fireEvent.click(within(dialog).getByRole("radio", { name: /Ciclo atual/ }));
     }],
     ["plano", async (dialog) => {
       fireEvent.change(within(dialog).getByLabelText(/Novo plano/), {
@@ -579,8 +579,8 @@ describe("Planos no contêiner do App Shell", () => {
     const requests = [];
     axios.post.mockImplementation((url, payload) => {
       if (!url.endsWith("/change-plan-preview")) return Promise.resolve({ data: {} });
-      return new Promise((resolve) => {
-        requests.push({ payload, resolve });
+      return new Promise((resolve, reject) => {
+        requests.push({ payload, resolve, reject });
       });
     });
 
@@ -589,24 +589,58 @@ describe("Planos no contêiner do App Shell", () => {
     const dialog = await screen.findByRole("heading", { name: "Trocar plano" });
     const drawer = dialog.closest("aside") || dialog.parentElement.parentElement;
     await waitFor(() => expect(requests).toHaveLength(1));
-    await changeSelection(drawer);
-    await waitFor(() => expect(requests).toHaveLength(2));
 
     await act(async () => {
-      requests[1].resolve({
+      requests[0].resolve({
         data: {
           can_confirm: true,
-          effective_mode: requests[1].payload.effective_mode,
+          effective_mode: "next_cycle",
           current_cycle_start: "2030-09-01",
           current_cycle_end: "2030-09-30",
           next_cycle_start: "2030-10-01",
           next_cycle_end: "2030-10-31",
-          commercial_effective_on: requests[1].payload.effective_mode === "current_cycle"
-            ? "2030-09-01" : "2030-10-01",
-          schedule_effective_from: requests[1].payload.effective_mode === "current_cycle"
-            ? "2030-09-20" : "2030-10-01",
-          preserved_sessions_through: requests[1].payload.effective_mode === "current_cycle"
-            ? "2030-09-19" : "2030-09-30",
+          commercial_effective_on: "2030-10-01",
+          schedule_effective_from: "2030-10-01",
+          preserved_sessions_through: "2030-09-30",
+          current_cycle_eligibility: { eligible: true, code: null, message: null },
+          preview_token: "initial-token",
+        },
+      });
+    });
+    expect(await within(drawer).findByText("01/09/2030 a 30/09/2030"))
+      .toBeInTheDocument();
+    expect(within(drawer).getByText("01/10/2030 a 31/10/2030")).toBeInTheDocument();
+
+    await changeSelection(drawer);
+    await waitFor(() => expect(requests).toHaveLength(2));
+    expect(within(drawer).getByText("01/09/2030 a 30/09/2030")).toBeInTheDocument();
+    expect(within(drawer).getByText("01/10/2030 a 31/10/2030")).toBeInTheDocument();
+    expect(within(drawer).getByText("Atualizando...")).toBeInTheDocument();
+
+    fireEvent.change(within(drawer).getByLabelText(/Novo plano/), {
+      target: {
+        name: "service_plan_id",
+        value: _kind === "modo" ? "33" : "32",
+      },
+    });
+    await waitFor(() => expect(requests).toHaveLength(3));
+
+    await act(async () => {
+      requests[2].resolve({
+        data: {
+          can_confirm: true,
+          effective_mode: requests[2].payload.effective_mode,
+          current_cycle_start: "2031-01-01",
+          current_cycle_end: "2031-01-31",
+          next_cycle_start: "2031-02-01",
+          next_cycle_end: "2031-02-28",
+          commercial_effective_on: requests[2].payload.effective_mode === "current_cycle"
+            ? "2031-01-01" : "2031-02-01",
+          schedule_effective_from: requests[2].payload.effective_mode === "current_cycle"
+            ? "2031-01-20" : "2031-02-01",
+          preserved_sessions_through: requests[2].payload.effective_mode === "current_cycle"
+            ? "2031-01-19" : "2031-01-31",
+          current_cycle_eligibility: { eligible: true, code: null, message: null },
           preview_token: "new-active-token",
         },
       });
@@ -617,10 +651,10 @@ describe("Planos no contêiner do App Shell", () => {
     expect(await within(drawer).findByText(activeSummaryPattern)).toBeInTheDocument();
 
     await act(async () => {
-      requests[0].resolve({
+      requests[1].resolve({
         data: {
           can_confirm: true,
-          effective_mode: "next_cycle",
+          effective_mode: requests[1].payload.effective_mode,
           current_cycle_start: "2040-11-01",
           current_cycle_end: "2040-11-30",
           next_cycle_start: "2040-12-01",
@@ -628,12 +662,33 @@ describe("Planos no contêiner do App Shell", () => {
           commercial_effective_on: "2040-12-01",
           schedule_effective_from: "2040-12-01",
           preserved_sessions_through: "2040-11-30",
+          current_cycle_eligibility: { eligible: true, code: null, message: null },
           preview_token: "obsolete-token",
         },
       });
     });
     expect(within(drawer).queryByText(/2040/)).not.toBeInTheDocument();
     expect(within(drawer).getByText(activeSummaryPattern)).toBeInTheDocument();
+
+    fireEvent.change(within(drawer).getByLabelText(/Novo plano/), {
+      target: {
+        name: "service_plan_id",
+        value: _kind === "modo" ? "32" : "33",
+      },
+    });
+    await waitFor(() => expect(requests).toHaveLength(4));
+    expect(within(drawer).getByText("01/01/2031 a 31/01/2031")).toBeInTheDocument();
+    expect(within(drawer).getByText("01/02/2031 a 28/02/2031")).toBeInTheDocument();
+    expect(within(drawer).getByText("Atualizando...")).toBeInTheDocument();
+    await act(async () => {
+      requests[3].reject({
+        response: { data: { error: "Não foi possível atualizar os períodos." } },
+      });
+    });
+    expect(await within(drawer).findByText("Não foi possível atualizar os períodos."))
+      .toBeInTheDocument();
+    expect(within(drawer).queryByText(/2031/)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText("- a -")).not.toBeInTheDocument();
   });
 
   it("confirma current_cycle com período, mensalidade e preservação autoritativos", async () => {
@@ -704,13 +759,13 @@ describe("Planos no contêiner do App Shell", () => {
         data: {
           can_confirm: true,
           effective_mode: payload.effective_mode,
-          current_cycle_start: "2026-08-24",
-          current_cycle_end: "2026-09-23",
-          next_cycle_start: "2026-09-24",
-          next_cycle_end: "2026-10-23",
-          commercial_effective_on: currentCycle ? "2026-08-24" : "2026-09-24",
-          schedule_effective_from: currentCycle ? "2026-08-27" : "2026-09-24",
-          preserved_sessions_through: currentCycle ? "2026-08-26" : "2026-09-23",
+          current_cycle_start: "2026-08-25",
+          current_cycle_end: "2026-09-24",
+          next_cycle_start: "2026-09-25",
+          next_cycle_end: "2026-10-24",
+          commercial_effective_on: currentCycle ? "2026-08-25" : "2026-09-25",
+          schedule_effective_from: currentCycle ? "2026-08-27" : "2026-09-25",
+          preserved_sessions_through: currentCycle ? "2026-08-26" : "2026-09-24",
           current_cycle_eligibility: { eligible: true, code: null, message: null },
           current_cycle_financial_impact: {
             current_amount_cents: 48000,
@@ -726,14 +781,30 @@ describe("Planos no contêiner do App Shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Trocar plano" }));
     const drawerTitle = await screen.findByRole("heading", { name: "Trocar plano" });
     const drawer = drawerTitle.closest("aside") || drawerTitle.parentElement.parentElement;
-    expect(await within(drawer).findByText("24/09 a 23/10")).toBeInTheDocument();
-    expect(within(drawer).getByText("24/08 a 23/09")).toBeInTheDocument();
-    fireEvent.click(within(drawer).getByRole("radio", { name: /CICLO ATUAL/ }));
+    expect(await within(drawer).findByText("25/09/2026 a 24/10/2026"))
+      .toBeInTheDocument();
+    expect(within(drawer).getByText("25/08/2026 a 24/09/2026")).toBeInTheDocument();
+    const modeFieldset = within(drawer)
+      .getByText("Quando a alteração deve valer?")
+      .closest("fieldset");
+    expect(within(modeFieldset).getAllByRole("radio").map((radio) => radio.value))
+      .toEqual(["current_cycle", "next_cycle"]);
+    expect(within(modeFieldset).getByRole("radio", { name: /Próximo ciclo/ }))
+      .toBeChecked();
+    expect(within(modeFieldset).getByText("Ciclo atual")).toBeInTheDocument();
+    expect(within(modeFieldset).getByText("Próximo ciclo")).toBeInTheDocument();
+    expect(within(modeFieldset).queryByText("CICLO ATUAL")).not.toBeInTheDocument();
+    expect(within(modeFieldset).queryByText("PRÓXIMO CICLO")).not.toBeInTheDocument();
+    expect(within(modeFieldset).queryByText(/A partir de/)).not.toBeInTheDocument();
+    expect(within(modeFieldset).queryByText("- a -")).not.toBeInTheDocument();
+    expect(within(drawer).queryByText("Selecione o novo plano para calcular a vigência."))
+      .not.toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole("radio", { name: /Ciclo atual/ }));
     const currentCycleSummary = await within(drawer).findByText(
       /^A alteração será aplicada ao ciclo atual/,
     );
     expect(currentCycleSummary).toHaveTextContent(
-      "A alteração será aplicada ao ciclo atual, de 24/08 a 23/09.",
+      "A alteração será aplicada ao ciclo atual, de 25/08 a 24/09.",
     );
     expect(currentCycleSummary).toHaveTextContent("A nova agenda começa em 27/08.");
     expect(currentCycleSummary).toHaveTextContent(
@@ -752,7 +823,7 @@ describe("Planos no contêiner do App Shell", () => {
     expect(within(confirmation).getByText("Cuidados Especiais 2x na semana"))
       .toBeInTheDocument();
     expect(within(confirmation).getByText("Período alterado")).toBeInTheDocument();
-    expect(within(confirmation).getByText("24/08 a 23/09")).toBeInTheDocument();
+    expect(within(confirmation).getByText("25/08 a 24/09")).toBeInTheDocument();
     expect(within(confirmation).getByText("Mensalidade deste ciclo")).toBeInTheDocument();
     expect(within(confirmation).getByText(/R\$\s*480,00 → R\$\s*640,00/))
       .toBeInTheDocument();

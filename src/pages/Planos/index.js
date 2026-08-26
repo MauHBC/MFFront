@@ -2378,7 +2378,11 @@ export default function Planos() {
     if (["service_plan_id", "effective_mode"].includes(name)) {
       planChangePreviewRequestRef.current += 1;
       setPlanChangeConfirmOpen(false);
-      setPlanChangePreview(EMPTY_PLAN_CHANGE_PREVIEW);
+      setPlanChangePreview((prev) => (
+        name === "service_plan_id" && !value
+          ? EMPTY_PLAN_CHANGE_PREVIEW
+          : { status: "loading", data: prev.data, error: "" }
+      ));
     }
   }, []);
 
@@ -2394,7 +2398,7 @@ export default function Planos() {
     }
     const requestId = planChangePreviewRequestRef.current + 1;
     planChangePreviewRequestRef.current = requestId;
-    setPlanChangePreview({ status: "loading", data: null, error: "" });
+    setPlanChangePreview((prev) => ({ status: "loading", data: prev.data, error: "" }));
     try {
       const response = await axios.post(
         `/patient-plans/${ppDetailPlan.id}/change-plan-preview`,
@@ -3310,18 +3314,18 @@ export default function Planos() {
     || planChangePreview.status !== "success"
     || planChangeCurrentCycleEligibility?.eligible !== true,
   );
-  const planChangeNextCycleLabel = formatDayMonth(
-    planChangePreview.data?.next_cycle_start,
-  );
-  const planChangeCurrentCycleLabel = formatDayMonth(
-    planChangePreview.data?.current_cycle_start,
-  );
-  const planChangeNextCycleEndLabel = formatDayMonth(
-    planChangePreview.data?.next_cycle_end,
-  );
-  const planChangeCurrentCycleEndLabel = formatDayMonth(
-    planChangePreview.data?.current_cycle_end,
-  );
+  const planChangeNextCyclePeriodLabel = (
+    planChangePreview.data?.next_cycle_start
+    && planChangePreview.data?.next_cycle_end
+  )
+    ? `${formatDateBR(planChangePreview.data.next_cycle_start)} a ${formatDateBR(planChangePreview.data.next_cycle_end)}`
+    : "";
+  const planChangeCurrentCyclePeriodLabel = (
+    planChangePreview.data?.current_cycle_start
+    && planChangePreview.data?.current_cycle_end
+  )
+    ? `${formatDateBR(planChangePreview.data.current_cycle_start)} a ${formatDateBR(planChangePreview.data.current_cycle_end)}`
+    : "";
   const planChangeFinancialImpact = planChangePreviewPresentation
     .current_cycle_financial_impact;
   const planChangeCurrentPlanLabel = getPlanChangeConfirmationLabel({
@@ -4636,20 +4640,6 @@ export default function Planos() {
             <Field as="fieldset">
               <legend>Quando a alteração deve valer?</legend>
               <PlanChangeModeOptions>
-                <PlanChangeModeOption>
-                  <input
-                    type="radio"
-                    name="effective_mode"
-                    value="next_cycle"
-                    checked={planChangeForm.effective_mode === "next_cycle"}
-                    onChange={handlePlanChangeField}
-                  />
-                  <span>
-                    <strong>PRÓXIMO CICLO</strong>
-                    <small>{planChangeNextCycleLabel} a {planChangeNextCycleEndLabel}</small>
-                    <small>A partir de {planChangeNextCycleLabel}</small>
-                  </span>
-                </PlanChangeModeOption>
                 <PlanChangeModeOption $disabled={planChangeCurrentCycleDisabled}>
                   <input
                     type="radio"
@@ -4660,9 +4650,25 @@ export default function Planos() {
                     disabled={planChangeCurrentCycleDisabled}
                   />
                   <span>
-                    <strong>CICLO ATUAL</strong>
-                    <small>{planChangeCurrentCycleLabel} a {planChangeCurrentCycleEndLabel}</small>
-                    <small>A partir de {planChangeCurrentCycleLabel}</small>
+                    <strong>Ciclo atual</strong>
+                    {planChangeCurrentCyclePeriodLabel && (
+                      <small>{planChangeCurrentCyclePeriodLabel}</small>
+                    )}
+                  </span>
+                </PlanChangeModeOption>
+                <PlanChangeModeOption>
+                  <input
+                    type="radio"
+                    name="effective_mode"
+                    value="next_cycle"
+                    checked={planChangeForm.effective_mode === "next_cycle"}
+                    onChange={handlePlanChangeField}
+                  />
+                  <span>
+                    <strong>Próximo ciclo</strong>
+                    {planChangeNextCyclePeriodLabel && (
+                      <small>{planChangeNextCyclePeriodLabel}</small>
+                    )}
                   </span>
                 </PlanChangeModeOption>
               </PlanChangeModeOptions>

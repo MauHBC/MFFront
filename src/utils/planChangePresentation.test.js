@@ -123,13 +123,24 @@ describe('buildPlanChangePreviewPresentation', () => {
   });
 
   it.each([
-    ['loading', '', 'Calculando a vigência...'],
+    ['loading', '', 'Carregando períodos...'],
     ['error', 'Falha sintética', 'Falha sintética'],
   ])('mantém confirmação bloqueada no estado %s', (status, error, expectedText) => {
     const result = buildPlanChangePreviewPresentation({ status, preview: null, error });
     expect(result.ready).toBe(false);
     expect(result.status_text).toBe(expectedText);
     expect(result.confirmation_text).toBeNull();
+  });
+
+  it('sinaliza atualização quando preserva uma prévia válida durante o loading', () => {
+    const result = buildPlanChangePreviewPresentation({
+      status: 'loading',
+      preview: { next_cycle_start: '2026-09-25' },
+      error: '',
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.status_text).toBe('Atualizando...');
   });
 
   it('recalcula a apresentação quando a prévia muda', () => {

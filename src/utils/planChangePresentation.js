@@ -56,7 +56,7 @@ export const buildPlanChangePreviewPresentation = ({
   if (status === 'loading') {
     return {
       ready: false,
-      status_text: 'Calculando a vigência...',
+      status_text: preview ? 'Atualizando...' : 'Carregando períodos...',
       effective_label: null,
       schedule_effective_label: null,
       current_ends_label: null,
@@ -81,7 +81,7 @@ export const buildPlanChangePreviewPresentation = ({
       status_text: status === 'success' && preview?.can_confirm === false
         ? preview?.current_cycle_eligibility?.message
           || 'Esta opção não pode ser aplicada automaticamente.'
-        : 'Selecione o novo plano para calcular a vigência.',
+        : '',
       effective_label: null,
       schedule_effective_label: null,
       current_ends_label: null,
