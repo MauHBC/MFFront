@@ -101,7 +101,7 @@ const expectChargeTableStructure = (serviceName, expectedCells) => {
       "Valor",
       "Recebido",
       "A receber",
-      "Status",
+      "Pagamento",
       "Ações",
     ]);
 
@@ -469,6 +469,151 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       .toBeInTheDocument();
   });
 
+  it("simplifica a lista por sessão e mantém data, pagamento, crédito e valores do período", async () => {
+    renderFinanceiro();
+    await revealFinancialValues();
+
+    const patientCell = await screen.findByText("Maria Silva");
+    const patientRow = patientCell.closest("tr");
+    const table = patientRow.closest("table");
+
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent.trim()))
+      .toEqual(["Paciente", "Data", "A receber", "Pagamento", "Ações"]);
+    expect(within(table).queryByRole("columnheader", { name: "Valor" })).not.toBeInTheDocument();
+    expect(within(table).queryByRole("columnheader", { name: "Recebido" })).not.toBeInTheDocument();
+    expect(within(table).queryByRole("columnheader", { name: "Crédito" })).not.toBeInTheDocument();
+    expect(within(patientRow).getByText("10/06/2026")).toBeInTheDocument();
+    expect(within(patientRow).getByText("Vencida há 5 dias")).toBeInTheDocument();
+    expect(within(patientRow).getByText("R$ 600,00")).toBeInTheDocument();
+    expect(within(patientRow).getByText("Parcial")).toBeInTheDocument();
+    expect(within(patientRow).getByText("Crédito disponível: R$ 150,00")).toBeInTheDocument();
+
+    await userEvent.click(within(patientRow).getByRole("button", { name: "Detalhes" }));
+    const detailRow = (await screen.findByText("Fisioterapia")).closest("tr");
+    expect(within(detailRow).getByText("10/06/2026")).toBeInTheDocument();
+    expect(within(detailRow).getByText("Vencida há 5 dias")).toBeInTheDocument();
+    expect(within(detailRow).getByText("R$ 1.000,00")).toBeInTheDocument();
+    expect(within(detailRow).getByText("R$ 400,00")).toBeInTheDocument();
+    expect(within(detailRow).getByText("R$ 600,00")).toBeInTheDocument();
+    expect(within(detailRow).getByText("Parcial")).toBeInTheDocument();
+    expect(within(detailRow.closest("table")).getByRole("columnheader", { name: "Pagamento" }))
+      .toBeInTheDocument();
+  });
+
+  it("usa a menor data aberta do mês e não deixa item pago mais antigo prevalecer", async () => {
+    getFinancialRevenuesSummary.mockResolvedValueOnce({
+      data: {
+        month: "2026-06",
+        summary: { total: 180000, received: 60000, pending: 120000 },
+        patients: [{
+          patient_id: 30,
+          patient_name: "Maria Silva",
+          total: 180000,
+          received: 60000,
+          pending: 120000,
+          entries_count: 3,
+        }],
+      },
+    });
+    getFinancialRevenuePatientDetail.mockResolvedValueOnce({
+      data: {
+        patient: { id: 30, name: "Maria Silva" },
+        month: "2026-06",
+        summary: { total: 180000, received: 60000, pending: 120000, creditAvailable: 0 },
+        entries: [],
+        sessions: [],
+        payments: [],
+        credits: [],
+        series: [],
+        packages: [
+          { series_id: 1, reference_date: "2026-06-02", open_cents: 0 },
+          { series_id: 2, reference_date: "2026-06-10", open_cents: 40000 },
+          { series_id: 3, reference_date: "2026-06-20", open_cents: 80000 },
+        ],
+      },
+    });
+
+    renderFinanceiro();
+
+    const patientRow = (await screen.findByText("Maria Silva")).closest("tr");
+    expect(within(patientRow).getByText("10/06/2026")).toBeInTheDocument();
+    expect(within(patientRow).getByText("Vencida há 5 dias")).toBeInTheDocument();
+    expect(within(patientRow).queryByText("02/06/2026")).not.toBeInTheDocument();
+    expect(within(patientRow).getByText("Parcial")).toBeInTheDocument();
+  });
+
+  it("mantém o recorte anual ao escolher a menor data aberta e tolera ausência de data", async () => {
+    getFinancialRevenuesSummary.mockImplementation((period, mode) => Promise.resolve({
+      data: mode === "year"
+        ? {
+          year: period,
+          summary: { total: 150000, received: 50000, pending: 100000 },
+          patients: [
+            {
+              patient_id: 30,
+              patient_name: "Maria Silva",
+              total: 100000,
+              received: 50000,
+              pending: 50000,
+              entries_count: 2,
+            },
+            {
+              patient_id: 31,
+              patient_name: "Bruno Costa",
+              total: 50000,
+              received: 0,
+              pending: 50000,
+              entries_count: 1,
+            },
+          ],
+        }
+        : {
+          month: period,
+          summary: { total: 100000, received: 40000, pending: 60000 },
+          patients: [{
+            patient_id: 30,
+            patient_name: "Maria Silva",
+            total: 100000,
+            received: 40000,
+            pending: 60000,
+            entries_count: 1,
+          }],
+        },
+    }));
+    getFinancialRevenuePatientDetail.mockImplementation((patientId, period, mode) => Promise.resolve({
+      data: mode === "year" && String(patientId) === "30"
+        ? {
+          patient: { id: 30, name: "Maria Silva" },
+          year: period,
+          summary: { creditAvailable: 0 },
+          packages: [
+            { series_id: 1, reference_date: "2026-01-05", open_cents: 0 },
+            { series_id: 2, reference_date: "2026-02-15", open_cents: 50000 },
+          ],
+        }
+        : {
+          patient: { id: Number(patientId), name: String(patientId) === "31" ? "Bruno Costa" : "Maria Silva" },
+          summary: { creditAvailable: 0 },
+          entries: [],
+          sessions: [],
+          series: [],
+          packages: [],
+        },
+    }));
+
+    renderFinanceiro();
+    await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+
+    const mariaRow = (await screen.findByText("Maria Silva")).closest("tr");
+    const brunoRow = (await screen.findByText("Bruno Costa")).closest("tr");
+    expect(within(mariaRow).getByText("15/02/2026")).toBeInTheDocument();
+    expect(within(mariaRow).getByText("Vencida há 120 dias")).toBeInTheDocument();
+    expect(within(brunoRow).getByText("-")).toBeInTheDocument();
+    expect(getFinancialRevenuesSummary).toHaveBeenCalledWith("2026", "year");
+    expect(getFinancialRevenuePatientDetail).toHaveBeenCalledWith("30", "2026", "year");
+    expect(getFinancialRevenuePatientDetail).toHaveBeenCalledWith("31", "2026", "year");
+  });
+
   it("usa credito disponivel do backend no detalhe do paciente", async () => {
     getFinancialRevenuePatientDetail.mockResolvedValueOnce({
       data: {
@@ -606,7 +751,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(screen.getByText("R$ 900,00")).toBeInTheDocument();
     expect(screen.queryByText("Sem cobrança gerada")).not.toBeInTheDocument();
     expectChargeTableStructure("Fisioterapia", [
-      "10/06/2026",
+      "10/06/2026Vencida há 5 dias",
       "Fisioterapia",
       "5/9",
       "R$ 1.050,00",
@@ -891,7 +1036,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
 
     expect(await screen.findByText("Avaliação Coluna")).toBeInTheDocument();
     expectChargeTableStructure("Avaliação Coluna", [
-      "12/06/2026",
+      "12/06/2026Vencida há 3 dias",
       "Avaliação Coluna",
       "0/1",
       "R$ 300,00",
@@ -1330,7 +1475,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     const groupedPatientCell = screen.getByText("Maria Silva");
     const groupedRow = groupedPatientCell.closest("tr");
     expect(groupedRow).toBeTruthy();
-    expect(within(groupedRow).getAllByText("Sem cobrança")).toHaveLength(2);
+    expect(within(groupedRow).getAllByText("Sem cobrança")).toHaveLength(1);
     expect(within(groupedRow).queryByText("R$ 0,00")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
@@ -1462,6 +1607,6 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       expect(getFinancialRevenuePatientDetail).toHaveBeenCalled();
     });
     expect(await screen.findByText(/detalhes deste paciente/i)).toBeInTheDocument();
-    expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(1);
+    expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(2);
   });
 });

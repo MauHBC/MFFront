@@ -83,6 +83,12 @@ import {
 } from "./helpers/expenseFormatters";
 import { formatExpenseAlertCount } from "./helpers/expenseDueAlerts";
 import { formatClinicExpenseStatus, getClinicExpenseStatus } from "./helpers/expenseStatus";
+import {
+  getBillingDueStatus,
+  getGroupedBillingDuePresentation,
+  getGroupedReferenceDatePresentation,
+  getTemporalDateStatus,
+} from "./helpers/billingCycleDueStatus";
 
 const emptyPayment = {
   entry_id: null,
@@ -112,6 +118,15 @@ const resolveGroupedFinancialStatus = (amountCents, paidCents, openCents) => {
   const open = Number(openCents || 0);
 
   if (amount <= 0) return "missing";
+  if (open <= 0) return "paid";
+  if (paid > 0) return "partial";
+  return "pending";
+};
+
+const resolveBillingPaymentStatus = (paidCents, openCents) => {
+  const paid = Number(paidCents || 0);
+  const open = Number(openCents || 0);
+
   if (open <= 0) return "paid";
   if (paid > 0) return "partial";
   return "pending";
@@ -466,6 +481,89 @@ const isDateOnlyWithinRange = (value, start, end) => {
   return true;
 };
 
+const getEntryOpenCents = (entry = {}) => {
+  const financialOpen = Number(entry?.financial?.open);
+  if (Number.isFinite(financialOpen)) return Math.max(0, financialOpen);
+
+  const installments = getEntryInstallments(entry);
+  if (installments.length) {
+    return installments.reduce(
+      (sum, installment) => sum + Math.max(0, Number(installment?.open_amount_cents || 0)),
+      0,
+    );
+  }
+
+  if (["paid", "canceled"].includes(String(entry?.status || "").toLowerCase())) return 0;
+  return Math.max(0, Number(entry?.amount_cents || 0));
+};
+
+const getAttendanceReferenceItemsFromDetail = (detail = {}, range = null) => {
+  const sessions = Array.isArray(detail?.sessions) ? detail.sessions : [];
+  const entries = Array.isArray(detail?.entries) ? detail.entries : [];
+  const sessionsById = new Map(
+    sessions
+      .map((session) => [Number(session?.id || 0), session])
+      .filter(([sessionId]) => sessionId > 0),
+  );
+  const matchesRange = (referenceDate) => (
+    !range || isDateOnlyWithinRange(referenceDate, range.start, range.end)
+  );
+
+  const packages = Array.isArray(detail?.packages) ? detail.packages : [];
+  const packageSeriesIds = new Set(
+    packages
+      .map((item) => Number(item?.series_id || item?.sourceId || item?.source_id || 0))
+      .filter((seriesId) => seriesId > 0),
+  );
+  const packageItems = packages
+    .map((item) => ({
+      referenceDate: item?.reference_date || item?.referenceDate || null,
+      openCents: Math.max(0, Number(item?.open_cents ?? item?.openCents ?? 0)),
+    }))
+    .filter((item) => item.referenceDate && matchesRange(item.referenceDate));
+
+  const fallbackPackageItems = (Array.isArray(detail?.series) ? detail.series : [])
+    .map((series) => {
+      const seriesId = Number(series?.id || 0);
+      if (!seriesId || packageSeriesIds.has(seriesId) || series?.patient_plan_id) return null;
+      const packageSessions = sessions
+        .filter((session) => Number(session?.series_id || session?.series?.id || 0) === seriesId)
+        .sort((first, second) => String(first?.starts_at || "").localeCompare(second?.starts_at || ""));
+      const packageSessionIds = new Set(
+        packageSessions.map((session) => Number(session?.id || 0)).filter((sessionId) => sessionId > 0),
+      );
+      const referenceDate = packageSessions[0]?.starts_at || series?.starts_at || null;
+      if (!referenceDate || !matchesRange(referenceDate)) return null;
+      return {
+        referenceDate,
+        openCents: entries
+          .filter((entry) => packageSessionIds.has(Number(entry?.session_id || 0)))
+          .reduce((sum, entry) => sum + getEntryOpenCents(entry), 0),
+      };
+    })
+    .filter(Boolean);
+
+  const standaloneItems = entries
+    .map((entry) => {
+      if (!entry?.session_id || String(entry?.status || "").toLowerCase() === "canceled") return null;
+      const session = entry?.Session || entry?.session || sessionsById.get(Number(entry.session_id)) || null;
+      if (!session) return null;
+      if (session?.series_id || session?.patient_credit_id) return null;
+      if (session?.is_no_charge || session?.deleted_at) return null;
+      if (!["", "per_session"].includes(String(session?.billing_mode || ""))) return null;
+
+      const referenceDate = session?.starts_at || entry?.reference_date || null;
+      if (!referenceDate || !matchesRange(referenceDate)) return null;
+      return {
+        referenceDate,
+        openCents: getEntryOpenCents(entry),
+      };
+    })
+    .filter(Boolean);
+
+  return [...packageItems, ...fallbackPackageItems, ...standaloneItems];
+};
+
 const formatSessionDateTimeBR = (value) => {
   if (!value) return "-";
   const parsed = new Date(value);
@@ -648,6 +746,10 @@ export default function Financeiro() {
   const [revenuesSummary, setRevenuesSummary] = useState(() =>
     emptyFinancialRevenuesSummary(toMonthInputValue(new Date())),
   );
+  const [attendanceListPresentationByPatient, setAttendanceListPresentationByPatient] = useState(
+    () => new Map(),
+  );
+  const revenuesSummaryRequestRef = useRef(0);
   const [attendanceSeries, setAttendanceSeries] = useState([]);
   const [attendanceSessions, setAttendanceSessions] = useState([]);
   const [clinicExpensesMonth, setClinicExpensesMonth] = useState(() =>
@@ -1281,20 +1383,63 @@ export default function Financeiro() {
       : attendancePeriodMonth;
     if (!summaryPeriod) return;
 
+    const requestId = revenuesSummaryRequestRef.current + 1;
+    revenuesSummaryRequestRef.current = requestId;
+    setAttendanceListPresentationByPatient(new Map());
+
     try {
       setLoadingRevenuesSummary(true);
       setRevenuesSummaryError("");
       const response = await getFinancialRevenuesSummary(summaryPeriod, attendancePeriodMode);
-      setRevenuesSummary(normalizeFinancialRevenuesSummary(
+      if (revenuesSummaryRequestRef.current !== requestId) return;
+      const normalizedSummary = normalizeFinancialRevenuesSummary(
         response.data || {},
         summaryPeriod,
-      ));
+      );
+      setRevenuesSummary(normalizedSummary);
+
+      const range = attendancePeriodMode === "year"
+        ? getYearRangeFromValue(summaryPeriod)
+        : getMonthRangeFromInputValue(summaryPeriod);
+      const patientPresentations = await Promise.all(normalizedSummary.patients.map(async (patient) => {
+        const patientId = Number(patient?.patient_id || 0);
+        const cacheKey = buildAttendanceDetailCacheKey({
+          patientId,
+          periodMode: attendancePeriodMode,
+          period: summaryPeriod,
+        });
+        try {
+          let detail = cacheKey ? attendanceDetailCacheRef.current.get(cacheKey) : null;
+          if (!detail) {
+            const detailResponse = await getFinancialRevenuePatientDetail(
+              String(patientId),
+              summaryPeriod,
+              attendancePeriodMode,
+            );
+            detail = detailResponse.data || {};
+            if (cacheKey) attendanceDetailCacheRef.current.set(cacheKey, detail);
+          }
+          const creditValue = Number(detail?.summary?.creditAvailable);
+          return [patientId, {
+            referenceItems: getAttendanceReferenceItemsFromDetail(detail, range),
+            creditAvailable: Number.isFinite(creditValue) ? Math.max(0, creditValue) : 0,
+          }];
+        } catch (error) {
+          return [patientId, { referenceItems: [], creditAvailable: 0 }];
+        }
+      }));
+
+      if (revenuesSummaryRequestRef.current !== requestId) return;
+      setAttendanceListPresentationByPatient(new Map(patientPresentations));
     } catch (error) {
+      if (revenuesSummaryRequestRef.current !== requestId) return;
       setRevenuesSummaryError("Não foi possível carregar o resumo de receitas.");
       setRevenuesSummary(emptyFinancialRevenuesSummary(summaryPeriod));
       toast.error("Não foi possível carregar o resumo de receitas.");
     } finally {
-      setLoadingRevenuesSummary(false);
+      if (revenuesSummaryRequestRef.current === requestId) {
+        setLoadingRevenuesSummary(false);
+      }
     }
   }, [attendancePeriodMode, attendancePeriodMonth, attendancePeriodYear]);
 
@@ -3597,11 +3742,16 @@ export default function Financeiro() {
         openCents: 0,
         paidCents: 0,
         lastSession: sourceEntry?.reference_date || credit.created_at,
+        referenceItems: [],
       };
       base.sessions += Number(credit.total_sessions || 0);
       base.totalCents += amountCents;
       base.openCents += openCents;
       base.paidCents += paidCents;
+      base.referenceItems.push({
+        referenceDate: sourceEntry?.reference_date || credit.created_at,
+        openCents,
+      });
       map.set(patientId, base);
     });
 
@@ -3617,11 +3767,16 @@ export default function Financeiro() {
         openCents: 0,
         paidCents: 0,
         lastSession: row.starts_at,
+        referenceItems: [],
       };
       base.sessions += 1;
       base.totalCents += Number(row.amountCents || 0);
       base.openCents += Number(row.openCents || 0);
       base.paidCents += Number(row.paidCents || 0);
+      base.referenceItems.push({
+        referenceDate: row.starts_at,
+        openCents: Number(row.openCents || 0),
+      });
       if (!base.lastSession || new Date(row.starts_at) > new Date(base.lastSession)) {
         base.lastSession = row.starts_at;
       }
@@ -3633,6 +3788,12 @@ export default function Financeiro() {
         return {
           ...item,
           creditsAvailable: creditBalanceByPatient.get(item.patientId) || 0,
+          datePresentation: getGroupedReferenceDatePresentation(item.referenceItems),
+          financialStatus: resolveGroupedFinancialStatus(
+            item.totalCents,
+            item.paidCents,
+            item.openCents,
+          ),
         };
       })
       .sort((a, b) => collator.compare(a.patientName || "", b.patientName || ""));
@@ -3892,6 +4053,10 @@ export default function Financeiro() {
           amountCents,
           paidCents,
           openCents,
+          datePresentation: getTemporalDateStatus({
+            date: referenceDate,
+            openCents,
+          }),
           financialStatus:
             backendPackage?.financial_status ||
             backendPackage?.financialStatus ||
@@ -3942,6 +4107,10 @@ export default function Financeiro() {
           amountCents: Number(row.amountCents || 0),
           paidCents: Number(row.paidCents || 0),
           openCents: Number(row.openCents || 0),
+          datePresentation: getTemporalDateStatus({
+            date: linkedSession.starts_at || row.starts_at || null,
+            openCents: Number(row.openCents || 0),
+          }),
           financialStatus,
           usageSummary: {
             scheduled: linkedSessionStatus === "scheduled" ? 1 : 0,
@@ -4063,8 +4232,20 @@ export default function Financeiro() {
   }, [attendanceByPatient, creditBalanceByPatient]);
 
   const aggregatedAttendanceByPatient = useMemo(
-    () => mapRevenuesSummaryPatientsToAttendanceRows(revenuesSummary),
-    [revenuesSummary],
+    () => mapRevenuesSummaryPatientsToAttendanceRows(revenuesSummary).map((row) => {
+      const presentation = attendanceListPresentationByPatient.get(row.patientId) || {};
+      return {
+        ...row,
+        creditsAvailable: Number(presentation.creditAvailable || 0),
+        datePresentation: getGroupedReferenceDatePresentation(presentation.referenceItems || []),
+        financialStatus: resolveGroupedFinancialStatus(
+          row.totalCents,
+          row.paidCents,
+          row.openCents,
+        ),
+      };
+    }),
+    [attendanceListPresentationByPatient, revenuesSummary],
   );
 
   const aggregatedAttendanceSummary = useMemo(
@@ -4080,6 +4261,7 @@ export default function Financeiro() {
         paid: 0,
         open: 0,
         status: "no_charge",
+        due: getBillingDueStatus(),
       };
     }
 
@@ -4090,17 +4272,16 @@ export default function Financeiro() {
     const amount = Number(cycle?.amount_cents || entry?.amount_cents || financial?.amount || 0);
     const paid = Math.min(amount, Number(financial?.paid || 0));
     const open = Math.max(0, Number(financial?.open ?? amount - paid));
-    let status = financial?.status || entry?.status || cycle?.status || "pending";
+    const status = financial?.status || entry?.status || cycle?.status || "pending";
+    const paymentStatus = resolveBillingPaymentStatus(paid, open);
+    const due = getBillingDueStatus({
+      dueDate: cycle?.FinancialEntry?.due_date,
+      openCents: open,
+    });
 
-    if (status === "pending" && open > 0 && entry?.due_date) {
-      const dueDate = parseDateInputBoundary(String(entry.due_date).slice(0, 10), "end");
-      const today = parseDateInputBoundary(toDateInputValue(new Date()), "end");
-      if (dueDate && today && dueDate.getTime() < today.getTime()) {
-        status = "overdue";
-      }
-    }
-
-    return { entry, amount, paid, open, status };
+    return {
+      entry, amount, paid, open, status, paymentStatus, due,
+    };
   }, [entryFinancialMap, entryMap]);
 
   const billingCyclesBaseRows = useMemo(() => {
@@ -4114,8 +4295,15 @@ export default function Financeiro() {
           return false;
         }
         const financial = resolveBillingCycleFinancial(cycle);
-        const { status } = financial;
-        if (billingCyclesStatusFilter !== "all" && status !== billingCyclesStatusFilter) {
+        const { paymentStatus, status } = financial;
+        const matchesStatusFilter = billingCyclesStatusFilter === "all"
+          || paymentStatus === billingCyclesStatusFilter
+          || status === billingCyclesStatusFilter
+          || (
+            billingCyclesStatusFilter === "overdue"
+            && financial.due.state === "overdue"
+          );
+        if (!matchesStatusFilter) {
           return false;
         }
         return true;
@@ -4156,6 +4344,7 @@ export default function Financeiro() {
         paidCents: 0,
         openCents: 0,
         noChargeCycles: 0,
+        dueItems: [],
       };
 
       current.cycles += 1;
@@ -4166,14 +4355,23 @@ export default function Financeiro() {
         current.amountCents += financial.amount;
         current.paidCents += financial.paid;
         current.openCents += financial.open;
+        current.dueItems.push({
+          dueDate: financial.due.dateOnly,
+          openCents: financial.open,
+        });
       }
       map.set(key, current);
     });
 
-    return Array.from(map.values()).sort((a, b) =>
-      String(a.patientName || "").localeCompare(String(b.patientName || ""), "pt-BR", {
-        sensitivity: "base",
-      }));
+    return Array.from(map.values())
+      .map((row) => ({
+        ...row,
+        duePresentation: getGroupedBillingDuePresentation(row.dueItems),
+      }))
+      .sort((a, b) =>
+        String(a.patientName || "").localeCompare(String(b.patientName || ""), "pt-BR", {
+          sensitivity: "base",
+        }));
   }, [billingCyclesFilteredRows, resolveBillingCycleFinancial]);
 
   const selectedBillingCyclesPatient = useMemo(() => {
@@ -5034,10 +5232,9 @@ export default function Financeiro() {
               <thead>
                 <tr>
                   <th>Paciente</th>
-                  <th>Valor</th>
+                  <th>Data</th>
                   <th>A receber</th>
-                  <th>Recebido</th>
-                  <th>Credito</th>
+                  <th>Pagamento</th>
                   <th>Ações</th>
                 </tr>
               </thead>
@@ -5049,10 +5246,22 @@ export default function Financeiro() {
                         <AttendancePatientSummaryName $hasOpen={row.openCents > 0}>
                           {row.patientName}
                         </AttendancePatientSummaryName>
+                        {Number(row.creditsAvailable || 0) > 0 && (
+                          <AttendanceSecondaryText>
+                            Crédito disponível: {formatCurrency(row.creditsAvailable)}
+                          </AttendanceSecondaryText>
+                        )}
                       </AttendanceCellStack>
                     </td>
                     <td>
-                      <AttendanceMoneyText>{formatCurrency(row.totalCents)}</AttendanceMoneyText>
+                      <AttendanceCellStack>
+                        <AttendancePrimaryText>{row.datePresentation?.formattedDate || "-"}</AttendancePrimaryText>
+                        {row.datePresentation?.alertLabel && (
+                          <BillingCycleDueStatusText $state={row.datePresentation.state}>
+                            {row.datePresentation.alertLabel}
+                          </BillingCycleDueStatusText>
+                        )}
+                      </AttendanceCellStack>
                     </td>
                     <td>
                       <AttendanceOpenAmountValue $hasOpen={row.openCents > 0}>
@@ -5060,10 +5269,9 @@ export default function Financeiro() {
                       </AttendanceOpenAmountValue>
                     </td>
                     <td>
-                      <AttendanceMoneyText>{formatCurrency(row.paidCents)}</AttendanceMoneyText>
-                    </td>
-                    <td>
-                      <AttendanceMoneyText>{formatCurrency(row.creditsAvailable)}</AttendanceMoneyText>
+                      <AttendanceStatusBadge $status={row.financialStatus}>
+                        {row.totalCents ? formatFinancialStatus(row.financialStatus) : "Sem cobrança"}
+                      </AttendanceStatusBadge>
                     </td>
                     <td>
                       <AttendanceRowActions>
@@ -5121,7 +5329,7 @@ export default function Financeiro() {
                     <th>Valor</th>
                     <th>Recebido</th>
                     <th>A receber</th>
-                    <th>Status</th>
+                    <th>Pagamento</th>
                     <th>Ações</th>
                   </tr>
                 </thead>
@@ -5129,9 +5337,16 @@ export default function Financeiro() {
                   {attendanceSelectedPatientPackages.map((item) => (
                     <PatientSummaryRow key={item.id} $hasOpen={item.openCents > 0}>
                       <td>
-                        <AttendancePrimaryText>
-                          {formatDateOnlyBR(item.referenceDate)}
-                        </AttendancePrimaryText>
+                        <AttendanceCellStack>
+                          <AttendancePrimaryText>
+                            {formatDateOnlyBR(item.referenceDate)}
+                          </AttendancePrimaryText>
+                          {item.datePresentation?.alertLabel && (
+                            <BillingCycleDueStatusText $state={item.datePresentation.state}>
+                              {item.datePresentation.alertLabel}
+                            </BillingCycleDueStatusText>
+                          )}
+                        </AttendanceCellStack>
                       </td>
                       <td>
                         <AttendancePrimaryText>{item.serviceName}</AttendancePrimaryText>
@@ -5742,11 +5957,11 @@ export default function Financeiro() {
                 <thead>
                   <tr>
                     <th>Plano</th>
-                    <th>Periodo</th>
+                    <th>Período</th>
                     <th>Valor</th>
                     <th>Recebido</th>
                     <th>A receber</th>
-                    <th>Situação</th>
+                    <th>Pagamento</th>
                     <th>Ação</th>
                   </tr>
                 </thead>
@@ -5764,9 +5979,15 @@ export default function Financeiro() {
                           <BillingCyclePlanName title={planName}>{planName}</BillingCyclePlanName>
                         </td>
                         <td>
-                          <AttendancePrimaryText>
-                            {periodStart}{cycle.cycle_end ? ` - ${periodEnd}` : ""}
-                          </AttendancePrimaryText>
+                          <AttendanceCellStack>
+                            <AttendancePrimaryText>
+                              {periodStart}{cycle.cycle_end ? ` - ${periodEnd}` : ""}
+                            </AttendancePrimaryText>
+                            <BillingCycleDueStatusText $state={financial.due.state}>
+                              Vencimento: {financial.due.formattedDate}
+                              {financial.due.alertLabel ? ` · ${financial.due.alertLabel}` : ""}
+                            </BillingCycleDueStatusText>
+                          </AttendanceCellStack>
                         </td>
                         {isNoCharge ? (
                           <BillingCycleNoChargeCell colSpan={4}>
@@ -5790,8 +6011,8 @@ export default function Financeiro() {
                               </AttendanceOpenAmountValue>
                             </td>
                             <td>
-                              <AttendanceStatusBadge $status={financial.status}>
-                                {formatFinancialStatus(financial.status)}
+                              <AttendanceStatusBadge $status={financial.paymentStatus}>
+                                {formatFinancialStatus(financial.paymentStatus)}
                               </AttendanceStatusBadge>
                             </td>
                           </>
@@ -5833,11 +6054,9 @@ export default function Financeiro() {
               <thead>
                 <tr>
                   <th>Paciente</th>
-                  <th>Mensalidades</th>
-                  <th>Valor</th>
-                  <th>Recebido</th>
+                  <th>Vencimento</th>
                   <th>A receber</th>
-                  <th>Status</th>
+                  <th>Pagamento</th>
                   <th>Ação</th>
                 </tr>
               </thead>
@@ -5845,7 +6064,7 @@ export default function Financeiro() {
                 {billingCyclesByPatient.map((row) => {
                   const status = row.amountCents <= 0 && row.noChargeCycles > 0
                     ? "no_charge"
-                    : resolveGroupedFinancialStatus(row.amountCents, row.paidCents, row.openCents);
+                    : resolveBillingPaymentStatus(row.paidCents, row.openCents);
 
                   return (
                     <PatientSummaryRow key={row.key} $hasOpen={row.openCents > 0}>
@@ -5853,19 +6072,16 @@ export default function Financeiro() {
                         <AttendancePrimaryText>{row.patientName}</AttendancePrimaryText>
                       </td>
                       <td>
-                        <BillingCycleCountText>
-                          {row.cycles} mensalidade{row.cycles === 1 ? "" : "s"}
-                        </BillingCycleCountText>
-                      </td>
-                      <td>
-                        <AttendanceMoneyText>
-                          {status === "no_charge" ? "Sem cobrança" : formatCurrency(row.amountCents)}
-                        </AttendanceMoneyText>
-                      </td>
-                      <td>
-                        <AttendanceMoneyText>
-                          {status === "no_charge" ? "-" : formatCurrency(row.paidCents)}
-                        </AttendanceMoneyText>
+                        <AttendanceCellStack>
+                          <AttendancePrimaryText>
+                            {row.duePresentation.primaryLabel}
+                          </AttendancePrimaryText>
+                          {row.duePresentation.secondaryLabel && (
+                            <BillingCycleDueStatusText $state={row.duePresentation.state}>
+                              {row.duePresentation.secondaryLabel}
+                            </BillingCycleDueStatusText>
+                          )}
+                        </AttendanceCellStack>
                       </td>
                       <td>
                         <AttendanceOpenAmountValue $hasOpen={row.openCents > 0}>
@@ -8282,9 +8498,33 @@ const AttendanceOverviewTable = styled(SimpleTable)`
 `;
 
 const BillingCyclesTable = styled(AttendanceOverviewTable)`
-  min-width: ${(props) => (props.$detail ? "100%" : "900px")};
+  min-width: ${(props) => (props.$detail ? "100%" : "720px")};
   max-width: 100%;
   table-layout: ${(props) => (props.$detail ? "fixed" : "auto")};
+
+  ${(props) => (!props.$detail ? `
+    th:first-child,
+    td:first-child {
+      width: 26%;
+    }
+
+    th:nth-child(2),
+    td:nth-child(2) {
+      width: 34%;
+    }
+
+    th:nth-child(3),
+    td:nth-child(3) {
+      width: 16%;
+      white-space: nowrap;
+    }
+
+    th:nth-child(4),
+    td:nth-child(4) {
+      width: 14%;
+      white-space: nowrap;
+    }
+  ` : "")}
 
   ${(props) => (props.$detail ? `
     th,
@@ -8350,12 +8590,12 @@ const BillingCyclesTable = styled(AttendanceOverviewTable)`
 
     th:first-child,
     td:first-child {
-      width: 28%;
+      width: 24%;
     }
 
     th:nth-child(2),
     td:nth-child(2) {
-      width: 18%;
+      width: 22%;
     }
 
     th:nth-child(3),
@@ -8397,7 +8637,7 @@ const BillingCyclesTable = styled(AttendanceOverviewTable)`
     min-width: ${(props) => {
     if (props.$billingPatientDetail) return "0";
     if (props.$detail) return "760px";
-    return "900px";
+    return "720px";
   }};
   }
 `;
@@ -8434,10 +8674,6 @@ const BillingCyclePlanName = styled(AttendancePrimaryText)`
   overflow-wrap: anywhere;
 `;
 
-const BillingCycleCountText = styled(AttendancePrimaryText)`
-  white-space: nowrap;
-`;
-
 const BillingCycleNoChargeCell = styled.td`
   && {
     color: ${ATTENDANCE_UI.colors.textSecondary};
@@ -8449,6 +8685,20 @@ const AttendanceSecondaryText = styled.span`
   color: ${ATTENDANCE_UI.colors.textSecondary};
   font-size: ${ATTENDANCE_UI.font.size.sm};
   line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
+`;
+
+const BillingCycleDueStatusText = styled(AttendanceSecondaryText)`
+  color: ${(props) => {
+    if (props.$state === "overdue") return ATTENDANCE_UI.colors.dangerText;
+    if (props.$state === "today") return ATTENDANCE_UI.colors.action;
+    if (props.$state === "missing") return ATTENDANCE_UI.colors.textMuted;
+    return ATTENDANCE_UI.colors.textSecondary;
+  }};
+  font-weight: ${(props) => (
+    ["overdue", "today"].includes(props.$state)
+      ? ATTENDANCE_UI.font.weight.semibold
+      : ATTENDANCE_UI.font.weight.regular
+  )};
 `;
 
 const AttendancePatientSummaryName = styled(AttendancePrimaryText)`
@@ -8482,22 +8732,12 @@ const AttendanceMoneyText = styled.strong`
 `;
 
 const AttendanceOpenAmountValue = styled.span`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: ${(props) => (props.$hasOpen ? "32px" : "auto")};
-  padding: ${(props) => (props.$hasOpen ? "6px 10px" : "0")};
-  border-radius: ${ATTENDANCE_UI.radius.pill};
-  border: 1px solid
-    ${(props) => (props.$hasOpen ? ATTENDANCE_UI.colors.dangerBorder : "transparent")};
-  background: ${(props) => (props.$hasOpen ? ATTENDANCE_UI.colors.surface : "transparent")};
+  display: inline-block;
   color: ${(props) =>
     props.$hasOpen ? ATTENDANCE_UI.colors.dangerText : ATTENDANCE_UI.colors.textPrimary};
   font-size: ${ATTENDANCE_UI.font.size.md};
   line-height: ${ATTENDANCE_UI.font.lineHeight.md};
   font-weight: ${ATTENDANCE_UI.font.weight.semibold};
-  box-shadow: ${(props) =>
-    props.$hasOpen ? "inset 0 1px 0 rgba(255, 255, 255, 0.7)" : "none"};
 `;
 
 const AttendanceStatusBadge = styled.span`

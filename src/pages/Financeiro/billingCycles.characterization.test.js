@@ -90,6 +90,24 @@ const patients = [
   { id: 34, full_name: "Eva Rocha" },
 ];
 
+const toLocalDateOnly = (value) => {
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${value.getFullYear()}-${month}-${day}`;
+};
+
+const addLocalDays = (days) => {
+  const value = new Date();
+  value.setHours(12, 0, 0, 0);
+  value.setDate(value.getDate() + days);
+  return toLocalDateOnly(value);
+};
+
+const formatDateOnlyBR = (value) => {
+  const [year, month, day] = String(value).split("-");
+  return `${day}/${month}/${year}`;
+};
+
 const makeEntry = ({ id, patientId, amountCents, paidCents = 0, status = "pending", dueDate = "2026-08-31" }) => ({
   id,
   patient_id: patientId,
@@ -205,15 +223,277 @@ describe("Financeiro - caracterização focada de Mensalidades", () => {
     renderMensalidades();
 
     const maria = await screen.findByText("Maria Silva");
+    const mariaRow = maria.closest("tr");
     expect(listBillingCycles).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-31" });
     expect(listBillingCycles.mock.calls.some(([params]) => Object.hasOwn(params, "clinic_id"))).toBe(false);
-    expect(within(maria.closest("tr")).getByText("2 mensalidades")).toBeInTheDocument();
+    expect(within(mariaRow).getByText("31/08/2026")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Vencimento" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Pagamento" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Mensalidades" })).not.toBeInTheDocument();
     expect(screen.getAllByText("R$ ••••").length).toBeGreaterThan(0);
     expect(screen.queryByText("R$ 700,00")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Mostrar valores financeiros" }));
     expect(screen.getAllByText("R$ 700,00").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Ocultar valores financeiros" })).toBeInTheDocument();
+  });
+
+  it("apresenta vencimentos de hoje e futuro sem misturar com o pagamento", async () => {
+    const today = addLocalDays(0);
+    const future = addLocalDays(5);
+    const todayEntry = makeEntry({
+      id: 910,
+      patientId: 30,
+      amountCents: 70000,
+      dueDate: today,
+    });
+    const futureEntry = makeEntry({
+      id: 911,
+      patientId: 31,
+      amountCents: 80000,
+      dueDate: future,
+    });
+    listFinancialEntries.mockResolvedValue({ data: [todayEntry, futureEntry] });
+    listBillingCycles.mockResolvedValue({
+      data: [
+        makeCycle({
+          id: 21,
+          patientId: 30,
+          entryId: todayEntry.id,
+          amountCents: todayEntry.amount_cents,
+          planName: "Hoje",
+          FinancialEntry: todayEntry,
+        }),
+        makeCycle({
+          id: 22,
+          patientId: 31,
+          entryId: futureEntry.id,
+          amountCents: futureEntry.amount_cents,
+          planName: "Futuro",
+          FinancialEntry: futureEntry,
+        }),
+      ],
+    });
+
+    renderMensalidades();
+
+    const todayRow = (await screen.findByText("Maria Silva")).closest("tr");
+    expect(within(todayRow).getByText(formatDateOnlyBR(today))).toBeInTheDocument();
+    expect(within(todayRow).getByText("Vence hoje")).toBeInTheDocument();
+    expect(within(todayRow).getByText("Pendente")).toBeInTheDocument();
+
+    const futureRow = screen.getByText("Bruno Costa").closest("tr");
+    expect(within(futureRow).getByText(formatDateOnlyBR(future))).toBeInTheDocument();
+    expect(within(futureRow).getByText("A vencer")).toBeInTheDocument();
+    expect(within(futureRow).getByText("Pendente")).toBeInTheDocument();
+  });
+
+  it("mantém mensalidade parcial e vencida consistente entre lista e detalhe", async () => {
+    const past = addLocalDays(-7);
+    const partialEntry = makeEntry({
+      id: 912,
+      patientId: 31,
+      amountCents: 80000,
+      paidCents: 30000,
+      status: "overdue",
+      dueDate: past,
+    });
+    const partialCycle = makeCycle({
+      id: 23,
+      patientId: 31,
+      entryId: partialEntry.id,
+      amountCents: partialEntry.amount_cents,
+      planName: "Parcial vencido",
+      FinancialEntry: partialEntry,
+    });
+    listFinancialEntries.mockResolvedValue({ data: [partialEntry] });
+    listBillingCycles.mockResolvedValue({ data: [partialCycle] });
+
+    renderMensalidades();
+
+    const patientRow = (await screen.findByText("Bruno Costa")).closest("tr");
+    expect(within(patientRow).getByText(formatDateOnlyBR(past))).toBeInTheDocument();
+    expect(within(patientRow).getByText("Vencida há 7 dias")).toBeInTheDocument();
+    expect(within(patientRow).getByText("Parcial")).toBeInTheDocument();
+    expect(within(patientRow).queryByText("Vencido")).not.toBeInTheDocument();
+
+    await userEvent.click(within(patientRow).getByRole("button", { name: "Detalhes" }));
+    const detailRow = (await screen.findByText("Parcial vencido")).closest("tr");
+    expect(within(detailRow).getByText(
+      `Vencimento: ${formatDateOnlyBR(past)} · Vencida há 7 dias`,
+    )).toBeInTheDocument();
+    expect(within(detailRow).getByText("Parcial")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Pagamento" })).toBeInTheDocument();
+  });
+
+  it("resume vários vencimentos anuais pelo mais antigo que ainda está em aberto", async () => {
+    const paidPast = addLocalDays(-40);
+    const oldestOpen = addLocalDays(-20);
+    const futureOpen = addLocalDays(20);
+    const paidEntry = makeEntry({
+      id: 920,
+      patientId: 30,
+      amountCents: 50000,
+      paidCents: 50000,
+      status: "paid",
+      dueDate: paidPast,
+    });
+    const oldestOpenEntry = makeEntry({
+      id: 921,
+      patientId: 30,
+      amountCents: 60000,
+      dueDate: oldestOpen,
+    });
+    const futureOpenEntry = makeEntry({
+      id: 922,
+      patientId: 30,
+      amountCents: 70000,
+      dueDate: futureOpen,
+    });
+    const annualEntries = [paidEntry, oldestOpenEntry, futureOpenEntry];
+    listFinancialEntries.mockResolvedValue({ data: annualEntries });
+    listBillingCycles.mockResolvedValue({
+      data: [
+        makeCycle({
+          id: 24,
+          patientId: 30,
+          entryId: paidEntry.id,
+          amountCents: paidEntry.amount_cents,
+          planName: "Janeiro",
+          FinancialEntry: paidEntry,
+          cycle_start: "2026-01-01",
+          cycle_end: "2026-01-31",
+        }),
+        makeCycle({
+          id: 25,
+          patientId: 30,
+          entryId: oldestOpenEntry.id,
+          amountCents: oldestOpenEntry.amount_cents,
+          planName: "Junho",
+          FinancialEntry: oldestOpenEntry,
+          cycle_start: "2026-06-01",
+          cycle_end: "2026-06-30",
+        }),
+        makeCycle({
+          id: 26,
+          patientId: 30,
+          entryId: futureOpenEntry.id,
+          amountCents: futureOpenEntry.amount_cents,
+          planName: "Novembro",
+          FinancialEntry: futureOpenEntry,
+          cycle_start: "2026-11-01",
+          cycle_end: "2026-11-30",
+        }),
+      ],
+    });
+
+    renderMensalidades();
+    await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+
+    const patientRow = (await screen.findByText("Maria Silva")).closest("tr");
+    expect(within(patientRow).getByText("3 vencimentos")).toBeInTheDocument();
+    expect(within(patientRow).getByText(
+      `Mais antigo em aberto: ${formatDateOnlyBR(oldestOpen)} · Vencida há 20 dias`,
+    )).toBeInTheDocument();
+    expect(within(patientRow).getByText("Parcial")).toBeInTheDocument();
+    await waitFor(() => expect(listBillingCycles).toHaveBeenCalledWith({
+      from: "2026-01-01",
+      to: "2026-12-31",
+    }));
+  });
+
+  it("não alerta atraso no agrupamento anual totalmente pago", async () => {
+    const firstPast = addLocalDays(-60);
+    const secondPast = addLocalDays(-30);
+    const firstPaidEntry = makeEntry({
+      id: 930,
+      patientId: 32,
+      amountCents: 50000,
+      paidCents: 50000,
+      status: "paid",
+      dueDate: firstPast,
+    });
+    const secondPaidEntry = makeEntry({
+      id: 931,
+      patientId: 32,
+      amountCents: 60000,
+      paidCents: 60000,
+      status: "paid",
+      dueDate: secondPast,
+    });
+    listFinancialEntries.mockResolvedValue({ data: [firstPaidEntry, secondPaidEntry] });
+    listBillingCycles.mockResolvedValue({
+      data: [
+        makeCycle({
+          id: 27,
+          patientId: 32,
+          entryId: firstPaidEntry.id,
+          amountCents: firstPaidEntry.amount_cents,
+          planName: "Pago 1",
+          FinancialEntry: firstPaidEntry,
+          cycle_start: "2026-02-01",
+          cycle_end: "2026-02-28",
+        }),
+        makeCycle({
+          id: 28,
+          patientId: 32,
+          entryId: secondPaidEntry.id,
+          amountCents: secondPaidEntry.amount_cents,
+          planName: "Pago 2",
+          FinancialEntry: secondPaidEntry,
+          cycle_start: "2026-07-01",
+          cycle_end: "2026-07-31",
+        }),
+      ],
+    });
+
+    renderMensalidades();
+    await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+
+    const patientRow = (await screen.findByText("Carla Lima")).closest("tr");
+    expect(within(patientRow).getByText("2 vencimentos")).toBeInTheDocument();
+    expect(within(patientRow).getByText("Pago")).toBeInTheDocument();
+    expect(within(patientRow).queryByText(/Mais antigo em aberto/)).not.toBeInTheDocument();
+    expect(within(patientRow).queryByText(/Vencida há/)).not.toBeInTheDocument();
+
+    await userEvent.click(within(patientRow).getByRole("button", { name: "Detalhes" }));
+    const firstPaidRow = (await screen.findByText("Pago 1")).closest("tr");
+    expect(within(firstPaidRow).getByText(
+      `Vencimento: ${formatDateOnlyBR(firstPast)}`,
+    )).toBeInTheDocument();
+    expect(within(firstPaidRow).getByText("Pago")).toBeInTheDocument();
+    expect(within(firstPaidRow).queryByText(/Vencida há/)).not.toBeInTheDocument();
+  });
+
+  it("tolera mensalidade sem vencimento financeiro e não usa fallback de outro contrato", async () => {
+    const entryFromFinancialList = makeEntry({
+      id: 940,
+      patientId: 33,
+      amountCents: 60000,
+      dueDate: "2099-12-31",
+    });
+    const cycleEntryWithoutDueDate = { ...entryFromFinancialList, due_date: null };
+    const cycleWithoutDueDate = makeCycle({
+      id: 29,
+      patientId: 33,
+      entryId: entryFromFinancialList.id,
+      amountCents: entryFromFinancialList.amount_cents,
+      planName: "Sem vencimento",
+      FinancialEntry: cycleEntryWithoutDueDate,
+    });
+    listFinancialEntries.mockResolvedValue({ data: [entryFromFinancialList] });
+    listBillingCycles.mockResolvedValue({ data: [cycleWithoutDueDate] });
+
+    renderMensalidades();
+
+    const patientRow = (await screen.findByText("Dora Alves")).closest("tr");
+    expect(within(patientRow).getByText("-")).toBeInTheDocument();
+    expect(within(patientRow).getByText("Pendente")).toBeInTheDocument();
+    expect(within(patientRow).queryByText("31/12/2099")).not.toBeInTheDocument();
+
+    await userEvent.click(within(patientRow).getByRole("button", { name: "Detalhes" }));
+    const detailRow = (await screen.findByText("Sem vencimento")).closest("tr");
+    expect(within(detailRow).getByText("Vencimento: -")).toBeInTheDocument();
   });
 
   it("aplica busca e status sobre a listagem publicada", async () => {
@@ -258,7 +538,7 @@ describe("Financeiro - caracterização focada de Mensalidades", () => {
     expect(applyScopedFinancialCredit).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Voltar" }));
-    expect(await screen.findByText("2 mensalidades")).toBeInTheDocument();
+    expect(await screen.findByText("31/08/2026")).toBeInTheDocument();
   });
 
   it("mostra a prévia somente das sessões vinculadas ao ciclo e seus status", async () => {
