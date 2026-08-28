@@ -49,9 +49,10 @@ export default function Register(props) {
       toast.error("Email inválido");
     }
 
-    if ((!id || password) && (password.length < 6 || password.length > 50)) {
+    const passwordLength = Array.from(password).length;
+    if ((!id || password) && (passwordLength < 8 || passwordLength > 128)) {
       formErrors = true;
-      toast.error("Senha deve ter entre 6 e 50 caracteres");
+      toast.error("A senha deve ter entre 8 e 128 caracteres.");
     }
 
     const emailChanged = Boolean(id)
@@ -95,6 +96,10 @@ export default function Register(props) {
         toast.error("Não foi possível confirmar sua identidade.");
       } else if (status === 409) {
         toast.error("Não foi possível usar esse e-mail.");
+      } else if (code === "PASSWORD_COMMON_OR_COMPROMISED") {
+        toast.error("Escolha uma senha menos comum e que não esteja comprometida.");
+      } else if (["INVALID_PASSWORD", "PASSWORD_TOO_SHORT", "PASSWORD_TOO_LONG"].includes(code)) {
+        toast.error("A senha deve ter entre 8 e 128 caracteres.");
       } else {
         toast.error("Não foi possível alterar sua conta.");
       }

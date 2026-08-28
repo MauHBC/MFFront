@@ -108,6 +108,28 @@ describe("proteção da própria conta", () => {
     expect(history.push).toHaveBeenCalledWith("/login");
   });
 
+  it("aplica o limite mínimo novo sem exigir composição", async () => {
+    render(<Register history={history} />);
+
+    fireEvent.change(screen.getByLabelText(/Nova senha/i), {
+      target: { value: "sete777" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    expect(updateOwnAccount).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith("A senha deve ter entre 8 e 128 caracteres.");
+
+    fireEvent.change(screen.getByLabelText(/Nova senha/i), {
+      target: { value: "oitoletr" },
+    });
+    fireEvent.change(screen.getByLabelText(/Senha atual para confirmar/i), {
+      target: { value: "Senha-atual-123!" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(updateOwnAccount).toHaveBeenCalledWith(expect.objectContaining({
+      password: "oitoletr",
+    })));
+  });
+
   it("pede confirmação e senha atual antes da autodesativação", async () => {
     render(<Register history={history} />);
 
@@ -145,5 +167,24 @@ describe("proteção da própria conta", () => {
       "Não foi possível confirmar sua identidade.",
     ));
     expect(history.push).not.toHaveBeenCalled();
+  });
+
+  it("explica de forma segura a recusa de senha comprometida pelo backend", async () => {
+    updateOwnAccount.mockRejectedValue({
+      response: { status: 400, data: { error: "PASSWORD_COMMON_OR_COMPROMISED" } },
+    });
+    render(<Register history={history} />);
+
+    fireEvent.change(screen.getByLabelText(/Nova senha/i), {
+      target: { value: "password" },
+    });
+    fireEvent.change(screen.getByLabelText(/Senha atual para confirmar/i), {
+      target: { value: "Senha-atual-123!" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Escolha uma senha menos comum e que não esteja comprometida.",
+    ));
   });
 });

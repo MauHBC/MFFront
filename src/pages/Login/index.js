@@ -39,7 +39,7 @@ export default function Login() {
       toast.error("Email inválido");
     }
 
-    if (password.length < 6 || password.length > 50) {
+    if (!password) {
       formErrors = true;
       toast.error("Senha inválida");
     }
@@ -77,6 +77,7 @@ export default function Login() {
           id="password"
           name="password"
           value={password}
+          autoComplete="current-password"
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Sua senha"
         />

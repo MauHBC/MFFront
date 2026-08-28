@@ -807,6 +807,10 @@ export default function Equipe() {
         LAST_ADMINISTRATOR_REQUIRED: "A clínica precisa manter pelo menos um Administrador ativo.",
         INVALID_ACCOUNT_LINK: "O vínculo desta conta está inconsistente e não pode ser alterado.",
         TEAM_ADMINISTRATOR_REQUIRED: "Sua autorização administrativa não está mais válida.",
+        INVALID_PASSWORD: "Informe uma senha válida.",
+        PASSWORD_TOO_SHORT: "A senha deve ter pelo menos 8 caracteres.",
+        PASSWORD_TOO_LONG: "A senha deve ter no máximo 128 caracteres.",
+        PASSWORD_COMMON_OR_COMPROMISED: "Escolha uma senha menos comum e que não esteja comprometida.",
       };
       setAccountEditor((current) => ({
         ...current,

@@ -50,8 +50,9 @@ export function validateAccountAccessForm(mode, values) {
     }
   }
   if (mode === "create" || mode === "reset") {
-    if (values.password.length < 6 || values.password.length > 50) {
-      errors.password = "A senha deve ter entre 6 e 50 caracteres.";
+    const passwordLength = Array.from(values.password).length;
+    if (passwordLength < 8 || passwordLength > 128) {
+      errors.password = "A senha deve ter entre 8 e 128 caracteres.";
     }
     if (values.passwordConfirmation !== values.password) {
       errors.passwordConfirmation = "As senhas precisam ser iguais.";
