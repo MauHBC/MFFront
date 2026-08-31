@@ -133,6 +133,21 @@ Agenda usa somente as projeções reduzidas `/schedule/references/*`. A
 permissão de Agenda não libera os diretórios amplos de Pacientes ou Usuários;
 cada módulo e endpoint mantém seu próprio gate.
 
+### Manutenção da própria conta
+
+Na manutenção da própria conta, o frontend solicita a senha atual para troca
+efetiva de e-mail, definição de nova senha e autodesativação. Atualização comum,
+como alteração somente do nome, não apresenta essa reautenticação. Depois do
+sucesso de uma mutação que revoga a sessão, o frontend encerra o contexto local
+e conduz a pessoa para novo login.
+
+O frontend apenas apresenta e consome esse fluxo. Critérios de sensibilidade,
+validação da senha, revogação e autorização permanecem no Backend, nas fontes
+canônicas de
+[reautenticação e `auth_version`](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/team-auth-version.md)
+e de
+[política e armazenamento de senhas](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/password-security.md).
+
 #### Composição modular de `PatientDetails`
 
 A rota `/pacientes/:id` continua protegida por `patients/view`, mas a página
