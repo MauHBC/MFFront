@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Configure Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.20.0
+          cache: npm
+      - name: Record toolchain
+        run: |
+          node --version
+          npm --version
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Check lint
+        run: npm run lint
+      - name: Check text encoding
+        run: npm run check:mojibake
+      - name: Run canonical test suite
+        run: npm test -- --watchAll=false --runInBand
+      - name: Build application
+        run: npm run build
+      - name: Check patch whitespace
+        run: git diff --check
+      - name: Generate CycloneDX SBOM and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="${RUNNER_TEMP}/motria-sbom"
+          mkdir -p "${artifact_dir}"
+          npm run --silent sbom > "${artifact_dir}/sbom.cdx.json"
+          node -e "const fs=require('fs');const bom=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));if(bom.bomFormat!=='CycloneDX')throw new Error('Unexpected SBOM format');" "${artifact_dir}/sbom.cdx.json"
+          lock_sha="$(sha256sum package-lock.json | cut -d ' ' -f1)"
+          sbom_sha="$(sha256sum "${artifact_dir}/sbom.cdx.json" | cut -d ' ' -f1)"
+          printf '%s  %s\n' "${sbom_sha}" 'sbom.cdx.json' > "${artifact_dir}/sbom.sha256"
+          {
+            printf 'repository=%s\n' "${GITHUB_REPOSITORY}"
+            printf 'commit=%s\n' "${GITHUB_SHA}"
+            printf 'node=%s\n' "$(node --version)"
+            printf 'npm=%s\n' "$(npm --version)"
+            printf 'package_lock_sha256=%s\n' "${lock_sha}"
+            printf 'sbom_sha256=%s\n' "${sbom_sha}"
+          } > "${artifact_dir}/provenance.txt"
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ github.event.repository.name }}-sbom-${{ github.sha }}
+          path: ${{ runner.temp }}/motria-sbom
+          if-no-files-found: error
+          retention-days: 14
