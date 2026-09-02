@@ -135,6 +135,8 @@ const renderFinanceiro = (pathname) => render(
   </MemoryRouter>,
 );
 
+const FINANCIAL_TEST_NOW = new Date("2026-08-20T12:00:00-03:00");
+
 const openExpenseAction = async (expenseName, actionName) => {
   const row = (await screen.findByText(expenseName)).closest("tr");
   await userEvent.click(within(row).getByText("Ações"));
@@ -143,6 +145,7 @@ const openExpenseAction = async (expenseName, actionName) => {
 
 describe("Financeiro - caracterização de despesas e configurações publicadas", () => {
   beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(FINANCIAL_TEST_NOW);
     jest.clearAllMocks();
     window.matchMedia = jest.fn().mockReturnValue({
       matches: false,
@@ -192,6 +195,10 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
       createPaymentMethod,
       updatePaymentMethod,
     ].forEach((mock) => mock.mockResolvedValue({ data: {} }));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it("carrega despesas, categorias, resumo e publica o badge sem chamar áreas legadas", async () => {

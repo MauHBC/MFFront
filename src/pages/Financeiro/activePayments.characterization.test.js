@@ -185,8 +185,11 @@ const renderFinanceiro = (pathname = "/financeiro/receitas") => render(
   </MemoryRouter>,
 );
 
+const FINANCIAL_TEST_NOW = new Date("2026-08-20T12:00:00-03:00");
+
 describe("Financeiro - caracterização dos recebimentos publicados", () => {
   beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(FINANCIAL_TEST_NOW);
     jest.clearAllMocks();
     window.matchMedia = jest.fn().mockReturnValue({
       matches: false,
@@ -226,6 +229,10 @@ describe("Financeiro - caracterização dos recebimentos publicados", () => {
       if (url === "/sessions") return Promise.resolve({ data: [session] });
       return Promise.resolve({ data: [] });
     });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it("permite recebimento parcial com desconto e preserva o saldo pendente", async () => {

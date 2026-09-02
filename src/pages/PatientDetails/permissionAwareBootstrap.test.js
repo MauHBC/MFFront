@@ -12,6 +12,12 @@ import { listPatientClinicalReferences } from "../../services/patientClinicalRef
 import { listPatientExternalProfessionals } from "../../services/patientExternalProfessionals";
 import { listPatientDocuments } from "../../services/documents";
 
+const PATIENT_DETAILS_TEST_NOW = new Date("2026-08-20T12:00:00-03:00");
+const FREQUENCY_TEST_DATES = [
+  { label: "antes da virada do mês", now: "2026-08-20T12:00:00-03:00" },
+  { label: "depois da virada do mês", now: "2026-09-20T12:00:00-03:00" },
+];
+
 jest.mock("../../services/axios", () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
@@ -131,9 +137,14 @@ function configureResponse(url) {
 
 describe("PatientDetails permission-aware bootstrap", () => {
   beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(PATIENT_DETAILS_TEST_NOW);
     jest.clearAllMocks();
     window.sessionStorage.clear();
     configureSuccessfulRequests();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it.each([
@@ -191,50 +202,54 @@ describe("PatientDetails permission-aware bootstrap", () => {
     expect(serializedCalls).not.toContain("clinic_id");
   });
 
-  it("deriva frequência e presença somente das respostas autorizadas da Agenda", async () => {
-    authorize(["patients", "schedule"]);
-    const now = new Date();
-    const startsAt = (day, hour) => new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      day,
-      hour,
-      0,
-      0,
-      0,
-    ).toISOString();
-    axios.get.mockImplementation((url, config) => {
-      if (url === "/sessions") {
-        return response([
-          {
-            id: 1,
-            status: "done",
-            starts_at: startsAt(5, 9),
-            billing_mode: "per_session",
-            Service: { name: "Fisioterapia lombar" },
-            reschedules: [],
-          },
-          {
-            id: 2,
-            status: "no_show",
-            starts_at: startsAt(12, 9),
-            billing_mode: "per_session",
-            Service: { name: "Fisioterapia lombar" },
-            reschedules: [{ id: 10 }],
-          },
-        ]);
-      }
-      return configureResponse(url, config);
-    });
+  it.each(FREQUENCY_TEST_DATES)(
+    "deriva frequência e presença somente das respostas autorizadas da Agenda $label",
+    async ({ now: currentTime }) => {
+      jest.setSystemTime(new Date(currentTime));
+      authorize(["patients", "schedule"]);
+      const now = new Date();
+      const startsAt = (day, hour) => new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        day,
+        hour,
+        0,
+        0,
+        0,
+      ).toISOString();
+      axios.get.mockImplementation((url, config) => {
+        if (url === "/sessions") {
+          return response([
+            {
+              id: 1,
+              status: "done",
+              starts_at: startsAt(5, 9),
+              billing_mode: "per_session",
+              Service: { name: "Fisioterapia lombar" },
+              reschedules: [],
+            },
+            {
+              id: 2,
+              status: "no_show",
+              starts_at: startsAt(12, 9),
+              billing_mode: "per_session",
+              Service: { name: "Fisioterapia lombar" },
+              reschedules: [{ id: 10 }],
+            },
+          ]);
+        }
+        return configureResponse(url, config);
+      });
 
-    renderPage();
-    expect(await screen.findByRole("heading", { name: "Ana Modular" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
+      renderPage();
+      expect(await screen.findByRole("heading", { name: "Ana Modular" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
 
-    expect(await screen.findByText("Frequência e presença")).toBeInTheDocument();
-    expect(screen.getAllByText("50%").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Fisioterapia lombar").length).toBeGreaterThanOrEqual(1);
-  });
+      expect(await screen.findByText("Frequência e presença")).toBeInTheDocument();
+      expect(screen.getAllByText("50%").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText("Fisioterapia lombar").length).toBeGreaterThanOrEqual(1);
+    },
+  );
 
   it("não carrega prontuário quando o módulo existe sem a capability de leitura", async () => {
     authorize(["patients", "clinical_records"], { clinicalRead: false });

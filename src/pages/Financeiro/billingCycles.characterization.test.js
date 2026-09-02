@@ -166,6 +166,8 @@ const renderMensalidades = (query = "?view=mensalidades&month=2026-08") => rende
   </MemoryRouter>,
 );
 
+const FINANCIAL_TEST_NOW = new Date("2026-08-20T12:00:00-03:00");
+
 const openMariaDetail = async () => {
   const maria = await screen.findByText("Maria Silva");
   const row = maria.closest("tr");
@@ -180,6 +182,7 @@ const openMariaPayment = async () => {
 
 describe("Financeiro - caracterização focada de Mensalidades", () => {
   beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(FINANCIAL_TEST_NOW);
     jest.clearAllMocks();
     getUserFacingApiError.mockImplementation(
       (error, fallback) => error?.response?.data?.message || fallback,
@@ -217,7 +220,10 @@ describe("Financeiro - caracterização focada de Mensalidades", () => {
     });
   });
 
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    jest.useRealTimers();
+  });
 
   it("carrega pelo período sem tenant do cliente, agrupa por paciente e mascara valores", async () => {
     renderMensalidades();
@@ -631,7 +637,7 @@ describe("Financeiro - caracterização focada de Mensalidades", () => {
   });
 
   it("mantém a UI no erro de carregamento e apresenta o erro da prévia", async () => {
-    listBillingCycles.mockRejectedValueOnce(new Error("offline"));
+    listBillingCycles.mockRejectedValue(new Error("offline"));
     renderMensalidades();
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Não foi possível carregar as mensalidades."));
     expect(await screen.findByText("Nenhuma mensalidade encontrada no periodo.")).toBeInTheDocument();
