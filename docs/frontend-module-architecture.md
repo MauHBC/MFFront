@@ -317,6 +317,10 @@ autoritativo retornado pelo Backend, e uma nova prévia por mudança do conjunto
 substitui o conteúdo da etapa atual. Depois do bloqueio confirmado com sucesso,
 a tela usa o `refreshOperationalAlerts` do provider global para sincronizar
 imediatamente o badge e a lista da Central de pendências.
+Quando existem bloqueadores verdadeiros, o mesmo modal usa título e texto
+principal neutros, apresenta os motivos específicos como informação secundária
+e oferece somente **Cancelar** e **Revisar agenda**, sem alerta visual destrutivo
+ou ação de confirmação.
 
 ---
 

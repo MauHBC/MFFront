@@ -274,13 +274,37 @@ test("bloqueadores ficam no mesmo dialog sem ação de cancelamento e revisão m
   fireEvent.change(screen.getByLabelText("Data"), { target: { value: "2035-05-01" } });
   fireEvent.click(screen.getByRole("button", { name: "Adicionar feriado" }));
 
+  expect(await screen.findByText(
+    "Existem atendimentos neste dia que não podem ser alterados automaticamente.",
+  )).toBeInTheDocument();
   expect(await screen.findByText("Atendimento já realizado.")).toBeInTheDocument();
+  expect(screen.queryByText(
+    "Existem atendimentos realizados que impedem o bloqueio da agenda.",
+  )).not.toBeInTheDocument();
   expect(screen.getByRole("dialog")).toBe(dialog);
   expect(screen.getAllByRole("dialog")).toHaveLength(1);
   expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancelar" }))
     .toBeInTheDocument();
   expect(within(screen.getByRole("dialog")).queryByRole("button", { name: "Bloquear agenda" }))
     .not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+  expect(screen.getByLabelText("Nome")).toHaveValue("Feriado bloqueado");
+  expect(screen.getByLabelText("Data")).toHaveValue("2035-05-01");
+
+  createSpecialSchedulingEvent.mockRejectedValueOnce(conflict({
+    ...preview,
+    requires_confirmation: false,
+    can_confirm: false,
+    cancelable_sessions_count: 0,
+    blocking_sessions_count: 1,
+    blocking_reasons: [{
+      code: "SESSION_DONE",
+      message: "Atendimento já realizado.",
+      count: 1,
+    }],
+  }));
+  fireEvent.click(screen.getByRole("button", { name: "Adicionar feriado" }));
+  await screen.findByText("Atendimento já realizado.");
   fireEvent.click(screen.getByRole("button", { name: "Revisar agenda" }));
 
   expect(await screen.findByTestId("agenda-location"))

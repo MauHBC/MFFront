@@ -789,10 +789,9 @@ export default function SchedulingEvents() {
                     </ModalHeader>
                     <ModalBody $compact>
                       {holidayImpactHasBlockers ? (
-                        <BlockingImpactAlert>
-                          {holidayImpact.preview.error
-                            || "Existem atendimentos que impedem o bloqueio da agenda."}
-                        </BlockingImpactAlert>
+                        <ImpactSummary>
+                          Existem atendimentos neste dia que não podem ser alterados automaticamente.
+                        </ImpactSummary>
                       ) : (
                         <ImpactSummary>{holidayImpactCountLabel}</ImpactSummary>
                       )}
@@ -1301,22 +1300,12 @@ const ImpactSummary = styled.p`
   line-height: 1.55;
 `;
 
-const BlockingImpactAlert = styled.p`
-  margin: 0;
-  padding: 16px 18px;
-  border: 1px solid ${colors.dangerBorder};
-  border-radius: 12px;
-  background: ${colors.dangerBackgroundHover};
-  color: ${colors.dangerText};
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.4;
-`;
-
 const BlockingReasonList = styled.ul`
   margin: 0;
   padding-left: 20px;
-  color: #6d4c3d;
+  color: ${colors.textSecondary};
+  font-size: 14px;
+  line-height: 1.5;
 `;
 
 const FormGrid = styled.div`
