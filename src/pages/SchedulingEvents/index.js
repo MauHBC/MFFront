@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import styled, { keyframes } from "styled-components";
 import { toast } from "react-toastify";
 import { FaPlus, FaTimes } from "react-icons/fa";
+import { useHistory } from "react-router-dom";
 
 import { getUserFacingApiError } from "../../services/axios";
 import DataLoadingState from "../../components/DataLoadingState";
-import { LinkGhostButton } from "../../components/AppButton";
+import { usePendingCenter } from "../../components/PendingCenter";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import AppShell from "../../components/AppShell";
+import { colors } from "../../styles/tokens";
 import {
   ModuleHeader,
   ModulePanel,
@@ -128,6 +130,13 @@ const getHolidaySchedulingPayload = (mode) => {
   };
 };
 
+const getHolidayImpactPreview = (error) => {
+  if (Number(error?.response?.status) !== 409) return null;
+  const data = error?.response?.data;
+  if (!data || (!data.impact_confirmation_token && !data.blocking_sessions_count)) return null;
+  return data;
+};
+
 const getHolidaySchedulingLabel = (item) =>
   getHolidaySchedulingMode(item) === "open"
     ? "Clínica funciona"
@@ -139,6 +148,8 @@ const getHolidaySchedulingDescription = (item) =>
     : "Agenda bloqueada";
 
 export default function SchedulingEvents() {
+  const history = useHistory();
+  const { refreshOperationalAlerts } = usePendingCenter();
   const [holidays, setHolidays] = useState([]);
   const [activeTab, setActiveTab] = useState("holidays");
   const [isHolidayLoading, setIsHolidayLoading] = useState(false);
@@ -146,6 +157,7 @@ export default function SchedulingEvents() {
   const [holidayUpdatingId, setHolidayUpdatingId] = useState(null);
   const [isHolidayOpen, setIsHolidayOpen] = useState(false);
   const [holidayForm, setHolidayForm] = useState(emptyHolidayForm);
+  const [holidayImpact, setHolidayImpact] = useState(null);
   const [operationalPolicyForm, setOperationalPolicyForm] = useState(emptyOperationalPolicyForm);
   const [savedOperationalPolicyForm, setSavedOperationalPolicyForm] = useState(emptyOperationalPolicyForm);
   const [isPolicyEditing, setIsPolicyEditing] = useState(false);
@@ -253,13 +265,15 @@ export default function SchedulingEvents() {
 
   const openHolidayModal = useCallback(() => {
     setHolidayForm(emptyHolidayForm);
+    setHolidayImpact(null);
     setIsHolidayOpen(true);
   }, []);
 
   const closeHolidayModal = useCallback(() => {
-    if (isHolidaySaving) return;
+    if (isHolidaySaving || holidayUpdatingId) return;
+    setHolidayImpact(null);
     setIsHolidayOpen(false);
-  }, [isHolidaySaving]);
+  }, [holidayUpdatingId, isHolidaySaving]);
 
   const handleHolidayChange = useCallback((event) => {
     const { name, value } = event.target;
@@ -278,6 +292,13 @@ export default function SchedulingEvents() {
       }
       return next;
     });
+  }, []);
+
+  const showHolidayImpact = useCallback((error, operation) => {
+    const preview = getHolidayImpactPreview(error);
+    if (!preview) return false;
+    setHolidayImpact({ ...operation, preview });
+    return true;
   }, []);
 
   const handleSaveHoliday = useCallback(async () => {
@@ -306,7 +327,7 @@ export default function SchedulingEvents() {
 
     try {
       setIsHolidaySaving(true);
-      const response = await createSpecialSchedulingEvent({
+      const payload = {
         source_type: holidayForm.source_type,
         name: holidayForm.name.trim(),
         description: null,
@@ -319,22 +340,38 @@ export default function SchedulingEvents() {
         state_code: holidayForm.state_code.trim() || null,
         city_name: holidayForm.city_name.trim() || null,
         ...getHolidaySchedulingPayload(holidayForm.scheduling_mode),
-      });
-      if (Number(response?.data?.financial_regularization_pending_sessions || 0) > 0) {
-        toast.warning(
-          "Financeiro preservado; nenhuma devolução, crédito ou estorno foi realizado.",
-        );
-      }
+      };
+      await createSpecialSchedulingEvent(payload);
       toast.success("Feriado adicionado.");
       setHolidayForm(emptyHolidayForm);
       setIsHolidayOpen(false);
       await loadHolidays();
     } catch (error) {
-      toast.error(getUserFacingApiError(error, "Não foi possível salvar o feriado."));
+      const payload = {
+        source_type: holidayForm.source_type,
+        name: holidayForm.name.trim(),
+        description: null,
+        start_date: holidayForm.date,
+        end_date: holidayForm.date,
+        all_day: true,
+        start_time: null,
+        end_time: null,
+        professional_id: null,
+        state_code: holidayForm.state_code.trim() || null,
+        city_name: holidayForm.city_name.trim() || null,
+        ...getHolidaySchedulingPayload(holidayForm.scheduling_mode),
+      };
+      if (!showHolidayImpact(error, {
+        operation: "create",
+        payload,
+        date: holidayForm.date,
+      })) {
+        toast.error(getUserFacingApiError(error, "Não foi possível salvar o feriado."));
+      }
     } finally {
       setIsHolidaySaving(false);
     }
-  }, [holidayForm, loadHolidays]);
+  }, [holidayForm, loadHolidays, showHolidayImpact]);
 
   const handleDeleteHoliday = useCallback(
     async (holiday) => {
@@ -358,9 +395,10 @@ export default function SchedulingEvents() {
 
       try {
         setHolidayUpdatingId(holiday.id);
-        await updateSpecialSchedulingEvent(holiday.id, {
+        const payload = {
           ...getHolidaySchedulingPayload(nextMode),
-        });
+        };
+        await updateSpecialSchedulingEvent(holiday.id, payload);
         toast.success(
           nextMode === "block"
             ? "Feriado configurado para bloquear a agenda."
@@ -368,15 +406,70 @@ export default function SchedulingEvents() {
         );
         await loadHolidays();
       } catch (error) {
-        toast.error(
-          getUserFacingApiError(error, "Não foi possível atualizar o comportamento do feriado."),
-        );
+        const payload = { ...getHolidaySchedulingPayload(nextMode) };
+        if (!showHolidayImpact(error, {
+          operation: "update",
+          eventId: holiday.id,
+          payload,
+          date: holiday.start_date,
+        })) {
+          toast.error(
+            getUserFacingApiError(error, "Não foi possível atualizar o comportamento do feriado."),
+          );
+        }
       } finally {
         setHolidayUpdatingId(null);
       }
     },
-    [loadHolidays],
+    [loadHolidays, showHolidayImpact],
   );
+
+  const handleBackFromHolidayImpact = useCallback(() => {
+    if (isHolidaySaving || holidayUpdatingId) return;
+    const shouldReturnToForm = holidayImpact?.operation === "create";
+    setHolidayImpact(null);
+    setIsHolidayOpen(shouldReturnToForm);
+  }, [holidayImpact, holidayUpdatingId, isHolidaySaving]);
+
+  const handleReviewHolidaySessions = useCallback(() => {
+    if (!holidayImpact?.date) return;
+    history.push(`/agendamentos?date=${holidayImpact.date}&view=day`);
+  }, [history, holidayImpact]);
+
+  const handleConfirmHolidayBlocking = useCallback(async () => {
+    if (!holidayImpact?.preview?.can_confirm) return;
+    const confirmationPayload = {
+      ...holidayImpact.payload,
+      confirm_cancel_sessions: true,
+      impact_confirmation_token: holidayImpact.preview.impact_confirmation_token,
+    };
+    try {
+      if (holidayImpact.operation === "create") {
+        setIsHolidaySaving(true);
+        await createSpecialSchedulingEvent(confirmationPayload);
+        setHolidayForm(emptyHolidayForm);
+        setIsHolidayOpen(false);
+        toast.success("Feriado adicionado e atendimentos cancelados.");
+      } else {
+        setHolidayUpdatingId(holidayImpact.eventId);
+        await updateSpecialSchedulingEvent(holidayImpact.eventId, confirmationPayload);
+        toast.success("Agenda bloqueada e atendimentos cancelados.");
+      }
+      setHolidayImpact(null);
+      await loadHolidays();
+      await refreshOperationalAlerts();
+    } catch (error) {
+      const refreshedPreview = getHolidayImpactPreview(error);
+      if (refreshedPreview) {
+        setHolidayImpact((previous) => ({ ...previous, preview: refreshedPreview }));
+      } else {
+        toast.error(getUserFacingApiError(error, "Não foi possível bloquear a agenda."));
+      }
+    } finally {
+      setIsHolidaySaving(false);
+      setHolidayUpdatingId(null);
+    }
+  }, [holidayImpact, loadHolidays, refreshOperationalAlerts]);
 
   let content = (
     <TableScroll>
@@ -445,6 +538,19 @@ export default function SchedulingEvents() {
     content = <EmptyState>Sem feriados cadastrados.</EmptyState>;
   }
 
+  const holidayModalOpen = isHolidayOpen || Boolean(holidayImpact);
+  const holidayImpactCount = Math.max(
+    0,
+    Number(holidayImpact?.preview?.cancelable_sessions_count || 0),
+  );
+  const canConfirmHolidayImpact = Boolean(
+    holidayImpact?.preview?.can_confirm && holidayImpactCount > 0,
+  );
+  const holidayImpactHasBlockers = Boolean(holidayImpact && !canConfirmHolidayImpact);
+  const holidayImpactCountLabel = holidayImpactCount === 1
+    ? "1 atendimento será cancelado"
+    : `${holidayImpactCount} atendimentos serão cancelados`;
+
   return (
     <AppShell pageTitle="Configurações da Agenda">
       <PageWrapper $paddingTop="0" $paddingBottom="60px">
@@ -465,7 +571,6 @@ export default function SchedulingEvents() {
               Organize feriados e regras operacionais usadas pela agenda da clínica.
             </HeaderSubtitle>
           </div>
-          <BackLink to="/agendamentos">Voltar</BackLink>
         </Header>
 
         <Tabs aria-label="Configurações da Agenda">
@@ -654,113 +759,205 @@ export default function SchedulingEvents() {
           </Section>
         )}
 
-        {isHolidayOpen && (
+        {holidayModalOpen && (
           <>
             <ModalOverlay>
-              <ModalCard>
-                <ModalHeader>
-                  <div>
-                    <ModalTitle>Novo feriado</ModalTitle>
-                    <ModalSubtitle>
-                      Configure se a data bloqueia a agenda ou fica apenas informativa.
-                    </ModalSubtitle>
-                  </div>
-                  <IconButton type="button" onClick={closeHolidayModal}>
-                    <FaTimes />
-                  </IconButton>
-                </ModalHeader>
-                <ModalBody>
-                  <FormGrid>
-                    <Field>
-                      <Label htmlFor="holiday-name">Nome</Label>
-                      <Input
-                        id="holiday-name"
-                        name="name"
-                        placeholder="Ex.: Tiradentes"
-                        value={holidayForm.name}
-                        onChange={handleHolidayChange}
-                      />
-                    </Field>
-                    <Field>
-                      <Label htmlFor="holiday-date">Data</Label>
-                      <Input
-                        id="holiday-date"
-                        type="date"
-                        name="date"
-                        value={holidayForm.date}
-                        onChange={handleHolidayChange}
-                      />
-                    </Field>
-                    <Field>
-                      <Label htmlFor="holiday-source">Tipo</Label>
-                      <Select
-                        id="holiday-source"
-                        name="source_type"
-                        value={holidayForm.source_type}
-                        onChange={handleHolidayChange}
+              <ModalCard
+                $compact={Boolean(holidayImpact)}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="holiday-modal-title"
+              >
+                {holidayImpact ? (
+                  <>
+                    <ModalHeader>
+                      <div>
+                        <ModalTitle id="holiday-modal-title">
+                          {holidayImpactHasBlockers
+                            ? "Não é possível bloquear a agenda"
+                            : "Bloquear agenda neste dia?"}
+                        </ModalTitle>
+                      </div>
+                      <IconButton
+                        type="button"
+                        onClick={closeHolidayModal}
+                        aria-label="Fechar"
+                        disabled={isHolidaySaving || !!holidayUpdatingId}
                       >
-                        {HOLIDAY_SOURCE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Field>
-                      <Label htmlFor="holiday-scheduling-mode">Funcionamento da clínica</Label>
-                      <Select
-                        id="holiday-scheduling-mode"
-                        name="scheduling_mode"
-                        value={holidayForm.scheduling_mode}
-                        onChange={handleHolidayChange}
+                        <FaTimes />
+                      </IconButton>
+                    </ModalHeader>
+                    <ModalBody $compact>
+                      {holidayImpactHasBlockers ? (
+                        <BlockingImpactAlert>
+                          {holidayImpact.preview.error
+                            || "Existem atendimentos que impedem o bloqueio da agenda."}
+                        </BlockingImpactAlert>
+                      ) : (
+                        <ImpactSummary>{holidayImpactCountLabel}</ImpactSummary>
+                      )}
+                      {Array.isArray(holidayImpact.preview.blocking_reasons)
+                        && holidayImpact.preview.blocking_reasons.length > 0 ? (
+                          <BlockingReasonList>
+                            {holidayImpact.preview.blocking_reasons.map((reason) => (
+                              <li key={reason.code}>
+                                {reason.message} {reason.count > 1 ? `(${reason.count})` : ""}
+                              </li>
+                            ))}
+                          </BlockingReasonList>
+                        ) : null}
+                    </ModalBody>
+                    <ModalActions>
+                      <SecondaryButton
+                        type="button"
+                        onClick={handleBackFromHolidayImpact}
+                        disabled={isHolidaySaving || !!holidayUpdatingId}
                       >
-                        {HOLIDAY_SCHEDULING_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </Select>
-                      <MutedText>
-                        {HOLIDAY_SCHEDULING_OPTIONS.find(
-                          (option) => option.value === holidayForm.scheduling_mode,
-                        )?.help || ""}
-                      </MutedText>
-                    </Field>
-                    {(holidayForm.source_type === "state" || holidayForm.source_type === "city") && (
-                      <Field>
-                        <Label htmlFor="holiday-state">UF</Label>
-                        <Input
-                          id="holiday-state"
-                          name="state_code"
-                          placeholder="SP"
-                          maxLength={2}
-                          value={holidayForm.state_code}
-                          onChange={handleHolidayChange}
-                        />
-                      </Field>
-                    )}
-                    {holidayForm.source_type === "city" && (
-                      <Field>
-                        <Label htmlFor="holiday-city">Cidade</Label>
-                        <Input
-                          id="holiday-city"
-                          name="city_name"
-                          placeholder="São Paulo"
-                          value={holidayForm.city_name}
-                          onChange={handleHolidayChange}
-                        />
-                      </Field>
-                    )}
-                  </FormGrid>
-                </ModalBody>
-                <ModalActions>
-                  <SecondaryButton type="button" onClick={closeHolidayModal} disabled={isHolidaySaving}>
-                    Cancelar
-                  </SecondaryButton>
-                  <PrimaryButton type="button" onClick={handleSaveHoliday} disabled={isHolidaySaving}>
-                    {isHolidaySaving ? <ButtonSpinner /> : "Adicionar feriado"}
-                  </PrimaryButton>
-                </ModalActions>
+                        Cancelar
+                      </SecondaryButton>
+                      <SecondaryButton
+                        type="button"
+                        onClick={handleReviewHolidaySessions}
+                        disabled={isHolidaySaving || !!holidayUpdatingId}
+                      >
+                        Revisar agenda
+                      </SecondaryButton>
+                      {canConfirmHolidayImpact ? (
+                        <DestructiveButton
+                          type="button"
+                          onClick={handleConfirmHolidayBlocking}
+                          disabled={isHolidaySaving || !!holidayUpdatingId}
+                        >
+                          {(isHolidaySaving || holidayUpdatingId) ? (
+                            <ButtonSpinner />
+                          ) : (
+                            "Bloquear agenda"
+                          )}
+                        </DestructiveButton>
+                      ) : null}
+                    </ModalActions>
+                  </>
+                ) : (
+                  <>
+                    <ModalHeader>
+                      <div>
+                        <ModalTitle id="holiday-modal-title">Novo feriado</ModalTitle>
+                        <ModalSubtitle>
+                          Configure se a data bloqueia a agenda ou fica apenas informativa.
+                        </ModalSubtitle>
+                      </div>
+                      <IconButton
+                        type="button"
+                        onClick={closeHolidayModal}
+                        aria-label="Fechar"
+                        disabled={isHolidaySaving}
+                      >
+                        <FaTimes />
+                      </IconButton>
+                    </ModalHeader>
+                    <ModalBody>
+                      <FormGrid>
+                        <Field>
+                          <Label htmlFor="holiday-name">Nome</Label>
+                          <Input
+                            id="holiday-name"
+                            name="name"
+                            placeholder="Ex.: Tiradentes"
+                            value={holidayForm.name}
+                            onChange={handleHolidayChange}
+                          />
+                        </Field>
+                        <Field>
+                          <Label htmlFor="holiday-date">Data</Label>
+                          <Input
+                            id="holiday-date"
+                            type="date"
+                            name="date"
+                            value={holidayForm.date}
+                            onChange={handleHolidayChange}
+                          />
+                        </Field>
+                        <Field>
+                          <Label htmlFor="holiday-source">Tipo</Label>
+                          <Select
+                            id="holiday-source"
+                            name="source_type"
+                            value={holidayForm.source_type}
+                            onChange={handleHolidayChange}
+                          >
+                            {HOLIDAY_SOURCE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </Select>
+                        </Field>
+                        <Field>
+                          <Label htmlFor="holiday-scheduling-mode">Funcionamento da clínica</Label>
+                          <Select
+                            id="holiday-scheduling-mode"
+                            name="scheduling_mode"
+                            value={holidayForm.scheduling_mode}
+                            onChange={handleHolidayChange}
+                          >
+                            {HOLIDAY_SCHEDULING_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </Select>
+                          <MutedText>
+                            {HOLIDAY_SCHEDULING_OPTIONS.find(
+                              (option) => option.value === holidayForm.scheduling_mode,
+                            )?.help || ""}
+                          </MutedText>
+                        </Field>
+                        {(holidayForm.source_type === "state"
+                          || holidayForm.source_type === "city") && (
+                          <Field>
+                            <Label htmlFor="holiday-state">UF</Label>
+                            <Input
+                              id="holiday-state"
+                              name="state_code"
+                              placeholder="SP"
+                              maxLength={2}
+                              value={holidayForm.state_code}
+                              onChange={handleHolidayChange}
+                            />
+                          </Field>
+                        )}
+                        {holidayForm.source_type === "city" && (
+                          <Field>
+                            <Label htmlFor="holiday-city">Cidade</Label>
+                            <Input
+                              id="holiday-city"
+                              name="city_name"
+                              placeholder="São Paulo"
+                              value={holidayForm.city_name}
+                              onChange={handleHolidayChange}
+                            />
+                          </Field>
+                        )}
+                      </FormGrid>
+                    </ModalBody>
+                    <ModalActions>
+                      <SecondaryButton
+                        type="button"
+                        onClick={closeHolidayModal}
+                        disabled={isHolidaySaving}
+                      >
+                        Cancelar
+                      </SecondaryButton>
+                      <PrimaryButton
+                        type="button"
+                        onClick={handleSaveHoliday}
+                        disabled={isHolidaySaving}
+                      >
+                        {isHolidaySaving ? <ButtonSpinner /> : "Adicionar feriado"}
+                      </PrimaryButton>
+                    </ModalActions>
+                  </>
+                )}
               </ModalCard>
             </ModalOverlay>
             <Backdrop onClick={closeHolidayModal} />
@@ -785,10 +982,6 @@ const HeaderTitle = styled(ModuleTitle)`
 
 const HeaderSubtitle = styled(ModuleSubtitle)`
   margin-top: 0;
-`;
-
-const BackLink = styled(LinkGhostButton)`
-  padding: 10px 16px;
 `;
 
 const Section = styled(ModulePanel).attrs({ as: "section" })`
@@ -1042,8 +1235,10 @@ const ModalOverlay = styled.div`
 `;
 
 const ModalCard = styled.div`
-  width: min(720px, calc(100vw - 32px));
-  max-height: calc(100dvh - 28px);
+  width: ${({ $compact }) => ($compact
+    ? "min(620px, calc(100vw - 32px))"
+    : "min(720px, calc(100vw - 32px))")};
+  max-height: ${({ $compact }) => ($compact ? "none" : "calc(100dvh - 28px)")};
   background: #fff;
   border-radius: 20px;
   padding: 24px;
@@ -1051,7 +1246,7 @@ const ModalCard = styled.div`
   z-index: 2001;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: ${({ $compact }) => ($compact ? "visible" : "hidden")};
 
   @media (max-width: 760px) {
     width: 100%;
@@ -1091,11 +1286,37 @@ const ModalBody = styled.div`
   display: flex;
   flex-direction: column;
   gap: 16px;
-  flex: 1 1 auto;
+  flex: ${({ $compact }) => ($compact ? "0 0 auto" : "1 1 auto")};
   min-height: 0;
-  overflow-y: auto;
-  padding-right: 4px;
-  margin-right: -4px;
+  overflow-y: ${({ $compact }) => ($compact ? "visible" : "auto")};
+  padding-right: ${({ $compact }) => ($compact ? "0" : "4px")};
+  margin-right: ${({ $compact }) => ($compact ? "0" : "-4px")};
+`;
+
+const ImpactSummary = styled.p`
+  margin: 0;
+  color: #4a4a4a;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.55;
+`;
+
+const BlockingImpactAlert = styled.p`
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid ${colors.dangerBorder};
+  border-radius: 12px;
+  background: ${colors.dangerBackgroundHover};
+  color: ${colors.dangerText};
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
+`;
+
+const BlockingReasonList = styled.ul`
+  margin: 0;
+  padding-left: 20px;
+  color: #6d4c3d;
 `;
 
 const FormGrid = styled.div`
@@ -1136,6 +1357,19 @@ const ModalActions = styled.div`
   padding-top: 12px;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
   flex-shrink: 0;
+
+  @media (max-width: 760px) {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+`;
+
+const DestructiveButton = styled(PrimaryButton)`
+  background: ${colors.danger};
+
+  &:hover:not(:disabled) {
+    background: ${colors.dangerText};
+  }
 `;
 
 const Backdrop = styled.div`

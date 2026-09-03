@@ -1266,6 +1266,14 @@ export default function Agendamentos() {
 
   useEffect(() => {
     const params = new URLSearchParams(routeLocation.search || "");
+    const requestedDate = parseDateInputValue(params.get("date"));
+    const requestedView = String(params.get("view") || "").trim().toLowerCase();
+    if (requestedDate) setSelectedDate(requestedDate);
+    if (["day", "week", "month"].includes(requestedView)) setView(requestedView);
+  }, [routeLocation.search]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(routeLocation.search || "");
     const patientId = String(params.get("patient_id") || "").trim();
     const patientName = String(params.get("patient_name") || "").trim();
 

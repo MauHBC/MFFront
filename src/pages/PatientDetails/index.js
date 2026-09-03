@@ -3,6 +3,7 @@ import { Link, useHistory, useParams } from "react-router-dom";
 import styled, { css } from "styled-components";
 import { toast } from "react-toastify";
 import {
+  FaArrowLeft,
   FaInfoCircle,
   FaListAlt,
   FaPen,
@@ -41,6 +42,7 @@ import {
   ModuleTitle,
 } from "../../components/AppModuleShell";
 import { PrimaryButton as SharedPrimaryButton } from "../../components/AppButton";
+import { alpha, colors, fontSizes, radii, spacing } from "../../styles/tokens";
 import {
   calculateAgeFromBirthDate,
   formatBirthDateForApi,
@@ -2391,6 +2393,9 @@ export default function PatientDetails() {
       >
         <Header>
           <div>
+            <BackButton type="button" onClick={() => history.push("/pacientes")}>
+              <FaArrowLeft aria-hidden="true" /> Pacientes
+            </BackButton>
             <HeaderTitle>
               {profileStatus === "ready" ? getPatientDisplayName(patient) : "Paciente"}
             </HeaderTitle>
@@ -4831,6 +4836,26 @@ const Header = styled(ModuleHeader)`
 
 const HeaderTitle = styled(ModuleTitle)`
   margin-bottom: 0;
+`;
+
+const BackButton = styled.button`
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: ${colors.brandDark};
+  cursor: pointer;
+  display: inline-flex;
+  font-size: ${fontSizes.small};
+  font-weight: 700;
+  gap: 7px;
+  margin: 0 0 ${spacing.sm};
+  padding: 4px 0;
+
+  &:focus-visible {
+    border-radius: ${radii.xs};
+    outline: 3px solid ${alpha.brand014};
+    outline-offset: 3px;
+  }
 `;
 
 const prontuarioActionButtonStyles = css`

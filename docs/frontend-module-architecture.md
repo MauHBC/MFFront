@@ -306,6 +306,18 @@ cancelar. Na confirmação, envia `PATCH /clinic-expenses/:id/unpay` com
 novamente como pendente. O Backend permanece responsável por validar e auditar
 o desfazimento.
 
+### Confirmação de bloqueio manual por feriado
+
+Em Configurações da Agenda, criação de feriado bloqueante e a ação **Bloquear
+agenda** usam um único `dialog`. Quando a API responde `409` com a prévia de
+impacto, o conteúdo desse mesmo modal muda para confirmação ou bloqueio, sem
+empilhar outro modal. Voltar à criação preserva os campos preenchidos; revisar
+mantém a navegação para o dia informado. A confirmação reutiliza o token
+autoritativo retornado pelo Backend, e uma nova prévia por mudança do conjunto
+substitui o conteúdo da etapa atual. Depois do bloqueio confirmado com sucesso,
+a tela usa o `refreshOperationalAlerts` do provider global para sincronizar
+imediatamente o badge e a lista da Central de pendências.
+
 ---
 
 ## App Shell autenticado
@@ -361,6 +373,9 @@ aprovado; não invente uma rota para completar visualmente a lista.
   próprio submenu.
 - A rota atual sempre acrescenta o módulo correspondente aos abertos. Acesso
   direto, refresh e histórico preservam item ativo e expansão coerentes.
+- O detalhe de paciente oferece no próprio cabeçalho a ação contextual
+  **Pacientes**, que retorna à listagem em `/pacientes`, seguindo o padrão do
+  retorno **Planos** no detalhe de plano mensal.
 - Ação executa comportamento local, como Sair, sem participar da resolução de
   rota.
 - Pais e filhos podem declarar `isVisible`. Um pai invisível ou sem filhos

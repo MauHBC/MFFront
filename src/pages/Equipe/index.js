@@ -1006,7 +1006,7 @@ export default function Equipe() {
     <Page>
       <ModuleHeader>
         <ModuleTitle>Equipe</ModuleTitle>
-        <ModuleSubtitle>Pessoas, profissionais, acessos e perfis da clínica.</ModuleSubtitle>
+        <TeamSubtitle>Pessoas, profissionais, acessos e perfis da clínica.</TeamSubtitle>
       </ModuleHeader>
 
       {state.status === "loading" && <DataLoadingState text="Carregando equipe..." />}
@@ -1235,6 +1235,9 @@ const Page = styled.div`
   @media (max-width: ${layout.moduleBreakpoint}) {
     padding: 20px 16px 32px;
   }
+`;
+const TeamSubtitle = styled(ModuleSubtitle)`
+  color: ${colors.textSecondary};
 `;
 const Sections = styled.div`
   display: grid;

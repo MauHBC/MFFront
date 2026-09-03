@@ -147,6 +147,16 @@ describe("PatientDetails permission-aware bootstrap", () => {
     jest.useRealTimers();
   });
 
+  it("retorna do detalhe para a listagem de Pacientes", async () => {
+    authorize(["patients"]);
+    const history = renderPage();
+
+    expect(await screen.findByRole("heading", { name: "Ana Modular" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pacientes" }));
+
+    expect(history.location.pathname).toBe("/pacientes");
+  });
+
   it.each([
     {
       label: "patients + clinical_records + schedule",

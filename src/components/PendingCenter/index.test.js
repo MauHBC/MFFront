@@ -15,6 +15,7 @@ import {
   PendingCenterDrawer,
   PendingCenterProvider,
   PendingCenterTrigger,
+  usePendingCenter,
 } from ".";
 
 jest.mock("../../services/axios", () => ({
@@ -26,13 +27,23 @@ jest.mock("../../services/axios", () => ({
   getUserFacingApiError: (_error, fallback) => fallback,
 }));
 
-function renderPendingCenter() {
+function RefreshOperationalAlertsButton() {
+  const { refreshOperationalAlerts } = usePendingCenter();
+  return (
+    <button type="button" onClick={() => refreshOperationalAlerts()}>
+      Atualizar alertas
+    </button>
+  );
+}
+
+function renderPendingCenter({ withRefreshButton = false } = {}) {
   const history = createMemoryHistory({ initialEntries: ["/painel"] });
   const result = render(
     <Router history={history}>
       <PendingCenterProvider enabled>
         <PendingCenterTrigger />
         <PendingCenterDrawer />
+        {withRefreshButton && <RefreshOperationalAlertsButton />}
       </PendingCenterProvider>
     </Router>,
   );
@@ -114,4 +125,35 @@ it("preserva o limite 99+ e encaminha o agendamento de reposição para a Agenda
     type: "schedule-replacement",
     alert: replacementAlert(0),
   });
+});
+
+it("refresh global atualiza imediatamente badge e lista de reposições", async () => {
+  let operationalAlertRequests = 0;
+  axios.get.mockImplementation((url) => {
+    if (url === "/sessions") return Promise.resolve({ data: [] });
+    if (url === "/services") return Promise.resolve({ data: [] });
+    if (url === "/operational-alerts") {
+      operationalAlertRequests += 1;
+      return Promise.resolve({
+        data: { alerts: operationalAlertRequests === 1 ? [] : [replacementAlert(0)] },
+      });
+    }
+    return Promise.resolve({ data: [] });
+  });
+  renderPendingCenter({ withRefreshButton: true });
+
+  const trigger = screen.getByTitle("Central de pendências");
+  await waitFor(() => expect(trigger).toHaveAttribute(
+    "aria-label",
+    "Central de pendências. 0 pendências.",
+  ));
+
+  fireEvent.click(screen.getByRole("button", { name: "Atualizar alertas" }));
+
+  await waitFor(() => expect(trigger).toHaveAttribute(
+    "aria-label",
+    "Central de pendências. 1 pendências.",
+  ));
+  fireEvent.click(trigger);
+  expect(screen.getByRole("button", { name: /Reposições pendentes.*1/ })).toBeEnabled();
 });

@@ -356,6 +356,19 @@ describe("Agendamentos - editar agendamento", () => {
     expect(screen.getByRole("button", { name: "Novo agendamento" })).toBeInTheDocument();
   });
 
+  it("abre a visão Dia na data recebida pela navegação de revisão do feriado", async () => {
+    renderAgendamentos("/agendamentos?date=2035-04-04&view=day");
+
+    expect(await screen.findByRole("heading", { name: "04/04/2035" }))
+      .toBeInTheDocument();
+    await waitFor(() => expect(listSpecialSchedulingEvents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "2035-04-04",
+        to: "2035-04-04",
+      }),
+    ));
+  });
+
   it("consome o pedido global de agendar reposição no formulário existente", async () => {
     const defaultGet = axios.get.getMockImplementation();
     axios.get.mockImplementation((url, config) => {
