@@ -1,11 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import styled, { keyframes } from "styled-components";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useHistory, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
-  FaBell,
-  FaBirthdayCake,
   FaChevronLeft,
   FaChevronRight,
   FaPlus,
@@ -40,6 +38,10 @@ import {
   normalizeSearchText,
 } from "../../utils/patientSearch";
 import { alpha, colors } from "../../styles/tokens";
+import {
+  PENDING_CENTER_ACTION_STATE_KEY,
+  usePendingCenter,
+} from "../../components/PendingCenter";
 
 const START_HOUR = 7;
 const END_HOUR = 20;
@@ -54,7 +56,6 @@ const APPOINTMENT_MINUTE_OPTIONS = Array.from({ length: 60 }, (_, minute) => {
   const value = String(minute).padStart(2, "0");
   return { value, label: value };
 });
-const ATTENDANCE_CONFIRMATION_TOLERANCE_MINUTES = 15;
 const MAX_WEEK_SLOT_VISIBLE = 3;
 const WEEK_PERIODS = [
   { key: "morning", label: "Manhã", startHour: 7, endHour: 12 },
@@ -76,25 +77,6 @@ const PATIENT_ATTENTION_INDICATOR_META = {
   },
 };
 
-const OPERATIONAL_ALERT_SEVERITY_LABELS = {
-  high: "Alta",
-  medium: "Média",
-  low: "Baixa",
-};
-
-const getOperationalAlertDueLabel = (alert) => {
-  if (alert?.details?.due_date_label) return alert.details.due_date_label;
-  if (String(alert?.type || "").startsWith("replacement_credit")) return "validade";
-  return "data";
-};
-
-const OPERATIONAL_ALERT_SEVERITY_ORDER = {
-  high: 0,
-  medium: 1,
-  low: 2,
-};
-const BIRTHDAY_ALERT_WINDOW_DAYS = 5;
-
 const inFlightAgendaRequests = new Map();
 
 const reuseInFlightAgendaRequest = (key, requestFactory) => {
@@ -110,233 +92,6 @@ const reuseInFlightAgendaRequest = (key, requestFactory) => {
   inFlightAgendaRequests.set(key, request);
   return request;
 };
-
-const PENDING_CENTER_CATEGORY_LABELS = {
-  patient_plan_overdue: "Planos vencidos",
-  patient_plan_expiring: "Planos vencendo",
-  patient_plan_pause_overdue: "Pausas vencidas",
-  patient_plan_pause_expiring: "Pausas terminando",
-  standalone_session_credit_expiring: "Pacote de sessões acabando",
-  replacement_credit: "Reposições pendentes",
-  patient_birthday: "Aniversários",
-  other: "Outros alertas",
-};
-
-const PENDING_CENTER_SECTION_LABELS = {
-  urgent: "Urgentes",
-  attention: "Atenção",
-  reminders: "Lembretes",
-};
-
-const PENDING_CENTER_SECTION_ORDER = {
-  urgent: 0,
-  attention: 1,
-  reminders: 2,
-};
-
-const PENDING_CENTER_MAIN_SECTIONS = [
-  {
-    key: "urgent",
-    items: [
-      { key: "attendance-to-finalize", kind: "attendance", label: "Atendimentos pendentes" },
-      { key: "patient_plan_overdue", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.patient_plan_overdue },
-      { key: "patient_plan_pause_overdue", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.patient_plan_pause_overdue },
-    ],
-  },
-  {
-    key: "attention",
-    items: [
-      { key: "patient_plan_expiring", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.patient_plan_expiring },
-      { key: "patient_plan_pause_expiring", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.patient_plan_pause_expiring },
-      { key: "standalone_session_credit_expiring", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.standalone_session_credit_expiring },
-      { key: "replacement_credit", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.replacement_credit },
-    ],
-  },
-  {
-    key: "reminders",
-    items: [
-      { key: "patient_birthday", kind: "operational-alert", label: PENDING_CENTER_CATEGORY_LABELS.patient_birthday },
-    ],
-  },
-];
-
-const getOperationalAlertCategory = (alert) => {
-  const type = String(alert?.type || "");
-  if (type === "patient_plan_overdue") return "patient_plan_overdue";
-  if (type === "patient_plan_expiring") return "patient_plan_expiring";
-  if (type === "patient_plan_pause_overdue") return "patient_plan_pause_overdue";
-  if (type === "patient_plan_pause_expiring") return "patient_plan_pause_expiring";
-  if (type.startsWith("standalone_session_credit")) return "standalone_session_credit_expiring";
-  if (type.startsWith("replacement_credit")) return "replacement_credit";
-  if (type.startsWith("patient_birthday")) return "patient_birthday";
-  return "other";
-};
-
-const getOperationalAlertSection = (category) => {
-  if (category === "patient_plan_overdue") return "urgent";
-  if (category === "patient_plan_pause_overdue") return "urgent";
-  if (category === "patient_birthday") return "reminders";
-  return "attention";
-};
-
-const pluralizeSession = (count) => `${count} ${count === 1 ? "sessão restante" : "sessões restantes"}`;
-
-const getStandaloneCreditServiceName = (alert) => {
-  if (alert?.details?.service_name) return alert.details.service_name;
-  const status = String(alert?.status || "");
-  const [serviceName] = status.split(" - ");
-  return serviceName || "Sessão avulsa";
-};
-
-const getStandaloneCreditQuantity = (alert) => {
-  const remaining = Number(alert?.details?.remaining_sessions);
-  if (Number.isFinite(remaining)) return remaining;
-  const quantity = Number(alert?.quantity);
-  return Number.isFinite(quantity) ? quantity : 0;
-};
-
-const groupStandaloneCreditAlerts = (alerts = []) => {
-  const groupMap = new Map();
-  alerts.forEach((alert) => {
-    const serviceName = getStandaloneCreditServiceName(alert);
-    const patientKey = `${alert.patient_id || alert.patient_name || "sem-paciente"}`;
-    const existing = groupMap.get(patientKey) || {
-      key: patientKey,
-      patientId: alert.patient_id,
-      patientName: alert.patient_name || "Paciente",
-      services: new Map(),
-    };
-
-    const serviceKey = `${alert.details?.service_id || serviceName}`;
-    const currentService = existing.services.get(serviceKey) || {
-      key: serviceKey,
-      serviceName,
-      remainingSessions: 0,
-      alertKeys: new Set(),
-      alerts: [],
-    };
-    const alertKey = alert?.details?.alert_key || alert.centerKey;
-    if (!currentService.alertKeys.has(alertKey)) {
-      currentService.remainingSessions += getStandaloneCreditQuantity(alert);
-      currentService.alertKeys.add(alertKey);
-      currentService.alerts.push(alert);
-    }
-    existing.services.set(serviceKey, currentService);
-    groupMap.set(patientKey, existing);
-  });
-
-  return Array.from(groupMap.values())
-    .map((group) => ({
-      ...group,
-      services: Array.from(group.services.values())
-        .filter((service) => service.remainingSessions === 1)
-        .map((service) => ({
-          ...service,
-          alertKeys: undefined,
-        })),
-    }))
-    .filter((group) => group.services.length > 0);
-};
-
-const countStandaloneCreditItems = (alerts = []) =>
-  groupStandaloneCreditAlerts(alerts).reduce((total, patientGroup) => total + patientGroup.services.length, 0);
-
-const groupPlanAlertsByPatient = (alerts = []) => {
-  const groupMap = new Map();
-  alerts.forEach((alert) => {
-    const patientKey = `${alert.patient_id || alert.patient_name || "sem-paciente"}`;
-    const existing = groupMap.get(patientKey) || {
-      key: patientKey,
-      patientId: alert.patient_id,
-      patientName: alert.patient_name || "Paciente",
-      plans: new Map(),
-    };
-    const planKey = `${alert.details?.patient_plan_id || alert.centerKey}`;
-    if (!existing.plans.has(planKey)) {
-      existing.plans.set(planKey, {
-        key: planKey,
-        alert,
-      });
-    }
-    groupMap.set(patientKey, existing);
-  });
-
-  return Array.from(groupMap.values()).map((group) => ({
-    ...group,
-    plans: Array.from(group.plans.values()),
-  }));
-};
-
-const countPlanAlertItems = (alerts = []) =>
-  groupPlanAlertsByPatient(alerts).reduce((total, patientGroup) => total + patientGroup.plans.length, 0);
-
-const isPlanOperationalAlert = (key) => [
-  "patient_plan_expiring",
-  "patient_plan_overdue",
-  "patient_plan_pause_expiring",
-  "patient_plan_pause_overdue",
-].includes(key);
-
-const getBirthdayAlertDaysUntil = (alert) => {
-  const daysUntil = Number(alert?.details?.days_until);
-  return Number.isFinite(daysUntil) ? daysUntil : null;
-};
-
-const isBirthdayAlertInWindow = (alert) => {
-  const daysUntil = getBirthdayAlertDaysUntil(alert);
-  return daysUntil !== null && daysUntil >= 0 && daysUntil <= BIRTHDAY_ALERT_WINDOW_DAYS;
-};
-
-const formatDateOnlyLabel = (value) => {
-  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return "";
-  return `${match[3]}/${match[2]}/${match[1]}`;
-};
-
-const getBirthdayGroupTitle = (group) => {
-  if (group.daysUntil === 0) return "Aniversariante do dia";
-  return formatDateOnlyLabel(group.dateKey) || group.birthdayLabel || "Próximos aniversários";
-};
-
-const getBirthdayGroupSubtitle = (group) => {
-  if (group.daysUntil === 0) return group.birthdayLabel || "Hoje";
-  if (group.daysUntil === 1) return "Amanhã";
-  return `Em ${group.daysUntil} dias`;
-};
-
-const groupBirthdayAlertsByDate = (alerts = []) => {
-  const groupMap = new Map();
-
-  alerts
-    .filter(isBirthdayAlertInWindow)
-    .forEach((alert) => {
-      const daysUntil = getBirthdayAlertDaysUntil(alert);
-      const dateKey = alert.due_date || alert.details?.next_birthday || alert.details?.birthday_label || `${daysUntil}`;
-      const existing = groupMap.get(dateKey) || {
-        key: dateKey,
-        dateKey,
-        daysUntil,
-        birthdayLabel: alert.details?.birthday_label || "",
-        alerts: [],
-      };
-
-      existing.alerts.push(alert);
-      groupMap.set(dateKey, existing);
-    });
-
-  return Array.from(groupMap.values())
-    .sort((first, second) => first.daysUntil - second.daysUntil)
-    .map((group) => ({
-      ...group,
-      alerts: group.alerts.sort((first, second) =>
-        String(first.patient_name || "").localeCompare(String(second.patient_name || ""), "pt-BR", {
-          sensitivity: "base",
-        })),
-    }));
-};
-
-const countBirthdayAlertItems = (alerts = []) =>
-  alerts.filter(isBirthdayAlertInWindow).length;
 
 const buildReplacementCreditFromAlert = (alert) => ({
   id: alert?.details?.replacement_credit_id,
@@ -354,36 +109,6 @@ const buildReplacementCreditFromAlert = (alert) => ({
   source_billing_cycle_start: alert?.details?.source_billing_cycle_start || null,
   source_billing_cycle_end: alert?.details?.source_billing_cycle_end || null,
 });
-
-const getPlanAlertLink = (alert) => {
-  const params = new URLSearchParams();
-  if (alert?.type === "patient_plan_overdue") {
-    params.set("view", "mensalidades");
-    if (alert?.patient_name) params.set("patient_name", alert.patient_name);
-    if (alert?.due_date) params.set("month", String(alert.due_date).slice(0, 7));
-    return `/financeiro?${params.toString()}`;
-  }
-
-  params.set("tab", "patient-plans");
-  if (alert?.patient_id) params.set("patient_id", String(alert.patient_id));
-  if (alert?.patient_name) params.set("patient_name", alert.patient_name);
-  if (alert?.details?.patient_plan_id) params.set("patient_plan_id", String(alert.details.patient_plan_id));
-  return `/planos?${params.toString()}`;
-};
-
-const getPlanAlertDueText = (alert) => {
-  if (!alert?.due_date) return alert?.status || "";
-  if (alert?.type === "patient_plan_overdue") {
-    return `Vencido desde ${formatDateOnlyLabel(alert.due_date) || alert.due_date}`;
-  }
-  if (alert?.type === "patient_plan_pause_overdue") {
-    return `Fim previsto vencido desde ${formatDateOnlyLabel(alert.due_date) || alert.due_date}`;
-  }
-  if (alert?.type === "patient_plan_pause_expiring") {
-    return `Pausa termina em ${formatDateOnlyLabel(alert.due_date) || alert.due_date}`;
-  }
-  return `Vence em ${alert.due_date}`;
-};
 
 const normalizeAttentionLevel = (value) => String(value || "").trim().toLowerCase();
 
@@ -1223,17 +948,6 @@ const formatTime = (value) => {
   });
 };
 
-const formatPendingDayLabel = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("pt-BR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "2-digit",
-  });
-};
-
 const formatWeekRange = (start, end) => {
   if (!start || !end) return "";
   const sameMonth = start.getMonth() === end.getMonth();
@@ -1382,9 +1096,6 @@ const endOfDay = (date) => {
   return d;
 };
 
-const isScheduledStatus = (status) =>
-  !status || status === "scheduled" || status === "open";
-
 const getWeekDays = (baseDate, includeWeekend = false) => {
   const start = startOfDay(baseDate);
   const day = start.getDay();
@@ -1451,7 +1162,16 @@ const recurrenceConfirmationLabel = (preview) => {
 
 export default function Agendamentos() {
   const routeLocation = useLocation();
+  const routeHistory = useHistory();
   const authorization = useAuthorization();
+  const {
+    pendingSessionsSource,
+    updatePendingSessionsSource: setPendingSessionsSource,
+    updateServiceCatalog: updatePendingCenterServiceCatalog,
+    refreshPendingSessions: loadPendingSessions,
+    refreshOperationalAlerts: loadOperationalAlerts,
+    setReferenceMonth: setPendingCenterReferenceMonth,
+  } = usePendingCenter();
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const savingSessionIdsRef = useRef(new Set());
@@ -1460,7 +1180,6 @@ export default function Agendamentos() {
   const submitLockRef = useRef(false);
   const [sessions, setSessions] = useState([]);
   const [specialEvents, setSpecialEvents] = useState([]);
-  const [pendingSessionsSource, setPendingSessionsSource] = useState([]);
   const [packageScopePreview, setPackageScopePreview] = useState({
     sessionId: null,
     loading: false,
@@ -1496,12 +1215,10 @@ export default function Agendamentos() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [discardDrawerClose, setDiscardDrawerClose] = useState(null);
   const [drawerMode, setDrawerMode] = useState("form");
-  const [pendingCenterSelectedItemKey, setPendingCenterSelectedItemKey] = useState(null);
   const [groupContext, setGroupContext] = useState(null);
   const [view, setView] = useState("week");
   const [showCanceledAndNoShowInDayView, setShowCanceledAndNoShowInDayView] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [currentTime, setCurrentTime] = useState(Date.now());
   const [filters, setFilters] = useState({
     status: "",
     patient_id: "",
@@ -1521,8 +1238,6 @@ export default function Agendamentos() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [replacementCreditsForPatient, setReplacementCreditsForPatient] = useState([]);
   const [operationalPolicy, setOperationalPolicy] = useState(DEFAULT_OPERATIONAL_POLICY);
-  const [operationalAlerts, setOperationalAlerts] = useState([]);
-  const [isOperationalAlertsLoading, setIsOperationalAlertsLoading] = useState(false);
   const [showEditReasonError, setShowEditReasonError] = useState(false);
   const [expandedHours, setExpandedHours] = useState(new Set());
   const [expandedPeriods, setExpandedPeriods] = useState({
@@ -1676,25 +1391,6 @@ export default function Agendamentos() {
     }
   }, []);
 
-  const loadPendingSessions = useCallback(async () => {
-    try {
-      const response = await reuseInFlightAgendaRequest(
-        "agenda:pending-sessions",
-        () => axios.get("/sessions", {
-          params: {
-            status: "scheduled",
-            to: new Date().toISOString(),
-          },
-        }),
-      );
-      setPendingSessionsSource(Array.isArray(response.data) ? response.data : []);
-    } catch (error) {
-      const message =
-        error?.response?.data?.error || "Não foi possível carregar as pendências.";
-      toast.error(message);
-    }
-  }, []);
-
   const reloadVisibleSessions = useCallback(
     () => loadSessions(visibleRange.sessionsFrom, visibleRange.sessionsTo),
     [loadSessions, visibleRange.sessionsFrom, visibleRange.sessionsTo],
@@ -1715,26 +1411,6 @@ export default function Agendamentos() {
     }
   }, []);
 
-  const loadOperationalAlerts = useCallback(async (month = toMonthInputValue(new Date())) => {
-    setIsOperationalAlertsLoading(true);
-    try {
-      const response = await reuseInFlightAgendaRequest(
-        `agenda:operational-alerts:${month}`,
-        () => axios.get("/operational-alerts", {
-          params: { month },
-        }),
-      );
-      setOperationalAlerts(Array.isArray(response.data?.alerts) ? response.data.alerts : []);
-    } catch (error) {
-      setOperationalAlerts([]);
-      const message =
-        error?.response?.data?.error || "Não foi possível carregar alertas operacionais.";
-      toast.error(message);
-    } finally {
-      setIsOperationalAlertsLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     loadReplacementCreditsForPatient(form.patient_id);
   }, [
@@ -1743,8 +1419,16 @@ export default function Agendamentos() {
   ]);
 
   useEffect(() => {
-    loadOperationalAlerts(selectedMonthKey);
-  }, [loadOperationalAlerts, selectedMonthKey]);
+    setPendingCenterReferenceMonth(selectedMonthKey);
+  }, [selectedMonthKey, setPendingCenterReferenceMonth]);
+
+  useEffect(() => {
+    updatePendingCenterServiceCatalog(services);
+  }, [services, updatePendingCenterServiceCatalog]);
+
+  useEffect(() => () => {
+    setPendingCenterReferenceMonth();
+  }, [setPendingCenterReferenceMonth]);
 
   // Novo agendamento e sempre avulso; planos mensais entram pelo menu Planos.
   useEffect(() => {
@@ -1769,21 +1453,9 @@ export default function Agendamentos() {
   }, [loadBaseData]);
 
   useEffect(() => {
-    loadPendingSessions();
-  }, [loadPendingSessions]);
-
-  useEffect(() => {
     loadSessions(visibleRange.sessionsFrom, visibleRange.sessionsTo);
     loadSpecialEvents(visibleRange.specialEventsFrom, visibleRange.specialEventsTo);
   }, [loadSessions, loadSpecialEvents, visibleRange]);
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 60000);
-
-    return () => window.clearInterval(intervalId);
-  }, []);
 
   useEffect(() => {
     if (!openActionMenu) return undefined;
@@ -2165,37 +1837,6 @@ export default function Agendamentos() {
     [pendingSessionsSource, sessions],
   );
 
-  const getSessionEndDate = useCallback(
-    (session) => {
-      if (session?.ends_at) {
-        const endsAt = new Date(session.ends_at);
-        if (!Number.isNaN(endsAt.getTime())) return endsAt;
-      }
-      if (!session?.starts_at) return null;
-      const startsAt = new Date(session.starts_at);
-      if (Number.isNaN(startsAt.getTime())) return null;
-      const service =
-        (session.service_id && servicesById.get(session.service_id)) ||
-        (session.service_type && servicesByCode.get(session.service_type)) ||
-        session.Service ||
-        null;
-      const durationMinutes = Number(service?.default_duration_minutes) || 60;
-      return new Date(startsAt.getTime() + durationMinutes * 60000);
-    },
-    [servicesByCode, servicesById],
-  );
-
-  const needsAttendanceConfirmation = useCallback(
-    (session) => {
-      if (!isScheduledStatus(session?.status)) return false;
-      const endsAt = getSessionEndDate(session);
-      if (!endsAt) return false;
-      const toleranceMs = ATTENDANCE_CONFIRMATION_TOLERANCE_MINUTES * 60000;
-      return currentTime >= endsAt.getTime() + toleranceMs;
-    },
-    [currentTime, getSessionEndDate],
-  );
-
   const filteredSessions = useMemo(() => {
     const patientSearch = normalizeSearchText(filterPatientQuery);
     return sessions.filter((session) => {
@@ -2376,210 +2017,6 @@ export default function Agendamentos() {
     const key = startOfDay(date).toISOString();
     return specialEventsByDay.get(key) || null;
   }, [form.starts_at, specialEventsByDay]);
-
-  const pendingConfirmationSessions = useMemo(() => {
-    const queue = pendingSessionsSource.filter((session) =>
-      needsAttendanceConfirmation(session),
-    );
-
-    return queue.sort((first, second) => {
-      const firstDate = getSessionEndDate(first)?.getTime() || 0;
-      const secondDate = getSessionEndDate(second)?.getTime() || 0;
-      return firstDate - secondDate;
-    });
-  }, [getSessionEndDate, needsAttendanceConfirmation, pendingSessionsSource]);
-
-  const pendingConfirmationGroups = useMemo(() => {
-    const groups = [];
-    const dayMap = new Map();
-
-    pendingConfirmationSessions.forEach((session) => {
-      const startsAt = session?.starts_at ? new Date(session.starts_at) : null;
-      if (!startsAt || Number.isNaN(startsAt.getTime())) return;
-
-      const dayDate = startOfDay(startsAt);
-      const dayKey = dayDate.toISOString();
-      const minutes = startsAt.getHours() * 60 + startsAt.getMinutes();
-      const timeKey = `${dayKey}-${minutes}`;
-      const serviceCode = getSessionServiceCode(session);
-      const professionalName = session?.professional?.name || "Profissional";
-      const serviceKey = `${timeKey}-${serviceCode}-${professionalName}`;
-
-      if (!dayMap.has(dayKey)) {
-        const group = {
-          key: dayKey,
-          date: dayDate,
-          sessionCount: 0,
-          timeGroups: [],
-          timeMap: new Map(),
-        };
-        dayMap.set(dayKey, group);
-        groups.push(group);
-      }
-
-      const dayGroup = dayMap.get(dayKey);
-      dayGroup.sessionCount += 1;
-
-      if (!dayGroup.timeMap.has(timeKey)) {
-        const timeGroup = {
-          key: timeKey,
-          startsAt,
-          sortMinutes: minutes,
-          sessionCount: 0,
-          serviceGroups: [],
-          serviceMap: new Map(),
-        };
-        dayGroup.timeMap.set(timeKey, timeGroup);
-        dayGroup.timeGroups.push(timeGroup);
-      }
-
-      const timeGroup = dayGroup.timeMap.get(timeKey);
-      timeGroup.sessionCount += 1;
-
-      if (!timeGroup.serviceMap.has(serviceKey)) {
-        const groupedService = {
-          key: serviceKey,
-          serviceCode,
-          serviceLabel: serviceName(serviceCode),
-          serviceColor: serviceColor(serviceCode),
-          professionalName,
-          sessions: [],
-        };
-        timeGroup.serviceMap.set(serviceKey, groupedService);
-        timeGroup.serviceGroups.push(groupedService);
-      }
-
-      timeGroup.serviceMap.get(serviceKey).sessions.push(session);
-    });
-
-    return groups.map((group) => ({
-      key: group.key,
-      date: group.date,
-      sessionCount: group.sessionCount,
-      timeGroups: group.timeGroups
-        .map((timeGroup) => ({
-          key: timeGroup.key,
-          startsAt: timeGroup.startsAt,
-          sessionCount: timeGroup.sessionCount,
-          sortMinutes: timeGroup.sortMinutes,
-          serviceGroups: timeGroup.serviceGroups
-            .map((serviceGroup) => ({
-              ...serviceGroup,
-              sessions: serviceGroup.sessions.sort(compareSessionsByPatientThenId),
-            }))
-            .sort(compareServiceGroups),
-        }))
-        .sort((first, second) => first.sortMinutes - second.sortMinutes),
-    }));
-  }, [compareServiceGroups, compareSessionsByPatientThenId, getSessionServiceCode, pendingConfirmationSessions, serviceColor, serviceName]);
-
-  const visibleOperationalAlerts = useMemo(
-    () => [...operationalAlerts]
-      .sort((a, b) => (
-        (OPERATIONAL_ALERT_SEVERITY_ORDER[a.severity] ?? 9)
-        - (OPERATIONAL_ALERT_SEVERITY_ORDER[b.severity] ?? 9)
-      )),
-    [operationalAlerts],
-  );
-
-  const operationalAlertGroups = useMemo(() => {
-    const groupMap = new Map();
-
-    visibleOperationalAlerts.forEach((alert, index) => {
-      const category = getOperationalAlertCategory(alert);
-      if (!groupMap.has(category)) {
-        groupMap.set(category, {
-          key: category,
-          section: getOperationalAlertSection(category),
-          label: PENDING_CENTER_CATEGORY_LABELS[category] || PENDING_CENTER_CATEGORY_LABELS.other,
-          alerts: [],
-        });
-      }
-
-      groupMap.get(category).alerts.push({
-        ...alert,
-        centerKey: `${alert.type}-${alert.patient_id || "sem-paciente"}-${alert.details?.audit_log_id || alert.details?.replacement_credit_id || index}`,
-      });
-    });
-
-    return Array.from(groupMap.values()).sort((first, second) => {
-      const sectionDiff =
-        PENDING_CENTER_SECTION_ORDER[first.section] - PENDING_CENTER_SECTION_ORDER[second.section];
-      if (sectionDiff !== 0) return sectionDiff;
-      return first.label.localeCompare(second.label, "pt-BR", { sensitivity: "base" });
-    });
-  }, [visibleOperationalAlerts]);
-
-  const pendingCenterSections = useMemo(() => {
-    const operationalGroupMap = new Map(
-      operationalAlertGroups.map((group) => [group.key, group]),
-    );
-    const fixedCategoryKeys = new Set();
-
-    const getOperationalItemCount = (key, alerts = []) => {
-      if (key === "standalone_session_credit_expiring") {
-        return countStandaloneCreditItems(alerts);
-      }
-      if (isPlanOperationalAlert(key)) {
-        return countPlanAlertItems(alerts);
-      }
-      if (key === "patient_birthday") {
-        return countBirthdayAlertItems(alerts);
-      }
-      return alerts.length;
-    };
-
-    const sections = PENDING_CENTER_MAIN_SECTIONS.map((section) => ({
-      key: section.key,
-      label: PENDING_CENTER_SECTION_LABELS[section.key],
-      items: section.items.map((item) => {
-        fixedCategoryKeys.add(item.key);
-        if (item.kind === "attendance") {
-          return {
-            ...item,
-            count: pendingConfirmationSessions.length,
-          };
-        }
-
-        const group = operationalGroupMap.get(item.key);
-        const alerts = group?.alerts || [];
-        return {
-          ...item,
-          count: getOperationalItemCount(item.key, alerts),
-          alerts,
-        };
-      }),
-    }));
-
-    operationalAlertGroups.forEach((group) => {
-      if (fixedCategoryKeys.has(group.key)) return;
-      if (group.key === "other") return;
-      const targetSection = sections.find((section) => section.key === group.section);
-      if (!targetSection) return;
-      targetSection.items.push({
-        key: group.key,
-        kind: "operational-alert",
-        label: group.label,
-        count: getOperationalItemCount(group.key, group.alerts),
-        alerts: group.alerts,
-      });
-    });
-
-    return sections;
-  }, [operationalAlertGroups, pendingConfirmationSessions.length]);
-
-  const pendingCenterTotal = pendingCenterSections.reduce(
-    (sectionTotal, section) =>
-      sectionTotal + section.items.reduce((itemTotal, item) => itemTotal + item.count, 0),
-    0,
-  );
-
-  const pendingCenterSelectedItem = useMemo(() => {
-    if (!pendingCenterSelectedItemKey) return null;
-    return pendingCenterSections
-      .flatMap((section) => section.items)
-      .find((item) => item.key === pendingCenterSelectedItemKey) || null;
-  }, [pendingCenterSections, pendingCenterSelectedItemKey]);
 
   const buildSlotGroupsForDayHour = useCallback(
     (dayList, hour) => {
@@ -3104,23 +2541,10 @@ export default function Agendamentos() {
 
   const openDrawer = useCallback(() => {
     setDrawerMode("form");
-    setPendingCenterSelectedItemKey(null);
     setGroupContext(null);
     setShowEditReasonError(false);
     setIsDrawerOpen(true);
   }, []);
-
-  const togglePendingDrawer = useCallback(() => {
-    if (isDrawerOpen && drawerMode === "pending") {
-      setIsDrawerOpen(false);
-      return;
-    }
-
-    setDrawerMode("pending");
-    setPendingCenterSelectedItemKey(null);
-    setGroupContext(null);
-    setIsDrawerOpen(true);
-  }, [drawerMode, isDrawerOpen]);
 
   const closeDrawer = useCallback(() => {
     setIsDrawerOpen(false);
@@ -3355,7 +2779,6 @@ export default function Agendamentos() {
 	    defaultEnd.setHours(defaultEnd.getHours() + 1);
 
 	    setDrawerMode("form");
-	    setPendingCenterSelectedItemKey(null);
 	    setGroupContext(null);
 	    setEditingId(null);
     setEditingIntent("create");
@@ -3376,6 +2799,41 @@ export default function Agendamentos() {
 	    });
 	    setIsDrawerOpen(true);
 	  }, [resetForm, selectedDate]);
+
+  useEffect(() => {
+    const action = routeLocation.state?.[PENDING_CENTER_ACTION_STATE_KEY];
+    if (!action) return;
+
+    const nextState = { ...(routeLocation.state || {}) };
+    delete nextState[PENDING_CENTER_ACTION_STATE_KEY];
+    routeHistory.replace({
+      pathname: routeLocation.pathname,
+      search: routeLocation.search,
+      hash: routeLocation.hash,
+      state: Object.keys(nextState).length > 0 ? nextState : undefined,
+    });
+
+    if (action.type === "open-day") {
+      const pendingDate = new Date(action.value);
+      if (Number.isNaN(pendingDate.getTime())) return;
+      setSelectedDate(pendingDate);
+      setView("day");
+      closeDrawer();
+      return;
+    }
+
+    if (action.type === "schedule-replacement") {
+      handleScheduleReplacement(action.alert);
+    }
+  }, [
+    closeDrawer,
+    handleScheduleReplacement,
+    routeHistory,
+    routeLocation.hash,
+    routeLocation.pathname,
+    routeLocation.search,
+    routeLocation.state,
+  ]);
 
 	  const handleOpenGroup = useCallback((date) => {
     setGroupContext({ date });
@@ -3928,7 +3386,7 @@ export default function Agendamentos() {
           : previous.candidates,
       };
     });
-  }, []);
+  }, [setPendingSessionsSource]);
 
   const updateSessionStatus = useCallback(
     async ({
@@ -4237,37 +3695,6 @@ export default function Agendamentos() {
       setAttendanceModal((prev) => ({ ...prev, isSaving: false }));
     }
   }, [attendanceModal, loadPendingSessions, reloadVisibleSessions]);
-
-  const handleOpenPendingDay = useCallback((value) => {
-    if (!value) return;
-    const sessionDate = new Date(value);
-    if (Number.isNaN(sessionDate.getTime())) return;
-    setSelectedDate(sessionDate);
-    setView("day");
-    closeDrawer();
-  }, [closeDrawer]);
-
-	  const handleDismissStandaloneCreditAlerts = useCallback(async (alerts = []) => {
-    const validAlerts = alerts.filter((alert) => alert?.details?.alert_key);
-    if (validAlerts.length === 0) return;
-
-    const dismissedKeys = new Set(validAlerts.map((alert) => alert.details.alert_key));
-    const previousOperationalAlerts = operationalAlerts;
-    setOperationalAlerts((previous) =>
-      previous.filter((alert) => !dismissedKeys.has(alert?.details?.alert_key)),
-    );
-
-    try {
-      await axios.post("/operational-alerts/dismiss-standalone-credit", {
-        alerts: validAlerts,
-      });
-
-      toast.success("Alerta ocultado.");
-    } catch (error) {
-      setOperationalAlerts(previousOperationalAlerts);
-      toast.error(getUserFacingApiError(error, "Não foi possível ocultar o alerta."));
-	    }
-	  }, [operationalAlerts]);
 
 	  const selectedReplacementCredit = useMemo(
 	    () => replacementCreditsForPatient.find(
@@ -5324,9 +4751,7 @@ export default function Agendamentos() {
   }, [buildDeleteCandidates, deleteModal.session]);
 
   let drawerTitle = "Novo agendamento";
-  if (drawerMode === "pending") {
-    drawerTitle = "Central de pendencias";
-  } else if (drawerMode === "group") {
+  if (drawerMode === "group") {
     drawerTitle = "Detalhes do horário";
   } else if (isReschedulingSession) {
 	    drawerTitle = "Editar agendamento";
@@ -5335,9 +4760,7 @@ export default function Agendamentos() {
   }
 
   let drawerSubtitle = "";
-  if (drawerMode === "pending") {
-    drawerSubtitle = "";
-	  } else if (drawerMode === "group") {
+	  if (drawerMode === "group") {
 	    drawerSubtitle = groupContext ? formatDateTime(groupContext.date) : "";
   } else if (editingId) {
     drawerSubtitle = editingBillingSummary || "";
@@ -5374,17 +4797,6 @@ export default function Agendamentos() {
             </p>
           </div>
           <ToolbarActions>
-            <NotificationButton
-              type="button"
-              onClick={togglePendingDrawer}
-              $active={isDrawerOpen && drawerMode === "pending"}
-              aria-label={`Abrir central de pendencias. ${pendingCenterTotal} pendencias.`}
-            >
-              <FaBell />
-              <NotificationBadge $hasPending={pendingCenterTotal > 0}>
-                {pendingCenterTotal > 99 ? "99+" : pendingCenterTotal}
-              </NotificationBadge>
-            </NotificationButton>
             <PrimaryButton
               type="button"
               $topAction
@@ -6122,270 +5534,6 @@ export default function Agendamentos() {
           </DrawerHeader>
           <DrawerBody>
             <Loading isLoading={isSaving} />
-            {drawerMode === "pending" && (
-              <PendingDrawerPanel>
-                {isOperationalAlertsLoading && (
-                  <PendingCenterHint>Atualizando alertas operacionais...</PendingCenterHint>
-                )}
-                {pendingCenterSections.length === 0 && (
-                  <EmptyState>Nenhuma pendencia no momento.</EmptyState>
-                )}
-                {pendingCenterSections.length > 0 && pendingCenterSelectedItem && (
-                  <PendingCategoryDetails>
-                    <PendingBackButton
-                      type="button"
-                      onClick={() => setPendingCenterSelectedItemKey(null)}
-                    >
-                      {"<-"} Voltar
-                    </PendingBackButton>
-                    <PendingDetailHeader>
-                      <PendingGroupTitle>{pendingCenterSelectedItem.label}</PendingGroupTitle>
-                      <PendingCountBadge $empty={pendingCenterSelectedItem.count === 0}>
-                        {pendingCenterSelectedItem.count}
-                      </PendingCountBadge>
-                    </PendingDetailHeader>
-                    {pendingCenterSelectedItem.count === 0 && (
-                      <EmptyState>Nenhuma pendência nesta categoria.</EmptyState>
-                    )}
-                    {pendingCenterSelectedItem.count > 0 && pendingCenterSelectedItem.kind === "attendance" && (
-                      <PendingGroupDetails>
-                        {pendingConfirmationGroups.map((group) => (
-                          <PendingDayRow key={group.key}>
-                            <div>
-                              <strong>{formatPendingDayLabel(group.date)}</strong>
-                              <span>
-                                {group.sessionCount} atendimento
-                                {group.sessionCount > 1 ? "s" : ""}
-                              </span>
-                            </div>
-                            <PendingOpenDayButton
-                              type="button"
-                              onClick={() => handleOpenPendingDay(group.date)}
-                            >
-                              Abrir na agenda
-                            </PendingOpenDayButton>
-                          </PendingDayRow>
-                        ))}
-                      </PendingGroupDetails>
-                    )}
-                    {pendingCenterSelectedItem.count > 0 &&
-                      pendingCenterSelectedItem.key === "standalone_session_credit_expiring" && (
-                        <PendingGroupDetails>
-                          {groupStandaloneCreditAlerts(pendingCenterSelectedItem.alerts).map((item) => (
-                            <PendingPatientCard key={item.key}>
-                              <PendingPatientName>
-                                {item.patientId ? (
-                                  <Link to={`/pacientes/${item.patientId}`}>
-                                    {item.patientName}
-                                  </Link>
-                                ) : (
-                                  item.patientName
-                                )}
-                              </PendingPatientName>
-                              <PendingNestedList>
-                                {item.services.map((service) => (
-                                  <PendingNestedRow key={service.key}>
-                                    <span>
-                                      {service.serviceName} — {pluralizeSession(service.remainingSessions)}
-                                    </span>
-                                    <PendingDismissButton
-                                      type="button"
-                                      onClick={() => handleDismissStandaloneCreditAlerts(service.alerts)}
-                                    >
-                                      Não renovar agora
-                                    </PendingDismissButton>
-                                  </PendingNestedRow>
-                                ))}
-                              </PendingNestedList>
-                            </PendingPatientCard>
-                          ))}
-                        </PendingGroupDetails>
-                      )}
-                    {pendingCenterSelectedItem.count > 0 &&
-                      isPlanOperationalAlert(pendingCenterSelectedItem.key) && (
-                        <PendingGroupDetails>
-                          {groupPlanAlertsByPatient(pendingCenterSelectedItem.alerts).map((item) => (
-                            <PendingPatientCard key={item.key}>
-                              <PendingPatientName>
-                                {item.patientId ? (
-                                  <Link to={`/pacientes/${item.patientId}`}>
-                                    {item.patientName}
-                                  </Link>
-                                ) : (
-                                  item.patientName
-                                )}
-                              </PendingPatientName>
-                              <PendingNestedList>
-                                {item.plans.map(({ key, alert }) => (
-                                  <PendingNestedRow key={key}>
-                                    <div>
-                                      <span>
-                                        {alert.details?.plan_name || alert.status?.split(" - ")?.[0] || "Plano"}
-                                      </span>
-                                      <PendingPlanDueText $overdue={alert.type === "patient_plan_overdue" || alert.type === "patient_plan_pause_overdue"}>
-                                        {getPlanAlertDueText(alert)}
-                                      </PendingPlanDueText>
-                                    </div>
-                                    <PendingPlanLink to={getPlanAlertLink(alert)}>
-                                      Ver plano
-                                    </PendingPlanLink>
-                                  </PendingNestedRow>
-                                ))}
-                              </PendingNestedList>
-                            </PendingPatientCard>
-                          ))}
-                        </PendingGroupDetails>
-                      )}
-                    {pendingCenterSelectedItem.count > 0 &&
-                      pendingCenterSelectedItem.key === "patient_birthday" && (
-                        <BirthdayAlertList>
-                          {groupBirthdayAlertsByDate(pendingCenterSelectedItem.alerts).map((group) => (
-                            <BirthdayDateGroup key={group.key}>
-                              <BirthdayDateHeader>
-                                <strong>{getBirthdayGroupTitle(group)}</strong>
-                                <span>{getBirthdayGroupSubtitle(group)}</span>
-                              </BirthdayDateHeader>
-                              <BirthdayPatientList>
-                                {group.alerts.map((alert) => (
-                                  <BirthdayPatientRow key={alert.centerKey}>
-                                    <BirthdayIcon aria-hidden="true">
-                                      <FaBirthdayCake />
-                                    </BirthdayIcon>
-                                    <BirthdayPatientName>
-                                      {alert.patient_id ? (
-                                        <Link to={`/pacientes/${alert.patient_id}`}>
-                                          {alert.patient_name}
-                                        </Link>
-                                      ) : (
-                                        alert.patient_name
-                                      )}
-                                    </BirthdayPatientName>
-                                  </BirthdayPatientRow>
-                                ))}
-                              </BirthdayPatientList>
-                            </BirthdayDateGroup>
-                          ))}
-                        </BirthdayAlertList>
-                      )}
-                    {pendingCenterSelectedItem.count > 0 &&
-                      pendingCenterSelectedItem.key === "replacement_credit" && (
-                        <PendingGroupDetails>
-	                          {pendingCenterSelectedItem.alerts.map((alert) => (
-	                            <PendingPatientCard key={alert.centerKey}>
-	                              <PendingPatientName>
-	                                {alert.patient_id ? (
-	                                  <Link to={`/pacientes/${alert.patient_id}`}>
-	                                    {alert.patient_name}
-	                                  </Link>
-	                                ) : (
-	                                  alert.patient_name
-	                                )}
-	                              </PendingPatientName>
-	                              <PendingNestedRow>
-	                                <div>
-	                                  <span>{alert.details?.source_service_name || "Reposição pendente"}</span>
-	                                  <small>{alert.status}</small>
-	                                </div>
-	                                <PendingDismissButton
-	                                  type="button"
-	                                  onClick={() => handleScheduleReplacement(alert)}
-	                                >
-	                                  Agendar reposição
-	                                </PendingDismissButton>
-	                              </PendingNestedRow>
-	                            </PendingPatientCard>
-	                          ))}
-	                        </PendingGroupDetails>
-	                      )}
-                    {pendingCenterSelectedItem.kind === "operational-alert" &&
-                      pendingCenterSelectedItem.count > 0 &&
-                      pendingCenterSelectedItem.key !== "standalone_session_credit_expiring" &&
-                      !isPlanOperationalAlert(pendingCenterSelectedItem.key) &&
-                      pendingCenterSelectedItem.key !== "patient_birthday" &&
-                      pendingCenterSelectedItem.key !== "replacement_credit" && (
-                        <PendingGroupDetails>
-                          {pendingCenterSelectedItem.alerts.map((alert) => (
-                            <PendingAlertRow key={alert.centerKey} $severity={alert.severity}>
-                              <OperationalAlertTopline>
-                                <OperationalAlertSeverity $severity={alert.severity}>
-                                  {OPERATIONAL_ALERT_SEVERITY_LABELS[alert.severity] || "Alerta"}
-                                </OperationalAlertSeverity>
-                                <OperationalAlertType>{alert.type}</OperationalAlertType>
-                                {alert.quantity !== null && alert.quantity !== undefined && (
-                                  <OperationalAlertQuantity>{alert.quantity}</OperationalAlertQuantity>
-                                )}
-                              </OperationalAlertTopline>
-                              <OperationalAlertBody>
-                                <OperationalAlertField>
-                                  <span>Paciente</span>
-                                  <strong>
-                                    {alert.patient_id ? (
-                                      <Link to={`/pacientes/${alert.patient_id}`}>
-                                        {alert.patient_name}
-                                      </Link>
-                                    ) : (
-                                      alert.patient_name
-                                    )}
-                                  </strong>
-                                </OperationalAlertField>
-                                <OperationalAlertField>
-                                  <span>Info principal</span>
-                                  <strong>{alert.title}</strong>
-                                </OperationalAlertField>
-                                <OperationalAlertField>
-                                  <span>Estado atual</span>
-                                  <strong>
-                                    {alert.status}
-                                    {alert.due_date ? ` - ${getOperationalAlertDueLabel(alert)} ${alert.due_date}` : ""}
-                                  </strong>
-                                </OperationalAlertField>
-                                <OperationalAlertAction>
-                                  <span>Orientacao</span>
-                                  <strong>{alert.suggested_action}</strong>
-                                </OperationalAlertAction>
-                              </OperationalAlertBody>
-                            </PendingAlertRow>
-                          ))}
-                        </PendingGroupDetails>
-                      )}
-                  </PendingCategoryDetails>
-                )}
-                {pendingCenterSections.length > 0 && !pendingCenterSelectedItem && (
-                  <PendingCenterSections>
-                    {pendingCenterSections.map((section) => (
-                      <PendingCenterSection key={section.key}>
-                        <PendingSectionTitle>{section.label}</PendingSectionTitle>
-                        <PendingGroupList>
-                          {section.items.map((item) => (
-                            <PendingCategoryButton
-                              key={item.key}
-                              type="button"
-                              disabled={item.count === 0}
-                              onClick={() => {
-                                if (item.count === 0) return;
-                                setPendingCenterSelectedItemKey(item.key);
-                              }}
-                              $empty={item.count === 0}
-                            >
-                              <PendingGroupHeader>
-                                <div>
-                                  <PendingGroupTitle>
-                                    {item.label}
-                                  </PendingGroupTitle>
-                                </div>
-                                <PendingCountBadge $empty={item.count === 0}>
-                                  {item.count}
-                                </PendingCountBadge>
-                              </PendingGroupHeader>
-                            </PendingCategoryButton>
-                          ))}
-                        </PendingGroupList>
-                      </PendingCenterSection>
-                    ))}
-                  </PendingCenterSections>
-                )}
-              </PendingDrawerPanel>
-            )}
             {drawerMode === "group" && (
               <GroupPanel>
                 <GroupHeader>
@@ -6573,7 +5721,7 @@ export default function Agendamentos() {
                 </GroupList>
               </GroupPanel>
             )}
-            {drawerMode !== "pending" && drawerMode !== "group" && (
+            {drawerMode !== "group" && (
               <Form onSubmit={handleSubmit}>
                 <FormGrid>
 			                  {editingId ? (
@@ -8553,509 +7701,6 @@ const DayHistoryFilterToggle = styled.label`
     width: 100%;
     justify-content: flex-start;
   }
-`;
-
-const NotificationButton = styled.button`
-  position: relative;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  border: 1px solid
-    ${(props) =>
-    props.$active ? "rgba(185, 120, 35, 0.35)" : "rgba(106, 121, 92, 0.2)"};
-  background: ${(props) => (props.$active ? "#fff5e7" : "#fff")};
-  color: ${(props) => (props.$active ? "#8a5718" : "#6a795c")};
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.15rem;
-  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
-  cursor: pointer;
-
-  &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 10px 20px rgba(42, 52, 35, 0.08);
-  }
-`;
-
-const NotificationBadge = styled.span`
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 20px;
-  max-width: 32px;
-  height: 20px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: ${(props) => (props.$hasPending ? "#c63b32" : "#dfe6d8")};
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 0.68rem;
-  line-height: 1;
-  white-space: nowrap;
-`;
-
-const OperationalAlertSeverity = styled.span`
-  align-self: start;
-  border-radius: 999px;
-  padding: 4px 8px;
-  text-align: center;
-  font-size: 11px;
-  font-weight: 800;
-  color: ${({ $severity }) => {
-    if ($severity === "high") return "#991b1b";
-    if ($severity === "medium") return "#92400e";
-    return "#334155";
-  }};
-  background: ${({ $severity }) => {
-    if ($severity === "high") return "#fee2e2";
-    if ($severity === "medium") return "#fef3c7";
-    return "#e2e8f0";
-  }};
-`;
-
-const OperationalAlertBody = styled.div`
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px 12px;
-  margin-top: 8px;
-  min-width: 0;
-
-  @media (max-width: 620px) {
-    grid-template-columns: 1fr;
-  }
-`;
-
-const OperationalAlertTopline = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  font-size: 13px;
-  color: #0f172a;
-`;
-
-const OperationalAlertType = styled.span`
-  color: #475569;
-  font-size: 11px;
-  font-weight: 800;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-`;
-
-const OperationalAlertQuantity = styled.span`
-  color: #0f172a;
-  font-size: 12px;
-  font-weight: 900;
-  margin-left: auto;
-`;
-
-const OperationalAlertField = styled.div`
-  min-width: 0;
-
-  span {
-    color: #64748b;
-    display: block;
-    font-size: 10px;
-    font-weight: 800;
-    margin-bottom: 2px;
-    text-transform: uppercase;
-  }
-
-  strong {
-    color: #0f172a;
-    display: block;
-    font-size: 12px;
-    font-weight: 700;
-    overflow-wrap: anywhere;
-  }
-
-  a {
-    color: #2563eb;
-    text-decoration: none;
-  }
-`;
-
-const OperationalAlertAction = styled(OperationalAlertField)`
-  grid-column: 1 / -1;
-`;
-
-const PendingDrawerPanel = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-`;
-
-const PendingCenterHint = styled.div`
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #f8fafc;
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 10px 12px;
-`;
-
-const PendingCenterSections = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-`;
-
-const PendingCenterSection = styled.section`
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-`;
-
-const PendingSectionTitle = styled.h3`
-  margin: 0;
-  color: #516046;
-  font-size: 0.78rem;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-`;
-
-const PendingGroupList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-`;
-
-const PendingCategoryDetails = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-`;
-
-const PendingBackButton = styled.button`
-  align-self: flex-start;
-  border: 1px solid rgba(106, 121, 92, 0.22);
-  border-radius: 8px;
-  background: #fff;
-  color: #516046;
-  cursor: pointer;
-  font-size: 0.84rem;
-  font-weight: 800;
-  padding: 7px 10px;
-
-  &:hover {
-    background: #f6f9f2;
-    border-color: rgba(106, 121, 92, 0.36);
-  }
-`;
-
-const PendingDetailHeader = styled.div`
-  align-items: center;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  padding: 2px 0 4px;
-`;
-
-const PendingCategoryButton = styled.button`
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border-radius: 10px;
-  border: 1px solid ${({ $empty }) => ($empty ? "rgba(148, 163, 184, 0.18)" : "rgba(106, 121, 92, 0.16)")};
-  background: ${({ $empty }) => ($empty ? "#f8fafc" : "#fbfcf8")};
-  text-align: left;
-  cursor: ${({ $empty }) => ($empty ? "default" : "pointer")};
-  opacity: ${({ $empty }) => ($empty ? 0.68 : 1)};
-  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
-
-  &:not(:disabled):hover {
-    background: #f6f9f2;
-    border-color: rgba(106, 121, 92, 0.28);
-    transform: translateY(-1px);
-  }
-`;
-
-const PendingGroupHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: nowrap;
-`;
-
-const PendingGroupTitle = styled.h3`
-  margin: 0;
-  color: #1b1b1b;
-  font-size: 0.95rem;
-`;
-
-const PendingCountBadge = styled.span`
-  min-width: 30px;
-  height: 30px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: ${({ $empty }) => ($empty ? "#e2e8f0" : "#c63b32")};
-  color: ${({ $empty }) => ($empty ? "#64748b" : "#fff")};
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.78rem;
-  font-weight: 800;
-`;
-
-const PendingGroupDetails = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-`;
-
-const PendingDayRow = styled.div`
-  align-items: center;
-  border-top: 1px solid rgba(106, 121, 92, 0.12);
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
-  padding-top: 8px;
-
-  strong {
-    color: #1b1b1b;
-    display: block;
-    font-size: 0.9rem;
-  }
-
-  span {
-    color: #6a795c;
-    display: block;
-    font-size: 0.78rem;
-    margin-top: 2px;
-  }
-`;
-
-const PendingOpenDayButton = styled.button`
-  border: 1px solid rgba(106, 121, 92, 0.22);
-  border-radius: 8px;
-  background: #fff;
-  color: #516046;
-  cursor: pointer;
-  font-size: 0.78rem;
-  font-weight: 800;
-  padding: 8px 10px;
-  white-space: nowrap;
-
-  &:hover {
-    background: #f6f9f2;
-  }
-`;
-
-const PendingPatientCard = styled.div`
-  border: 1px solid rgba(106, 121, 92, 0.14);
-  border-radius: 8px;
-  background: #fff;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-`;
-
-const PendingPatientName = styled.strong`
-  color: #1b1b1b;
-  display: block;
-  font-size: 0.92rem;
-
-  a {
-    color: inherit;
-    text-decoration: none;
-  }
-`;
-
-const PendingNestedList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-`;
-
-const PendingNestedRow = styled.div`
-  align-items: center;
-  border-top: 1px solid rgba(106, 121, 92, 0.1);
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
-  min-width: 0;
-  padding-top: 8px;
-
-  div {
-    min-width: 0;
-  }
-
-  span {
-    color: #516046;
-    display: block;
-    font-size: 0.82rem;
-    font-weight: 700;
-    overflow-wrap: anywhere;
-  }
-
-  small {
-    color: #6a795c;
-    display: block;
-    font-size: 0.78rem;
-    font-weight: 700;
-    margin-top: 3px;
-  }
-
-  @media (max-width: 520px) {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-`;
-
-const PendingDismissButton = styled.button`
-  border: 1px solid rgba(106, 121, 92, 0.22);
-  border-radius: 8px;
-  background: #fff;
-  color: #516046;
-  cursor: pointer;
-  flex: 0 0 auto;
-  font-size: 0.78rem;
-  font-weight: 800;
-  padding: 8px 10px;
-  white-space: nowrap;
-
-  &:hover {
-    background: #f6f9f2;
-  }
-`;
-
-const PendingPlanLink = styled(Link)`
-  border: 1px solid rgba(106, 121, 92, 0.22);
-  border-radius: 8px;
-  background: #fff;
-  color: #516046;
-  flex: 0 0 auto;
-  font-size: 0.78rem;
-  font-weight: 800;
-  padding: 8px 10px;
-  text-decoration: none;
-  white-space: nowrap;
-
-  &:hover {
-    background: #f6f9f2;
-  }
-`;
-
-const PendingPlanDueText = styled.small`
-  color: ${({ $overdue }) => ($overdue ? "#b91c1c" : "#6a795c")} !important;
-  display: block;
-  font-size: 0.78rem;
-  font-weight: 800;
-  margin-top: 3px;
-`;
-
-const BirthdayAlertList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-`;
-
-const BirthdayDateGroup = styled.section`
-  border: 1px solid rgba(185, 108, 63, 0.18);
-  border-radius: 8px;
-  background: #fffaf5;
-  overflow: hidden;
-`;
-
-const BirthdayDateHeader = styled.div`
-  align-items: center;
-  background: #fff3e8;
-  border-bottom: 1px solid rgba(185, 108, 63, 0.14);
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
-  padding: 10px 12px;
-
-  strong {
-    color: #7a3f1d;
-    font-size: 0.88rem;
-    font-weight: 900;
-  }
-
-  span {
-    color: #9a5a32;
-    flex: 0 0 auto;
-    font-size: 0.76rem;
-    font-weight: 800;
-  }
-`;
-
-const BirthdayPatientList = styled.div`
-  display: flex;
-  flex-direction: column;
-`;
-
-const BirthdayPatientRow = styled.div`
-  align-items: center;
-  display: flex;
-  gap: 10px;
-  min-width: 0;
-  padding: 10px 12px;
-
-  & + & {
-    border-top: 1px solid rgba(185, 108, 63, 0.12);
-  }
-`;
-
-const BirthdayIcon = styled.span`
-  align-items: center;
-  background: #ffffff;
-  border: 1px solid rgba(185, 108, 63, 0.2);
-  border-radius: 999px;
-  color: #b96c3f;
-  display: inline-flex;
-  flex: 0 0 auto;
-  height: 28px;
-  justify-content: center;
-  width: 28px;
-
-  svg {
-    height: 13px;
-    width: 13px;
-  }
-`;
-
-const BirthdayPatientName = styled.strong`
-  color: #1f2933;
-  display: block;
-  font-size: 0.91rem;
-  font-weight: 800;
-  min-width: 0;
-  overflow-wrap: anywhere;
-
-  a {
-    color: inherit;
-    text-decoration: none;
-  }
-`;
-
-const PendingAlertRow = styled.div`
-  border: 1px solid ${({ $severity }) => {
-    if ($severity === "high") return "#fecaca";
-    if ($severity === "medium") return "#fde68a";
-    return "#d7dee8";
-  }};
-  border-left: 4px solid ${({ $severity }) => {
-    if ($severity === "high") return "#dc2626";
-    if ($severity === "medium") return "#d97706";
-    return "#64748b";
-  }};
-  border-radius: 8px;
-  background: #fff;
-  padding: 8px 10px;
 `;
 
 const Legend = styled.div`

@@ -115,6 +115,18 @@ describe("AppShell", () => {
     expect(screen.getByRole("button", { name: "Agenda" })).not.toHaveAttribute("aria-current");
   });
 
+  it("mantém a Central de pendências no cabeçalho junto ao menu do usuário", () => {
+    renderShell();
+
+    const pendingCenterButton = screen.getByTitle("Central de pendências");
+    const userButton = screen.getByRole("button", { name: "Abrir menu do usuário" });
+
+    expect(pendingCenterButton).toBeVisible();
+    expect(pendingCenterButton).toHaveAttribute("aria-expanded", "false");
+    expect(pendingCenterButton.querySelector("span")).toBeNull();
+    expect(pendingCenterButton.parentElement).toContainElement(userButton);
+  });
+
   it("inicia compacta, expande temporariamente e fixa a navegação sem perder a preferência", () => {
     const { container } = renderShell();
     const sidebar = screen.getByRole("complementary", { name: "Navegação principal" });

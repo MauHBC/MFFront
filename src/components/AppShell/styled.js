@@ -577,6 +577,13 @@ export const UserArea = styled.div`
   position: relative;
 `;
 
+export const HeaderActions = styled.div`
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: ${spacing.sm};
+`;
+
 export const UserButton = styled.button`
   min-height: 42px;
   max-width: 260px;

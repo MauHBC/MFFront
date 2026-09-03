@@ -12,6 +12,7 @@ import {
   previewSchedulingOccurrences,
 } from "../../services/scheduling";
 import { getCoveragePreview, listPatientPlans } from "../../services/financial";
+import { PENDING_CENTER_ACTION_STATE_KEY } from "../../components/PendingCenter";
 
 let mockProfessionalAssigned = true;
 let mockAuthorization = null;
@@ -128,8 +129,8 @@ const suspendedSession = {
   },
 };
 
-const renderAgendamentos = () => render(
-  <MemoryRouter>
+const renderAgendamentos = (initialEntry = "/agendamentos") => render(
+  <MemoryRouter initialEntries={[initialEntry]}>
     <Agendamentos />
   </MemoryRouter>,
 );
@@ -350,9 +351,58 @@ describe("Agendamentos - editar agendamento", () => {
     expect(await screen.findByRole("heading", { name: "Agendamentos" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Configurações da agenda" }))
       .not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Abrir central de pendencias/ }))
-      .toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Central de pendências/ }))
+      .not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Novo agendamento" })).toBeInTheDocument();
+  });
+
+  it("consome o pedido global de agendar reposição no formulário existente", async () => {
+    const defaultGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/session-replacement-credits") {
+        return Promise.resolve({
+          data: [{
+            id: 901,
+            patient_id: 20,
+            patient_name: "Paciente Teste",
+            expires_at: "2026-07-30",
+            source_service_id: 40,
+            source_service_type: "spine_eval",
+            source_service_name: "Avaliação Coluna",
+            source_billing_mode: "per_session",
+          }],
+        });
+      }
+      return defaultGet(url, config);
+    });
+
+    renderAgendamentos({
+      pathname: "/agendamentos",
+      state: {
+        [PENDING_CENTER_ACTION_STATE_KEY]: {
+          type: "schedule-replacement",
+          alert: {
+            type: "replacement_credit_pending",
+            patient_id: 20,
+            patient_name: "Paciente Teste",
+            title: "Reposição pendente",
+            due_date: "2026-07-30",
+            details: {
+              replacement_credit_id: 901,
+              source_service_id: 40,
+              source_service_type: "spine_eval",
+              source_service_name: "Avaliação Coluna",
+              source_billing_mode: "per_session",
+            },
+          },
+        },
+      },
+    });
+
+    expect(await screen.findByRole("heading", { name: "Novo agendamento" }))
+      .toBeInTheDocument();
+    expect(screen.getByText("Reposição selecionada. Sem nova cobrança."))
+      .toBeInTheDocument();
   });
 
   it("omite Mensal da frequência do plano na visão semanal", async () => {

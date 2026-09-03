@@ -30,6 +30,7 @@ import { isPlansModuleEnabled } from "../config/features";
 import AppShell from "../components/AppShell";
 import Equipe from "../pages/Equipe";
 import SettingsDocuments from "../pages/SettingsDocuments";
+import { PendingCenterProvider } from "../components/PendingCenter";
 
 function getPatientsPageTitle(pathname) {
   if (pathname === "/pacientes/novo") return "Novo paciente";
@@ -179,18 +180,24 @@ export default function Routes() {
     </Switch>
   );
 
+  const clinicAreaContent = usesPatientsAppShell
+    || usesPlansAppShell
+    || usesFinancialAppShell
+    || usesTeamAppShell
+    || usesSettingsAppShell ? (
+      <AppShell pageTitle={getAppShellPageTitle(location.pathname)}>
+        {routeContent}
+      </AppShell>
+    ) : routeContent;
+
   return (
     <>
       {shouldShowNavbar && <ImobNavbar />} {/* Exibe a navbar em todas as páginas, exceto na HomePage */}
-      {usesPatientsAppShell
-      || usesPlansAppShell
-      || usesFinancialAppShell
-      || usesTeamAppShell
-      || usesSettingsAppShell ? (
-        <AppShell pageTitle={getAppShellPageTitle(location.pathname)}>
-          {routeContent}
-        </AppShell>
-      ) : routeContent}
+      {usesAppShell ? (
+        <PendingCenterProvider enabled>
+          {clinicAreaContent}
+        </PendingCenterProvider>
+      ) : clinicAreaContent}
     </>
   );
 }

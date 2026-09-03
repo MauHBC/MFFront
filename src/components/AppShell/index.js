@@ -23,6 +23,7 @@ import {
   CloseNavigationButton,
   ContentColumn,
   Header,
+  HeaderActions,
   HeaderContext,
   HeaderTitle,
   LogoutButton,
@@ -55,6 +56,10 @@ import {
   UserMeta,
   UserPopover,
 } from "./styled";
+import {
+  PendingCenterDrawer,
+  PendingCenterTrigger,
+} from "../PendingCenter";
 
 const PINNED_STORAGE_KEY = "multifisio:app-shell:sidebar-pinned";
 const OPEN_MODULES_STORAGE_KEY = "multifisio:app-shell:open-modules";
@@ -464,38 +469,42 @@ export default function AppShell({ children, pageTitle }) {
             </HeaderTitle>
           </HeaderContext>
 
-          <UserArea>
-            <UserButton
-              ref={userButtonRef}
-              type="button"
-              onClick={() => setUserMenuOpen((current) => !current)}
-              aria-label="Abrir menu do usuário"
-              aria-haspopup="menu"
-              aria-expanded={userMenuOpen}
-            >
-              <FaUserCircle aria-hidden="true" />
-              <span>{username || "Usuário"}</span>
-              <FaChevronDown aria-hidden="true" />
-            </UserButton>
+          <HeaderActions>
+            <PendingCenterTrigger />
+            <UserArea>
+              <UserButton
+                ref={userButtonRef}
+                type="button"
+                onClick={() => setUserMenuOpen((current) => !current)}
+                aria-label="Abrir menu do usuário"
+                aria-haspopup="menu"
+                aria-expanded={userMenuOpen}
+              >
+                <FaUserCircle aria-hidden="true" />
+                <span>{username || "Usuário"}</span>
+                <FaChevronDown aria-hidden="true" />
+              </UserButton>
 
-            {userMenuOpen && (
-              <UserPopover role="menu">
-                <UserMeta>
-                  <small>Usuário autenticado</small>
-                  <strong>{username || "Usuário"}</strong>
-                </UserMeta>
-                <LogoutButton type="button" role="menuitem" onClick={handleLogout}>
-                  <FaSignOutAlt aria-hidden="true" />
-                  Sair
-                </LogoutButton>
-              </UserPopover>
-            )}
-          </UserArea>
+              {userMenuOpen && (
+                <UserPopover role="menu">
+                  <UserMeta>
+                    <small>Usuário autenticado</small>
+                    <strong>{username || "Usuário"}</strong>
+                  </UserMeta>
+                  <LogoutButton type="button" role="menuitem" onClick={handleLogout}>
+                    <FaSignOutAlt aria-hidden="true" />
+                    Sair
+                  </LogoutButton>
+                </UserPopover>
+              )}
+            </UserArea>
+          </HeaderActions>
         </Header>
 
         <Main id="app-main-content" tabIndex="-1">
           {children}
         </Main>
+        <PendingCenterDrawer />
       </ContentColumn>
     </Shell>
   );

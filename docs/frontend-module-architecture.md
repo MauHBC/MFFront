@@ -316,6 +316,14 @@ sidebar, cabeçalho, drawer mobile, menu do usuário e landmarks;
 `styled.js` contém a estrutura responsiva; e `styles/tokens.js` define os tokens
 semânticos usados pelo shell.
 
+A Central de pendências pertence ao cabeçalho global da área da clínica. Seu
+sino fica imediatamente antes do menu do usuário, permanece visível sem itens e
+mostra o badge somente quando a contagem é positiva. O provider único em
+`src/components/PendingCenter` mantém as consultas, contagens e o drawer lateral;
+a Agenda apenas consome essa fonte para atualizar pendências após suas mutações e
+para executar, quando solicitado pelo drawer, as ações de abrir um dia ou iniciar
+o agendamento de uma reposição.
+
 `src/routes/index.js` envolve Pacientes, Planos, Financeiro e Configurações em uma instância
 compartilhada. Menu, Painel, Agenda e Configurações da Agenda ainda montam
 `AppShell` nas próprias páginas. Por isso, as chaves dos módulos abertos são
