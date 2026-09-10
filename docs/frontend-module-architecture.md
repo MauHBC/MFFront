@@ -297,6 +297,19 @@ renderização de Mensalidades permanecem no fluxo de Mensalidades. A visão
 dedicada de Recebimentos continua desabilitada intencionalmente e fora dessa
 capacidade compartilhada ativa.
 
+### Evolução anual da Visão geral financeira
+
+A Visão geral separa `Resumo mensal` e `Evolução anual` como modos principais,
+cada um com estado de período e controles próprios. A evolução anual preserva o
+resumo consolidado e consome os 12 buckets de competência retornados por
+`GET /financial-overview?year=YYYY`. A página valida estruturalmente o contrato,
+mas não recalcula valores financeiros: o backend permanece a autoridade dos
+totais e de `currentResult`.
+
+O gráfico de barras, seus rótulos monetários e a tabela usam diretamente os
+mesmos buckets. Com a privacidade ativa, a tabela mascara os valores e o gráfico
+não renderiza rótulos nem qualquer proporção financeira real.
+
 ### Despesas da clínica
 
 Em Despesas, a ação **Desfazer pagamento** solicita um motivo antes de reabrir

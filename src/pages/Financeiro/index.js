@@ -634,71 +634,93 @@ const createEmptyClinicExpensePayment = () => ({
 
 const emptyFinancialOverview = (period = "", periodMode = "month") => ({
   ...(periodMode === "year" ? { year: period } : { month: period }),
-  revenues: {
-    expected: 0,
-    received: 0,
-    pending: 0,
-  },
-  expenses: {
-    total: 0,
-    paid: 0,
-    open: 0,
-    overdue: 0,
-  },
-  result: {
-    expected: 0,
-    realized: 0,
-  },
   summary: {
     received: 0,
     receivable: 0,
     paidExpenses: 0,
     pendingExpenses: 0,
-    currentBalance: 0,
-    forecastBalance: 0,
+    currentResult: 0,
+    pendingBalance: 0,
   },
+  months: [],
+  hasMonthlyBreakdown: false,
   hasMovement: false,
 });
+
+const normalizeFinancialAmount = (value) => {
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : 0;
+};
+
+const normalizeFinancialOverviewMonths = (items, year) => {
+  if (!Array.isArray(items) || items.length !== 12 || !/^\d{4}$/.test(String(year || ""))) {
+    return null;
+  }
+
+  const itemsByMonth = new Map();
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+    const item = items[itemIndex];
+    const month = String(item?.month || "");
+    if (itemsByMonth.has(month)) return null;
+    itemsByMonth.set(month, item);
+  }
+
+  const fields = [
+    "received",
+    "receivable",
+    "paidExpenses",
+    "pendingExpenses",
+    "currentResult",
+    "pendingBalance",
+  ];
+
+  const normalizedItems = [];
+  for (let index = 0; index < 12; index += 1) {
+    const month = `${year}-${String(index + 1).padStart(2, "0")}`;
+    const source = itemsByMonth.get(month);
+    if (!source) return null;
+
+    const normalized = { month };
+    for (let fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
+      const field = fields[fieldIndex];
+      const value = Number(source[field]);
+      if (!Number.isFinite(value)) return null;
+      normalized[field] = value;
+    }
+    normalizedItems.push(normalized);
+  }
+  return normalizedItems;
+};
 
 const normalizeFinancialOverview = (
   payload = {},
   fallbackPeriod = "",
   periodMode = "month",
 ) => {
-  const received = Number(payload.received || 0);
-  const receivable = Number(payload.receivable || 0);
-  const paidExpenses = Number(payload.paidExpenses || 0);
-  const pendingExpenses = Number(payload.pendingExpenses || 0);
-  const currentBalance = Number(payload.currentResult || 0);
-  const forecastBalance = Number(payload.pendingBalance || 0);
+  const received = normalizeFinancialAmount(payload.received);
+  const receivable = normalizeFinancialAmount(payload.receivable);
+  const paidExpenses = normalizeFinancialAmount(payload.paidExpenses);
+  const pendingExpenses = normalizeFinancialAmount(payload.pendingExpenses);
+  const currentResult = normalizeFinancialAmount(payload.currentResult);
+  const pendingBalance = normalizeFinancialAmount(payload.pendingBalance);
+  const annualMonths = periodMode === "year"
+    ? normalizeFinancialOverviewMonths(payload.months, payload.year || fallbackPeriod)
+    : null;
 
   return {
     ...(periodMode === "year"
       ? { year: payload.year || fallbackPeriod }
       : { month: payload.month || fallbackPeriod }),
-    revenues: {
-      expected: received + receivable,
-      received,
-      pending: receivable,
-    },
-    expenses: {
-      total: paidExpenses + pendingExpenses,
-      paid: paidExpenses,
-      open: pendingExpenses,
-      overdue: 0,
-    },
-    result: {
-      expected: received + receivable - (paidExpenses + pendingExpenses),
-      realized: currentBalance,
-    },
     summary: {
       received,
       receivable,
       paidExpenses,
       pendingExpenses,
-      currentBalance,
-      forecastBalance,
+      currentResult,
+      pendingBalance,
     },
+    months: annualMonths || [],
+    hasMonthlyBreakdown: Array.isArray(annualMonths),
     hasMovement: [
       received,
       receivable,
@@ -756,6 +778,13 @@ export default function Financeiro() {
     toMonthInputValue(new Date()),
   );
   const [overviewPeriodMode, setOverviewPeriodMode] = useState("month");
+  const [overviewPeriodMonth, setOverviewPeriodMonth] = useState(() =>
+    toMonthInputValue(new Date()),
+  );
+  const [overviewPeriodYear, setOverviewPeriodYear] = useState(() =>
+    String(new Date().getFullYear()),
+  );
+  const overviewMonthPickerRef = useRef(null);
   const [clinicExpensesPeriodMode, setClinicExpensesPeriodMode] = useState("month");
   const [clinicExpensesFilters, setClinicExpensesFilters] = useState({
     status: "all",
@@ -1236,12 +1265,18 @@ export default function Financeiro() {
     clinicExpenseCategories,
   ]);
 
-  const overviewMonthLabel = useMemo(() => {
-    const parsed = parseMonthInputValue(clinicExpensesMonth);
+  const overviewPeriodLabel = useMemo(() => {
+    if (overviewPeriodMode === "year") return overviewPeriodYear;
+    const parsed = parseMonthInputValue(overviewPeriodMonth);
     if (!parsed) return "";
-    if (overviewPeriodMode === "year") return String(parsed.year);
     return formatMonthYear(new Date(parsed.year, parsed.month - 1, 1));
-  }, [clinicExpensesMonth, overviewPeriodMode]);
+  }, [overviewPeriodMode, overviewPeriodMonth, overviewPeriodYear]);
+
+  const overviewYearOptions = useMemo(() => {
+    const nowYear = new Date().getFullYear();
+    const selectedYear = Number(overviewPeriodYear) || nowYear;
+    return Array.from({ length: 11 }, (_, index) => String(selectedYear - 5 + index));
+  }, [overviewPeriodYear]);
 
   const clinicExpensesPeriodLabel = useMemo(() => {
     const parsed = parseMonthInputValue(clinicExpensesMonth);
@@ -1341,10 +1376,9 @@ export default function Financeiro() {
   ]);
 
   const loadOverviewData = useCallback(async () => {
-    const parsedPeriod = parseMonthInputValue(clinicExpensesMonth);
     const overviewPeriod = overviewPeriodMode === "year"
-      ? String(parsedPeriod?.year || "")
-      : clinicExpensesMonth;
+      ? overviewPeriodYear
+      : overviewPeriodMonth;
     if (!overviewPeriod) return;
 
     const requestId = overviewRequestRef.current + 1;
@@ -1375,7 +1409,7 @@ export default function Financeiro() {
         setLoadingOverview(false);
       }
     }
-  }, [clinicExpensesMonth, overviewPeriodMode]);
+  }, [overviewPeriodMode, overviewPeriodMonth, overviewPeriodYear]);
 
   const loadRevenuesSummary = useCallback(async () => {
     const summaryPeriod = attendancePeriodMode === "year"
@@ -1931,15 +1965,48 @@ export default function Financeiro() {
     setOverviewPeriodMode(nextMode);
   }, []);
 
+  const handleOverviewMonthChange = useCallback((event) => {
+    const { value } = event.target;
+    if (!parseMonthInputValue(value)) return;
+    setOverviewPeriodMonth(value);
+  }, []);
+
+  const handleOverviewYearChange = useCallback((event) => {
+    const year = String(event.target.value || "").trim();
+    if (!/^\d{4}$/.test(year)) return;
+    setOverviewPeriodYear(year);
+  }, []);
+
+  const handleOverviewPeriodTagClick = useCallback(() => {
+    if (overviewPeriodMode !== "month") return;
+    const input = overviewMonthPickerRef.current;
+    if (!input) return;
+    if (typeof input.showPicker === "function") {
+      try {
+        input.showPicker();
+        return;
+      } catch (error) {
+        // fallback below
+      }
+    }
+    input.focus();
+    input.click();
+  }, [overviewPeriodMode]);
+
   const shiftOverviewPeriod = useCallback((direction) => {
     if (!Number.isFinite(direction) || direction === 0) return;
-    setClinicExpensesMonth((prev) => {
+    if (overviewPeriodMode === "year") {
+      setOverviewPeriodYear((previousYear) => (
+        String((Number(previousYear) || new Date().getFullYear()) + direction)
+      ));
+      return;
+    }
+    setOverviewPeriodMonth((prev) => {
       const parsed = parseMonthInputValue(prev);
       const baseDate = parsed
         ? new Date(parsed.year, parsed.month - 1, 1)
         : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-      const offset = overviewPeriodMode === "year" ? direction * 12 : direction;
-      const target = new Date(baseDate.getFullYear(), baseDate.getMonth() + offset, 1);
+      const target = new Date(baseDate.getFullYear(), baseDate.getMonth() + direction, 1);
       return toMonthInputValue(target);
     });
   }, [overviewPeriodMode]);
@@ -5057,6 +5124,7 @@ export default function Financeiro() {
         AttendancePeriodButton,
         AttendancePeriodChip,
         AttendancePeriodMonthInput,
+        AttendancePeriodYearSelect,
         AttendanceCard,
         AttendanceCardHeader,
         AttendanceCardTitle,
@@ -5068,14 +5136,25 @@ export default function Financeiro() {
         AttendanceMetricValue,
         AttendanceEmptyState,
         BlockLoader,
+        AttendanceTableCard,
+        AttendanceTableScroll,
+        AnnualOverviewTable,
+        AttendanceMoneyText,
+        attendancePalette: ATTENDANCE_UI.colors,
       }}
       loading={loadingOverview}
       overview={overviewSummary}
-      overviewMonth={clinicExpensesMonth}
-      overviewMonthLabel={overviewMonthLabel}
+      overviewMonth={overviewPeriodMonth}
+      overviewYear={overviewPeriodYear}
+      overviewYearOptions={overviewYearOptions}
+      overviewPeriodLabel={overviewPeriodLabel}
       overviewPeriodMode={overviewPeriodMode}
+      financialValuesVisible={financialValuesVisible}
       formatCurrency={formatCurrency}
-      handleOverviewMonthChange={handleClinicExpenseMonthChange}
+      overviewMonthPickerRef={overviewMonthPickerRef}
+      handleOverviewMonthChange={handleOverviewMonthChange}
+      handleOverviewYearChange={handleOverviewYearChange}
+      handleOverviewPeriodTagClick={handleOverviewPeriodTagClick}
       handleOverviewPeriodModeChange={handleOverviewPeriodModeChange}
       handleOverviewPreviousMonth={handleOverviewPreviousMonth}
       handleOverviewNextMonth={handleOverviewNextMonth}
@@ -8240,6 +8319,11 @@ const AttendanceTabButton = styled.button`
     color: ${(props) => (props.$active ? "#fff" : ATTENDANCE_UI.colors.textPrimary)};
   }
 
+  &:focus-visible {
+    outline: 3px solid rgba(95, 121, 87, 0.24);
+    outline-offset: 2px;
+  }
+
   &:disabled {
     cursor: not-allowed;
     opacity: 0.45;
@@ -8270,6 +8354,11 @@ const AttendancePeriodButton = styled.button`
     border-color: ${ATTENDANCE_UI.colors.borderStrong};
     color: ${ATTENDANCE_UI.colors.textPrimary};
   }
+
+  &:focus-visible {
+    outline: 3px solid rgba(95, 121, 87, 0.2);
+    outline-offset: 2px;
+  }
 `;
 
 const AttendancePeriodChip = styled.div`
@@ -8286,6 +8375,11 @@ const AttendancePeriodChip = styled.div`
   line-height: ${ATTENDANCE_UI.font.lineHeight.sm};
   font-weight: ${ATTENDANCE_UI.font.weight.semibold};
   cursor: pointer;
+
+  &:focus-visible {
+    outline: 3px solid rgba(95, 121, 87, 0.2);
+    outline-offset: 2px;
+  }
 `;
 
 const AttendancePackageCard = styled.div`
@@ -8494,6 +8588,68 @@ const AttendanceOverviewTable = styled(SimpleTable)`
   th:last-child,
   td:last-child {
     text-align: right;
+  }
+`;
+
+const AnnualOverviewTable = styled(AttendanceOverviewTable)`
+  min-width: 620px;
+
+  th,
+  td {
+    padding: 8px 14px;
+  }
+
+  th:not(:first-child),
+  td:not(:first-child) {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  th[data-primary-metric="true"],
+  td[data-primary-metric="true"] {
+    box-shadow: inset 2px 0 0 ${ATTENDANCE_UI.colors.actionBorder};
+  }
+
+  th[data-primary-metric="true"] {
+    color: ${ATTENDANCE_UI.colors.textPrimary};
+    font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  }
+
+  tbody tr:nth-child(even) td {
+    background: ${ATTENDANCE_UI.colors.surface};
+  }
+
+  tbody tr:hover td {
+    background: ${ATTENDANCE_UI.colors.rowHover};
+  }
+
+  tbody td[data-primary-metric="true"] strong {
+    font-weight: 700;
+  }
+
+  tbody tr[data-current-month="true"] td,
+  tbody tr[data-current-month="true"]:hover td {
+    background: ${ATTENDANCE_UI.colors.actionSoft};
+  }
+
+  tbody tr[data-current-month="true"] td:first-child {
+    box-shadow: inset 3px 0 0 ${ATTENDANCE_UI.colors.actionBorder};
+    font-weight: ${ATTENDANCE_UI.font.weight.semibold};
+  }
+
+  tfoot td {
+    padding-top: 11px;
+    padding-bottom: 11px;
+    border-top: 2px solid ${ATTENDANCE_UI.colors.borderStrong};
+    border-bottom: none;
+    background: ${ATTENDANCE_UI.colors.surfaceMuted};
+    color: ${ATTENDANCE_UI.colors.textPrimary};
+    font-weight: 700;
+  }
+
+  tfoot td:not(:first-child) {
+    text-align: right;
+    white-space: nowrap;
   }
 `;
 

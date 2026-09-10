@@ -89,6 +89,19 @@ const revealFinancialValues = async () => {
   await userEvent.click(screen.getByRole("button", { name: "Mostrar valores financeiros" }));
 };
 
+const buildOverviewMonths = (year = "2026", overrides = {}) => (
+  Array.from({ length: 12 }, (_, index) => ({
+    month: `${year}-${String(index + 1).padStart(2, "0")}`,
+    received: 0,
+    receivable: 0,
+    paidExpenses: 0,
+    pendingExpenses: 0,
+    currentResult: 0,
+    pendingBalance: 0,
+    ...(overrides[index + 1] || {}),
+  }))
+);
+
 const expectChargeTableStructure = (serviceName, expectedCells) => {
   const row = screen.getByText(serviceName).closest("tr");
   const table = row.closest("table");
@@ -263,10 +276,22 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
           year: period,
           received: 160000,
           receivable: 140000,
-          paidExpenses: 25000,
+          paidExpenses: 50000,
           pendingExpenses: 25000,
-          currentResult: 135000,
+          currentResult: 110000,
           pendingBalance: 115000,
+          months: buildOverviewMonths(period, {
+            1: { received: 100000, paidExpenses: 25000, currentResult: 75000 },
+            2: {
+              received: 10000,
+              receivable: 140000,
+              paidExpenses: 25000,
+              pendingExpenses: 25000,
+              currentResult: -15000,
+              pendingBalance: 115000,
+            },
+            3: { received: 50000, currentResult: 50000 },
+          }),
         }
         : {
           month: period,
@@ -278,7 +303,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
           pendingBalance: 16000,
         },
     }));
-    renderFinanceiro("/financeiro/visao-geral");
+    const { container } = renderFinanceiro("/financeiro/visao-geral");
     await revealFinancialValues();
 
     await waitFor(() => {
@@ -286,7 +311,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     });
     expect(await screen.findByText("R$ 100,00")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Evolução anual" }));
 
     expect(await screen.findByText("Carregando financeiro...")).toBeInTheDocument();
     await waitFor(() => {
@@ -294,13 +319,31 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     });
     expect(await screen.findByText("Resumo do ano")).toBeInTheDocument();
     expect(screen.getByText("Resultado do ano atual")).toBeInTheDocument();
-    expect(screen.getByText("R$ 1.600,00")).toBeInTheDocument();
+    expect(screen.getAllByText("R$ 1.600,00")).toHaveLength(2);
     expect(screen.getByText("R$ 1.400,00")).toBeInTheDocument();
-    expect(screen.getAllByText("R$ 250,00")).toHaveLength(2);
-    expect(screen.getByText("R$ 1.350,00")).toBeInTheDocument();
+    expect(screen.getAllByText("R$ 500,00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("R$ 1.100,00")).toHaveLength(2);
     expect(screen.getByText("R$ 1.150,00")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Resultado financeiro por mês" }))
+      .toBeInTheDocument();
+    expect(within(screen.getByRole("table", { name: "Evolução financeira mensal" }))
+      .getAllByRole("row")).toHaveLength(14);
 
-    await userEvent.click(screen.getByRole("button", { name: "Mês" }));
+    const annualTable = screen.getByRole("table", { name: "Evolução financeira mensal" });
+    const februaryRow = annualTable.querySelector('[data-month="2026-02"]');
+    const februaryReceived = februaryRow.querySelector('[data-field="received"]');
+    const februaryPaidExpenses = februaryRow.querySelector('[data-field="paidExpenses"]');
+    const februaryResult = februaryRow.querySelector('[data-field="currentResult"]');
+    const februaryBar = container.querySelector('rect[data-month="2026-02"]');
+    const februaryLabel = container.querySelector('text[data-month="2026-02"]');
+    expect(februaryReceived).toHaveTextContent("R$ 100,00");
+    expect(februaryPaidExpenses).toHaveTextContent("R$ 250,00");
+    expect(februaryResult).toHaveTextContent("-R$ 150,00");
+    expect(februaryBar).toHaveAttribute("data-value-cents", "-15000");
+    expect(februaryLabel).toHaveAttribute("data-value-cents", "-15000");
+    expect(februaryLabel.textContent).toBe(februaryResult.textContent);
+
+    await userEvent.click(screen.getByRole("tab", { name: "Resumo mensal" }));
     await waitFor(() => {
       expect(getFinancialOverview).toHaveBeenLastCalledWith("2026-06", "month");
     });
@@ -318,7 +361,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       expect(getFinancialOverview).toHaveBeenCalledWith("2026-07", "month");
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Evolução anual" }));
     await waitFor(() => {
       expect(getFinancialOverview).toHaveBeenCalledWith("2026", "year");
     });
@@ -326,6 +369,23 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await waitFor(() => {
       expect(getFinancialOverview).toHaveBeenCalledWith("2027", "year");
     });
+
+    await userEvent.click(screen.getByRole("tab", { name: "Resumo mensal" }));
+    await waitFor(() => {
+      expect(getFinancialOverview).toHaveBeenLastCalledWith("2026-07", "month");
+    });
+    expect(screen.getByLabelText("Selecionar mês e ano do resumo mensal"))
+      .toHaveValue("2026-07");
+    expect(screen.queryByLabelText("Selecionar ano da evolução anual"))
+      .not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Evolução anual" }));
+    await waitFor(() => {
+      expect(getFinancialOverview).toHaveBeenLastCalledWith("2027", "year");
+    });
+    expect(screen.getByLabelText("Selecionar ano da evolução anual")).toHaveValue("2027");
+    expect(screen.queryByLabelText("Selecionar mês e ano do resumo mensal"))
+      .not.toBeInTheDocument();
   });
 
   it("ignora resposta atrasada de um modo anterior", async () => {
@@ -351,11 +411,11 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await revealFinancialValues();
     expect(await screen.findAllByText("R$ 110,00")).toHaveLength(2);
 
-    await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Evolução anual" }));
     await waitFor(() => {
       expect(getFinancialOverview).toHaveBeenCalledWith("2026", "year");
     });
-    await userEvent.click(screen.getByRole("button", { name: "Mês" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Resumo mensal" }));
     await waitFor(() => {
       expect(getFinancialOverview).toHaveBeenLastCalledWith("2026-06", "month");
     });
@@ -388,7 +448,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       expect(getFinancialOverview).toHaveBeenCalledWith("2026-06", "month");
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Evolução anual" }));
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith(
@@ -397,6 +457,32 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     });
     expect(screen.getByText("Nenhuma movimentação encontrada para este ano."))
       .toBeInTheDocument();
+  });
+
+  it("preserva o resumo anual e controla contrato months inesperado", async () => {
+    getFinancialOverview.mockImplementation((period, mode) => Promise.resolve({
+      data: mode === "year"
+        ? {
+          year: period,
+          received: 50000,
+          receivable: 0,
+          paidExpenses: 20000,
+          pendingExpenses: 0,
+          currentResult: 30000,
+          pendingBalance: 0,
+          months: [{ month: `${period}-01`, currentResult: 30000 }],
+        }
+        : { month: period },
+    }));
+    renderFinanceiro("/financeiro/visao-geral");
+
+    await userEvent.click(screen.getByRole("tab", { name: "Evolução anual" }));
+
+    expect(await screen.findByText("Resumo do ano")).toBeInTheDocument();
+    expect(screen.getByText("Não foi possível carregar a evolução mensal deste ano."))
+      .toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Evolução financeira mensal" }))
+      .not.toBeInTheDocument();
   });
 
   it("abre Configurações em Formas de pagamento e preserva links diretos das abas", async () => {
