@@ -97,7 +97,7 @@ it("exibe Configurações no rodapé desktop e no drawer mobile somente ao Admin
   expect(settingsLink).toHaveAttribute("href", "/configuracoes/documentos");
   expect(settingsLink).toHaveAttribute("aria-current", "page");
 
-  fireEvent.click(container.querySelector("[aria-controls='app-navigation']"));
+  fireEvent.click(container.querySelector("button[aria-label='Abrir navegação']"));
   expect(settingsLink).toBeVisible();
 });
 
@@ -142,16 +142,16 @@ describe("AppShell", () => {
     expect(pendingCenterButton.parentElement).toContainElement(userButton);
   });
 
-  it("inicia compacta, expande temporariamente e fixa a navegação sem perder a preferência", () => {
+  it("inicia compacta, expande temporariamente e mantém a preferência da navegação", () => {
     const { container } = renderShell();
     const sidebar = screen.getByRole("complementary", { name: "Navegação principal" });
 
     expect(container.firstChild).toHaveAttribute("data-sidebar-pinned", "false");
-    expect(screen.queryByRole("button", { name: "Fixar sidebar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Expandir sidebar" })).not.toBeInTheDocument();
 
     fireEvent.mouseEnter(sidebar);
-    expect(screen.getByRole("button", { name: "Fixar sidebar" })).toHaveAttribute(
-      "aria-pressed",
+    expect(screen.getByRole("button", { name: "Expandir sidebar" })).toHaveAttribute(
+      "aria-expanded",
       "false",
     );
 
@@ -161,14 +161,14 @@ describe("AppShell", () => {
     fireEvent.focus(screen.getByRole("button", { name: "Agenda" }));
     expect(screen.getAllByText("Clínica de Fisioterapia com Nome Longo")[0]).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "Fixar sidebar" }));
-    expect(screen.getByRole("button", { name: "Desafixar sidebar" })).toHaveAttribute(
-      "aria-pressed",
+    fireEvent.click(screen.getByRole("button", { name: "Expandir sidebar" }));
+    expect(screen.getByRole("button", { name: "Recolher sidebar" })).toHaveAttribute(
+      "aria-expanded",
       "true",
     );
     expect(window.localStorage.getItem(PINNED_STORAGE_KEY)).toBe("true");
 
-    fireEvent.click(screen.getByRole("button", { name: "Desafixar sidebar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Recolher sidebar" }));
     expect(window.localStorage.getItem(PINNED_STORAGE_KEY)).toBe("false");
   });
 
@@ -178,39 +178,39 @@ describe("AppShell", () => {
     const { container } = renderShell();
 
     expect(container.firstChild).toHaveAttribute("data-sidebar-pinned", "true");
-    expect(screen.getByRole("button", { name: "Desafixar sidebar" })).toHaveAttribute(
-      "aria-pressed",
+    expect(screen.getByRole("button", { name: "Recolher sidebar" })).toHaveAttribute(
+      "aria-expanded",
       "true",
     );
   });
 
-  it("exibe no cabeçalho apenas o controle de ícone, com tooltip e foco por teclado", () => {
+  it("exibe na borda apenas o controle de seta, com tooltip e foco por teclado", () => {
     renderShell();
     const sidebar = screen.getByRole("complementary", { name: "Navegação principal" });
 
     fireEvent.mouseEnter(sidebar);
-    const pinButton = screen.getByRole("button", { name: "Fixar sidebar" });
+    const toggleButton = screen.getByRole("button", { name: "Expandir sidebar" });
 
-    expect(pinButton).toHaveAttribute("title", "Fixar sidebar");
-    expect(pinButton).toHaveAttribute("aria-pressed", "false");
-    expect(pinButton.querySelector("svg")).not.toBeNull();
-    expect(pinButton.querySelector("span")).toBeNull();
+    expect(toggleButton).toHaveAttribute("title", "Expandir sidebar");
+    expect(toggleButton).toHaveAttribute("aria-expanded", "false");
+    expect(toggleButton.querySelector("svg")).not.toBeNull();
+    expect(toggleButton.querySelector("span")).toBeNull();
     expect(screen.queryByText("Fixar aberta")).not.toBeInTheDocument();
 
-    pinButton.focus();
-    expect(pinButton).toHaveFocus();
+    toggleButton.focus();
+    expect(toggleButton).toHaveFocus();
 
-    fireEvent.click(pinButton);
-    expect(screen.getByRole("button", { name: "Desafixar sidebar" })).toHaveAttribute(
+    fireEvent.click(toggleButton);
+    expect(screen.getByRole("button", { name: "Recolher sidebar" })).toHaveAttribute(
       "title",
-      "Desafixar sidebar",
+      "Recolher sidebar",
     );
   });
 
   it("abre e fecha a navegação mobile por botão, overlay e Escape", () => {
     const { container } = renderShell();
 
-    const trigger = container.querySelector("[aria-controls='app-navigation']");
+    const trigger = container.querySelector("button[aria-label='Abrir navegação']");
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(container.querySelector("button[aria-label='Fechar navegação']")).not.toBeNull();
@@ -374,7 +374,7 @@ describe("AppShell", () => {
 
   it("fecha o drawer mobile ao navegar por um submenu", () => {
     const { container } = renderShell("/financeiro/visao-geral");
-    const trigger = container.querySelector("[aria-controls='app-navigation']");
+    const trigger = container.querySelector("button[aria-label='Abrir navegação']");
 
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
@@ -385,7 +385,7 @@ describe("AppShell", () => {
 
   it("fecha o drawer mobile sem recolher os módulos já expandidos", () => {
     const { container, history } = renderShellWithHistory("/financeiro/visao-geral");
-    const trigger = container.querySelector("[aria-controls='app-navigation']");
+    const trigger = container.querySelector("button[aria-label='Abrir navegação']");
 
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole("button", { name: "Planos" }));

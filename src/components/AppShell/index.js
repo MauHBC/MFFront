@@ -4,8 +4,9 @@ import { Link, useHistory, useLocation } from "react-router-dom";
 import {
   FaBars,
   FaChevronDown,
+  FaChevronLeft,
+  FaChevronRight,
   FaSignOutAlt,
-  FaThumbtack,
   FaTimes,
   FaUserCircle,
 } from "react-icons/fa";
@@ -44,7 +45,7 @@ import {
   Shell,
   Sidebar,
   SidebarAdminNavigation,
-  SidebarPinButton,
+  SidebarToggleButton,
   SkipLink,
   SubnavigationLink,
   SubnavigationBadge,
@@ -192,7 +193,7 @@ export default function AppShell({ children, pageTitle }) {
     setMobileOpen(false);
     mobileTriggerRef.current?.focus();
   }, []);
-  const handlePinnedToggle = useCallback(() => {
+  const handleSidebarToggle = useCallback(() => {
     setPinned((current) => !current);
   }, []);
 
@@ -299,18 +300,22 @@ export default function AppShell({ children, pageTitle }) {
           ) : (
             <TenantName $expanded={expanded}>{currentClinicName}</TenantName>
           )}
-          <SidebarPinButton
+          <SidebarToggleButton
             type="button"
             className="app-shell-desktop-only"
             $expanded={expanded}
-            $active={pinned}
-            onClick={handlePinnedToggle}
-            aria-label={pinned ? "Desafixar sidebar" : "Fixar sidebar"}
-            aria-pressed={pinned}
-            title={pinned ? "Desafixar sidebar" : "Fixar sidebar"}
+            onClick={handleSidebarToggle}
+            aria-label={pinned ? "Recolher sidebar" : "Expandir sidebar"}
+            aria-controls="app-navigation"
+            aria-expanded={pinned}
+            title={pinned ? "Recolher sidebar" : "Expandir sidebar"}
           >
-            <FaThumbtack aria-hidden="true" />
-          </SidebarPinButton>
+            {pinned ? (
+              <FaChevronLeft aria-hidden="true" />
+            ) : (
+              <FaChevronRight aria-hidden="true" />
+            )}
+          </SidebarToggleButton>
           <CloseNavigationButton
             type="button"
             aria-label="Fechar navegação"

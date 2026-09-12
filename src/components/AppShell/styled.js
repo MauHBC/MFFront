@@ -88,6 +88,7 @@ export const Sidebar = styled.aside`
 `;
 
 export const TenantArea = styled.div`
+  position: relative;
   height: ${layout.appHeaderHeight};
   min-height: ${layout.appHeaderHeight};
   display: flex;
@@ -183,31 +184,34 @@ export const ActiveClinicSelect = styled.select`
   }
 `;
 
-export const SidebarPinButton = styled.button`
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
+export const SidebarToggleButton = styled.button`
+  position: absolute;
+  top: 50%;
+  right: -11px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
   display: ${(p) => (p.$expanded ? "inline-flex" : "none")};
   align-items: center;
   justify-content: center;
-  margin-left: auto;
   padding: 0;
   border: 1px solid ${colors.appChromeBorder};
-  border-radius: ${radii.md};
-  background: ${(p) => (
-    p.$active ? colors.navigationSubmenuActiveBackground : "transparent"
-  )};
+  border-radius: ${radii.pill};
+  background: var(--app-chrome-background);
   color: ${colors.appChromeForeground};
   cursor: pointer;
+  transform: translateY(-50%);
+  box-shadow: ${shadows.subtle};
   transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
 
   &:hover {
     color: ${colors.appChromeForeground};
-    background: ${(p) => (
-    p.$active
-      ? colors.navigationSubmenuActiveBackground
-      : colors.navigationHoverSurface
-  )};
+    background: ${colors.navigationHoverSurface};
+  }
+
+  svg {
+    width: 9px;
+    height: 9px;
   }
 
   ${chromeFocusRing}
