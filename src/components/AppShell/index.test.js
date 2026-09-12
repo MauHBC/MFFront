@@ -231,7 +231,7 @@ describe("AppShell", () => {
     expect(mockLogout).toHaveBeenCalledTimes(1);
   });
 
-  it("mostra um seletor no cabeçalho e troca pelo membership quando há várias clínicas", () => {
+  it("usa o nome da clínica no canto superior esquerdo como seletor", () => {
     mockClinicSession.session = {
       active_membership_id: 12,
       clinics: [
@@ -241,8 +241,14 @@ describe("AppShell", () => {
     };
 
     renderShell();
+    const sidebar = screen.getByRole("complementary", { name: "Navegação principal" });
+    fireEvent.mouseEnter(sidebar);
     const selector = screen.getByRole("combobox", { name: "Clínica ativa" });
+    const header = screen.getByRole("banner");
+
     expect(selector).toHaveValue("12");
+    expect(sidebar).toContainElement(selector);
+    expect(header).not.toContainElement(selector);
 
     fireEvent.change(selector, { target: { value: "11" } });
     expect(mockSwitchClinic).toHaveBeenCalledWith(11);
@@ -257,6 +263,8 @@ describe("AppShell", () => {
     renderShell();
     expect(screen.queryByRole("combobox", { name: "Clínica ativa" })).not.toBeInTheDocument();
     expect(screen.getByTitle("Clínica Norte")).toHaveTextContent("Clínica Norte");
+    expect(screen.getAllByText("Clínica Norte")).toHaveLength(1);
+    expect(screen.getByRole("banner")).not.toHaveTextContent("Clínica Norte");
   });
 
   it("expande Financeiro no modo compacto e abre a Visão geral sem fixar a sidebar", () => {

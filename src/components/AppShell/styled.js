@@ -138,6 +138,51 @@ export const TenantName = styled.span`
   }
 `;
 
+export const ActiveClinicSelectLabel = styled.label`
+  flex: 1 1 auto;
+  min-width: 0;
+  display: ${(p) => (p.$expanded ? "block" : "none")};
+
+  > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  @media (max-width: ${layout.sidebarBreakpoint}) {
+    display: block;
+  }
+`;
+
+export const ActiveClinicSelect = styled.select`
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px ${spacing.sm};
+  border: 1px solid ${colors.appChromeBorder};
+  border-radius: ${radii.md};
+  background: ${colors.navigationModuleOpenBackgroundFallback};
+  color: ${colors.appChromeForeground};
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: ${typography.weightBold};
+  text-overflow: ellipsis;
+  cursor: pointer;
+  ${chromeFocusRing}
+
+  option {
+    background: ${colors.surface};
+    color: ${colors.textPrimary};
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.62;
+  }
+`;
+
 export const SidebarPinButton = styled.button`
   width: 36px;
   height: 36px;
@@ -582,71 +627,6 @@ export const HeaderActions = styled.div`
   display: flex;
   align-items: center;
   gap: ${spacing.sm};
-`;
-
-export const ClinicNameBadge = styled.span`
-  max-width: 220px;
-  overflow: hidden;
-  padding: ${spacing.xs} ${spacing.md};
-  border: 1px solid ${colors.borderSubtle};
-  border-radius: ${radii.pill};
-  color: ${colors.textSecondary};
-  font-size: 0.84rem;
-  font-weight: ${typography.weightSemibold};
-  text-overflow: ellipsis;
-  white-space: nowrap;
-
-  @media (max-width: ${layout.mobileBreakpoint}) {
-    max-width: 120px;
-  }
-`;
-
-export const ClinicSelectLabel = styled.label`
-  display: grid;
-  gap: 2px;
-
-  > span {
-    color: ${colors.textMuted};
-    font-size: 0.65rem;
-    font-weight: ${typography.weightBold};
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
-  @media (max-width: ${layout.mobileBreakpoint}) {
-    > span {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip: rect(0 0 0 0);
-    }
-  }
-`;
-
-export const ClinicSelect = styled.select`
-  max-width: 220px;
-  min-height: 34px;
-  padding: 4px ${spacing.sm};
-  border: 1px solid ${colors.borderSubtle};
-  border-radius: ${radii.md};
-  background: ${colors.surface};
-  color: ${colors.textPrimary};
-  font: inherit;
-  font-size: 0.84rem;
-  font-weight: ${typography.weightSemibold};
-  cursor: pointer;
-  ${focusRing}
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.62;
-  }
-
-  @media (max-width: ${layout.mobileBreakpoint}) {
-    width: 118px;
-    max-width: 118px;
-  }
 `;
 
 export const UserButton = styled.button`

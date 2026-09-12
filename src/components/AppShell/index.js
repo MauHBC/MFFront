@@ -27,9 +27,6 @@ import {
   HeaderActions,
   HeaderContext,
   HeaderTitle,
-  ClinicNameBadge,
-  ClinicSelect,
-  ClinicSelectLabel,
   LogoutButton,
   Main,
   MobileMenuButton,
@@ -53,6 +50,8 @@ import {
   SubnavigationBadge,
   SubnavigationList,
   TenantArea,
+  ActiveClinicSelect,
+  ActiveClinicSelectLabel,
   TenantMark,
   TenantName,
   UserArea,
@@ -277,11 +276,29 @@ export default function AppShell({ children, pageTitle }) {
         onFocus={handleSidebarEnter}
         onBlur={handleSidebarBlur}
       >
-        <TenantArea title={displayName || "Clínica"}>
+        <TenantArea title={currentClinicName}>
           <TenantMark aria-hidden={!logoSrc}>
             {logoSrc ? <img src={logoSrc} alt="" /> : brandInitials}
           </TenantMark>
-          <TenantName $expanded={expanded}>{displayName || "Clínica"}</TenantName>
+          {availableClinics.length > 1 ? (
+            <ActiveClinicSelectLabel $expanded={expanded}>
+              <span>Clínica ativa</span>
+              <ActiveClinicSelect
+                aria-label="Clínica ativa"
+                value={clinicSession.active_membership_id}
+                disabled={clinicSwitching || mutationPending}
+                onChange={(event) => switchClinic(Number(event.target.value))}
+              >
+                {availableClinics.map((clinic) => (
+                  <option key={clinic.membership_id} value={clinic.membership_id}>
+                    {clinic.clinic_name}
+                  </option>
+                ))}
+              </ActiveClinicSelect>
+            </ActiveClinicSelectLabel>
+          ) : (
+            <TenantName $expanded={expanded}>{currentClinicName}</TenantName>
+          )}
           <SidebarPinButton
             type="button"
             className="app-shell-desktop-only"
@@ -486,25 +503,6 @@ export default function AppShell({ children, pageTitle }) {
 
           <HeaderActions>
             <PendingCenterTrigger />
-            {availableClinics.length > 1 ? (
-              <ClinicSelectLabel>
-                <span>Clínica</span>
-                <ClinicSelect
-                  aria-label="Clínica ativa"
-                  value={clinicSession.active_membership_id}
-                  disabled={clinicSwitching || mutationPending}
-                  onChange={(event) => switchClinic(Number(event.target.value))}
-                >
-                  {availableClinics.map((clinic) => (
-                    <option key={clinic.membership_id} value={clinic.membership_id}>
-                      {clinic.clinic_name}
-                    </option>
-                  ))}
-                </ClinicSelect>
-              </ClinicSelectLabel>
-            ) : (
-              <ClinicNameBadge title={currentClinicName}>{currentClinicName}</ClinicNameBadge>
-            )}
             <UserArea>
               <UserButton
                 ref={userButtonRef}
