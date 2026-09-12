@@ -194,6 +194,7 @@ export default function AppShell({ children, pageTitle }) {
     mobileTriggerRef.current?.focus();
   }, []);
   const handleSidebarToggle = useCallback(() => {
+    setTemporarilyExpanded(false);
     setPinned((current) => !current);
   }, []);
 

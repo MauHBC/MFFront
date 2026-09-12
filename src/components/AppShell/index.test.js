@@ -145,6 +145,7 @@ describe("AppShell", () => {
   it("inicia compacta, expande temporariamente e mantém a preferência da navegação", () => {
     const { container } = renderShell();
     const sidebar = screen.getByRole("complementary", { name: "Navegação principal" });
+    const clinicName = screen.getAllByText("Clínica de Fisioterapia com Nome Longo")[0];
 
     expect(container.firstChild).toHaveAttribute("data-sidebar-pinned", "false");
     expect(screen.queryByRole("button", { name: "Expandir sidebar" })).not.toBeInTheDocument();
@@ -155,11 +156,11 @@ describe("AppShell", () => {
       "false",
     );
 
-    expect(screen.getAllByText("Clínica de Fisioterapia com Nome Longo")[0]).toBeVisible();
+    expect(clinicName).toBeVisible();
     fireEvent.mouseLeave(sidebar);
 
     fireEvent.focus(screen.getByRole("button", { name: "Agenda" }));
-    expect(screen.getAllByText("Clínica de Fisioterapia com Nome Longo")[0]).toBeVisible();
+    expect(clinicName).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Expandir sidebar" }));
     expect(screen.getByRole("button", { name: "Recolher sidebar" })).toHaveAttribute(
@@ -169,7 +170,17 @@ describe("AppShell", () => {
     expect(window.localStorage.getItem(PINNED_STORAGE_KEY)).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "Recolher sidebar" }));
+    expect(container.firstChild).toHaveAttribute("data-sidebar-pinned", "false");
     expect(window.localStorage.getItem(PINNED_STORAGE_KEY)).toBe("false");
+    expect(clinicName).not.toBeVisible();
+
+    fireEvent.mouseEnter(sidebar);
+    expect(clinicName).toBeVisible();
+    fireEvent.mouseLeave(sidebar);
+    expect(clinicName).not.toBeVisible();
+
+    fireEvent.focus(screen.getByRole("button", { name: "Agenda" }));
+    expect(clinicName).toBeVisible();
   });
 
   it("restaura a preferência fixada em uma nova montagem", () => {
@@ -252,6 +263,13 @@ describe("AppShell", () => {
 
     fireEvent.change(selector, { target: { value: "11" } });
     expect(mockSwitchClinic).toHaveBeenCalledWith(11);
+
+    fireEvent.click(screen.getByRole("button", { name: "Expandir sidebar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Recolher sidebar" }));
+    expect(selector).not.toBeVisible();
+
+    fireEvent.mouseEnter(sidebar);
+    expect(selector).toBeVisible();
   });
 
   it("mostra somente o nome quando há uma única clínica", () => {
