@@ -41,7 +41,7 @@ const MODE_COPY = {
   },
 };
 
-export function validateAccountAccessForm(mode, values) {
+export function validateAccountAccessForm(mode, values, membershipMode = false) {
   const errors = {};
   if (mode === "create") {
     const email = values.email.trim();
@@ -49,7 +49,7 @@ export function validateAccountAccessForm(mode, values) {
       errors.email = "Informe um e-mail de login válido.";
     }
   }
-  if (mode === "create" || mode === "reset") {
+  if (!membershipMode && (mode === "create" || mode === "reset")) {
     const passwordLength = Array.from(values.password).length;
     if (passwordLength < 8 || passwordLength > 128) {
       errors.password = "A senha deve ter entre 8 e 128 caracteres.";
@@ -64,9 +64,14 @@ export function validateAccountAccessForm(mode, values) {
   return errors;
 }
 
-export default function AccountAccessDrawer({ editor, onChange, onClose, onSubmit }) {
+export default function AccountAccessDrawer({
+  editor, membershipMode, onChange, onClose, onSubmit,
+}) {
   const copy = MODE_COPY[editor.mode];
-  const showPassword = editor.mode === "create" || editor.mode === "reset";
+  const showPassword = !membershipMode && (editor.mode === "create" || editor.mode === "reset");
+  const notice = membershipMode && editor.mode === "create"
+    ? "O vínculo será criado sem senha administrativa. Convite e recuperação por e-mail serão disponibilizados em uma fase futura."
+    : copy.notice;
   return (
     <>
       <DrawerBackdrop onClick={onClose} />
@@ -130,7 +135,7 @@ export default function AccountAccessDrawer({ editor, onChange, onClose, onSubmi
                 </FieldGroup>
               </>
             )}
-            <Notice>{copy.notice}</Notice>
+            <Notice>{notice}</Notice>
             {editor.mode !== "create" && (
               <>
                 <ConfirmLabel>
@@ -160,6 +165,7 @@ export default function AccountAccessDrawer({ editor, onChange, onClose, onSubmi
 }
 
 AccountAccessDrawer.propTypes = {
+  membershipMode: PropTypes.bool,
   editor: PropTypes.shape({
     mode: PropTypes.oneOf(["create", "reset", "block", "unblock"]).isRequired,
     person: PropTypes.shape({
@@ -185,6 +191,8 @@ AccountAccessDrawer.propTypes = {
   onClose: PropTypes.func.isRequired,
   onSubmit: PropTypes.func.isRequired,
 };
+
+AccountAccessDrawer.defaultProps = { membershipMode: false };
 
 const fieldCss = `min-height: 42px; border: 1px solid #d9ded5; border-radius: 8px; background: #fff; color: #263124; padding: 9px 12px; font: inherit;`;
 const Form = styled.form`display: grid; gap: 18px;`;

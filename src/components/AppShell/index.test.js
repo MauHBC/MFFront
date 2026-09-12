@@ -15,6 +15,13 @@ import AppShell, {
 } from ".";
 
 const mockLogout = jest.fn();
+const mockSwitchClinic = jest.fn();
+const mockClinicSession = {
+  session: null,
+  switching: false,
+  mutationPending: false,
+  switchClinic: mockSwitchClinic,
+};
 const mockAuthorization = {
   canViewTeam: false,
   isAdministrator: false,
@@ -45,6 +52,10 @@ jest.mock("../../contexts/AuthorizationContext", () => ({
   useAuthorization: () => mockAuthorization,
 }));
 
+jest.mock("../../contexts/ClinicSessionContext", () => ({
+  useClinicSession: () => mockClinicSession,
+}));
+
 function renderShell(pathname = "/painel") {
   return render(
     <MemoryRouter initialEntries={[pathname]}>
@@ -58,6 +69,10 @@ function renderShell(pathname = "/painel") {
 afterEach(() => {
   mockAuthorization.canViewTeam = false;
   mockAuthorization.isAdministrator = false;
+  mockClinicSession.session = null;
+  mockClinicSession.switching = false;
+  mockClinicSession.mutationPending = false;
+  mockSwitchClinic.mockReset();
 });
 
 it("exibe Equipe no App Shell somente quando autorizada", () => {
@@ -109,7 +124,7 @@ describe("AppShell", () => {
   it("renderiza identidade, conteúdo e rota ativa", () => {
     renderShell();
 
-    expect(screen.getByText("Clínica de Fisioterapia com Nome Longo")).toBeInTheDocument();
+    expect(screen.getAllByText("Clínica de Fisioterapia com Nome Longo")).not.toHaveLength(0);
     expect(screen.getByText("Conteúdo operacional")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Painel" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Agenda" })).not.toHaveAttribute("aria-current");
@@ -140,11 +155,11 @@ describe("AppShell", () => {
       "false",
     );
 
-    expect(screen.getByText("Clínica de Fisioterapia com Nome Longo")).toBeVisible();
+    expect(screen.getAllByText("Clínica de Fisioterapia com Nome Longo")[0]).toBeVisible();
     fireEvent.mouseLeave(sidebar);
 
     fireEvent.focus(screen.getByRole("button", { name: "Agenda" }));
-    expect(screen.getByText("Clínica de Fisioterapia com Nome Longo")).toBeVisible();
+    expect(screen.getAllByText("Clínica de Fisioterapia com Nome Longo")[0]).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Fixar sidebar" }));
     expect(screen.getByRole("button", { name: "Desafixar sidebar" })).toHaveAttribute(
@@ -214,6 +229,34 @@ describe("AppShell", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Sair" }));
 
     expect(mockLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it("mostra um seletor no cabeçalho e troca pelo membership quando há várias clínicas", () => {
+    mockClinicSession.session = {
+      active_membership_id: 12,
+      clinics: [
+        { membership_id: 11, clinic_id: 1, clinic_name: "Clínica Norte" },
+        { membership_id: 12, clinic_id: 2, clinic_name: "Clínica Sul" },
+      ],
+    };
+
+    renderShell();
+    const selector = screen.getByRole("combobox", { name: "Clínica ativa" });
+    expect(selector).toHaveValue("12");
+
+    fireEvent.change(selector, { target: { value: "11" } });
+    expect(mockSwitchClinic).toHaveBeenCalledWith(11);
+  });
+
+  it("mostra somente o nome quando há uma única clínica", () => {
+    mockClinicSession.session = {
+      active_membership_id: 11,
+      clinics: [{ membership_id: 11, clinic_id: 1, clinic_name: "Clínica Norte" }],
+    };
+
+    renderShell();
+    expect(screen.queryByRole("combobox", { name: "Clínica ativa" })).not.toBeInTheDocument();
+    expect(screen.getByTitle("Clínica Norte")).toHaveTextContent("Clínica Norte");
   });
 
   it("expande Financeiro no modo compacto e abre a Visão geral sem fixar a sidebar", () => {

@@ -7,9 +7,9 @@ fechado. O item Equipe aparece no App Shell somente para Administrador
 estrutural que possua `access_profiles.manage`.
 
 A página consulta pessoas, perfis, catálogo, atribuições e contas vinculáveis.
-As junções de apresentação usam apenas `person_id`, `user_id` e `profile_id` dos
-DTOs oficiais. Conta sem pessoa e profissional sem login permanecem estados
-distintos.
+As junções de apresentação usam `person_id`, `profile_id` e o sujeito oficial da
+autoridade atual: `user_id` no legacy ou `membership_id` no modo membership.
+Conta sem pessoa e profissional sem login permanecem estados distintos.
 
 O fluxo de pessoas reutiliza somente os contratos oficiais para:
 
@@ -33,7 +33,8 @@ do backend, que usa o resolvedor oficial.
 
 Cada inclusão ou remoção é enviada aos endpoints tenant-scoped já existentes.
 Inclusões são processadas antes de remoções, e cada operação é transacional,
-auditada, invalida `auth_version` e preserva a proteção do último Administrador.
+auditada e preserva a proteção do último Administrador. Legacy invalida
+`auth_version`; membership invalida somente `access_version` do vínculo alvo.
 
 O catálogo recebido define módulos, combinações, capacidades, dependências e
 poderes exclusivos. O frontend mantém somente rótulos de apresentação em
@@ -55,12 +56,19 @@ Agenda usa os contratos reduzidos `/schedule/references/*` e não consulta os
 diretórios amplos `/patients` e `/users`. O frontend não implementa nem replica
 o resolvedor: apenas interpreta o resultado fechado entregue pelo backend.
 
-O fluxo de contas gerais permite, somente para pessoa ativa já cadastrada:
+No modo legacy, o fluxo de contas gerais permite, somente para pessoa ativa já
+cadastrada:
 
 - criação de conta com e-mail global e senha inicial manual;
 - redefinição de senha;
 - bloqueio e desbloqueio explícitos;
 - exibição separada dos estados da pessoa e da conta.
+
+No modo membership, criação/vínculo envia somente o e-mail, aceita identidade
+global existente e pode deixar o acesso em `pending_credential`. A interface não
+solicita senha inicial nem oferece redefinição administrativa; convite e
+recuperação permanecem fora desta fase. Bloqueio e desbloqueio atuam somente no
+membership da clínica ativa.
 
 Os formulários não enviam `clinic_id`, preservam os campos depois de conflito e
 bloqueiam duplo envio. Redefinição, bloqueio e desbloqueio exigem confirmação.
@@ -68,12 +76,10 @@ Criar uma conta não cria profissional, grupo, perfil ou permissão; as
 atribuições continuam exclusivamente no drawer de perfis. Vínculo marcado como
 inválido pelo backend não oferece mutações na interface.
 
-A entrega de contas não oferece exclusão, convite, seleção de clínica ou edição
-de perfis nativos. O schema do backend admite memberships por clínica para uma
-identidade global, mas o login atual não seleciona tenant e falha fechado diante
-de múltiplos vínculos. O frontend não deve inferir clínica pelo e-mail, domínio
-público ou primeiro membership. Os guards melhoram a experiência; o backend
-continua responsável pelo enforcement autoritativo.
+A entrega de contas não oferece exclusão, convite ou edição de perfis nativos.
+A seleção de clínica fica exclusivamente no cabeçalho global, usa a lista do
+Backend e nunca é inferida por e-mail ou domínio público. Os guards melhoram a
+experiência; o backend continua responsável pelo enforcement autoritativo.
 
 Para atuação profissional ativa, o drawer de inativação só aparece quando o
 contexto oficial informa a disponibilidade do fluxo e

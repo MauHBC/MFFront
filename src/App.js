@@ -11,6 +11,8 @@ import history from "./services/history";
 import Routes from "./routes";
 import { ClinicProvider, useClinicContext } from "./contexts/ClinicContext";
 import { AuthorizationProvider } from "./contexts/AuthorizationContext";
+import { ClinicSessionProvider, useClinicSession } from "./contexts/ClinicSessionContext";
+import { ClinicTransitionGuardProvider } from "./contexts/ClinicTransitionGuardContext";
 import { PublicClinicProvider, usePublicClinicContext } from "./contexts/PublicClinicContext";
 import productIdentity from "./config/productIdentity";
 import TenantLoading from "./components/TenantLoading";
@@ -22,6 +24,7 @@ const AUTH_REDIRECT_PATHS = new Set(["/login", "/login/"]);
 function InitialRenderGate({ children }) {
   const location = useLocation();
   const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
+  const { switching } = useClinicSession();
   const {
     loading: clinicLoading,
     loaded: clinicLoaded,
@@ -38,6 +41,8 @@ function InitialRenderGate({ children }) {
       history.replace("/menu");
     }
   }, [clinicLoaded, isLoggedIn, shouldRedirectAuthenticatedPath]);
+
+  if (switching) return <TenantLoading />;
 
   if (isPublicLandingPath) {
     if (publicLoading || !publicLoaded) {
@@ -63,6 +68,28 @@ function InitialRenderGate({ children }) {
 InitialRenderGate.propTypes = {
   children: PropTypes.node.isRequired,
 };
+
+function AuthenticatedApplication() {
+  const token = useSelector((state) => state.auth.token);
+  const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
+  const sessionKey = isLoggedIn && token ? token : "anonymous";
+  return (
+    <ClinicTransitionGuardProvider key={sessionKey}>
+      <ClinicSessionProvider>
+        <ClinicProvider>
+          <AuthorizationProvider>
+            <AppHelmet />
+            <InitialRenderGate>
+              <Routes />
+            </InitialRenderGate>
+            <AppVersionReloader />
+            <ToastContainer autoClose={2000} className="toats-container" />
+          </AuthorizationProvider>
+        </ClinicProvider>
+      </ClinicSessionProvider>
+    </ClinicTransitionGuardProvider>
+  );
+}
 
 function AppHelmet() {
   const location = useLocation();
@@ -113,16 +140,7 @@ function App() {
       <PersistGate loading={<TenantLoading />} persistor={persistor}>
         <Router history={history}>
           <PublicClinicProvider>
-            <ClinicProvider>
-              <AuthorizationProvider>
-                <AppHelmet />
-                <InitialRenderGate>
-                  <Routes />
-                </InitialRenderGate>
-                <AppVersionReloader />
-                <ToastContainer autoClose={2000} className="toats-container" />
-              </AuthorizationProvider>
-            </ClinicProvider>
+            <AuthenticatedApplication />
           </PublicClinicProvider>
         </Router>
       </PersistGate>

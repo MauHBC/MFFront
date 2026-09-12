@@ -584,6 +584,71 @@ export const HeaderActions = styled.div`
   gap: ${spacing.sm};
 `;
 
+export const ClinicNameBadge = styled.span`
+  max-width: 220px;
+  overflow: hidden;
+  padding: ${spacing.xs} ${spacing.md};
+  border: 1px solid ${colors.borderSubtle};
+  border-radius: ${radii.pill};
+  color: ${colors.textSecondary};
+  font-size: 0.84rem;
+  font-weight: ${typography.weightSemibold};
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  @media (max-width: ${layout.mobileBreakpoint}) {
+    max-width: 120px;
+  }
+`;
+
+export const ClinicSelectLabel = styled.label`
+  display: grid;
+  gap: 2px;
+
+  > span {
+    color: ${colors.textMuted};
+    font-size: 0.65rem;
+    font-weight: ${typography.weightBold};
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  @media (max-width: ${layout.mobileBreakpoint}) {
+    > span {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+    }
+  }
+`;
+
+export const ClinicSelect = styled.select`
+  max-width: 220px;
+  min-height: 34px;
+  padding: 4px ${spacing.sm};
+  border: 1px solid ${colors.borderSubtle};
+  border-radius: ${radii.md};
+  background: ${colors.surface};
+  color: ${colors.textPrimary};
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: ${typography.weightSemibold};
+  cursor: pointer;
+  ${focusRing}
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.62;
+  }
+
+  @media (max-width: ${layout.mobileBreakpoint}) {
+    width: 118px;
+    max-width: 118px;
+  }
+`;
+
 export const UserButton = styled.button`
   min-height: 42px;
   max-width: 260px;

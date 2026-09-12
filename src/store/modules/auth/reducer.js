@@ -6,6 +6,8 @@ const initialState = {
   token: false,
   user: {},
   isLoading: false,
+  clinicSession: null,
+  sessionRevision: 0,
 };
 
 // eslint-disable-next-line func-names, default-param-last
@@ -16,6 +18,8 @@ export default function (state = initialState, action) {
       newState.isLoggedIn = true;
       newState.token = action.payload.token;
       newState.user = action.payload.user;
+      newState.clinicSession = action.payload.clinic_session || null;
+      newState.sessionRevision = Number(state.sessionRevision || 0) + 1;
       newState.isLoading = false;
 
       return newState;

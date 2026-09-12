@@ -13,6 +13,7 @@ import { useClinicContext } from "../../contexts/ClinicContext";
 import { useAuth } from "../../hooks/useAuth";
 import { useLogout } from "../../hooks/useLogout";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
+import { useClinicSession } from "../../contexts/ClinicSessionContext";
 import {
   getVisibleNavigationItems,
   getVisibleFooterNavigationItems,
@@ -26,6 +27,9 @@ import {
   HeaderActions,
   HeaderContext,
   HeaderTitle,
+  ClinicNameBadge,
+  ClinicSelect,
+  ClinicSelectLabel,
   LogoutButton,
   Main,
   MobileMenuButton,
@@ -102,6 +106,12 @@ export default function AppShell({ children, pageTitle }) {
   const handleLogout = useLogout();
   const authorization = useAuthorization();
   const {
+    session: clinicSession,
+    switching: clinicSwitching,
+    mutationPending,
+    switchClinic,
+  } = useClinicSession();
+  const {
     displayName,
     logoSrc,
     brandInitials,
@@ -141,6 +151,11 @@ export default function AppShell({ children, pageTitle }) {
   const navigationRef = useRef(null);
   const userButtonRef = useRef(null);
   const expanded = pinned || temporarilyExpanded;
+  const availableClinics = clinicSession?.clinics || [];
+  const currentClinic = availableClinics.find(
+    ({ membership_id: id }) => Number(id) === Number(clinicSession?.active_membership_id),
+  );
+  const currentClinicName = currentClinic?.clinic_name || displayName || "Clínica";
 
   useEffect(() => {
     window.localStorage.setItem(PINNED_STORAGE_KEY, String(pinned));
@@ -471,6 +486,25 @@ export default function AppShell({ children, pageTitle }) {
 
           <HeaderActions>
             <PendingCenterTrigger />
+            {availableClinics.length > 1 ? (
+              <ClinicSelectLabel>
+                <span>Clínica</span>
+                <ClinicSelect
+                  aria-label="Clínica ativa"
+                  value={clinicSession.active_membership_id}
+                  disabled={clinicSwitching || mutationPending}
+                  onChange={(event) => switchClinic(Number(event.target.value))}
+                >
+                  {availableClinics.map((clinic) => (
+                    <option key={clinic.membership_id} value={clinic.membership_id}>
+                      {clinic.clinic_name}
+                    </option>
+                  ))}
+                </ClinicSelect>
+              </ClinicSelectLabel>
+            ) : (
+              <ClinicNameBadge title={currentClinicName}>{currentClinicName}</ClinicNameBadge>
+            )}
             <UserArea>
               <UserButton
                 ref={userButtonRef}

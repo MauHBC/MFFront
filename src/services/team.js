@@ -91,13 +91,15 @@ export const confirmProfessionalInactivation = (
   { headers: { "Idempotency-Key": idempotencyKey } },
 ).then(data);
 
-export const createTeamAccount = (personId, { email, password, passwordConfirmation }) => api.post(
+export const createTeamAccount = (
+  personId,
+  { email, password, passwordConfirmation },
+  authorizationSource = "legacy",
+) => api.post(
   `/team/people/${personId}/account`,
-  {
-    email,
-    password,
-    password_confirmation: passwordConfirmation,
-  },
+  authorizationSource === "membership"
+    ? { email }
+    : { email, password, password_confirmation: passwordConfirmation },
 ).then(data);
 
 export const resetTeamAccountPassword = (
@@ -135,13 +137,22 @@ export const updateAuthorizationProfile = (
   { name, permissions, capabilities },
 ).then(data);
 
-export const assignAuthorizationProfile = (profileId, userId) => api.post(
+export const assignAuthorizationProfile = (
+  profileId,
+  subjectId,
+  authorizationSource = "legacy",
+) => api.post(
   `/team/profiles/${profileId}/assignments`,
-  { user_id: userId },
+  authorizationSource === "membership"
+    ? { membership_id: subjectId }
+    : { user_id: subjectId },
 ).then(data);
 
-export const unassignAuthorizationProfile = (profileId, userId) => api.delete(
-  `/team/profiles/${profileId}/assignments/${userId}`,
+export const unassignAuthorizationProfile = (
+  profileId,
+  subjectId,
+) => api.delete(
+  `/team/profiles/${profileId}/assignments/${subjectId}`,
 ).then(data);
 
 export const loadTeamReadModel = () => Promise.all([

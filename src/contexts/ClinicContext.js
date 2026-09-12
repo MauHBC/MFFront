@@ -81,6 +81,7 @@ function getInitials(value) {
 
 export function ClinicProvider({ children }) {
   const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
+  const token = useSelector((state) => state.auth.token);
   const [clinic, setClinic] = useState(PENDING_CONTEXT);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -141,7 +142,7 @@ export function ClinicProvider({ children }) {
     return () => {
       active = false;
     };
-  }, [isLoggedIn]);
+  }, [isLoggedIn, token]);
 
   const value = useMemo(() => {
     const displayName = loaded

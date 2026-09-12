@@ -61,6 +61,23 @@ describe("team read service", () => {
     expect(api.delete).toHaveBeenCalledWith("/team/profiles/8/assignments/4");
   });
 
+  it("usa membership_id e nunca envia senha nos contratos membership", async () => {
+    api.post.mockResolvedValue({ data: { membership_id: 14 } });
+    api.delete.mockResolvedValue({ data: null });
+    await createTeamAccount(4, {
+      email: "login@example.test",
+      password: "nao-deve-sair",
+      passwordConfirmation: "nao-deve-sair",
+    }, "membership");
+    await assignAuthorizationProfile(8, 14, "membership");
+    await unassignAuthorizationProfile(8, 14);
+    expect(api.post.mock.calls).toEqual([
+      ["/team/people/4/account", { email: "login@example.test" }],
+      ["/team/profiles/8/assignments", { membership_id: 14 }],
+    ]);
+    expect(api.delete).toHaveBeenCalledWith("/team/profiles/8/assignments/14");
+  });
+
   it("consulta o contexto sem enviar identidade controlada pelo navegador", async () => {
     api.get.mockResolvedValueOnce({ data: { authorization_state: "authorized" } });
     await getAuthorizationContext();

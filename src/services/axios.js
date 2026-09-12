@@ -1,6 +1,7 @@
 import axios from "axios";
 import { toast } from "react-toastify";
 import * as authActions from "../store/modules/auth/actions";
+import { beginMutationRequest, endMutationRequest } from "./requestActivity";
 
 const configuredApiBaseUrl = process.env.REACT_APP_API_BASE_URL;
 export function resolveApiBaseURL(value = configuredApiBaseUrl) {
@@ -128,9 +129,22 @@ export function setupAxiosInterceptors({ store, persistor, history }) {
 
   patchToastError();
 
+  api.interceptors.request.use((config) => {
+    const method = String(config.method || "get").toLowerCase();
+    if (!["get", "head", "options"].includes(method)) {
+      beginMutationRequest();
+      return { ...config, motriaMutationRequest: true };
+    }
+    return config;
+  }, (error) => Promise.reject(error));
+
   responseInterceptorId = api.interceptors.response.use(
-    (response) => response,
+    (response) => {
+      if (response.config?.motriaMutationRequest) endMutationRequest();
+      return response;
+    },
     async (error) => {
+      if (error?.config?.motriaMutationRequest) endMutationRequest();
       const status = error?.response?.status;
       const requestUrl = error?.config?.url || "";
       const authMessage = getAuthMessage(error);

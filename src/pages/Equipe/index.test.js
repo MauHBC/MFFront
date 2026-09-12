@@ -119,6 +119,44 @@ const lifecycleModel = {
   },
 };
 
+const membershipModel = {
+  ...model,
+  people: model.people.map((person) => (person.id === 1 ? {
+    ...person,
+    account: {
+      ...person.account,
+      membership_id: 100,
+      has_credential: false,
+    },
+  } : person)),
+  assignmentState: {
+    authorization_source: "membership",
+    memberships: [{
+      membership_id: 100,
+      person_id: 1,
+      effective_permissions: {
+        authorization_state: "authorized",
+        is_administrator: true,
+        modules: [],
+      },
+    }],
+    assignments: [{ assignment_id: 1, membership_id: 100, profile_id: 20 }],
+  },
+  accountState: {
+    authorization_source: "membership",
+    accounts: [{
+      membership_id: 100,
+      user_id: 10,
+      linked_person_id: 1,
+      login_identifier: "ana@clinica.test",
+      is_active: true,
+      status: "pending_credential",
+      linkage_type: "canonical",
+      has_credential: false,
+    }],
+  },
+};
+
 const openActionsFor = async (name) => {
   const row = (await screen.findByText(name)).closest("article");
   const trigger = within(row).getByRole("button", { name: `Ações de ${name}` });
@@ -371,6 +409,32 @@ describe("Equipe", () => {
     expect(assignAuthorizationProfile).not.toHaveBeenCalled();
     resolveRequest({ user_id: 11 });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Criar acesso" })).not.toBeInTheDocument());
+  });
+
+  it("adapta contas membership sem permitir senha administrativa", async () => {
+    loadTeamReadModel.mockResolvedValue(membershipModel);
+    render(<Equipe />);
+
+    expect(await screen.findByText("Credencial pendente")).toBeInTheDocument();
+    const anaRow = await openActionsFor("Ana");
+    expect(within(anaRow).queryByRole("menuitem", { name: "Redefinir senha" }))
+      .not.toBeInTheDocument();
+
+    const biaRow = await openActionsFor("Bia");
+    fireEvent.click(within(biaRow).getByRole("menuitem", { name: "Criar acesso" }));
+    const drawer = screen.getByRole("dialog", { name: "Criar acesso" });
+    expect(within(drawer).queryByLabelText("Senha inicial")).not.toBeInTheDocument();
+    fireEvent.change(within(drawer).getByLabelText("E-mail de login"), {
+      target: { value: " bia@membership.test " },
+    });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Criar acesso" }));
+
+    await waitFor(() => expect(createTeamAccount).toHaveBeenCalledWith(
+      2,
+      { email: "bia@membership.test" },
+      "membership",
+    ));
+    expect(resetTeamAccountPassword).not.toHaveBeenCalled();
   });
 
   it("preserva formulario quando o e-mail de login entra em conflito", async () => {

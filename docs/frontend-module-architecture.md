@@ -129,6 +129,19 @@ usuário ou desmontagem invalidam a geração corrente e fecham imediatamente o
 shell protegido. Respostas assíncronas de uma sessão anterior, inclusive erros,
 não podem substituir o contexto da nova identidade.
 
+`ClinicSessionProvider` mantém a lista e o membership ativo entregues pelo
+Backend. A troca recebe um novo token, redireciona para `/menu` e remonta por
+completo `ClinicProvider`, `AuthorizationProvider`, rotas e módulos usando o
+token como chave. Durante a transição, `TenantLoading` substitui a aplicação;
+assim branding, permissões, menus e dados anteriores não permanecem visíveis.
+Requisições de escrita em andamento bloqueiam o seletor. Formulários alterados
+exigem confirmação explícita para descarte.
+
+Abas abertas recebem a sessão substituída por `BroadcastChannel`, com evento de
+`localStorage` efêmero como fallback, e repetem a mesma remontagem. A preferência
+é persistida somente pelo Backend; o frontend não mantém uma clínica global
+própria nem aceita `clinic_id` como autoridade.
+
 Agenda usa somente as projeções reduzidas `/schedule/references/*`. A
 permissão de Agenda não libera os diretórios amplos de Pacientes ou Usuários;
 cada módulo e endpoint mantém seu próprio gate.
@@ -352,6 +365,10 @@ mostra o badge somente quando a contagem é positiva. O provider único em
 a Agenda apenas consome essa fonte para atualizar pendências após suas mutações e
 para executar, quando solicitado pelo drawer, as ações de abrir um dia ou iniciar
 o agendamento de uma reposição.
+
+Ao lado do usuário, o cabeçalho mostra o nome da clínica ativa. Uma única clínica
+é texto; com várias, o nome vira seletor de memberships disponíveis. A troca não
+abre tela exclusiva nem refaz login.
 
 `src/routes/index.js` envolve Pacientes, Planos, Financeiro e Configurações em uma instância
 compartilhada. Menu, Painel, Agenda e Configurações da Agenda ainda montam
