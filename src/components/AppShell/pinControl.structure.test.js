@@ -38,4 +38,20 @@ describe("AppShell - estrutura do controle da sidebar", () => {
       "button:not([disabled]):not(.app-shell-desktop-only)",
     );
   });
+
+  it("mantém uma superfície opaca no hover sobre a borda da sidebar", () => {
+    const start = stylesSource.indexOf("export const SidebarToggleButton");
+    const end = stylesSource.indexOf("export const CloseNavigationButton", start);
+    const toggleStyles = stylesSource.slice(start, end);
+
+    expect(toggleStyles).toMatch(
+      /background:\s*\$\{colors\.navigationModuleOpenBackgroundFallback\};/,
+    );
+    expect(toggleStyles).toMatch(
+      /background:\s*\$\{colors\.navigationModuleOpenBackground\};/,
+    );
+    expect(toggleStyles).not.toMatch(
+      /background:\s*\$\{colors\.navigationHoverSurface\};/,
+    );
+  });
 });

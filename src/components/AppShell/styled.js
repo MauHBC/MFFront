@@ -206,7 +206,8 @@ export const SidebarToggleButton = styled.button`
 
   &:hover {
     color: ${colors.appChromeForeground};
-    background: ${colors.navigationHoverSurface};
+    background: ${colors.navigationModuleOpenBackgroundFallback};
+    background: ${colors.navigationModuleOpenBackground};
   }
 
   svg {
