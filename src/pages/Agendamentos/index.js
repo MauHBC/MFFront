@@ -77,22 +77,6 @@ const PATIENT_ATTENTION_INDICATOR_META = {
   },
 };
 
-const inFlightAgendaRequests = new Map();
-
-const reuseInFlightAgendaRequest = (key, requestFactory) => {
-  if (inFlightAgendaRequests.has(key)) {
-    return inFlightAgendaRequests.get(key);
-  }
-
-  const request = Promise.resolve()
-    .then(requestFactory)
-    .finally(() => {
-      inFlightAgendaRequests.delete(key);
-    });
-  inFlightAgendaRequests.set(key, request);
-  return request;
-};
-
 const buildReplacementCreditFromAlert = (alert) => ({
   id: alert?.details?.replacement_credit_id,
   patient_id: alert?.patient_id,
@@ -1164,6 +1148,16 @@ export default function Agendamentos() {
   const routeLocation = useLocation();
   const routeHistory = useHistory();
   const authorization = useAuthorization();
+  const inFlightAgendaRequests = useRef(new Map());
+  const reuseInFlightAgendaRequest = useCallback((key, requestFactory) => {
+    const requests = inFlightAgendaRequests.current;
+    if (requests.has(key)) return requests.get(key);
+    const request = Promise.resolve()
+      .then(requestFactory)
+      .finally(() => requests.delete(key));
+    requests.set(key, request);
+    return request;
+  }, []);
   const {
     pendingSessionsSource,
     updatePendingSessionsSource: setPendingSessionsSource,
@@ -1345,7 +1339,7 @@ export default function Agendamentos() {
     } finally {
       setIsBaseDataLoading(false);
     }
-  }, []);
+  }, [reuseInFlightAgendaRequest]);
 
   const loadSessions = useCallback(
     async (fromDate, toDate) => {
@@ -1374,7 +1368,7 @@ export default function Agendamentos() {
         }
       }
     },
-    [],
+    [reuseInFlightAgendaRequest],
   );
 
   const loadSpecialEvents = useCallback(async (fromDate, toDate) => {
@@ -1397,7 +1391,7 @@ export default function Agendamentos() {
         error?.response?.data?.error || "Não foi possível carregar feriados.";
       toast.error(message);
     }
-  }, []);
+  }, [reuseInFlightAgendaRequest]);
 
   const reloadVisibleSessions = useCallback(
     () => loadSessions(visibleRange.sessionsFrom, visibleRange.sessionsTo),

@@ -18,6 +18,8 @@ import {
   subscribeToMutationRequests,
 } from "../services/requestActivity";
 import {
+  clinicSessionOrder,
+  getClinicSessionRevision,
   publishClinicSession,
   subscribeToClinicSession,
 } from "../services/clinicSessionSync";
@@ -39,21 +41,70 @@ export function ClinicSessionProvider({ children }) {
   const persistedSession = useSelector((state) => state.auth.clinicSession);
   const membershipSession = Number.isSafeInteger(Number(user?.membership_id))
     && Number(user?.membership_id) > 0;
-  const { hasDirtyState, hasSavingState } = useClinicTransitionGuardRegistry();
+  const {
+    hasDirtyState,
+    hasSavingState,
+    revision: guardRevision,
+  } = useClinicTransitionGuardRegistry();
   const [session, setSession] = useState(persistedSession || null);
   const [loading, setLoading] = useState(membershipSession);
   const [switching, setSwitching] = useState(false);
   const [mutationPending, setMutationPending] = useState(false);
+  const [pendingSyncRevision, setPendingSyncRevision] = useState(0);
   const activeRequest = useRef(0);
+  const pendingSynchronizedSession = useRef(null);
 
   useEffect(() => subscribeToMutationRequests((count) => setMutationPending(count > 0)), []);
 
-  useEffect(() => subscribeToClinicSession((payload) => {
-    if (Number(payload.user.id) !== Number(user?.id)) return;
+  useEffect(() => {
+    clinicSessionOrder.seed(user?.id, persistedSession?.session_revision);
+  }, [persistedSession?.session_revision, user?.id]);
+
+  const applySessionPayload = useCallback((payload) => {
+    if (!clinicSessionOrder.claim(payload, user?.id)) return false;
     axios.defaults.headers.Authorization = `Bearer ${payload.token}`;
     dispatch(authActions.loginSuccess(payload));
     history.replace("/menu");
-  }), [dispatch, user?.id]);
+    return true;
+  }, [dispatch, user?.id]);
+
+  useEffect(() => subscribeToClinicSession((payload) => {
+    if (!clinicSessionOrder.isNewer(payload, user?.id)) return;
+    const revision = getClinicSessionRevision(payload);
+    const queuedRevision = getClinicSessionRevision(pendingSynchronizedSession.current) || 0;
+    if (revision <= queuedRevision) return;
+    pendingSynchronizedSession.current = payload;
+    setPendingSyncRevision(revision);
+  }, user?.id), [user?.id]);
+
+  useEffect(() => {
+    const payload = pendingSynchronizedSession.current;
+    if (!payload || !clinicSessionOrder.isNewer(payload, user?.id)) {
+      pendingSynchronizedSession.current = null;
+      return;
+    }
+    if (hasPendingMutationRequest() || hasSavingState()) return;
+    if (hasDirtyState()) {
+      // Native confirmation intentionally preserves work before a remote session replacement.
+      // eslint-disable-next-line no-alert
+      if (!window.confirm(
+        "A clínica foi alterada em outra aba. Deseja descartar as alterações não salvas e sincronizar agora?",
+      )) {
+        pendingSynchronizedSession.current = null;
+        return;
+      }
+    }
+    pendingSynchronizedSession.current = null;
+    applySessionPayload(payload);
+  }, [
+    applySessionPayload,
+    guardRevision,
+    hasDirtyState,
+    hasSavingState,
+    mutationPending,
+    pendingSyncRevision,
+    user?.id,
+  ]);
 
   useEffect(() => {
     const generation = activeRequest.current + 1;
@@ -101,17 +152,16 @@ export function ClinicSessionProvider({ children }) {
         membership_id: target,
       });
       const payload = response.data;
-      axios.defaults.headers.Authorization = `Bearer ${payload.token}`;
-      dispatch(authActions.loginSuccess(payload));
-      history.replace("/menu");
-      publishClinicSession(payload);
-      return true;
+      const applied = applySessionPayload(payload);
+      if (applied) publishClinicSession(payload);
+      else setSwitching(false);
+      return applied;
     } catch (error) {
       toast.error("Não foi possível trocar de clínica.");
       setSwitching(false);
       return false;
     }
-  }, [dispatch, hasDirtyState, hasSavingState, membershipSession, session, switching]);
+  }, [applySessionPayload, hasDirtyState, hasSavingState, membershipSession, session, switching]);
 
   const value = useMemo(() => ({
     session,

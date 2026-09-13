@@ -1,6 +1,8 @@
 /* eslint-env jest */
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act, fireEvent, render, screen, waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { toast } from "react-toastify";
 
@@ -354,6 +356,74 @@ describe("Agendamentos - editar agendamento", () => {
     expect(screen.queryByRole("button", { name: /Central de pendências/ }))
       .not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Novo agendamento" })).toBeInTheDocument();
+  });
+
+  it("não reutiliza requisições da clínica anterior ao remontar durante carregamento", async () => {
+    const defaultGet = axios.get.getMockImplementation();
+    let resolveOldPatients;
+    let resolveOldSessions;
+    let resolveOldSpecialEvents;
+    let patientCalls = 0;
+    let sessionCalls = 0;
+    let specialEventCalls = 0;
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/schedule/references/patients") {
+        patientCalls += 1;
+        if (patientCalls === 1) {
+          return new Promise((resolve) => { resolveOldPatients = resolve; });
+        }
+        return Promise.resolve({ data: [{ id: 120, full_name: "Paciente Clínica B" }] });
+      }
+      if (url === "/sessions") {
+        sessionCalls += 1;
+        if (sessionCalls === 1) {
+          return new Promise((resolve) => { resolveOldSessions = resolve; });
+        }
+        return Promise.resolve({
+          data: [{
+            ...baseSession,
+            id: 210,
+            patient_id: 120,
+            Patient: { id: 120, full_name: "Paciente Clínica B" },
+          }],
+        });
+      }
+      return defaultGet(url, config);
+    });
+    listSpecialSchedulingEvents.mockImplementation(() => {
+      specialEventCalls += 1;
+      if (specialEventCalls === 1) {
+        return new Promise((resolve) => { resolveOldSpecialEvents = resolve; });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    const clinicA = renderAgendamentos();
+    await waitFor(() => {
+      expect(patientCalls).toBe(1);
+      expect(sessionCalls).toBe(1);
+      expect(specialEventCalls).toBe(1);
+    });
+    clinicA.unmount();
+
+    renderAgendamentos();
+    await waitFor(() => {
+      expect(patientCalls).toBe(2);
+      expect(sessionCalls).toBe(2);
+      expect(specialEventCalls).toBe(2);
+    });
+    await act(async () => {
+      resolveOldPatients({ data: [{ id: 20, full_name: "Paciente Clínica A" }] });
+      resolveOldSessions({
+        data: [{
+          ...baseSession,
+          Patient: { id: 20, full_name: "Paciente Clínica A" },
+        }],
+      });
+      resolveOldSpecialEvents({ data: [{ id: 1, name: "Evento Clínica A" }] });
+    });
+
+    expect(screen.queryByText("Paciente Clínica A")).not.toBeInTheDocument();
   });
 
   it("abre a visão Dia na data recebida pela navegação de revisão do feriado", async () => {
