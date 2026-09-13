@@ -1003,7 +1003,7 @@ export default function Equipe() {
         </RowActionButton>
       );
     }
-    if (person.isActive && person.account.hasCredential) {
+    if (person.isActive) {
       return (
         <RowActionButton type="button" onClick={() => openAccountAction("unblock", person)}>
           Desbloquear
@@ -1038,7 +1038,7 @@ export default function Equipe() {
               </RowActionButton>
             )}
             {membershipMode && !person.account.hasCredential && (
-              <NoAccessText>Credencial por e-mail pendente de fluxo futuro</NoAccessText>
+              <NoAccessText>Link de criação de senha enviado por e-mail</NoAccessText>
             )}
             {renderAccountLifecycleAction(person)}
           </>

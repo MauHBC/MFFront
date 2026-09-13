@@ -40,6 +40,13 @@ export const Form = styled.form`
       background-color: var(--public-secondary-color, #3d5230);
     }
   }
+
+  a {
+    margin-top: 12px;
+    color: var(--public-primary-color, #143610);
+    text-align: center;
+    font-weight: 700;
+  }
 `;
 
 export const Container = styled.div`
