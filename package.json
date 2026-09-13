@@ -43,7 +43,9 @@
   },
   "scripts": {
     "sbom": "npm sbom --package-lock-only --sbom-format=cyclonedx",
-    "start": "react-scripts start",
+    "dev": "node scripts/run-local-development.cjs",
+    "start": "node scripts/run-local-development.cjs",
+    "test:local-development": "node --test tests/run-local-development.test.cjs",
     "prebuild": "node scripts/write-build-version.js public",
     "build": "react-scripts build",
     "postbuild": "node scripts/write-build-version.js build",

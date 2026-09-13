@@ -31,6 +31,8 @@ padrões dos módulos autenticados.
 - Em produção, a API é `/api` same-origin e o bundle não contém localhost. Em
   desenvolvimento, o frontend usa `http://localhost:3000` e o backend local
   normalmente usa `http://localhost:3006`.
+- `npm run dev` impõe esses destinos locais e recusa overrides remotos em
+  variáveis de processo ou arquivos `.env*`; worktrees não exigem `.env` manual.
 
 ### Registro modular da landing
 
