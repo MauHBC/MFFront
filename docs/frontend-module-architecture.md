@@ -31,6 +31,8 @@ padrões dos módulos autenticados.
 - Em produção, a API é `/api` same-origin e o bundle não contém localhost. Em
   desenvolvimento, o frontend usa `http://localhost:3000` e o backend local
   normalmente usa `http://localhost:3006`.
+- `npm run dev` impõe esses destinos locais e recusa overrides remotos em
+  variáveis de processo ou arquivos `.env*`; worktrees não exigem `.env` manual.
 
 ### Registro modular da landing
 
@@ -160,6 +162,26 @@ canônicas de
 [reautenticação e `auth_version`](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/team-auth-version.md)
 e de
 [política e armazenamento de senhas](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/password-security.md).
+
+### Primeiro acesso e recuperação membership
+
+O login público oferece “Esqueci minha senha” em `/recuperar-senha`. O formulário
+envia somente o e-mail e apresenta a mesma confirmação neutra; não tenta concluir
+se existe conta, membership ou envio. O Backend mantém proteção contra abuso e é
+a autoridade sobre elegibilidade.
+
+Links de primeiro acesso e recuperação apontam para `/credencial#token=...`. A
+tela lê o bearer do fragmento e remove o fragmento da URL imediatamente, antes de
+inspecioná-lo. Link ausente, expirado, revogado, reutilizado ou com sujeito
+inativo converge para o estado “Link inválido ou expirado”. A página antecipa
+somente comprimento e confirmação; política, validade, uso único, transação e
+invalidação continuam no Backend.
+
+Após sucesso, a tela limpa os campos e conduz ao login sem autenticação
+automática. A nova senha é global para todos os memberships e a conclusão invalida
+sessões antigas; o frontend não escolhe clínica nem preserva um contexto
+autenticado nesse fluxo. O contrato canônico está no Backend em
+[lifecycle de credenciais membership](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/membership-credential-lifecycle.md).
 
 #### Composição modular de `PatientDetails`
 

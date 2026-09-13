@@ -66,9 +66,10 @@ cadastrada:
 
 No modo membership, criação/vínculo envia somente o e-mail, aceita identidade
 global existente e pode deixar o acesso em `pending_credential`. A interface não
-solicita senha inicial nem oferece redefinição administrativa; convite e
-recuperação permanecem fora desta fase. Bloqueio e desbloqueio atuam somente no
-membership da clínica ativa.
+solicita senha inicial nem oferece redefinição administrativa. Identidade nova
+recebe o link de primeiro acesso pelo Backend; recuperação fica disponível na
+tela pública de login. Bloqueio e desbloqueio atuam somente no membership da
+clínica ativa.
 
 Os formulários não enviam `clinic_id`, preservam os campos depois de conflito e
 bloqueiam duplo envio. Redefinição, bloqueio e desbloqueio exigem confirmação.

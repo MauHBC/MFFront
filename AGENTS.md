@@ -6,8 +6,8 @@ usa `main`.
 
 ## Comandos
 
-- Instalar: `npm install`
-- Desenvolvimento: `npm start` em `http://localhost:3000`
+- Instalar por worktree: `npm ci`
+- Desenvolvimento local seguro: `npm run dev` em `http://localhost:3000`
 - Testes: `npm test -- --watchAll=false --runInBand`
 - Lint: `npx eslint src`
 - Mojibake e build: `npm run check:mojibake` e `npm run build`

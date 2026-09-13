@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import { isEmail } from "validator";
 import { useDispatch, useSelector } from "react-redux";
@@ -82,6 +83,7 @@ export default function Login() {
           placeholder="Sua senha"
         />
         <button type="submit">Entrar</button>
+        <Link to="/recuperar-senha">Esqueci minha senha</Link>
       </Form>
     </Container>
   );
