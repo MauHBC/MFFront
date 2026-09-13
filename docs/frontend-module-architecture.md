@@ -129,6 +129,19 @@ usuário ou desmontagem invalidam a geração corrente e fecham imediatamente o
 shell protegido. Respostas assíncronas de uma sessão anterior, inclusive erros,
 não podem substituir o contexto da nova identidade.
 
+`ClinicSessionProvider` mantém a lista e o membership ativo entregues pelo
+Backend. A troca recebe um novo token, redireciona para `/menu` e remonta por
+completo `ClinicProvider`, `AuthorizationProvider`, rotas e módulos usando o
+token como chave. Durante a transição, `TenantLoading` substitui a aplicação;
+assim branding, permissões, menus e dados anteriores não permanecem visíveis.
+Requisições de escrita em andamento bloqueiam o seletor. Formulários alterados
+exigem confirmação explícita para descarte.
+
+Abas abertas recebem a sessão substituída por `BroadcastChannel`, com evento de
+`localStorage` efêmero como fallback, e repetem a mesma remontagem. A preferência
+é persistida somente pelo Backend; o frontend não mantém uma clínica global
+própria nem aceita `clinic_id` como autoridade.
+
 Agenda usa somente as projeções reduzidas `/schedule/references/*`. A
 permissão de Agenda não libera os diretórios amplos de Pacientes ou Usuários;
 cada módulo e endpoint mantém seu próprio gate.
@@ -353,6 +366,10 @@ a Agenda apenas consome essa fonte para atualizar pendências após suas mutaç�
 para executar, quando solicitado pelo drawer, as ações de abrir um dia ou iniciar
 o agendamento de uma reposição.
 
+No canto superior esquerdo da sidebar, a área de identidade mostra o nome da
+clínica ativa. Uma única clínica é texto; com várias, o nome vira seletor de
+memberships disponíveis. A troca não abre tela exclusiva nem refaz login.
+
 `src/routes/index.js` envolve Pacientes, Planos, Financeiro e Configurações em uma instância
 compartilhada. Menu, Painel, Agenda e Configurações da Agenda ainda montam
 `AppShell` nas próprias páginas. Por isso, as chaves dos módulos abertos são
@@ -406,10 +423,12 @@ aprovado; não invente uma rota para completar visualmente a lista.
 ### Estados desktop e mobile
 
 - Desktop inicia compacto. Hover ou foco expande temporariamente sobre o
-  conteúdo; fixar reserva `256px`. Compacto reserva `76px`.
-- O controle de fixação aparece no cabeçalho somente quando a sidebar desktop
-  está expandida. O nome acessível e o tooltip mudam entre “Fixar sidebar” e
-  “Desafixar sidebar”.
+  conteúdo; expandir de modo persistente reserva `256px`. Compacto reserva
+  `76px`.
+- O controle pequeno na borda aparece somente quando a sidebar desktop está
+  expandida. O nome acessível e o tooltip mudam entre “Expandir sidebar” e
+  “Recolher sidebar”. O recolhimento explícito limpa imediatamente a expansão
+  temporária vigente; um novo hover ou foco pode expandi-la novamente.
 - Até `960px`, a mesma árvore vira drawer; não existe uma segunda configuração
   de menus. O drawer fecha após navegar e pelo overlay ou `Escape`. Fixação não
   se aplica no mobile.

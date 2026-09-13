@@ -4,8 +4,9 @@ import { Link, useHistory, useLocation } from "react-router-dom";
 import {
   FaBars,
   FaChevronDown,
+  FaChevronLeft,
+  FaChevronRight,
   FaSignOutAlt,
-  FaThumbtack,
   FaTimes,
   FaUserCircle,
 } from "react-icons/fa";
@@ -13,6 +14,7 @@ import { useClinicContext } from "../../contexts/ClinicContext";
 import { useAuth } from "../../hooks/useAuth";
 import { useLogout } from "../../hooks/useLogout";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
+import { useClinicSession } from "../../contexts/ClinicSessionContext";
 import {
   getVisibleNavigationItems,
   getVisibleFooterNavigationItems,
@@ -43,12 +45,14 @@ import {
   Shell,
   Sidebar,
   SidebarAdminNavigation,
-  SidebarPinButton,
+  SidebarToggleButton,
   SkipLink,
   SubnavigationLink,
   SubnavigationBadge,
   SubnavigationList,
   TenantArea,
+  ActiveClinicSelect,
+  ActiveClinicSelectLabel,
   TenantMark,
   TenantName,
   UserArea,
@@ -102,6 +106,12 @@ export default function AppShell({ children, pageTitle }) {
   const handleLogout = useLogout();
   const authorization = useAuthorization();
   const {
+    session: clinicSession,
+    switching: clinicSwitching,
+    mutationPending,
+    switchClinic,
+  } = useClinicSession();
+  const {
     displayName,
     logoSrc,
     brandInitials,
@@ -141,6 +151,11 @@ export default function AppShell({ children, pageTitle }) {
   const navigationRef = useRef(null);
   const userButtonRef = useRef(null);
   const expanded = pinned || temporarilyExpanded;
+  const availableClinics = clinicSession?.clinics || [];
+  const currentClinic = availableClinics.find(
+    ({ membership_id: id }) => Number(id) === Number(clinicSession?.active_membership_id),
+  );
+  const currentClinicName = currentClinic?.clinic_name || displayName || "Clínica";
 
   useEffect(() => {
     window.localStorage.setItem(PINNED_STORAGE_KEY, String(pinned));
@@ -178,7 +193,8 @@ export default function AppShell({ children, pageTitle }) {
     setMobileOpen(false);
     mobileTriggerRef.current?.focus();
   }, []);
-  const handlePinnedToggle = useCallback(() => {
+  const handleSidebarToggle = useCallback(() => {
+    setTemporarilyExpanded(false);
     setPinned((current) => !current);
   }, []);
 
@@ -262,23 +278,45 @@ export default function AppShell({ children, pageTitle }) {
         onFocus={handleSidebarEnter}
         onBlur={handleSidebarBlur}
       >
-        <TenantArea title={displayName || "Clínica"}>
+        <TenantArea title={currentClinicName}>
           <TenantMark aria-hidden={!logoSrc}>
             {logoSrc ? <img src={logoSrc} alt="" /> : brandInitials}
           </TenantMark>
-          <TenantName $expanded={expanded}>{displayName || "Clínica"}</TenantName>
-          <SidebarPinButton
+          {availableClinics.length > 1 ? (
+            <ActiveClinicSelectLabel $expanded={expanded}>
+              <span>Clínica ativa</span>
+              <ActiveClinicSelect
+                aria-label="Clínica ativa"
+                value={clinicSession.active_membership_id}
+                disabled={clinicSwitching || mutationPending}
+                onChange={(event) => switchClinic(Number(event.target.value))}
+              >
+                {availableClinics.map((clinic) => (
+                  <option key={clinic.membership_id} value={clinic.membership_id}>
+                    {clinic.clinic_name}
+                  </option>
+                ))}
+              </ActiveClinicSelect>
+            </ActiveClinicSelectLabel>
+          ) : (
+            <TenantName $expanded={expanded}>{currentClinicName}</TenantName>
+          )}
+          <SidebarToggleButton
             type="button"
             className="app-shell-desktop-only"
             $expanded={expanded}
-            $active={pinned}
-            onClick={handlePinnedToggle}
-            aria-label={pinned ? "Desafixar sidebar" : "Fixar sidebar"}
-            aria-pressed={pinned}
-            title={pinned ? "Desafixar sidebar" : "Fixar sidebar"}
+            onClick={handleSidebarToggle}
+            aria-label={pinned ? "Recolher sidebar" : "Expandir sidebar"}
+            aria-controls="app-navigation"
+            aria-expanded={pinned}
+            title={pinned ? "Recolher sidebar" : "Expandir sidebar"}
           >
-            <FaThumbtack aria-hidden="true" />
-          </SidebarPinButton>
+            {pinned ? (
+              <FaChevronLeft aria-hidden="true" />
+            ) : (
+              <FaChevronRight aria-hidden="true" />
+            )}
+          </SidebarToggleButton>
           <CloseNavigationButton
             type="button"
             aria-label="Fechar navegação"

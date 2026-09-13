@@ -4,15 +4,16 @@ import path from "path";
 const componentSource = fs.readFileSync(path.join(__dirname, "index.js"), "utf8");
 const stylesSource = fs.readFileSync(path.join(__dirname, "styled.js"), "utf8");
 
-describe("AppShell - estrutura do controle de fixação", () => {
-  it("mantém o botão no cabeçalho e remove o controle textual do rodapé", () => {
+describe("AppShell - estrutura do controle da sidebar", () => {
+  it("mantém a seta na área da clínica e remove o botão grande de fixação", () => {
     const tenantArea = componentSource.slice(
       componentSource.indexOf("<TenantArea"),
       componentSource.indexOf("</TenantArea>"),
     );
 
-    expect(tenantArea).toContain("<SidebarPinButton");
-    expect(tenantArea).toContain("<FaThumbtack");
+    expect(tenantArea).toContain("<SidebarToggleButton");
+    expect(tenantArea).toContain("<FaChevron");
+    expect(tenantArea).not.toContain("<FaThumbtack");
     expect(tenantArea).toContain('className="app-shell-desktop-only"');
     expect(componentSource).not.toContain("<SidebarFooter");
     expect(componentSource).not.toContain("Fixar aberta");
@@ -20,18 +21,37 @@ describe("AppShell - estrutura do controle de fixação", () => {
   });
 
   it("aparece somente quando expandida no desktop e permanece ausente no drawer móvel", () => {
-    const start = stylesSource.indexOf("export const SidebarPinButton");
+    const start = stylesSource.indexOf("export const SidebarToggleButton");
     const end = stylesSource.indexOf("export const CloseNavigationButton", start);
-    const pinStyles = stylesSource.slice(start, end);
+    const toggleStyles = stylesSource.slice(start, end);
 
-    expect(pinStyles).toMatch(/display:\s*\$\{\(p\).*?"inline-flex".*?"none".*?\};/);
-    expect(pinStyles).toContain("@media (max-width:");
-    expect(pinStyles).toContain("layout.sidebarBreakpoint");
-    expect(pinStyles).toContain("display: none;");
-    expect(pinStyles).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(pinStyles).toContain("transition: none;");
+    expect(toggleStyles).toContain("position: absolute;");
+    expect(toggleStyles).toContain("right: -11px;");
+    expect(toggleStyles).toContain("width: 22px;");
+    expect(toggleStyles).toMatch(/display:\s*\$\{\(p\).*?"inline-flex".*?"none".*?\};/);
+    expect(toggleStyles).toContain("@media (max-width:");
+    expect(toggleStyles).toContain("layout.sidebarBreakpoint");
+    expect(toggleStyles).toContain("display: none;");
+    expect(toggleStyles).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(toggleStyles).toContain("transition: none;");
     expect(componentSource).toContain(
       "button:not([disabled]):not(.app-shell-desktop-only)",
+    );
+  });
+
+  it("mantém uma superfície opaca no hover sobre a borda da sidebar", () => {
+    const start = stylesSource.indexOf("export const SidebarToggleButton");
+    const end = stylesSource.indexOf("export const CloseNavigationButton", start);
+    const toggleStyles = stylesSource.slice(start, end);
+
+    expect(toggleStyles).toMatch(
+      /background:\s*\$\{colors\.navigationModuleOpenBackgroundFallback\};/,
+    );
+    expect(toggleStyles).toMatch(
+      /background:\s*\$\{colors\.navigationModuleOpenBackground\};/,
+    );
+    expect(toggleStyles).not.toMatch(
+      /background:\s*\$\{colors\.navigationHoverSurface\};/,
     );
   });
 });

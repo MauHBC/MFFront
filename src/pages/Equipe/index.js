@@ -5,6 +5,7 @@ import PropTypes from "prop-types";
 import styled from "styled-components";
 import { FaEdit, FaPlus, FaTimes } from "react-icons/fa";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
+import { useClinicTransitionGuard } from "../../contexts/ClinicTransitionGuardContext";
 import {
   activateTeamPerson,
   assignAuthorizationProfile,
@@ -66,6 +67,9 @@ const ACCOUNT_STATUS_LABELS = {
   active: "Acesso ativo",
   blocked: "Acesso bloqueado",
   invalid: "Vínculo inválido",
+  pending_credential: "Credencial pendente",
+  identity_blocked: "Identidade bloqueada",
+  person_inactive: "Pessoa inativa",
 };
 
 function PersonActionsMenu({ personName, children }) {
@@ -118,21 +122,34 @@ const capabilityLabel = (key) => key.split(".").map((part) => ({
 }[part] || MODULE_LABELS[part] || part.replaceAll("_", " "))).join(" · ");
 
 export function buildTeamPresentation(model) {
+  const membershipMode = model.assignmentState?.authorization_source === "membership";
   const accounts = model.accountState?.accounts || [];
-  const accountById = new Map(accounts.map((account) => [account.user_id, account]));
+  const accountById = new Map(accounts.map((account) => [
+    membershipMode ? account.membership_id : account.user_id,
+    account,
+  ]));
   const profileById = new Map((model.profiles || []).map((profile) => [profile.id, profile]));
   const assignmentsByUser = new Map();
-  const assignmentUsers = new Map((model.assignmentState?.users || [])
-    .map((user) => [user.user_id, user]));
+  const assignmentSubjects = membershipMode
+    ? model.assignmentState?.memberships || []
+    : model.assignmentState?.users || [];
+  const assignmentUsers = new Map(assignmentSubjects.map((subject) => [
+    membershipMode ? subject.membership_id : subject.user_id,
+    subject,
+  ]));
   (model.assignmentState?.assignments || []).forEach((assignment) => {
-    const current = assignmentsByUser.get(assignment.user_id) || [];
-    assignmentsByUser.set(assignment.user_id, [...current, assignment.profile_id]);
+    const subjectId = membershipMode ? assignment.membership_id : assignment.user_id;
+    const current = assignmentsByUser.get(subjectId) || [];
+    assignmentsByUser.set(subjectId, [...current, assignment.profile_id]);
   });
 
   const people = (model.people || []).map((person) => {
-    const account = person.account ? accountById.get(person.account.id) : null;
+    const assignmentSubjectId = membershipMode
+      ? person.account?.membership_id
+      : person.account?.id;
+    const account = person.account ? accountById.get(assignmentSubjectId) : null;
     const accountState = account || person.account;
-    const profileIds = person.account ? assignmentsByUser.get(person.account.id) || [] : [];
+    const profileIds = person.account ? assignmentsByUser.get(assignmentSubjectId) || [] : [];
     return {
       id: person.id,
       name: person.name,
@@ -153,14 +170,16 @@ export function buildTeamPresentation(model) {
         id: person.account.id,
         login: accountState?.login_identifier || person.account.email || null,
         isActive: person.account.is_active === true,
-        status: person.account.status || accountState?.status
+        status: (membershipMode ? accountState?.status : person.account.status)
+          || person.account.status || accountState?.status
           || (person.account.is_active ? "active" : "blocked"),
         linkageType: person.account.linkage_type || accountState?.linkage_type || "legacy",
         hasCredential: person.account.has_credential ?? accountState?.has_credential ?? false,
+        assignmentSubjectId,
       } : null,
       profiles: profileIds.map((id) => profileById.get(id)).filter(Boolean),
       effectivePermissions: person.account
-        ? assignmentUsers.get(person.account.id)?.effective_permissions || null
+        ? assignmentUsers.get(assignmentSubjectId)?.effective_permissions || null
         : null,
       isPerson: true,
     };
@@ -175,15 +194,20 @@ export function buildTeamPresentation(model) {
       isPerson: false,
       account: {
         id: account.user_id,
+        assignmentSubjectId: membershipMode ? account.membership_id : account.user_id,
         login: account.login_identifier,
         isActive: account.is_active,
         status: account.status || (account.is_active ? "active" : "blocked"),
         linkageType: account.linkage_type || "legacy",
         hasCredential: account.has_credential === true,
       },
-      profiles: (assignmentsByUser.get(account.user_id) || [])
+      profiles: (assignmentsByUser.get(
+        membershipMode ? account.membership_id : account.user_id,
+      ) || [])
         .map((id) => profileById.get(id)).filter(Boolean),
-      effectivePermissions: assignmentUsers.get(account.user_id)?.effective_permissions || null,
+      effectivePermissions: assignmentUsers.get(
+        membershipMode ? account.membership_id : account.user_id,
+      )?.effective_permissions || null,
     }));
   const assignmentCounts = (model.assignmentState?.assignments || []).reduce((counts, item) => ({
     ...counts,
@@ -589,6 +613,8 @@ export default function Equipe() {
   const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [activatingPersonId, setActivatingPersonId] = useState(null);
   const [actionError, setActionError] = useState("");
+  const authorizationSource = state.model?.assignmentState?.authorization_source || "legacy";
+  const membershipMode = authorizationSource === "membership";
 
   const load = useCallback(async () => {
     if (!authorization.canViewTeam) return;
@@ -638,6 +664,16 @@ export default function Equipe() {
   const accountEditorDirty = accountEditor
     ? JSON.stringify(accountEditor.values) !== JSON.stringify(accountEditor.initialValues)
     : false;
+  useClinicTransitionGuard({
+    dirty: editorDirty || profileEditorDirty || assignmentEditorDirty || accountEditorDirty,
+    saving: Boolean(
+      editor?.submitting
+      || profileEditor?.submitting
+      || assignmentEditor?.submitting
+      || accountEditor?.submitting
+      || activatingPersonId
+    ),
+  });
 
   const openCreate = () => setEditor({
     mode: "create",
@@ -772,7 +808,11 @@ export default function Equipe() {
   const submitAccount = async (event) => {
     event.preventDefault();
     if (!accountEditor || accountEditor.submitting) return;
-    const errors = validateAccountAccessForm(accountEditor.mode, accountEditor.values);
+    const errors = validateAccountAccessForm(
+      accountEditor.mode,
+      accountEditor.values,
+      membershipMode,
+    );
     if (Object.keys(errors).length) {
       setAccountEditor((current) => ({ ...current, errors }));
       return;
@@ -781,11 +821,17 @@ export default function Equipe() {
     const { mode, person, values } = accountEditor;
     try {
       if (mode === "create") {
-        await createTeamAccount(person.id, {
-          email: values.email.trim(),
-          password: values.password,
-          passwordConfirmation: values.passwordConfirmation,
-        });
+        if (membershipMode) {
+          await createTeamAccount(person.id, {
+            email: values.email.trim(),
+          }, authorizationSource);
+        } else {
+          await createTeamAccount(person.id, {
+            email: values.email.trim(),
+            password: values.password,
+            passwordConfirmation: values.passwordConfirmation,
+          });
+        }
       } else if (mode === "reset") {
         await resetTeamAccountPassword(person.id, {
           password: values.password,
@@ -920,10 +966,22 @@ export default function Equipe() {
     const removals = assignmentEditor.initialProfileIds.filter((id) => !assignmentEditor.profileIds.includes(id));
     try {
       await additions.reduce((previous, profileId) => previous.then(
-        () => assignAuthorizationProfile(profileId, assignmentEditor.person.account.id),
+        () => (membershipMode
+          ? assignAuthorizationProfile(
+            profileId,
+            assignmentEditor.person.account.assignmentSubjectId,
+            authorizationSource,
+          )
+          : assignAuthorizationProfile(
+            profileId,
+            assignmentEditor.person.account.assignmentSubjectId,
+          )),
       ), Promise.resolve());
       await removals.reduce((previous, profileId) => previous.then(
-        () => unassignAuthorizationProfile(profileId, assignmentEditor.person.account.id),
+        () => unassignAuthorizationProfile(
+          profileId,
+          assignmentEditor.person.account.assignmentSubjectId,
+        ),
       ), Promise.resolve());
       setAssignmentEditor(null);
       await load();
@@ -974,9 +1032,14 @@ export default function Equipe() {
         </RowActionButton>
         {person.isPerson && (
           <>
-            <RowActionButton type="button" onClick={() => openAccountAction("reset", person)}>
-              Redefinir senha
-            </RowActionButton>
+            {!membershipMode && (
+              <RowActionButton type="button" onClick={() => openAccountAction("reset", person)}>
+                Redefinir senha
+              </RowActionButton>
+            )}
+            {membershipMode && !person.account.hasCredential && (
+              <NoAccessText>Credencial por e-mail pendente de fluxo futuro</NoAccessText>
+            )}
             {renderAccountLifecycleAction(person)}
           </>
         )}
@@ -1157,6 +1220,7 @@ export default function Equipe() {
       {accountEditor && (
         <AccountAccessDrawer
           editor={accountEditor}
+          membershipMode={membershipMode}
           onChange={changeAccountValue}
           onClose={requestAccountClose}
           onSubmit={submitAccount}

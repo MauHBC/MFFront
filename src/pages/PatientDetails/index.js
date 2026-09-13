@@ -16,6 +16,7 @@ import {
 import DataLoadingState from "../../components/DataLoadingState";
 import ClinicalSignatureConfirmModal from "../../components/ClinicalSignatureConfirmModal";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
+import { useClinicContext } from "../../contexts/ClinicContext";
 import axios from "../../services/axios";
 import {
   createPatientClinicalCase,
@@ -85,16 +86,17 @@ function isValidPatientDetailsTab(tab) {
   return Object.values(TABS).includes(tab);
 }
 
-function getPatientDetailsTabStorageKey(patientId) {
-  return `${PATIENT_DETAILS_TAB_STORAGE_PREFIX}${patientId}`;
+function getPatientDetailsTabStorageKey(patientId, sessionScope) {
+  const scopedPatientId = sessionScope ? `${sessionScope}:${patientId}` : patientId;
+  return `${PATIENT_DETAILS_TAB_STORAGE_PREFIX}${scopedPatientId}`;
 }
 
-function getStoredPatientDetailsTab(patientId) {
+function getStoredPatientDetailsTab(patientId, sessionScope) {
   if (!patientId) return TABS.resumo;
 
   try {
     const storedTab = window.sessionStorage.getItem(
-      getPatientDetailsTabStorageKey(patientId),
+      getPatientDetailsTabStorageKey(patientId, sessionScope),
     );
     return isValidPatientDetailsTab(storedTab) ? storedTab : TABS.resumo;
   } catch (error) {
@@ -102,26 +104,27 @@ function getStoredPatientDetailsTab(patientId) {
   }
 }
 
-function storePatientDetailsTab(patientId, tab) {
+function storePatientDetailsTab(patientId, tab, sessionScope) {
   if (!patientId || !isValidPatientDetailsTab(tab)) return;
 
   try {
-    window.sessionStorage.setItem(getPatientDetailsTabStorageKey(patientId), tab);
+    window.sessionStorage.setItem(getPatientDetailsTabStorageKey(patientId, sessionScope), tab);
   } catch (error) {
     // Ignore storage failures; the screen should keep working normally.
   }
 }
 
-function getPatientDetailsCaseStorageKey(patientId) {
-  return `${PATIENT_DETAILS_CASE_STORAGE_PREFIX}${patientId}`;
+function getPatientDetailsCaseStorageKey(patientId, sessionScope) {
+  const scopedPatientId = sessionScope ? `${sessionScope}:${patientId}` : patientId;
+  return `${PATIENT_DETAILS_CASE_STORAGE_PREFIX}${scopedPatientId}`;
 }
 
-function getStoredPatientDetailsCase(patientId) {
+function getStoredPatientDetailsCase(patientId, sessionScope) {
   if (!patientId) return "all";
 
   try {
     const storedCase = window.sessionStorage.getItem(
-      getPatientDetailsCaseStorageKey(patientId),
+      getPatientDetailsCaseStorageKey(patientId, sessionScope),
     );
     return storedCase || "all";
   } catch (error) {
@@ -129,12 +132,12 @@ function getStoredPatientDetailsCase(patientId) {
   }
 }
 
-function storePatientDetailsCase(patientId, clinicalCaseId) {
+function storePatientDetailsCase(patientId, clinicalCaseId, sessionScope) {
   if (!patientId) return;
 
   try {
     window.sessionStorage.setItem(
-      getPatientDetailsCaseStorageKey(patientId),
+      getPatientDetailsCaseStorageKey(patientId, sessionScope),
       clinicalCaseId || "all",
     );
   } catch (error) {
@@ -771,6 +774,8 @@ function buildPatientForm(patient) {
 }
 
 export default function PatientDetails() {
+  const { clinic } = useClinicContext();
+  const sessionScope = clinic?.clinic_id ? `clinic-${clinic.clinic_id}` : null;
   const { id } = useParams();
   const history = useHistory();
   const authorization = useAuthorization();
@@ -786,12 +791,12 @@ export default function PatientDetails() {
   const canEditClinicalPatientData = authorization.canAccessModule("patients", "manage")
     && canWriteClinicalRecords;
   const canViewSchedule = authorization.canAccessModule("schedule", "view");
-  const [activeTab, setActiveTab] = useState(() => getStoredPatientDetailsTab(id));
+  const [activeTab, setActiveTab] = useState(() => getStoredPatientDetailsTab(id, sessionScope));
   const [activeProntuarioSection, setActiveProntuarioSection] = useState(
     PRONTUARIO_SECTIONS.records,
   );
   const [recordCaseFilter, setRecordCaseFilter] = useState(() =>
-    getStoredPatientDetailsCase(id),
+    getStoredPatientDetailsCase(id, sessionScope),
   );
   const [profileLoad, setProfileLoad] = useState({ patientId: null, status: "idle", error: "" });
   const [clinicalLoad, setClinicalLoad] = useState({ patientId: null, status: "idle", error: "" });
@@ -873,8 +878,8 @@ export default function PatientDetails() {
 
   useEffect(() => {
     skipActiveTabPersistenceRef.current = true;
-    setActiveTab(getStoredPatientDetailsTab(id));
-  }, [id]);
+    setActiveTab(getStoredPatientDetailsTab(id, sessionScope));
+  }, [id, sessionScope]);
 
   useEffect(() => {
     if (previousPatientIdRef.current === id) return;
@@ -917,21 +922,21 @@ export default function PatientDetails() {
       skipActiveTabPersistenceRef.current = false;
       return;
     }
-    storePatientDetailsTab(id, activeTab);
-  }, [activeTab, id]);
+    storePatientDetailsTab(id, activeTab, sessionScope);
+  }, [activeTab, id, sessionScope]);
 
   useEffect(() => {
     skipRecordCasePersistenceRef.current = true;
-    setRecordCaseFilter(getStoredPatientDetailsCase(id));
-  }, [id]);
+    setRecordCaseFilter(getStoredPatientDetailsCase(id, sessionScope));
+  }, [id, sessionScope]);
 
   useEffect(() => {
     if (skipRecordCasePersistenceRef.current) {
       skipRecordCasePersistenceRef.current = false;
       return;
     }
-    storePatientDetailsCase(id, recordCaseFilter);
-  }, [id, recordCaseFilter]);
+    storePatientDetailsCase(id, recordCaseFilter, sessionScope);
+  }, [id, recordCaseFilter, sessionScope]);
 
   useEffect(() => {
     if (!id) return undefined;

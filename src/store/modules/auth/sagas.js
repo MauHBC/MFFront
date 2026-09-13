@@ -12,11 +12,10 @@ function* loginRequest({ payload }) {
   try {
     // sending payload to backend, this return a token.
     const response = yield call(axios.post, "/tokens", payload);
+    axios.defaults.headers.Authorization = `Bearer ${response.data.token}`;
     yield put(actions.loginSuccess({ ...response.data }));
 
     toast.success("Você fez login");
-
-    axios.defaults.headers.Authorization = `Bearer ${response.data.token}`;
 
     history.push("/menu");
   } catch (e) {
