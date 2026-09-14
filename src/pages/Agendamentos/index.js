@@ -1148,6 +1148,8 @@ export default function Agendamentos() {
   const routeLocation = useLocation();
   const routeHistory = useHistory();
   const authorization = useAuthorization();
+  const usesMembershipSessionContract =
+    authorization.context?.authorization_source === "membership";
   const inFlightAgendaRequests = useRef(new Map());
   const reuseInFlightAgendaRequest = useCallback((key, requestFactory) => {
     const requests = inFlightAgendaRequests.current;
@@ -2873,7 +2875,9 @@ export default function Agendamentos() {
         status: "scheduled",
         starts_at: newStart.toISOString(),
         notes: session.notes || null,
-        billing_mode: session.billing_mode || "per_session",
+        ...(!usesMembershipSessionContract
+          ? { billing_mode: session.billing_mode || "per_session" }
+          : {}),
         rescheduled_from_id: session.id,
       };
       if (durationMs && durationMs > 0) {
@@ -2904,7 +2908,12 @@ export default function Agendamentos() {
         setIsSaving(false);
       }
     },
-    [filteredSessions, loadPendingSessions, reloadVisibleSessions],
+    [
+      filteredSessions,
+      loadPendingSessions,
+      reloadVisibleSessions,
+      usesMembershipSessionContract,
+    ],
   );
   const handleDragOver = useCallback((event) => {
     event.preventDefault();
@@ -3977,12 +3986,11 @@ export default function Agendamentos() {
         && editReason;
 
       const billingModePayload = {};
-      if (!editingId) {
-        billingModePayload.billing_mode = isSchedulingReplacement
-          ? selectedReplacementBillingMode || form.billing_mode || "per_session"
-          : "per_session";
-      } else if (isSchedulingReplacement) {
-        billingModePayload.billing_mode = form.billing_mode || "per_session";
+      if (!editingId && !isSchedulingReplacement) {
+        billingModePayload.billing_mode = "per_session";
+      } else if (isSchedulingReplacement && !usesMembershipSessionContract) {
+        billingModePayload.billing_mode =
+          selectedReplacementBillingMode || form.billing_mode || "per_session";
       }
 
       const payload = {
@@ -3995,7 +4003,9 @@ export default function Agendamentos() {
           : null,
         service_id: form.service_id ? Number(form.service_id) : null,
         status: form.status || "scheduled",
-        is_initial: editingId ? !!form.is_initial : false,
+        ...(!usesMembershipSessionContract
+          ? { is_initial: editingId ? !!form.is_initial : false }
+          : {}),
         starts_at: form.starts_at,
         ends_at: form.ends_at || null,
         notes: editReason,
@@ -4013,8 +4023,15 @@ export default function Agendamentos() {
         session_replacement_credit_id: form.session_replacement_credit_id
           ? Number(form.session_replacement_credit_id)
           : null,
-        patient_credit_id: selectedPatientCreditId,
-        is_no_charge: !editingId && !isSchedulingReplacement ? !!form.is_no_charge : false,
+        ...(!usesMembershipSessionContract
+          ? { patient_credit_id: selectedPatientCreditId }
+          : {}),
+        ...(!usesMembershipSessionContract || !editingId
+          ? {
+            is_no_charge:
+              !editingId && !isSchedulingReplacement ? !!form.is_no_charge : false,
+          }
+          : {}),
         ...billingModePayload,
       };
       if (!editingId) {
@@ -4374,6 +4391,7 @@ export default function Agendamentos() {
 				      showReplacementCycleWarning,
       shouldSendPriceOverride,
 	      submitLockRef,
+      usesMembershipSessionContract,
       visibleSessionPriceCents,
 	    ],
 	  );

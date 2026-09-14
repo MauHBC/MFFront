@@ -198,7 +198,7 @@ describe("Agendamentos - editar agendamento", () => {
     mockProfessionalAssigned = true;
     mockAuthorization = {
       status: "ready",
-      context: { is_administrator: true },
+      context: { is_administrator: true, authorization_source: "membership" },
       hasCapability: jest.fn(() => true),
     };
 
@@ -244,6 +244,8 @@ describe("Agendamentos - editar agendamento", () => {
               name: "Profissional Alternativo",
               clinic_professional_id: 301,
               is_assigned: config?.params?.patient_id ? mockProfessionalAssigned : null,
+              credential_status: "pending",
+              professional_verification_status: "pending",
             },
           ],
         });
@@ -562,6 +564,11 @@ describe("Agendamentos - editar agendamento", () => {
         rescheduled_from_id: 10,
       }),
     ));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("is_initial");
+    expect(payload).not.toHaveProperty("patient_credit_id");
+    expect(payload).not.toHaveProperty("billing_mode");
+    expect(payload).not.toHaveProperty("is_no_charge");
     expect(axios.put).not.toHaveBeenCalled();
     expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(1);
   });
@@ -582,7 +589,39 @@ describe("Agendamentos - editar agendamento", () => {
         notes: "observacao sem mudanca temporal",
       }),
     ));
+    const payload = axios.put.mock.calls.find(([url]) => url === "/sessions/10")[1];
+    expect(payload).not.toHaveProperty("is_initial");
+    expect(payload).not.toHaveProperty("patient_credit_id");
+    expect(payload).not.toHaveProperty("billing_mode");
+    expect(payload).not.toHaveProperty("is_no_charge");
     expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(0);
+  });
+
+  it("preserva o formato legacy dos campos internos na edicao", async () => {
+    mockAuthorization = {
+      ...mockAuthorization,
+      context: { ...mockAuthorization.context, authorization_source: "legacy" },
+    };
+    sessionsMockData = [{
+      ...baseSession,
+      is_initial: true,
+      patient_credit_id: 501,
+      is_no_charge: true,
+    }];
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    fireEvent.change(container.querySelector('textarea[name="notes"]'), {
+      target: { value: "edicao legacy" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.put).toHaveBeenCalled());
+    const payload = axios.put.mock.calls.find(([url]) => url === "/sessions/10")[1];
+    expect(payload).toEqual(expect.objectContaining({
+      is_initial: true,
+      patient_credit_id: 501,
+      is_no_charge: false,
+    }));
   });
 
   it("mantem PUT quando somente o profissional muda", async () => {
@@ -631,6 +670,10 @@ describe("Agendamentos - editar agendamento", () => {
         rescheduled_from_id: 10,
       }),
     ));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("is_initial");
+    expect(payload).not.toHaveProperty("patient_credit_id");
+    expect(payload).not.toHaveProperty("billing_mode");
     expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(1);
     expect(axios.put).not.toHaveBeenCalled();
   });
@@ -685,6 +728,8 @@ describe("Agendamentos - editar agendamento", () => {
         rescheduled_from_id: 10,
       }),
     ));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("billing_mode");
     expect(axios.put).not.toHaveBeenCalled();
   });
 
@@ -969,7 +1014,6 @@ describe("Agendamentos - editar agendamento", () => {
         starts_at: "2026-06-30T10:00",
         ends_at: "2026-06-30T11:00",
         billing_mode: "per_session",
-        patient_credit_id: null,
         session_replacement_credit_id: null,
         assign_patient_care: false,
         clinic_professional_id: 300,
@@ -977,6 +1021,8 @@ describe("Agendamentos - editar agendamento", () => {
     ));
 
     const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("is_initial");
+    expect(payload).not.toHaveProperty("patient_credit_id");
     expect(payload.billing_mode).not.toBe("covered_by_plan");
     expect(payload).not.toHaveProperty("price_override_cents");
     expect(payload).not.toHaveProperty("billing_cycle_id");
@@ -985,7 +1031,7 @@ describe("Agendamentos - editar agendamento", () => {
     expect(axios.get.mock.calls.some(([url]) => url === "/patient-credits")).toBe(false);
   });
 
-  it("exige ação explícita para atribuir profissional e criar agendamento", async () => {
+  it("agenda profissional novo com credencial e verificacao pendentes por atribuicao explicita", async () => {
     mockProfessionalAssigned = false;
     const { container } = renderAgendamentos();
 
@@ -997,7 +1043,7 @@ describe("Agendamentos - editar agendamento", () => {
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
 
-    const assignmentOption = await screen.findByText("Profissional Teste");
+    const assignmentOption = await screen.findByText("Profissional Alternativo");
     fireEvent.change(container.querySelector('select[name="professional_user_id"]'), {
       target: { value: assignmentOption.value },
     });
@@ -1020,11 +1066,14 @@ describe("Agendamentos - editar agendamento", () => {
       "/sessions",
       expect.objectContaining({
         patient_id: 20,
-        professional_user_id: 30,
+        professional_user_id: 31,
         assign_patient_care: true,
-        clinic_professional_id: 300,
+        clinic_professional_id: 301,
       }),
     ));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("is_initial");
+    expect(payload).not.toHaveProperty("patient_credit_id");
   });
 
   it("trata estado de atribuicao diferente de true como atribuicao explicita", async () => {
@@ -1412,10 +1461,12 @@ describe("Agendamentos - editar agendamento", () => {
         patient_id: 26,
         service_id: 40,
         billing_mode: "per_session",
-        patient_credit_id: null,
         session_replacement_credit_id: null,
       }),
     ));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("is_initial");
+    expect(payload).not.toHaveProperty("patient_credit_id");
   });
 
   it("mantem reposicao explicita quando usuario escolhe usar reposicao", async () => {
@@ -1464,7 +1515,7 @@ describe("Agendamentos - editar agendamento", () => {
             expires_at: "2026-07-30",
 	            source_service_id: 40,
 	            source_service_type: "spine_eval",
-	            source_billing_mode: "per_session",
+	            source_billing_mode: "covered_by_plan",
               sourceSession: {
                 id: 777,
                 starts_at: "2026-05-03T10:00:00",
@@ -1526,11 +1577,13 @@ describe("Agendamentos - editar agendamento", () => {
       expect.objectContaining({
         patient_id: 20,
         service_id: 40,
-        billing_mode: "per_session",
-        patient_credit_id: null,
         session_replacement_credit_id: 901,
       }),
     ));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("is_initial");
+    expect(payload).not.toHaveProperty("patient_credit_id");
+    expect(payload).not.toHaveProperty("billing_mode");
   });
 
   it("envia semana sim semana nao no preview e preserva repeat_interval na confirmacao", async () => {
@@ -1615,6 +1668,7 @@ describe("Agendamentos - editar agendamento", () => {
       }),
 	    ));
     const seriesPayload = axios.post.mock.calls.find(([url]) => url === "/session-series")[1];
+    expect(seriesPayload).toHaveProperty("patient_credit_id", null);
     expect(seriesPayload).not.toHaveProperty("patient_plan_id");
     expect(seriesPayload).not.toHaveProperty("included_cycle_weeks");
   });
