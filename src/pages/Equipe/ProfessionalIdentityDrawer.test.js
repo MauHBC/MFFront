@@ -20,6 +20,8 @@ jest.mock("react-toastify", () => ({
 const pendingPerson = {
   id: 7,
   name: "Fisioterapeuta Teste",
+  email: "fisioterapeuta@example.test",
+  account: null,
   isProfessional: false,
   professionalActive: false,
   professionalIdentity: null,
@@ -27,6 +29,7 @@ const pendingPerson = {
 
 const activeProfessional = (verificationStatus = "pending") => ({
   ...pendingPerson,
+  account: { login: "fisioterapeuta@example.test" },
   isProfessional: true,
   professionalActive: true,
   professionalIdentity: {
@@ -71,6 +74,7 @@ describe("ProfessionalIdentityDrawer", () => {
     await waitFor(() => expect(saveTeamProfessionalIdentity).toHaveBeenCalledWith(7, {
       action: "save_pending",
       activate: true,
+      email: "fisioterapeuta@example.test",
       profession: "physiotherapist",
       registrationRegion: "15",
       registrationNumber: "12345-f",

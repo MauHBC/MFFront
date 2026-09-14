@@ -55,6 +55,7 @@ const model = {
     { id: 1, name: "Ana", email: "ana@clinica.test", phone: "2799999999", is_active: true, professional: { id: 101, is_active: true }, account: { id: 10, email: "ana@clinica.test", is_active: true, status: "active", linkage_type: "legacy", has_credential: true } },
     { id: 2, name: "Bia", email: "bia@clinica.test", phone: null, is_active: true, professional: { id: 102, is_active: true }, account: null },
     { id: 3, name: "Caio", email: null, phone: null, is_active: false, professional: null, account: null },
+    { id: 4, name: "Elisa", email: "elisa@clinica.test", phone: null, is_active: true, professional: null, account: null },
   ],
   profiles: [
     { id: 20, name: "Administrador", native_type: "administrator", is_active: true, permissions: [], capabilities: [] },
@@ -226,16 +227,32 @@ describe("Equipe", () => {
     await waitFor(() => expect(screen.queryByLabelText("Nome")).not.toBeInTheDocument());
   });
 
-  it("cria profissional sem login apenas quando marcado explicitamente", async () => {
+  it("cria profissional com e-mail, acesso e perfil quando marcado explicitamente", async () => {
     render(<Equipe />);
     fireEvent.click(await screen.findByRole("button", { name: /Nova pessoa/ }));
     fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Eduarda" } });
-    fireEvent.click(screen.getByLabelText(/Registrar também como profissional/));
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "eduarda@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText(/Registrar como profissional e criar acesso/));
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(createTeamPerson).toHaveBeenCalledWith(expect.objectContaining({
       name: "Eduarda",
       isProfessional: true,
     })));
+  });
+
+  it("não permite cadastrar profissional sem e-mail", async () => {
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Nova pessoa/ }));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Eduarda" } });
+    fireEvent.click(screen.getByLabelText(/Registrar como profissional e criar acesso/));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(await screen.findByText(
+      "O e-mail é obrigatório para cadastrar um profissional.",
+    )).toBeInTheDocument();
+    expect(createTeamPerson).not.toHaveBeenCalled();
   });
 
   it("cadastra atuação e identidade profissional em um único comando", async () => {
@@ -270,6 +287,7 @@ describe("Equipe", () => {
     await waitFor(() => expect(saveTeamProfessionalIdentity).toHaveBeenCalledWith(4, {
       action: "save_pending",
       activate: true,
+      email: "davi@clinica.test",
       profession: "physiotherapist",
       registrationRegion: "15",
       registrationNumber: "12345-F",
@@ -354,10 +372,10 @@ describe("Equipe", () => {
     await waitFor(() => expect(activateTeamPerson).toHaveBeenCalledWith(3));
   });
 
-  it("diferencia pessoa com conta, profissional sem login e múltiplos perfis", async () => {
+  it("diferencia acesso válido, vínculo profissional incompleto e múltiplos perfis", async () => {
     render(<Equipe />);
     expect(await screen.findByText("ana@clinica.test")).toBeInTheDocument();
-    expect(screen.getByText("Profissional sem login")).toBeInTheDocument();
+    expect(screen.getByText("Vínculo profissional incompleto")).toBeInTheDocument();
     expect(screen.getByText("Administrador, Recepção")).toBeInTheDocument();
     expect(screen.getAllByText("Perfil personalizado").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Inativo").length).toBeGreaterThan(0);
@@ -371,7 +389,8 @@ describe("Equipe", () => {
     fireEvent.click(within(anaRow).getByRole("button", { name: "Ações de Ana" }));
     expect(within(anaRow).getByRole("menuitem", { name: "Editar" })).toBeInTheDocument();
     expect(within(anaRow).getByRole("menuitem", { name: "Gerenciar perfis" })).toBeInTheDocument();
-    expect(within(anaRow).getByRole("menuitem", { name: "Redefinir senha" })).toBeInTheDocument();
+    expect(within(anaRow).queryByRole("menuitem", { name: "Redefinir senha" }))
+      .not.toBeInTheDocument();
     expect(within(anaRow).getByRole("menuitem", { name: "Bloquear" })).toBeInTheDocument();
 
     fireEvent.mouseDown(document.body);
@@ -384,7 +403,7 @@ describe("Equipe", () => {
       resolveRequest = resolve;
     }));
     render(<Equipe />);
-    const row = await openActionsFor("Bia");
+    const row = await openActionsFor("Elisa");
     fireEvent.click(within(row).getByRole("menuitem", { name: "Criar acesso" }));
     const drawer = screen.getByRole("dialog", { name: "Criar acesso" });
     fireEvent.change(within(drawer).getByLabelText("E-mail de login"), {
@@ -401,7 +420,7 @@ describe("Equipe", () => {
     expect(pending).toBeDisabled();
     fireEvent.click(pending);
     expect(createTeamAccount).toHaveBeenCalledTimes(1);
-    expect(createTeamAccount).toHaveBeenCalledWith(2, {
+    expect(createTeamAccount).toHaveBeenCalledWith(4, {
       email: "BIA@Example.Test",
       password: "Senha@123",
       passwordConfirmation: "Senha@123",
@@ -420,8 +439,8 @@ describe("Equipe", () => {
     expect(within(anaRow).queryByRole("menuitem", { name: "Redefinir senha" }))
       .not.toBeInTheDocument();
 
-    const biaRow = await openActionsFor("Bia");
-    fireEvent.click(within(biaRow).getByRole("menuitem", { name: "Criar acesso" }));
+    const elisaRow = await openActionsFor("Elisa");
+    fireEvent.click(within(elisaRow).getByRole("menuitem", { name: "Criar acesso" }));
     const drawer = screen.getByRole("dialog", { name: "Criar acesso" });
     expect(within(drawer).queryByLabelText("Senha inicial")).not.toBeInTheDocument();
     fireEvent.change(within(drawer).getByLabelText("E-mail de login"), {
@@ -430,7 +449,7 @@ describe("Equipe", () => {
     fireEvent.click(within(drawer).getByRole("button", { name: "Criar acesso" }));
 
     await waitFor(() => expect(createTeamAccount).toHaveBeenCalledWith(
-      2,
+      4,
       { email: "bia@membership.test" },
       "membership",
     ));
@@ -442,7 +461,7 @@ describe("Equipe", () => {
       response: { data: { error: "LOGIN_IDENTIFIER_UNAVAILABLE" } },
     });
     render(<Equipe />);
-    const row = await openActionsFor("Bia");
+    const row = await openActionsFor("Elisa");
     fireEvent.click(within(row).getByRole("menuitem", { name: "Criar acesso" }));
     const drawer = screen.getByRole("dialog", { name: "Criar acesso" });
     fireEvent.change(within(drawer).getByLabelText("Senha inicial"), {
@@ -458,6 +477,12 @@ describe("Equipe", () => {
   });
 
   it("redefine senha com confirmação sem modificar perfis", async () => {
+    loadTeamReadModel.mockResolvedValue({
+      ...model,
+      people: model.people.map((person) => (
+        person.id === 1 ? { ...person, professional: null } : person
+      )),
+    });
     render(<Equipe />);
     const row = await openActionsFor("Ana");
     fireEvent.click(within(row).getByRole("menuitem", { name: "Redefinir senha" }));
@@ -476,6 +501,21 @@ describe("Equipe", () => {
     }));
     expect(assignAuthorizationProfile).not.toHaveBeenCalled();
     expect(unassignAuthorizationProfile).not.toHaveBeenCalled();
+  });
+
+  it("distingue o estado da pessoa da atuação profissional inativa", async () => {
+    loadTeamReadModel.mockResolvedValue({
+      ...model,
+      people: model.people.map((person) => (
+        person.id === 2
+          ? { ...person, professional: { ...person.professional, is_active: false } }
+          : person
+      )),
+    });
+    render(<Equipe />);
+    const row = (await screen.findByText("Bia")).closest("article");
+    expect(within(row).getByText("Ativo")).toBeInTheDocument();
+    expect(within(row).getByText("Profissional inativo")).toBeInTheDocument();
   });
 
   it("preserva confirmação quando o último Administrador não pode ser bloqueado", async () => {

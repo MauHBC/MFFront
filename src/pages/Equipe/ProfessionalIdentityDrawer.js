@@ -23,6 +23,7 @@ const STATUS_LABELS = Object.freeze({
 });
 
 const normalizedIdentityValues = (values) => ({
+  email: (values.email || "").trim().toLowerCase(),
   profession: values.profession || "",
   registrationRegion: (values.registrationRegion || "").trim(),
   registrationNumber: (values.registrationNumber || "").trim().toUpperCase(),
@@ -33,8 +34,11 @@ const identityValuesChanged = (values, initialValues) => (
   !== JSON.stringify(normalizedIdentityValues(initialValues))
 );
 
-export const validateProfessionalIdentity = (values) => {
+export const validateProfessionalIdentity = (values, requiresEmail = false) => {
   const errors = {};
+  if (requiresEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((values.email || "").trim())) {
+    errors.email = "Informe um e-mail válido para o acesso profissional.";
+  }
   if (values.profession !== "physiotherapist") {
     errors.profession = "Selecione uma profissão válida.";
   }
@@ -51,8 +55,10 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
   const identity = person.professionalIdentity || {};
   const requiresActivation = !person.isProfessional || person.professionalActive !== true;
   const creating = !person.isProfessional;
+  const requiresAccess = !person.account;
   const verified = identity.verificationStatus === "verified";
   const initialValues = {
+    email: person.account?.login || person.email || "",
     profession: identity.profession || "physiotherapist",
     registrationRegion: identity.registrationRegion || "",
     registrationNumber: identity.registrationNumber || "",
@@ -77,7 +83,7 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
 
   const submit = async (action) => {
     if (submittingRef.current) return;
-    const validationErrors = validateProfessionalIdentity(values);
+    const validationErrors = validateProfessionalIdentity(values, requiresAccess);
     if (Object.keys(validationErrors).length) {
       setErrors(validationErrors);
       return;
@@ -90,6 +96,7 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
       const savedPerson = await saveTeamProfessionalIdentity(person.id, {
         action,
         activate: requiresActivation,
+        ...(requiresAccess ? { email: values.email.trim() } : {}),
         profession: values.profession,
         registrationRegion: values.registrationRegion.trim(),
         registrationNumber: values.registrationNumber.trim(),
@@ -151,6 +158,20 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
             {person.name} · situação:{" "}
             <strong>{statusLabel}</strong>
           </StatusText>
+          {requiresAccess && (
+            <>
+              <FieldLabel htmlFor="professional-access-email">E-mail de acesso</FieldLabel>
+              <FieldInput
+                id="professional-access-email"
+                type="email"
+                value={values.email}
+                onChange={(event) => update("email", event.target.value)}
+                disabled={submitting}
+                aria-invalid={Boolean(errors.email)}
+              />
+              {errors.email && <FieldError>{errors.email}</FieldError>}
+            </>
+          )}
           <FieldLabel htmlFor="professional-profession">Profissão</FieldLabel>
           <FieldSelect
             id="professional-profession"
@@ -187,8 +208,14 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
 
           <Notice>
             Preencher estes dados não os torna verificados. A confirmação administrativa
-            fica registrada na auditoria e não concede perfil ou permissão.
+            fica registrada na auditoria.
           </Notice>
+          {requiresAccess && (
+            <Notice>
+              Ao salvar, o acesso será vinculado ao perfil nativo Profissional. Se a
+              identidade ainda não tiver senha, enviaremos o link de primeiro acesso.
+            </Notice>
+          )}
           {verified && hasChanges && (
             <Notice role="status">
               Os dados modificados ainda não estão verificados. Confirme a verificação
@@ -245,6 +272,8 @@ ProfessionalIdentityDrawer.propTypes = {
   person: PropTypes.shape({
     id: PropTypes.number.isRequired,
     name: PropTypes.string.isRequired,
+    email: PropTypes.string,
+    account: PropTypes.shape({ login: PropTypes.string }),
     isProfessional: PropTypes.bool,
     professionalActive: PropTypes.bool,
     professionalIdentity: PropTypes.shape({

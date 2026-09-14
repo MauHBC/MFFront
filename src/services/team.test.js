@@ -97,7 +97,7 @@ describe("team read service", () => {
     ]);
   });
 
-  it("cria pessoa sem enviar clinic_id, conta, senha ou perfil", async () => {
+  it("solicita criação profissional sem enviar autoridade do tenant", async () => {
     api.post.mockResolvedValueOnce({ data: { id: 1 } });
     await createTeamPerson({
       name: "Ana",
@@ -140,6 +140,7 @@ describe("team read service", () => {
     await saveTeamProfessionalIdentity(4, {
       action: "save_pending",
       activate: true,
+      email: "bia@example.test",
       profession: "physiotherapist",
       registrationRegion: "15",
       registrationNumber: "12345-f",
@@ -147,6 +148,7 @@ describe("team read service", () => {
     expect(api.put).toHaveBeenCalledWith("/team/people/4/professional-identity", {
       action: "save_pending",
       activate: true,
+      email: "bia@example.test",
       profession: "physiotherapist",
       registration_region: "15",
       registration_number: "12345-f",

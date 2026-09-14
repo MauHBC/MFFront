@@ -132,9 +132,10 @@ efetiva usa `scope_level: own`, `canAccessModule` só a disponibiliza se
 profissional inativa falha fechado. Módulos com alcance `clinic`, permissões
 administrativas e o modo legacy não dependem desse sinal. Como navegação,
 guards e bootstraps usam o mesmo helper, módulos `own` indisponíveis não são
-montados nem iniciam cargas previsivelmente recusadas. A atribuição de perfil
-não cria atuação profissional: esse cadastro continua no fluxo de Dados
-profissionais.
+montados nem iniciam cargas previsivelmente recusadas. A atribuição manual de
+perfil não cria atuação profissional. O fluxo de Dados profissionais é a exceção
+explícita: exige e-mail quando falta acesso e solicita ao Backend atuação,
+identidade/membership e perfil nativo em uma única operação.
 
 A Central de Pendências também aguarda esse contexto oficial. Ela só fica
 disponível e carrega sessões, alertas operacionais e serviços quando o módulo
@@ -304,10 +305,11 @@ Os contratos visuais específicos de pessoas, contas, perfis, inativação e
 auditoria da área Equipe estão em
 [team-read-only-module.md](team-read-only-module.md).
 
-Pessoa, atuação profissional, conta e perfil continuam entidades distintas. A
-identidade profissional é cadastrada e editada em drawer próprio, por um único
-comando transacional do backend; a interface não ativa a atuação em uma
-requisição separada. CREFITO não concede permissão nem substitui o vínculo
+Pessoa, atuação profissional, identidade, membership e perfil continuam
+estruturas distintas, mas o cadastro profissional é um único caso de uso. A
+identidade profissional é cadastrada e editada em drawer próprio, por um comando
+transacional do backend que também garante acesso e perfil nativo; a interface
+não ativa a atuação em uma requisição separada. CREFITO não concede permissão nem substitui o vínculo
 canônico da conta com a pessoa e a clínica. Profissionais existentes sem dados
 de identidade permanecem pendentes até revisão administrativa manual.
 

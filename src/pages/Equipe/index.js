@@ -72,6 +72,17 @@ const ACCOUNT_STATUS_LABELS = {
   person_inactive: "Pessoa inativa",
 };
 
+const personAccessSummary = (person) => {
+  if (!person.isPerson) return `Conta sem pessoa vinculada · ${person.account?.login}`;
+  if (person.account?.login) return person.account.login;
+  return person.isProfessional ? "Vínculo profissional incompleto" : "Sem acesso";
+};
+
+const accountStatusLabel = (person) => {
+  if (person.account) return ACCOUNT_STATUS_LABELS[person.account.status] || "Com acesso";
+  return person.isProfessional ? "Vínculo incompleto" : "Sem acesso";
+};
+
 function PersonActionsMenu({ personName, children }) {
   return (
     <AppActionMenu label={`Ações de ${personName}`}>
@@ -102,6 +113,9 @@ export function validatePersonForm(values) {
   }
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     errors.email = "Informe um e-mail válido.";
+  }
+  if (values.isProfessional && !email) {
+    errors.email = "O e-mail é obrigatório para cadastrar um profissional.";
   }
   if (phone.length > 40) errors.phone = "O telefone deve ter no máximo 40 caracteres.";
   return errors;
@@ -315,11 +329,13 @@ function PersonDrawer({ editor, onChange, onClose, onSubmit }) {
                   onChange={(event) => onChange("isProfessional", event.target.checked)}
                   disabled={editor.submitting}
                 />
-                Registrar também como profissional, sem criar login
+                Registrar como profissional e criar acesso
               </CheckboxLabel>
             )}
             <FormNotice>
-              Esta operação não cria conta de acesso, senha, convite, perfil ou permissão.
+              {creating && editor.values.isProfessional
+                ? "O profissional receberá o perfil nativo Profissional e um link para criar a própria senha."
+                : "Pessoas comuns podem receber acesso posteriormente, sem alterar seu cadastro."}
             </FormNotice>
             {editor.apiError && <FormError role="alert">{editor.apiError}</FormError>}
             <DrawerFooter>
@@ -1015,6 +1031,9 @@ export default function Equipe() {
 
   const renderAccountActions = (person) => {
     if (!person.account) {
+      if (person.isProfessional) {
+        return <NoAccessText>Vínculo profissional incompleto</NoAccessText>;
+      }
       if (person.isPerson && person.isActive) {
         return (
           <RowActionButton type="button" onClick={() => openAccountAction("create", person)}>
@@ -1022,7 +1041,7 @@ export default function Equipe() {
           </RowActionButton>
         );
       }
-      return <NoAccessText>Sem conta de acesso</NoAccessText>;
+      return <NoAccessText>Sem acesso</NoAccessText>;
     }
     if (person.account.linkageType === "invalid") return null;
     return (
@@ -1032,7 +1051,7 @@ export default function Equipe() {
         </RowActionButton>
         {person.isPerson && (
           <>
-            {!membershipMode && (
+            {!membershipMode && !person.isProfessional && (
               <RowActionButton type="button" onClick={() => openAccountAction("reset", person)}>
                 Redefinir senha
               </RowActionButton>
@@ -1097,23 +1116,24 @@ export default function Equipe() {
                 <option value="all">Todos os estados</option><option value="active">Ativos</option><option value="inactive">Inativos</option>
               </Select>
               <Select aria-label="Filtrar por acesso" value={accessFilter} onChange={(event) => setAccessFilter(event.target.value)}>
-                <option value="all">Com e sem acesso</option><option value="with">Com conta</option><option value="without">Sem conta</option>
+                <option value="all">Todos os acessos</option><option value="with">Com acesso</option><option value="without">Sem acesso</option>
               </Select>
             </Filters>
             {actionError && <FormError role="alert">{actionError}</FormError>}
             {filteredPeople.length === 0 ? <DataLoadingState tone="empty" text="Nenhuma pessoa encontrada." /> : (
               <PeopleList>{filteredPeople.map((person) => (
                 <PersonRow key={person.id}>
-                  <PersonMain><strong>{person.name}</strong><small>{person.isPerson ? (person.account?.login || (person.isProfessional ? "Profissional sem login" : "Sem conta de acesso")) : `Conta sem pessoa vinculada · ${person.account?.login}`}</small></PersonMain>
+                  <PersonMain><strong>{person.name}</strong><small>{personAccessSummary(person)}</small></PersonMain>
                   <Badges>
                     {person.isPerson && <NeutralPill>Pessoa</NeutralPill>}
                     {person.isProfessional && <NeutralPill>Profissional</NeutralPill>}
                     <StatusPill $tone={person.isActive ? "active" : "paused"}>{person.isActive ? "Ativo" : "Inativo"}</StatusPill>
-                    <NeutralPill>
-                      {person.account
-                        ? (ACCOUNT_STATUS_LABELS[person.account.status] || "Com acesso")
-                        : "Sem acesso"}
-                    </NeutralPill>
+                    {person.isProfessional && (
+                      <StatusPill $tone={person.professionalActive ? "active" : "paused"}>
+                        {person.professionalActive ? "Profissional ativo" : "Profissional inativo"}
+                      </StatusPill>
+                    )}
+                    <NeutralPill>{accountStatusLabel(person)}</NeutralPill>
                   </Badges>
                   <ProfileNames>{person.profiles.length ? person.profiles.map(({ name }) => name).join(", ") : "Sem perfil"}</ProfileNames>
                   <RowActions>

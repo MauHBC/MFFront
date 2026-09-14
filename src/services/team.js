@@ -58,6 +58,7 @@ export const setTeamProfessionalState = (personId, isActive) => api.patch(
 export const saveTeamProfessionalIdentity = (personId, {
   action,
   activate,
+  email,
   profession,
   registrationRegion,
   registrationNumber,
@@ -66,6 +67,7 @@ export const saveTeamProfessionalIdentity = (personId, {
   {
     action,
     activate: activate === true,
+    ...(email ? { email } : {}),
     profession,
     registration_region: registrationRegion,
     registration_number: registrationNumber,

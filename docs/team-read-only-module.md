@@ -9,16 +9,19 @@ estrutural que possua `access_profiles.manage`.
 A página consulta pessoas, perfis, catálogo, atribuições e contas vinculáveis.
 As junções de apresentação usam `person_id`, `profile_id` e o sujeito oficial da
 autoridade atual: `user_id` no legacy ou `membership_id` no modo membership.
-Conta sem pessoa e profissional sem login permanecem estados distintos.
+Conta sem pessoa permanece um estado distinto. Profissional histórico sem acesso
+é exibido como vínculo incompleto e não recebe o fluxo genérico de criação de conta.
 
 O fluxo de pessoas reutiliza somente os contratos oficiais para:
 
 - criar pessoa sem conta de acesso;
-- criar pessoa com atuação profissional, ainda sem conta;
+- criar profissional com e-mail, acesso canônico e perfil nativo na mesma operação;
 - editar nome, e-mail e telefone;
 - reativar somente a pessoa, sem reativar profissional ou conta.
 
-Os payloads nunca incluem `clinic_id`, senha, conta, grupo, perfil ou permissão.
+Os payloads nunca incluem `clinic_id`, senha, grupo ou autoridade. O marcador de
+profissional solicita ao backend o caso de uso completo; o frontend não monta
+conta, membership nem atribuição por conta própria.
 O formulário preserva valores após erro, bloqueia envio duplicado e confirma o
 descarte de alterações pendentes. O drawer de permissões continua estritamente
 somente para consulta.
@@ -26,7 +29,8 @@ somente para consulta.
 O fluxo de perfis permite criar e editar perfis personalizados e atribuir um ou
 vários perfis a contas existentes. Administrador e Profissional são
 exibidos como nativos e bloqueados para edição, conforme o contrato oficial.
-Pessoa ou profissional sem conta não recebe controles de atribuição. Módulos,
+Pessoa sem conta não recebe controles de atribuição. Profissional histórico com
+vínculo incompleto só pode ser reconciliado pelo fluxo de Dados profissionais. Módulos,
 níveis, escopos, exportação e capacidades são renderizados a partir do catálogo
 recebido; o frontend não calcula permissões efetivas. A composição exibida vem
 do backend, que usa o resolvedor oficial.
@@ -73,8 +77,10 @@ clínica ativa.
 
 Os formulários não enviam `clinic_id`, preservam os campos depois de conflito e
 bloqueiam duplo envio. Redefinição, bloqueio e desbloqueio exigem confirmação.
-Criar uma conta não cria profissional, grupo, perfil ou permissão; as
-atribuições continuam exclusivamente no drawer de perfis. Vínculo marcado como
+Criar uma conta geral não cria profissional, grupo, perfil ou permissão; as
+atribuições adicionais continuam no drawer de perfis. O cadastro profissional,
+por sua vez, recebe automaticamente o perfil nativo Profissional pelo backend.
+Vínculo marcado como
 inválido pelo backend não oferece mutações na interface.
 
 A entrega de contas não oferece exclusão, convite ou edição de perfis nativos.
