@@ -76,4 +76,30 @@ describe("Menu", () => {
     );
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
+
+  it("oculta atalhos own indisponíveis e preserva módulos independentes de atuação", () => {
+    mockCanAccessModule.mockImplementation((moduleKey) => moduleKey === "dashboard");
+    mockAuthorizationContext = {
+      status: "ready",
+      context: {
+        authorization_source: "membership",
+        authorization_state: "authorized",
+        own_scope: {
+          available: false,
+          unavailability_reason: "active_professional_link_required",
+        },
+      },
+      canAccessModule: mockCanAccessModule,
+    };
+
+    render(
+      <MemoryRouter>
+        <Menu />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("link", { name: "Painel" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Agenda" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Pacientes" })).not.toBeInTheDocument();
+  });
 });

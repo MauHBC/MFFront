@@ -126,6 +126,16 @@ mesma negação do guard; ainda assim, o backend é a autoridade final e precisa
 negar a API independentemente do estado visual. Ocultar item da navegação nunca
 substitui autorização.
 
+No modo membership, o contrato também informa `own_scope`. Quando uma permissão
+efetiva usa `scope_level: own`, `canAccessModule` só a disponibiliza se
+`own_scope.available` for verdadeiro; ausência, inconsistência ou atuação
+profissional inativa falha fechado. Módulos com alcance `clinic`, permissões
+administrativas e o modo legacy não dependem desse sinal. Como navegação,
+guards e bootstraps usam o mesmo helper, módulos `own` indisponíveis não são
+montados nem iniciam cargas previsivelmente recusadas. A atribuição de perfil
+não cria atuação profissional: esse cadastro continua no fluxo de Dados
+profissionais.
+
 A Central de Pendências também aguarda esse contexto oficial. Ela só fica
 disponível e carrega sessões, alertas operacionais e serviços quando o módulo
 Agenda possui acesso efetivo; ao perder a permissão ou trocar de contexto, limpa

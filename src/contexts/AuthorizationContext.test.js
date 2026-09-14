@@ -1,6 +1,11 @@
 import React from "react";
 import "@testing-library/jest-dom";
-import { act, render, screen } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { Provider } from "react-redux";
 import { createStore } from "redux";
 import {
@@ -109,6 +114,28 @@ describe("AuthorizationContext", () => {
     capabilities: ["schedule.configure"],
     administrative_powers: [],
   };
+  const membershipProfessional = (ownScopeAvailable) => ({
+    ...scheduleOnly,
+    authorization_source: "membership",
+    own_scope: {
+      available: ownScopeAvailable,
+      unavailability_reason: ownScopeAvailable
+        ? null
+        : "active_professional_link_required",
+    },
+    modules: scheduleOnly.modules.map((module) => ({
+      ...module,
+      access_level: ({
+        dashboard: "view",
+        schedule: "manage",
+        patients: "view",
+        clinical_records: "edit",
+      })[module.module_key] || "none",
+      scope_level: ["schedule", "patients", "clinical_records"].includes(module.module_key)
+        ? "own"
+        : null,
+    })),
+  });
 
   beforeEach(() => {
     getAuthorizationContext.mockReset();
@@ -145,6 +172,62 @@ describe("AuthorizationContext", () => {
     expect(isValidAuthorizationContext({ ...agendaOnly, catalog_version: 6 })).toBe(false);
     expect(contextCanAccessModule({ ...agendaOnly, authorization_state: "invalid" }, "schedule"))
       .toBe(false);
+  });
+
+  it("torna modulo own indisponivel sem atuacao profissional ativa", () => {
+    const unavailable = membershipProfessional(false);
+    const available = membershipProfessional(true);
+
+    expect(isValidAuthorizationContext(unavailable)).toBe(true);
+    expect(contextCanAccessModule(unavailable, "schedule")).toBe(false);
+    expect(contextCanAccessModule(unavailable, "patients")).toBe(false);
+    expect(contextCanAccessModule(unavailable, "clinical_records")).toBe(false);
+    expect(contextCanAccessModule(unavailable, "dashboard")).toBe(true);
+    expect(contextCanAccessModule(available, "schedule")).toBe(true);
+    expect(contextCanAccessModule({
+      ...unavailable,
+      modules: unavailable.modules.map((module) => ({
+        ...module,
+        scope_level: module.module_key === "schedule" ? "clinic" : module.scope_level,
+      })),
+    }, "schedule")).toBe(true);
+  });
+
+  it("preserva Administrador membership sem atuação porque seus escopos são clinic", () => {
+    const membershipAdministrator = {
+      ...administrator,
+      authorization_source: "membership",
+      own_scope: {
+        available: false,
+        unavailability_reason: "active_professional_link_required",
+      },
+    };
+    expect(contextIsAdministrator(membershipAdministrator)).toBe(true);
+    expect(contextCanAccessModule(membershipAdministrator, "schedule", "manage")).toBe(true);
+  });
+
+  it("falha fechado para sinal own membership ausente ou incoerente", () => {
+    const available = membershipProfessional(true);
+    expect(isValidAuthorizationContext({ ...available, own_scope: undefined })).toBe(false);
+    expect(isValidAuthorizationContext({
+      ...available,
+      own_scope: {
+        available: false,
+        unavailability_reason: null,
+      },
+    })).toBe(false);
+  });
+
+  it("preserva o contrato legacy sem sinal de atuacao membership", () => {
+    const legacyOwn = {
+      ...scheduleOnly,
+      modules: scheduleOnly.modules.map((module) => ({
+        ...module,
+        scope_level: module.module_key === "schedule" ? "own" : module.scope_level,
+      })),
+    };
+    expect(isValidAuthorizationContext(legacyOwn)).toBe(true);
+    expect(contextCanAccessModule(legacyOwn, "schedule")).toBe(true);
   });
 
   it("libera ciclo profissional somente com gate e capacidade oficiais", () => {
@@ -243,6 +326,18 @@ describe("AuthorizationContext", () => {
     await settle(second, scheduleOnly);
     await settle(first, administrator);
     expect(screen.getByTestId("administrator")).toHaveTextContent("false");
+  });
+
+  it("recalcula a elegibilidade own ao trocar de clinica", async () => {
+    getAuthorizationContext
+      .mockResolvedValueOnce(membershipProfessional(false))
+      .mockResolvedValueOnce(membershipProfessional(true));
+    const store = createAuthStore(authState({ token: "clinic-without-professional", userId: 13 }));
+    renderProvider(store);
+    expect(await screen.findByTestId("schedule")).toHaveTextContent("false");
+
+    dispatchAuth(store, authState({ token: "clinic-with-professional", userId: 13 }));
+    await waitFor(() => expect(screen.getByTestId("schedule")).toHaveTextContent("true"));
   });
 
   it("logout invalida sucesso pendente e remove modulos imediatamente", async () => {

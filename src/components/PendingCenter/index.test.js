@@ -50,11 +50,12 @@ const authorizationContext = ({
   source = "membership",
   status = "ready",
   schedule = true,
+  authorizationState = schedule ? "authorized" : "no_permissions",
 } = {}) => ({
   status,
   context: status === "ready" ? {
     authorization_source: source,
-    authorization_state: schedule ? "authorized" : "no_permissions",
+    authorization_state: authorizationState,
   } : null,
   canAccessModule: jest.fn((moduleKey) => schedule && moduleKey === "schedule"),
 });
@@ -128,6 +129,19 @@ it("membership sem perfil não carrega recursos clínicos nem exibe a Central", 
   expect(screen.queryByTitle("Central de pendências")).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Central de pendências" }))
     .not.toBeInTheDocument();
+  expect(toast.error).not.toHaveBeenCalled();
+});
+
+it("membership com perfil own indisponível não inicia cargas previsivelmente negadas", async () => {
+  useAuthorization.mockReturnValue(authorizationContext({
+    schedule: false,
+    authorizationState: "authorized",
+  }));
+  mockSources();
+  renderPendingCenter();
+
+  await waitFor(() => expect(axios.get).not.toHaveBeenCalled());
+  expect(screen.queryByTitle("Central de pendências")).not.toBeInTheDocument();
   expect(toast.error).not.toHaveBeenCalled();
 });
 
