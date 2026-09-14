@@ -126,6 +126,14 @@ mesma negação do guard; ainda assim, o backend é a autoridade final e precisa
 negar a API independentemente do estado visual. Ocultar item da navegação nunca
 substitui autorização.
 
+A Central de Pendências também aguarda esse contexto oficial. Ela só fica
+disponível e carrega sessões, alertas operacionais e serviços quando o módulo
+Agenda possui acesso efetivo; ao perder a permissão ou trocar de contexto, limpa
+o estado anterior e ignora respostas atrasadas. Falhas equivalentes do mesmo
+carregamento usam uma única mensagem de apresentação, sem expor códigos da API.
+Uma conta autenticada em `no_permissions` permanece válida e recebe em `/menu`
+um estado explícito de ausência de permissões, sem atalhos de módulos.
+
 O contexto não é persistido em `localStorage`. Logout, troca de token, troca de
 usuário ou desmontagem invalidam a geração corrente e fecham imediatamente o
 shell protegido. Respostas assíncronas de uma sessão anterior, inclusive erros,

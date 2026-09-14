@@ -18,67 +18,82 @@ import {
 export default function Menu() {
   const authorization = useAuthorization();
   const canAccess = authorization.canAccessModule;
+  const hasNoPermissions = authorization.status === "ready"
+    && authorization.context?.authorization_state === "no_permissions";
   return (
     <AppShell pageTitle="Atalhos">
       <Wrapper>
         <Content>
-          <Title>
-            <span>Visão geral</span>
-            <h1>O que você precisa acessar?</h1>
-            <p>Use os atalhos abaixo ou a navegação lateral para trocar de módulo.</p>
-          </Title>
-        <Nav>
-          {canAccess("schedule") && <StyledLink to="/agendamentos">
-            <IconBadge $bg="#f0f3ec" $color="#6a795c">
-              <FaCalendarAlt size={24} />
-            </IconBadge>
-            <div>
-              <span>Agenda</span>
-            </div>
-          </StyledLink>}
-          {canAccess("dashboard") && <StyledLink to="/painel">
-            <IconBadge $bg="#edf4f2" $color="#517268">
-              <FaChartLine size={24} />
-            </IconBadge>
-            <div>
-              <span>Painel</span>
-            </div>
-          </StyledLink>}
-          {/* <StyledLink to="/laudos">
-            <IconBadge $bg="#f6f0ec" $color="#8a6a5a">
-              <FaFileMedical size={24} />
-            </IconBadge>
-            <div>
-              <span>Exames</span>
-            </div>
-          </StyledLink> */}
-          {canAccess("finance") && <StyledLink to="/financeiro">
-            <IconBadge $bg="#e9f1ee" $color="#4f6b45">
-              <FaMoneyBillWave size={24} />
-            </IconBadge>
-            <div>
-              <span>Financeiro</span>
-            </div>
-          </StyledLink>}
-          {canAccess("patients") && <StyledLink to="/pacientes">
-            <IconBadge $bg="#edf1f7" $color="#5a6e8a">
-              <FaUserFriends size={24} />
-            </IconBadge>
-            <div>
-              <span>Pacientes</span>
-            </div>
-          </StyledLink>}
-          {isPlansModuleEnabled && canAccess("plans") && (
-            <StyledLink to="/planos">
-              <IconBadge $bg="#eef3ec" $color="#3d5a30">
-                <FaClipboardList size={24} />
-              </IconBadge>
-              <div>
-                <span>Planos</span>
-              </div>
-            </StyledLink>
+          {hasNoPermissions ? (
+            <Title role="status">
+              <span>Acesso</span>
+              <h1>Sem permissões atribuídas</h1>
+              <p>
+                Sua conta está ativa, mas ainda não possui acesso aos módulos desta clínica.
+                Procure um administrador para revisar suas permissões.
+              </p>
+            </Title>
+          ) : (
+            <>
+              <Title>
+                <span>Visão geral</span>
+                <h1>O que você precisa acessar?</h1>
+                <p>Use os atalhos abaixo ou a navegação lateral para trocar de módulo.</p>
+              </Title>
+              <Nav>
+                {canAccess("schedule") && <StyledLink to="/agendamentos">
+                  <IconBadge $bg="#f0f3ec" $color="#6a795c">
+                    <FaCalendarAlt size={24} />
+                  </IconBadge>
+                  <div>
+                    <span>Agenda</span>
+                  </div>
+                </StyledLink>}
+                {canAccess("dashboard") && <StyledLink to="/painel">
+                  <IconBadge $bg="#edf4f2" $color="#517268">
+                    <FaChartLine size={24} />
+                  </IconBadge>
+                  <div>
+                    <span>Painel</span>
+                  </div>
+                </StyledLink>}
+                {/* <StyledLink to="/laudos">
+                  <IconBadge $bg="#f6f0ec" $color="#8a6a5a">
+                    <FaFileMedical size={24} />
+                  </IconBadge>
+                  <div>
+                    <span>Exames</span>
+                  </div>
+                </StyledLink> */}
+                {canAccess("finance") && <StyledLink to="/financeiro">
+                  <IconBadge $bg="#e9f1ee" $color="#4f6b45">
+                    <FaMoneyBillWave size={24} />
+                  </IconBadge>
+                  <div>
+                    <span>Financeiro</span>
+                  </div>
+                </StyledLink>}
+                {canAccess("patients") && <StyledLink to="/pacientes">
+                  <IconBadge $bg="#edf1f7" $color="#5a6e8a">
+                    <FaUserFriends size={24} />
+                  </IconBadge>
+                  <div>
+                    <span>Pacientes</span>
+                  </div>
+                </StyledLink>}
+                {isPlansModuleEnabled && canAccess("plans") && (
+                  <StyledLink to="/planos">
+                    <IconBadge $bg="#eef3ec" $color="#3d5a30">
+                      <FaClipboardList size={24} />
+                    </IconBadge>
+                    <div>
+                      <span>Planos</span>
+                    </div>
+                  </StyledLink>
+                )}
+              </Nav>
+            </>
           )}
-        </Nav>
         </Content>
       </Wrapper>
     </AppShell>
