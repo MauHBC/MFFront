@@ -34,6 +34,16 @@ const MODULE_KEYS = Object.freeze([
   "team",
   "settings",
 ]);
+const OWN_SCOPE_UNAVAILABILITY_REASON = "active_professional_link_required";
+
+const hasValidOwnScopeContract = (context) => {
+  if (context?.authorization_source !== "membership") return true;
+  const ownScope = context?.own_scope;
+  if (typeof ownScope?.available !== "boolean") return false;
+  return ownScope.available
+    ? ownScope.unavailability_reason === null
+    : ownScope.unavailability_reason === OWN_SCOPE_UNAVAILABILITY_REASON;
+};
 
 export function isValidAuthorizationContext(context) {
   if (context?.catalog_version !== AUTHORIZATION_CATALOG_VERSION) return false;
@@ -49,6 +59,7 @@ export function isValidAuthorizationContext(context) {
       && typeof module.can_export === "boolean";
   });
   return validModules
+    && hasValidOwnScopeContract(context)
     && Array.isArray(context.capabilities)
     && context.capabilities.every((capability) => typeof capability === "string")
     && Array.isArray(context.administrative_powers)
@@ -62,6 +73,9 @@ export function contextCanAccessModule(context, moduleKey, minimumAccessLevel = 
   if (!MODULE_KEYS.includes(moduleKey)
     || !Object.prototype.hasOwnProperty.call(ACCESS_LEVELS, minimumAccessLevel)) return false;
   const permission = context.modules.find((module) => module.module_key === moduleKey);
+  if (permission?.scope_level === "own"
+    && context.authorization_source === "membership"
+    && context.own_scope.available !== true) return false;
   return ACCESS_LEVELS[permission?.access_level] >= ACCESS_LEVELS[minimumAccessLevel];
 }
 

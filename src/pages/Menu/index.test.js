@@ -9,12 +9,20 @@ jest.mock("../../components/AppShell", () => function AppShellMock({ children })
 });
 
 const mockCanAccessModule = jest.fn(() => true);
+let mockAuthorizationContext;
 jest.mock("../../contexts/AuthorizationContext", () => ({
-  useAuthorization: () => ({ canAccessModule: mockCanAccessModule }),
+  useAuthorization: () => mockAuthorizationContext,
 }));
 
 describe("Menu", () => {
-  beforeEach(() => mockCanAccessModule.mockImplementation(() => true));
+  beforeEach(() => {
+    mockCanAccessModule.mockImplementation(() => true);
+    mockAuthorizationContext = {
+      status: "ready",
+      context: { authorization_state: "authorized" },
+      canAccessModule: mockCanAccessModule,
+    };
+  });
 
   it("mantém os atalhos operacionais dentro do App Shell", () => {
     render(
@@ -45,5 +53,53 @@ describe("Menu", () => {
     expect(screen.queryByRole("link", { name: "Financeiro" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Pacientes" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Planos" })).not.toBeInTheDocument();
+  });
+
+  it("apresenta estado explícito e nenhum atalho para membership sem perfil", () => {
+    mockCanAccessModule.mockImplementation(() => false);
+    mockAuthorizationContext = {
+      status: "ready",
+      context: { authorization_source: "membership", authorization_state: "no_permissions" },
+      canAccessModule: mockCanAccessModule,
+    };
+
+    render(
+      <MemoryRouter>
+        <Menu />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Sem permissões atribuídas" }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "ainda não possui acesso aos módulos desta clínica",
+    );
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("oculta atalhos own indisponíveis e preserva módulos independentes de atuação", () => {
+    mockCanAccessModule.mockImplementation((moduleKey) => moduleKey === "dashboard");
+    mockAuthorizationContext = {
+      status: "ready",
+      context: {
+        authorization_source: "membership",
+        authorization_state: "authorized",
+        own_scope: {
+          available: false,
+          unavailability_reason: "active_professional_link_required",
+        },
+      },
+      canAccessModule: mockCanAccessModule,
+    };
+
+    render(
+      <MemoryRouter>
+        <Menu />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("link", { name: "Painel" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Agenda" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Pacientes" })).not.toBeInTheDocument();
   });
 });

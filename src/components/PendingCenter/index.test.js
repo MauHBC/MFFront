@@ -1,6 +1,7 @@
 import React from "react";
 import "@testing-library/jest-dom";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -8,8 +9,10 @@ import {
 } from "@testing-library/react";
 import { createMemoryHistory } from "history";
 import { Router } from "react-router-dom";
+import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   PENDING_CENTER_ACTION_STATE_KEY,
   PendingCenterDrawer,
@@ -24,8 +27,38 @@ jest.mock("../../services/axios", () => ({
     get: jest.fn(),
     post: jest.fn(),
   },
-  getUserFacingApiError: (_error, fallback) => fallback,
+  getUserFacingApiError: (error, fallback) => (
+    error?.response?.data?.error === "CLINICAL_ACCESS_DENIED"
+      ? "Você não tem autorização para realizar esta operação."
+      : fallback
+  ),
 }));
+
+jest.mock("../../contexts/AuthorizationContext", () => ({
+  useAuthorization: jest.fn(),
+}));
+
+jest.mock("react-toastify", () => ({
+  toast: {
+    error: jest.fn(),
+    isActive: jest.fn(),
+    success: jest.fn(),
+  },
+}));
+
+const authorizationContext = ({
+  source = "membership",
+  status = "ready",
+  schedule = true,
+  authorizationState = schedule ? "authorized" : "no_permissions",
+} = {}) => ({
+  status,
+  context: status === "ready" ? {
+    authorization_source: source,
+    authorization_state: authorizationState,
+  } : null,
+  canAccessModule: jest.fn((moduleKey) => schedule && moduleKey === "schedule"),
+});
 
 function RefreshOperationalAlertsButton() {
   const { refreshOperationalAlerts } = usePendingCenter();
@@ -38,16 +71,17 @@ function RefreshOperationalAlertsButton() {
 
 function renderPendingCenter({ withRefreshButton = false } = {}) {
   const history = createMemoryHistory({ initialEntries: ["/painel"] });
-  const result = render(
+  const tree = () => (
     <Router history={history}>
       <PendingCenterProvider enabled>
         <PendingCenterTrigger />
         <PendingCenterDrawer />
         {withRefreshButton && <RefreshOperationalAlertsButton />}
       </PendingCenterProvider>
-    </Router>,
+    </Router>
   );
-  return { ...result, history };
+  const result = render(tree());
+  return { ...result, history, rerenderPendingCenter: () => result.rerender(tree()) };
 }
 
 function mockSources(alerts = [], sessions = []) {
@@ -80,6 +114,122 @@ const replacementAlert = (index) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  useAuthorization.mockReturnValue(authorizationContext());
+  toast.isActive.mockImplementation((toastId) => toast.error.mock.calls.some(
+    ([, options]) => options?.toastId === toastId,
+  ));
+});
+
+it("membership sem perfil não carrega recursos clínicos nem exibe a Central", async () => {
+  useAuthorization.mockReturnValue(authorizationContext({ schedule: false }));
+  mockSources();
+  renderPendingCenter();
+
+  await waitFor(() => expect(axios.get).not.toHaveBeenCalled());
+  expect(screen.queryByTitle("Central de pendências")).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Central de pendências" }))
+    .not.toBeInTheDocument();
+  expect(toast.error).not.toHaveBeenCalled();
+});
+
+it("membership com perfil own indisponível não inicia cargas previsivelmente negadas", async () => {
+  useAuthorization.mockReturnValue(authorizationContext({
+    schedule: false,
+    authorizationState: "authorized",
+  }));
+  mockSources();
+  renderPendingCenter();
+
+  await waitFor(() => expect(axios.get).not.toHaveBeenCalled());
+  expect(screen.queryByTitle("Central de pendências")).not.toBeInTheDocument();
+  expect(toast.error).not.toHaveBeenCalled();
+});
+
+it("aguarda o contexto e carrega somente depois que Agenda está autorizada", async () => {
+  useAuthorization.mockReturnValue(authorizationContext({ status: "loading", schedule: false }));
+  mockSources();
+  const { rerenderPendingCenter } = renderPendingCenter();
+
+  expect(axios.get).not.toHaveBeenCalled();
+
+  useAuthorization.mockReturnValue(authorizationContext({ schedule: true }));
+  rerenderPendingCenter();
+
+  await waitFor(() => {
+    expect(axios.get.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(1);
+    expect(axios.get.mock.calls.filter(([url]) => url === "/services")).toHaveLength(1);
+    expect(axios.get.mock.calls.filter(([url]) => url === "/operational-alerts"))
+      .toHaveLength(1);
+  });
+});
+
+it("troca de contexto fecha a Central e recarrega apenas quando a nova permissão autoriza", async () => {
+  mockSources();
+  const { rerenderPendingCenter } = renderPendingCenter();
+
+  await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(3));
+  expect(screen.getByTitle("Central de pendências")).toBeVisible();
+
+  useAuthorization.mockReturnValue(authorizationContext({ status: "loading", schedule: false }));
+  rerenderPendingCenter();
+  expect(screen.queryByTitle("Central de pendências")).not.toBeInTheDocument();
+
+  jest.clearAllMocks();
+  mockSources();
+  useAuthorization.mockReturnValue(authorizationContext({ schedule: true }));
+  rerenderPendingCenter();
+
+  await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(3));
+  expect(screen.getByTitle("Central de pendências")).toBeVisible();
+});
+
+it("ignora respostas e erros atrasados do contexto anterior", async () => {
+  const pending = {};
+  axios.get.mockImplementation((url) => new Promise((resolve, reject) => {
+    pending[url] = { resolve, reject };
+  }));
+  const { rerenderPendingCenter } = renderPendingCenter();
+  await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(3));
+
+  useAuthorization.mockReturnValue(authorizationContext({ status: "loading", schedule: false }));
+  rerenderPendingCenter();
+
+  await act(async () => {
+    pending["/sessions"].reject({ response: { data: { error: "CLINICAL_ACCESS_DENIED" } } });
+    pending["/operational-alerts"].reject({
+      response: { data: { error: "CLINICAL_ACCESS_DENIED" } },
+    });
+    pending["/services"].resolve({ data: [{ id: 1 }] });
+    await Promise.resolve();
+  });
+
+  expect(toast.error).not.toHaveBeenCalled();
+  expect(screen.queryByTitle("Central de pendências")).not.toBeInTheDocument();
+});
+
+it("legacy autorizado preserva o carregamento da Central", async () => {
+  useAuthorization.mockReturnValue(authorizationContext({ source: "legacy" }));
+  mockSources();
+  renderPendingCenter();
+
+  await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(3));
+  expect(screen.getByTitle("Central de pendências")).toBeVisible();
+});
+
+it("deduplica falhas equivalentes e nunca exibe o código técnico", async () => {
+  const denied = { response: { data: { error: "CLINICAL_ACCESS_DENIED" } } };
+  axios.get.mockRejectedValue(denied);
+  renderPendingCenter();
+
+  await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+  expect(toast.error).toHaveBeenCalledWith(
+    "Você não tem autorização para realizar esta operação.",
+    { toastId: "pending-center-load-error" },
+  );
+  expect(toast.error).not.toHaveBeenCalledWith(
+    "CLINICAL_ACCESS_DENIED",
+    expect.anything(),
+  );
 });
 
 it("mantém o sino visível sem pendências, sem badge, e abre o drawer existente", async () => {

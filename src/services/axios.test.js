@@ -33,3 +33,13 @@ describe("frontend API base URL", () => {
     expect(resolveApiBaseURL("http://localhost:3001/api/")).toBe("http://localhost:3001/api");
   });
 });
+
+describe("frontend API error presentation", () => {
+  it("translates clinical access denial instead of exposing the API code", () => {
+    // eslint-disable-next-line global-require
+    const { sanitizeUserFacingErrorMessage } = require("./axios");
+
+    expect(sanitizeUserFacingErrorMessage("CLINICAL_ACCESS_DENIED"))
+      .toBe("Você não tem autorização para realizar esta operação.");
+  });
+});

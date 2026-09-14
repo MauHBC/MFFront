@@ -23,6 +23,9 @@ let suppressErrorToastsUntil = 0;
 const AUTH_TOAST_SUPPRESSION_MS = 2000;
 const GENERIC_OPERATION_ERROR_MESSAGE =
   "Não foi possível concluir a operação. Tente novamente em instantes.";
+const USER_FACING_API_ERROR_MESSAGES = Object.freeze({
+  CLINICAL_ACCESS_DENIED: "Você não tem autorização para realizar esta operação.",
+});
 const TECHNICAL_ERROR_PATTERNS = [
   /sqlstate/i,
   /insert into/i,
@@ -70,6 +73,10 @@ export function sanitizeUserFacingErrorMessage(
 ) {
   const normalizedMessage = String(message || "").trim();
   if (!normalizedMessage) return fallback;
+
+  if (USER_FACING_API_ERROR_MESSAGES[normalizedMessage]) {
+    return USER_FACING_API_ERROR_MESSAGES[normalizedMessage];
+  }
 
   const isTechnicalMessage = TECHNICAL_ERROR_PATTERNS.some((pattern) =>
     pattern.test(normalizedMessage),

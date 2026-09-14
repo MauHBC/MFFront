@@ -13,6 +13,7 @@ import { FaBell, FaBirthdayCake, FaTimes } from "react-icons/fa";
 import { toast } from "react-toastify";
 
 import axios, { getUserFacingApiError } from "../../services/axios";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   AppDrawer,
   DrawerBackdrop,
@@ -26,6 +27,16 @@ import {
 const ATTENDANCE_CONFIRMATION_TOLERANCE_MINUTES = 15;
 const BIRTHDAY_ALERT_WINDOW_DAYS = 5;
 const PENDING_CENTER_ACTION_STATE_KEY = "pendingCenterAction";
+const PENDING_CENTER_LOAD_ERROR_TOAST_ID = "pending-center-load-error";
+const PENDING_CENTER_LOAD_ERROR_MESSAGE = "Não foi possível carregar a Central de pendências.";
+
+function notifyPendingCenterLoadError(error) {
+  if (toast.isActive(PENDING_CENTER_LOAD_ERROR_TOAST_ID)) return;
+  toast.error(
+    getUserFacingApiError(error, PENDING_CENTER_LOAD_ERROR_MESSAGE),
+    { toastId: PENDING_CENTER_LOAD_ERROR_TOAST_ID },
+  );
+}
 
 const OPERATIONAL_ALERT_SEVERITY_LABELS = {
   high: "Alta",
@@ -331,6 +342,7 @@ const getSessionEndDate = (session, servicesById, servicesByCode) => {
 };
 
 const fallbackContext = {
+  isAvailable: true,
   pendingSessionsSource: [],
   updatePendingSessionsSource: () => {},
   updateServiceCatalog: () => {},
@@ -357,6 +369,13 @@ const PendingCenterContext = createContext(fallbackContext);
 
 export function PendingCenterProvider({ children, enabled = true }) {
   const location = useLocation();
+  const authorization = useAuthorization();
+  const isAvailable = enabled
+    && authorization.status === "ready"
+    && authorization.canAccessModule("schedule");
+  const availabilityRef = React.useRef(isAvailable);
+  const requestGenerationRef = React.useRef(0);
+  availabilityRef.current = isAvailable;
   const [pendingSessionsSource, setPendingSessionsSource] = useState([]);
   const [services, setServices] = useState([]);
   const [operationalAlerts, setOperationalAlerts] = useState([]);
@@ -377,64 +396,84 @@ export function PendingCenterProvider({ children, enabled = true }) {
     setReferenceMonthState(/^\d{4}-\d{2}$/.test(normalized) ? normalized : currentMonthKey());
   }, []);
 
+  const requestIsCurrent = useCallback((generation) => (
+    availabilityRef.current && requestGenerationRef.current === generation
+  ), []);
+
   const refreshPendingSessions = useCallback(async () => {
-    if (!enabled) return;
+    if (!isAvailable) return;
+    const generation = requestGenerationRef.current;
     try {
       const response = await axios.get("/sessions", {
         params: { status: "scheduled", to: new Date().toISOString() },
       });
-      setPendingSessionsSource(Array.isArray(response.data) ? response.data : []);
+      if (requestIsCurrent(generation)) {
+        setPendingSessionsSource(Array.isArray(response.data) ? response.data : []);
+      }
     } catch (error) {
-      toast.error(error?.response?.data?.error || "Não foi possível carregar as pendências.");
+      if (requestIsCurrent(generation)) notifyPendingCenterLoadError(error);
     }
-  }, [enabled]);
+  }, [isAvailable, requestIsCurrent]);
 
   const refreshOperationalAlerts = useCallback(async (month = referenceMonth) => {
-    if (!enabled) return;
+    if (!isAvailable) return;
+    const generation = requestGenerationRef.current;
     setIsOperationalAlertsLoading(true);
     try {
       const response = await axios.get("/operational-alerts", { params: { month } });
-      setOperationalAlerts(Array.isArray(response.data?.alerts) ? response.data.alerts : []);
+      if (requestIsCurrent(generation)) {
+        setOperationalAlerts(Array.isArray(response.data?.alerts) ? response.data.alerts : []);
+      }
     } catch (error) {
-      setOperationalAlerts([]);
-      toast.error(
-        error?.response?.data?.error || "Não foi possível carregar alertas operacionais.",
-      );
+      if (requestIsCurrent(generation)) {
+        setOperationalAlerts([]);
+        notifyPendingCenterLoadError(error);
+      }
     } finally {
-      setIsOperationalAlertsLoading(false);
+      if (requestIsCurrent(generation)) setIsOperationalAlertsLoading(false);
     }
-  }, [enabled, referenceMonth]);
+  }, [isAvailable, referenceMonth, requestIsCurrent]);
 
   useEffect(() => {
-    if (!enabled) {
+    requestGenerationRef.current += 1;
+    if (!isAvailable) {
       setPendingSessionsSource([]);
       setOperationalAlerts([]);
+      setIsOperationalAlertsLoading(false);
       setIsOpen(false);
+      setSelectedItemKey(null);
       return;
     }
     refreshPendingSessions();
-  }, [enabled, refreshPendingSessions]);
+  }, [isAvailable, refreshPendingSessions]);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!isAvailable) {
       setServices([]);
       return;
     }
     if (location.pathname === "/agendamentos" || services.length > 0) return;
+    const generation = requestGenerationRef.current;
     axios.get("/services")
-      .then((response) => setServices(Array.isArray(response.data) ? response.data : []))
-      .catch(() => setServices([]));
-  }, [enabled, location.pathname, services.length]);
+      .then((response) => {
+        if (requestIsCurrent(generation)) {
+          setServices(Array.isArray(response.data) ? response.data : []);
+        }
+      })
+      .catch(() => {
+        if (requestIsCurrent(generation)) setServices([]);
+      });
+  }, [isAvailable, location.pathname, requestIsCurrent, services.length]);
 
   useEffect(() => {
-    if (enabled) refreshOperationalAlerts(referenceMonth);
-  }, [enabled, referenceMonth, refreshOperationalAlerts]);
+    if (isAvailable) refreshOperationalAlerts(referenceMonth);
+  }, [isAvailable, referenceMonth, refreshOperationalAlerts]);
 
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!isAvailable) return undefined;
     const intervalId = window.setInterval(() => setCurrentTime(Date.now()), 60000);
     return () => window.clearInterval(intervalId);
-  }, [enabled]);
+  }, [isAvailable]);
 
   const servicesById = useMemo(
     () => new Map(services.map((service) => [String(service.id), service])),
@@ -569,6 +608,7 @@ export function PendingCenterProvider({ children, enabled = true }) {
   }, []);
 
   const dismissStandaloneCreditAlerts = useCallback(async (alerts = []) => {
+    if (!isAvailable) return;
     const validAlerts = alerts.filter((alert) => alert?.details?.alert_key);
     if (validAlerts.length === 0) return;
     const dismissedKeys = new Set(validAlerts.map((alert) => alert.details.alert_key));
@@ -584,9 +624,10 @@ export function PendingCenterProvider({ children, enabled = true }) {
       setOperationalAlerts(previousOperationalAlerts);
       toast.error(getUserFacingApiError(error, "Não foi possível ocultar o alerta."));
     }
-  }, [operationalAlerts]);
+  }, [isAvailable, operationalAlerts]);
 
   const value = useMemo(() => ({
+    isAvailable,
     pendingSessionsSource,
     updatePendingSessionsSource,
     updateServiceCatalog,
@@ -607,6 +648,7 @@ export function PendingCenterProvider({ children, enabled = true }) {
     close,
     dismissStandaloneCreditAlerts,
     isOpen,
+    isAvailable,
     isOperationalAlertsLoading,
     pendingConfirmationGroups,
     pendingSessionsSource,
@@ -636,7 +678,10 @@ PendingCenterProvider.propTypes = {
 export const usePendingCenter = () => useContext(PendingCenterContext);
 
 export function PendingCenterTrigger() {
-  const { isOpen, total, toggle } = usePendingCenter();
+  const {
+    isAvailable, isOpen, total, toggle,
+  } = usePendingCenter();
+  if (!isAvailable) return null;
   return (
     <NotificationButton
       type="button"
@@ -661,6 +706,7 @@ export function PendingCenterDrawer() {
   const {
     close,
     dismissStandaloneCreditAlerts,
+    isAvailable,
     isOpen,
     isOperationalAlertsLoading,
     pendingConfirmationGroups,
@@ -676,6 +722,8 @@ export function PendingCenterDrawer() {
       state: { [PENDING_CENTER_ACTION_STATE_KEY]: action },
     });
   }, [close, history]);
+
+  if (!isAvailable) return null;
 
   return (
     <>
