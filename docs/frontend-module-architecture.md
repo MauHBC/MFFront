@@ -202,6 +202,17 @@ sessões antigas; o frontend não escolhe clínica nem preserva um contexto
 autenticado nesse fluxo. O contrato canônico está no Backend em
 [lifecycle de credenciais membership](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/membership-credential-lifecycle.md).
 
+#### Ações de Pacientes
+
+A consulta de Pacientes permanece disponível com `patients/view` ou superior.
+“Novo paciente”, “Gerar link” e a rota `/pacientes/novo` exigem `patients/manage`
+no contexto oficial. O cadastro só carrega responsáveis e permite envio com
+esse nível; a escolha de responsável continua exigindo a capacidade própria.
+As suítes de `PatientsSearch`, `PatientsNew` e rotas de Pacientes cobrem esses
+gates. O `testMatch` do Jest usa padrões independentes do caminho absoluto para
+que `npm test -- --watchAll=false --runInBand` também descubra as suítes em
+worktrees Windows sob `.codex-worktrees`.
+
 #### Composição modular de `PatientDetails`
 
 A rota `/pacientes/:id` continua protegida por `patients/view`, mas a página

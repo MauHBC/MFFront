@@ -46,10 +46,39 @@ describe("PatientsNew", () => {
         modules: [{ module_key: "patients", scope_level: "own" }],
       },
       hasCapability: jest.fn(() => false),
+      canAccessModule: jest.fn(() => true),
     };
     axios.get.mockResolvedValue({ data: [] });
     axios.post.mockResolvedValue({ data: { id: 123 } });
   });
+
+  it.each(["view", "edit"])(
+    "não carrega responsáveis nem envia cadastro sem patients.manage (%s)",
+    (accessLevel) => {
+      mockAuthorization.context.modules = [
+        { module_key: "patients", scope_level: "clinic" },
+        { module_key: "clinical_records", scope_level: "clinic" },
+      ];
+      mockAuthorization.canAccessModule = (moduleKey, minimumAccessLevel = "view") => {
+        const levels = { none: 0, view: 1, edit: 2, manage: 3 };
+        return moduleKey === "patients" && levels[accessLevel] >= levels[minimumAccessLevel];
+      };
+      mockAuthorization.hasCapability = () => true;
+      renderPage();
+
+      fireEvent.change(screen.getByLabelText("Nome completo *"), {
+        target: { value: "Paciente sem permissão" },
+      });
+      fireEvent.change(screen.getByLabelText("Atenção do paciente *"), {
+        target: { value: "medium" },
+      });
+      fireEvent.submit(screen.getByRole("button", { name: "Salvar paciente" }).closest("form"));
+
+      expect(screen.getByRole("button", { name: "Salvar paciente" })).toBeDisabled();
+      expect(axios.get).not.toHaveBeenCalled();
+      expect(axios.post).not.toHaveBeenCalled();
+    },
+  );
 
   it("preserva validações obrigatórias sem enviar payload inválido", () => {
     renderPage();
@@ -104,6 +133,7 @@ describe("PatientsNew", () => {
         modules: [{ module_key: "patients", scope_level: "clinic" }],
       },
       hasCapability: jest.fn(() => true),
+      canAccessModule: jest.fn(() => true),
     };
     axios.get.mockResolvedValue({
       data: [{
@@ -138,6 +168,7 @@ describe("PatientsNew", () => {
         modules: [{ module_key: "patients", scope_level: null }],
       },
       hasCapability: jest.fn(() => true),
+      canAccessModule: jest.fn(() => true),
     };
     axios.get.mockResolvedValue({
       data: [{
@@ -166,6 +197,7 @@ describe("PatientsNew", () => {
         modules: [{ module_key: "patients", scope_level: "clinic" }],
       },
       hasCapability: jest.fn(() => true),
+      canAccessModule: jest.fn(() => true),
     };
     axios.get.mockResolvedValue({
       data: [{

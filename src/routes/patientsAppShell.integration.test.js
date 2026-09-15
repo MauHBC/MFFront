@@ -10,13 +10,12 @@ import {
 import {
   Link as MockLink,
   MemoryRouter,
-  Route as MockRoute,
 } from "react-router-dom";
 import Routes from ".";
 
-jest.mock("./MyRoute", () => function MyRouteMock({ component: Component, ...props }) {
-  return <MockRoute {...props} render={(routeProps) => <Component {...routeProps} />} />;
-});
+let mockPatientAccessLevel = "manage";
+
+jest.mock("../hooks/useAuthRedirect", () => ({ useAuthRedirect: () => null }));
 
 jest.mock("../contexts/ClinicContext", () => ({
   useClinicContext: () => ({
@@ -31,7 +30,14 @@ jest.mock("../hooks/useAuth", () => ({
 jest.mock("../hooks/useLogout", () => ({ useLogout: () => jest.fn() }));
 jest.mock("../contexts/AuthorizationContext", () => ({
   useAuthorization: () => ({
-    canViewTeam: false, canAccessModule: () => true, hasCapability: () => true,
+    status: "ready",
+    canViewTeam: false,
+    canAccessModule: (moduleKey, minimumAccessLevel = "view") => {
+      const levels = { none: 0, view: 1, edit: 2, manage: 3 };
+      return moduleKey !== "patients"
+        || levels[mockPatientAccessLevel] >= levels[minimumAccessLevel];
+    },
+    hasCapability: () => true,
   }),
 }));
 jest.mock("../pages/Equipe", () => () => <div>Equipe</div>);
@@ -75,7 +81,22 @@ function renderRoutes(pathname) {
 }
 
 describe("rotas de Pacientes no App Shell", () => {
+  beforeEach(() => { mockPatientAccessLevel = "manage"; });
   afterEach(cleanup);
+
+  it.each(["view", "edit"])(
+    "nega a criação por URL com %s e preserva a consulta",
+    (accessLevel) => {
+      mockPatientAccessLevel = accessLevel;
+      renderRoutes("/pacientes/novo");
+      expect(screen.getByText("Sem acesso")).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Novo paciente" })).not.toBeInTheDocument();
+
+      cleanup();
+      renderRoutes("/pacientes");
+      expect(screen.getByRole("heading", { name: "Consultar paciente" })).toBeInTheDocument();
+    },
+  );
 
   it("navega do Menu para a rota real de Pacientes sem mockar o App Shell", () => {
     renderRoutes("/menu");

@@ -13,6 +13,7 @@ import {
 import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import AppPagination from "../../components/AppPagination";
 import DataLoadingState from "../../components/DataLoadingState";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
@@ -46,6 +47,8 @@ function buildPatientSearchIndex(patient) {
 
 export default function PatientsSearch() {
   const history = useHistory();
+  const authorization = useAuthorization();
+  const canManagePatients = authorization.canAccessModule("patients", "manage");
   const [isLoading, setIsLoading] = useState(false);
   const [patients, setPatients] = useState([]);
   const [query, setQuery] = useState("");
@@ -108,6 +111,7 @@ export default function PatientsSearch() {
   }, [totalPages]);
 
   const handleGenerateInvite = useCallback(async () => {
+    if (!canManagePatients) return;
     setIsInviteLoading(true);
     try {
       const response = await axios.post("/patient-invites", {
@@ -127,7 +131,7 @@ export default function PatientsSearch() {
     } finally {
       setIsInviteLoading(false);
     }
-  }, []);
+  }, [canManagePatients]);
 
   const handleCopyInvite = useCallback(async () => {
     if (!inviteLink) return;
@@ -155,7 +159,7 @@ export default function PatientsSearch() {
       >
         <Header>
           <HeaderTitle>Consultar paciente</HeaderTitle>
-          <HeaderActions>
+          {canManagePatients && <HeaderActions>
             <PrimaryActionLink to="/pacientes/novo">
               <FaUserPlus />
               Novo paciente
@@ -168,10 +172,10 @@ export default function PatientsSearch() {
               <FaLink />
               {isInviteLoading ? "Gerando..." : "Gerar link"}
             </HeaderSecondaryAction>
-          </HeaderActions>
+          </HeaderActions>}
         </Header>
 
-        {inviteLink && (
+        {canManagePatients && inviteLink && (
           <InvitePanel>
             <InviteInfo>
               <strong>Link de cadastro gerado</strong>

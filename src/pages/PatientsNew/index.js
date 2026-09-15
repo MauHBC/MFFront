@@ -90,6 +90,7 @@ const buildTreatmentGoalPayload = (selectedValues = [], otherText = "") => {
 export default function PatientsNew() {
   const history = useHistory();
   const authorization = useAuthorization();
+  const canCreatePatient = authorization.canAccessModule("patients", "manage");
   const attentionLevelRef = useRef(null);
   const [isSaving, setIsSaving] = useState(false);
   const [professionals, setProfessionals] = useState([]);
@@ -104,8 +105,9 @@ export default function PatientsNew() {
     && authorization.context?.is_administrator === true;
   const hasClinicPatientScope = authorization.status === "ready"
     && patientsModule?.scope_level === "clinic";
-  const showsResponsibleProfessional = isStructuralAdministrator || hasClinicPatientScope;
-  const canAssignPatientCare = authorization.status === "ready"
+  const showsResponsibleProfessional = canCreatePatient
+    && (isStructuralAdministrator || hasClinicPatientScope);
+  const canAssignPatientCare = canCreatePatient
     && (
       isStructuralAdministrator
       || (
@@ -212,6 +214,10 @@ export default function PatientsNew() {
         toast.error("Aguarde a validação das suas permissões.");
         return;
       }
+      if (!canCreatePatient) {
+        toast.error("Você não possui autorização para cadastrar pacientes.");
+        return;
+      }
 
       const name = form.full_name.trim();
       if (name.length < 3) {
@@ -309,6 +315,7 @@ export default function PatientsNew() {
     [
       authorization.status,
       canAssignPatientCare,
+      canCreatePatient,
       form,
       history,
       showsResponsibleProfessional,
@@ -742,7 +749,7 @@ export default function PatientsNew() {
 
             <Actions>
               <LinkGhostButton to="/pacientes">Voltar</LinkGhostButton>
-              <SubmitButton type="submit" disabled={isSaving}>
+              <SubmitButton type="submit" disabled={isSaving || !canCreatePatient}>
                 {isSaving ? "Salvando..." : "Salvar paciente"}
               </SubmitButton>
             </Actions>
