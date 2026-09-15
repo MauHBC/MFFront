@@ -60,6 +60,11 @@ describe("ProfessionalIdentityDrawer", () => {
   });
 
   it("cadastra profissional e identidade em uma única requisição", async () => {
+    saveTeamProfessionalIdentity.mockResolvedValueOnce({
+      id: 17,
+      is_active: true,
+      account: { has_credential: false, status: "pending_credential" },
+    });
     const onClose = jest.fn();
     const onSaved = jest.fn().mockResolvedValue(undefined);
     render(<ProfessionalIdentityDrawer person={pendingPerson} onClose={onClose} onSaved={onSaved} />);
@@ -70,10 +75,11 @@ describe("ProfessionalIdentityDrawer", () => {
     fireEvent.change(within(drawer).getByLabelText("Número do CREFITO"), {
       target: { value: "12345-f" },
     });
-    expect(within(drawer).getByLabelText("Conferi os dados profissionais")).not.toBeChecked();
+    expect(within(drawer).queryByLabelText("Conferi os dados profissionais"))
+      .not.toBeInTheDocument();
     fireEvent.click(within(drawer).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(saveTeamProfessionalIdentity).toHaveBeenCalledWith(7, {
-      action: "save_pending",
+      action: "verify",
       activate: true,
       email: "fisioterapeuta@example.test",
       profession: "physiotherapist",
@@ -82,11 +88,14 @@ describe("ProfessionalIdentityDrawer", () => {
     }));
     await waitFor(() => {
       expect(onSaved).toHaveBeenCalledTimes(1);
+      expect(toast.success).toHaveBeenCalledWith(
+        "Para o primeiro acesso ao Motria, enviaremos um e-mail para criar a senha.",
+      );
       expect(onClose).toHaveBeenCalledTimes(1);
     });
   });
 
-  it("edita e verifica profissional ativo sem solicitar nova ativação", async () => {
+  it("autoriza pendente sem alteração textual e sem solicitar nova ativação", async () => {
     const person = activeProfessional();
     render(<ProfessionalIdentityDrawer
       person={person}
@@ -96,7 +105,9 @@ describe("ProfessionalIdentityDrawer", () => {
     const drawer = screen.getByRole("dialog", { name: "Dados profissionais" });
     expect(within(drawer).getByLabelText("Região do CREFITO")).toHaveValue("15");
     expect(within(drawer).getByLabelText("Número do CREFITO")).toHaveValue("12345-F");
-    fireEvent.click(within(drawer).getByLabelText("Conferi os dados profissionais"));
+    expect(within(drawer).queryByLabelText("Conferi os dados profissionais"))
+      .not.toBeInTheDocument();
+    expect(within(drawer).getByRole("button", { name: "Salvar" })).toBeEnabled();
     fireEvent.click(within(drawer).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(saveTeamProfessionalIdentity).toHaveBeenCalledWith(7, {
       action: "verify",
@@ -107,7 +118,7 @@ describe("ProfessionalIdentityDrawer", () => {
     }));
   });
 
-  it("preserva a conferência e desabilita Salvar sem alterações", () => {
+  it("preserva a autorização e desabilita Salvar sem alterações", () => {
     render(<ProfessionalIdentityDrawer
       person={activeProfessional("verified")}
       onClose={jest.fn()}
@@ -115,14 +126,14 @@ describe("ProfessionalIdentityDrawer", () => {
     />);
 
     const drawer = screen.getByRole("dialog", { name: "Dados profissionais" });
-    expect(within(drawer).getByText("Dados profissionais conferidos")).toBeInTheDocument();
+    expect(within(drawer).getByText("Cadastro profissional autorizado")).toBeInTheDocument();
     expect(within(drawer).queryByLabelText("Conferi os dados profissionais"))
       .not.toBeInTheDocument();
     expect(within(drawer).getByRole("button", { name: "Salvar" })).toBeDisabled();
     expect(saveTeamProfessionalIdentity).not.toHaveBeenCalled();
   });
 
-  it("trata dados alterados como não verificados e libera nova confirmação", () => {
+  it("trata dados alterados como pendentes até o salvamento automático", () => {
     render(<ProfessionalIdentityDrawer
       person={activeProfessional("verified")}
       onClose={jest.fn()}
@@ -134,12 +145,10 @@ describe("ProfessionalIdentityDrawer", () => {
       target: { value: "54321-F" },
     });
 
-    expect(within(drawer).getByText("Dados profissionais aguardando conferência"))
+    expect(within(drawer).getByText("Cadastro profissional pendente de autorização"))
       .toBeInTheDocument();
-    expect(within(drawer).getByRole("status")).toHaveTextContent(
-      "Os dados alterados serão salvos aguardando conferência",
-    );
-    expect(within(drawer).getByLabelText("Conferi os dados profissionais")).not.toBeChecked();
+    expect(within(drawer).queryByLabelText("Conferi os dados profissionais"))
+      .not.toBeInTheDocument();
     expect(within(drawer).getByRole("button", { name: "Salvar" })).toBeEnabled();
   });
 
@@ -160,11 +169,11 @@ describe("ProfessionalIdentityDrawer", () => {
 
     expect(within(drawer).queryByLabelText("Conferi os dados profissionais"))
       .not.toBeInTheDocument();
-    expect(within(drawer).getByText("Dados profissionais conferidos")).toBeInTheDocument();
+    expect(within(drawer).getByText("Cadastro profissional autorizado")).toBeInTheDocument();
     expect(within(drawer).getByRole("button", { name: "Salvar" })).toBeDisabled();
   });
 
-  it("recarrega, mostra sucesso e fecha depois de confirmar", async () => {
+  it("recarrega, mostra sucesso e fecha depois de autorizar", async () => {
     const onSaved = jest.fn().mockResolvedValue(undefined);
     const onClose = jest.fn();
     render(<ProfessionalIdentityDrawer
@@ -173,13 +182,12 @@ describe("ProfessionalIdentityDrawer", () => {
       onSaved={onSaved}
     />);
 
-    fireEvent.click(screen.getByLabelText("Conferi os dados profissionais"));
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
 
     await waitFor(() => {
       expect(onSaved).toHaveBeenCalledTimes(1);
       expect(toast.success).toHaveBeenCalledWith(
-        "Dados profissionais conferidos com sucesso.",
+        "Cadastro profissional autorizado.",
       );
       expect(onClose).toHaveBeenCalledTimes(1);
     });
@@ -197,7 +205,6 @@ describe("ProfessionalIdentityDrawer", () => {
       onClose={jest.fn()}
       onSaved={jest.fn().mockResolvedValue(undefined)}
     />);
-    fireEvent.click(screen.getByLabelText("Conferi os dados profissionais"));
     const confirm = screen.getByRole("button", { name: "Salvar" });
 
     fireEvent.click(confirm);
@@ -224,19 +231,19 @@ describe("ProfessionalIdentityDrawer", () => {
       target: { value: "54321-F" },
     });
 
-    fireEvent.click(within(drawer).getByLabelText("Conferi os dados profissionais"));
     fireEvent.click(within(drawer).getByRole("button", { name: "Salvar" }));
 
     expect(await within(drawer).findByRole("alert")).toHaveTextContent(
       "Não foi possível salvar os dados profissionais.",
     );
     expect(within(drawer).getByLabelText("Número do CREFITO")).toHaveValue("54321-F");
-    expect(within(drawer).getByLabelText("Conferi os dados profissionais")).toBeChecked();
+    expect(within(drawer).queryByLabelText("Conferi os dados profissionais"))
+      .not.toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
   });
 
-  it("salva alteração sem confirmação como aguardando conferência", async () => {
+  it("salva e autoriza dados alterados pelo fluxo existente", async () => {
     render(<ProfessionalIdentityDrawer
       person={activeProfessional("verified")}
       onClose={jest.fn()}
@@ -250,19 +257,19 @@ describe("ProfessionalIdentityDrawer", () => {
 
     await waitFor(() => {
       expect(saveTeamProfessionalIdentity).toHaveBeenCalledWith(7, {
-        action: "save_pending",
+        action: "verify",
         activate: false,
         profession: "physiotherapist",
         registrationRegion: "15",
         registrationNumber: "54321-F",
       });
       expect(toast.success).toHaveBeenCalledWith(
-        "Dados profissionais salvos aguardando conferência.",
+        "Cadastro profissional autorizado.",
       );
     });
   });
 
-  it("salva e confere dados alterados somente após confirmação explícita", async () => {
+  it("não exige confirmação separada para autorizar dados alterados", async () => {
     render(<ProfessionalIdentityDrawer
       person={activeProfessional("verified")}
       onClose={jest.fn()}
@@ -272,8 +279,7 @@ describe("ProfessionalIdentityDrawer", () => {
     fireEvent.change(screen.getByLabelText("Número do CREFITO"), {
       target: { value: "67890-F" },
     });
-    expect(screen.getByLabelText("Conferi os dados profissionais")).not.toBeChecked();
-    fireEvent.click(screen.getByLabelText("Conferi os dados profissionais"));
+    expect(screen.queryByLabelText("Conferi os dados profissionais")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
 
     await waitFor(() => expect(saveTeamProfessionalIdentity).toHaveBeenCalledWith(7, {
@@ -291,7 +297,9 @@ describe("ProfessionalIdentityDrawer", () => {
       onClose={jest.fn()}
       onSaved={jest.fn()}
     />);
-    expect(screen.getByLabelText("Conferi os dados profissionais")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Conferi os dados profissionais")).not.toBeInTheDocument();
+    expect(screen.getByText("Cadastro profissional pendente de autorização"))
+      .toBeInTheDocument();
     first.unmount();
 
     render(<ProfessionalIdentityDrawer
@@ -301,7 +309,7 @@ describe("ProfessionalIdentityDrawer", () => {
     />);
     expect(screen.queryByLabelText("Conferi os dados profissionais"))
       .not.toBeInTheDocument();
-    expect(screen.getByText("Dados profissionais conferidos")).toBeInTheDocument();
+    expect(screen.getByText("Cadastro profissional autorizado")).toBeInTheDocument();
   });
 
   it("cancelar não envia requisição", () => {

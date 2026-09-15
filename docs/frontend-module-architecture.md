@@ -325,9 +325,12 @@ customizado de nome semelhante não aciona esse comportamento. No cadastro, a
 identidade profissional integra o drawer de Novo usuário e o mesmo comando
 transacional do backend garante atuação, acesso e perfis selecionados; a interface
 não ativa a atuação em uma requisição separada. A edição posterior permanece no
-drawer próprio. O editor
-compara os campos normalizados, preserva a conferência no no-op e permite
-confirmar alterações na mesma tela. CREFITO não concede permissão nem substitui
+drawer próprio. Temporariamente, cadastro e editor enviam a ação existente de
+confirmação automaticamente no salvamento administrativo autorizado, sem
+checkbox e sem representar conferência humana ou consulta externa; a revisão
+definitiva permanece para outra sprint. O editor compara os campos normalizados,
+preserva autor e momento no no-op já autorizado e permite salvar individualmente
+um registro pendente. CREFITO não concede permissão nem substitui
 o vínculo canônico da conta com a pessoa e a clínica. Profissionais existentes
 sem dados de identidade permanecem pendentes até revisão administrativa manual.
 

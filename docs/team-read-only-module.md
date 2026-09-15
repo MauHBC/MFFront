@@ -28,17 +28,17 @@ de nome semelhante não serve de marcador. O frontend não monta conta, membersh
 atribuição por conta própria. Nenhum perfil vem selecionado por padrão; falha de
 carregamento ou ausência de perfil ativo bloqueia o envio, sem fallback silencioso.
 Ao selecionar Profissional em “Novo usuário”, o formulário revela profissão e CREFITO
-com as validações canônicas. “Conferi os dados profissionais” começa desmarcado:
-é uma declaração administrativa, não uma consulta automática ao conselho. Sem
-confirmação, o cadastro segue com verificação pendente; o backend revalida a
-autorização antes de aceitar uma confirmação explícita. O editor usa “Salvar”:
-no-op preserva conferência e não habilita envio; dados alterados podem ser
-confirmados na mesma tela ou salvos aguardando conferência. Senha e conferência
-continuam exibidas como estados independentes. O acesso é apresentado somente
+com as validações canônicas. Como decisão temporária, não há checkbox separado:
+o cadastro e o editor enviam a confirmação existente automaticamente ao salvar.
+Isso representa um salvamento administrativo autorizado, não conferência humana
+nem consulta ao conselho, e a revisão definitiva ficou para outra sprint. Um
+pendente existente pode ser autorizado somente por salvamento individual; no-op
+já autorizado preserva autor e momento e permanece desabilitado. Senha e estado
+profissional continuam exibidos separadamente. O acesso é apresentado somente
 como “Acesso: aguardando ativação”, “Acesso: ativo”, “Acesso: bloqueado” ou
 “Cadastro incompleto”; “Sem perfil” descreve apenas ausência de atribuição.
-Conferência usa “Dados profissionais conferidos” ou “Dados profissionais
-aguardando conferência”.
+O estado profissional usa “Cadastro profissional autorizado” ou “Cadastro
+profissional pendente de autorização”.
 O formulário preserva valores após erro, bloqueia envio duplicado e confirma o
 descarte de alterações pendentes. O drawer de permissões continua estritamente
 somente para consulta.
@@ -87,11 +87,12 @@ cadastrada:
 
 No modo membership, criação/vínculo envia somente o e-mail, aceita identidade
 global existente e pode deixar o acesso em `pending_credential`. A interface não
-solicita senha inicial nem oferece redefinição administrativa. Quando ainda não
-há senha, informa que a própria pessoa poderá criá-la no primeiro acesso, sem
-afirmar envio ou entrega de e-mail; a recuperação fica disponível na tela
-pública de login. Bloqueio e desbloqueio atuam somente no membership da clínica
-ativa.
+solicita senha inicial nem oferece redefinição administrativa. Somente quando a
+resposta confirma ausência de senha, informa “Para o primeiro acesso ao Motria,
+enviaremos um e-mail para criar a senha.”; uma identidade já credenciada não
+recebe essa promessa nem tem a senha alterada. A recuperação fica disponível na
+tela pública de login. Bloqueio e desbloqueio atuam somente no membership da
+clínica ativa.
 
 Os formulários não enviam `clinic_id`, preservam os campos depois de conflito e
 bloqueiam duplo envio. Redefinição, bloqueio e desbloqueio exigem confirmação.

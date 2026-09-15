@@ -4,6 +4,7 @@ import React, {
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import { FaEdit, FaPlus, FaTimes } from "react-icons/fa";
+import { toast } from "react-toastify";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import { useClinicTransitionGuard } from "../../contexts/ClinicTransitionGuardContext";
 import {
@@ -111,9 +112,12 @@ const isProfessionalProfileSelected = (profileIds, profiles) => profiles.some((p
 
 const professionalVerificationLabel = (person) => (
   person.professionalIdentity?.verificationStatus === "verified"
-    ? "Dados profissionais conferidos"
-    : "Dados profissionais aguardando conferência"
+    ? "Cadastro profissional autorizado"
+    : "Cadastro profissional pendente de autorização"
 );
+
+const FIRST_ACCESS_MESSAGE =
+  "Para o primeiro acesso ao Motria, enviaremos um e-mail para criar a senha.";
 
 function PersonActionsMenu({ personName, children }) {
   return (
@@ -135,7 +139,6 @@ const EMPTY_PERSON_FORM = Object.freeze({
   profession: "physiotherapist",
   registrationRegion: "",
   registrationNumber: "",
-  professionalVerificationConfirmed: false,
   profileIds: [],
 });
 
@@ -451,25 +454,7 @@ function PersonDrawer({ editor, profiles, onChange, onClose, onSubmit }) {
                     <FieldError>{editor.errors.registrationNumber}</FieldError>
                   )}
                 </FieldGroup>
-                <CheckboxLabel>
-                  <input
-                    type="checkbox"
-                    checked={editor.values.professionalVerificationConfirmed}
-                    onChange={(event) => onChange(
-                      "professionalVerificationConfirmed",
-                      event.target.checked,
-                    )}
-                    disabled={editor.submitting}
-                  />
-                  Conferi os dados profissionais
-                </CheckboxLabel>
-                <FormNotice>
-                  O sistema não consulta o CREFITO.
-                </FormNotice>
               </>
-            )}
-            {creating && (
-              <FormNotice>Se ainda não tiver senha, receberá um e-mail para criá-la.</FormNotice>
             )}
             {editor.apiError && <FormError role="alert">{editor.apiError}</FormError>}
             <DrawerFooter>
@@ -500,7 +485,6 @@ PersonDrawer.propTypes = {
       profession: PropTypes.string,
       registrationRegion: PropTypes.string,
       registrationNumber: PropTypes.string,
-      professionalVerificationConfirmed: PropTypes.bool,
       profileIds: PropTypes.arrayOf(PropTypes.number),
     }).isRequired,
     errors: PropTypes.shape({
@@ -860,7 +844,6 @@ export default function Equipe() {
       profession: person.professionalIdentity?.profession || "physiotherapist",
       registrationRegion: person.professionalIdentity?.registrationRegion || "",
       registrationNumber: person.professionalIdentity?.registrationNumber || "",
-      professionalVerificationConfirmed: false,
       profileIds: [],
     };
     setEditor({
@@ -904,9 +887,6 @@ export default function Equipe() {
       values: {
         ...current.values,
         ...(field === "profile" ? { profileIds } : { [field]: value }),
-        ...(field === "profile" && value.nativeType === "professional" && !value.checked
-          ? { professionalVerificationConfirmed: false }
-          : {}),
       },
       errors: {
         ...current.errors,
@@ -942,13 +922,17 @@ export default function Equipe() {
         profession: editor.values.profession,
         registrationRegion: editor.values.registrationRegion.trim(),
         registrationNumber: editor.values.registrationNumber.trim(),
-        professionalVerificationConfirmed:
-          editor.values.professionalVerificationConfirmed === true,
+        professionalVerificationConfirmed: true,
       } : {}),
     };
     try {
-      if (editor.mode === "create") await createTeamPerson(payload);
-      else await updateTeamPerson(editor.personId, payload);
+      if (editor.mode === "create") {
+        const savedPerson = await createTeamPerson(payload);
+        if (
+          savedPerson?.account?.has_credential === false
+          || savedPerson?.account?.status === "pending_credential"
+        ) toast.success(FIRST_ACCESS_MESSAGE);
+      } else await updateTeamPerson(editor.personId, payload);
       setEditor(null);
       await load();
     } catch (error) {

@@ -3,6 +3,7 @@ import "@testing-library/jest-dom";
 import {
   fireEvent, render, screen, waitFor, within,
 } from "@testing-library/react";
+import { toast } from "react-toastify";
 import Equipe, { buildTeamPresentation } from ".";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
@@ -48,6 +49,9 @@ jest.mock("../../services/team", () => ({
 }));
 jest.mock("../../services/axios", () => ({
   getUserFacingApiError: (error, fallback) => fallback,
+}));
+jest.mock("react-toastify", () => ({
+  toast: { success: jest.fn() },
 }));
 
 const model = {
@@ -191,6 +195,7 @@ describe("Equipe", () => {
     resetTeamAccountPassword.mockReset();
     saveTeamProfessionalIdentity.mockReset();
     unblockTeamAccount.mockReset();
+    toast.success.mockReset();
     createTeamPerson.mockResolvedValue({ id: 30 });
     createTeamAccount.mockResolvedValue({ user_id: 11, status: "active" });
     confirmProfessionalInactivation.mockResolvedValue({ professional_id: 101 });
@@ -377,6 +382,10 @@ describe("Equipe", () => {
   });
 
   it("cria profissional ao selecionar o perfil nativo explicitamente", async () => {
+    createTeamPerson.mockResolvedValueOnce({
+      id: 30,
+      account: { has_credential: false, status: "pending_credential" },
+    });
     render(<Equipe />);
     fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
     fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Eduarda" } });
@@ -390,7 +399,7 @@ describe("Equipe", () => {
     fireEvent.change(screen.getByLabelText("Número do CREFITO *"), {
       target: { value: "12345-F" },
     });
-    expect(screen.getByLabelText("Conferi os dados profissionais")).not.toBeChecked();
+    expect(screen.queryByLabelText("Conferi os dados profissionais")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(createTeamPerson).toHaveBeenCalledWith(expect.objectContaining({
       name: "Eduarda",
@@ -398,11 +407,18 @@ describe("Equipe", () => {
       profession: "physiotherapist",
       registrationRegion: "15",
       registrationNumber: "12345-F",
-      professionalVerificationConfirmed: false,
+      professionalVerificationConfirmed: true,
     })));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
+      "Para o primeiro acesso ao Motria, enviaremos um e-mail para criar a senha.",
+    ));
   });
 
-  it("envia a declaração administrativa somente após confirmação explícita", async () => {
+  it("não promete novo envio quando a identidade já possui senha", async () => {
+    createTeamPerson.mockResolvedValueOnce({
+      id: 31,
+      account: { has_credential: true, status: "active" },
+    });
     render(<Equipe />);
     fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
     fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Helena" } });
@@ -416,12 +432,13 @@ describe("Equipe", () => {
     fireEvent.change(screen.getByLabelText("Número do CREFITO *"), {
       target: { value: "54321-F" },
     });
-    fireEvent.click(screen.getByLabelText("Conferi os dados profissionais"));
+    expect(screen.queryByLabelText("Conferi os dados profissionais")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
 
     await waitFor(() => expect(createTeamPerson).toHaveBeenCalledWith(expect.objectContaining({
       professionalVerificationConfirmed: true,
     })));
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it("não permite cadastrar profissional sem e-mail", async () => {
@@ -467,7 +484,7 @@ describe("Equipe", () => {
     });
     fireEvent.click(within(drawer).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(saveTeamProfessionalIdentity).toHaveBeenCalledWith(4, {
-      action: "save_pending",
+      action: "verify",
       activate: true,
       email: "davi@clinica.test",
       profession: "physiotherapist",
@@ -558,7 +575,6 @@ describe("Equipe", () => {
     fireEvent.change(screen.getByLabelText("Número do CREFITO *"), {
       target: { value: "98765-F" },
     });
-    fireEvent.click(screen.getByLabelText("Conferi os dados profissionais"));
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
 
     expect(await screen.findByText("Não foi possível salvar a pessoa.")).toBeInTheDocument();
@@ -566,7 +582,7 @@ describe("Equipe", () => {
     expect(screen.getByDisplayValue("fernanda@example.test")).toBeInTheDocument();
     expect(screen.getByDisplayValue("15")).toBeInTheDocument();
     expect(screen.getByDisplayValue("98765-F")).toBeInTheDocument();
-    expect(screen.getByLabelText("Conferi os dados profissionais")).toBeChecked();
+    expect(screen.queryByLabelText("Conferi os dados profissionais")).not.toBeInTheDocument();
   });
 
   it("impede envio duplicado enquanto a criação está em andamento", async () => {

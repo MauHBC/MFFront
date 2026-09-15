@@ -18,9 +18,12 @@ import { saveTeamProfessionalIdentity } from "../../services/team";
 import { colors } from "../../styles/tokens";
 
 const STATUS_LABELS = Object.freeze({
-  pending: "Dados profissionais aguardando conferência",
-  verified: "Dados profissionais conferidos",
+  pending: "Cadastro profissional pendente de autorização",
+  verified: "Cadastro profissional autorizado",
 });
+
+const FIRST_ACCESS_MESSAGE =
+  "Para o primeiro acesso ao Motria, enviaremos um e-mail para criar a senha.";
 
 const normalizedIdentityValues = (values) => ({
   profession: (values.profession || "").trim().toLowerCase(),
@@ -67,7 +70,6 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
   const [errors, setErrors] = useState({});
   const [submittingAction, setSubmittingAction] = useState(null);
   const [apiError, setApiError] = useState("");
-  const [verificationConfirmed, setVerificationConfirmed] = useState(false);
   const submittingRef = useRef(false);
   const submitting = Boolean(submittingAction);
   const hasChanges = identityValuesChanged(values, initialValues);
@@ -75,25 +77,24 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
     && values.email.trim().toLowerCase() !== initialValues.email.trim().toLowerCase();
   const requiresVerification = !verified || hasChanges;
   const statusLabel = verified && hasChanges
-    ? "Dados profissionais aguardando conferência"
+    ? "Cadastro profissional pendente de autorização"
     : STATUS_LABELS[identity.verificationStatus]
-      || "Dados profissionais aguardando conferência";
+      || "Cadastro profissional pendente de autorização";
   const hasAction = requiresActivation
     || hasChanges
     || accessEmailChanged
-    || (requiresVerification && verificationConfirmed);
+    || requiresVerification;
 
   const update = (field, value) => {
     setValues((current) => ({ ...current, [field]: value }));
     setErrors((current) => ({ ...current, [field]: undefined }));
     setApiError("");
-    setVerificationConfirmed(false);
   };
 
   const submit = async () => {
     if (submittingRef.current) return;
     if (!hasAction) return;
-    const action = verificationConfirmed ? "verify" : "save_pending";
+    const action = "verify";
     const validationErrors = validateProfessionalIdentity(values, requiresAccess);
     if (Object.keys(validationErrors).length) {
       setErrors(validationErrors);
@@ -113,15 +114,11 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
         registrationNumber: values.registrationNumber.trim(),
       });
       await onSaved(savedPerson);
-      if (action === "verify") {
-        toast.success("Dados profissionais conferidos com sucesso.");
-      } else if (creating) {
-        toast.success("Profissional cadastrado. Os dados aguardam conferência.");
-      } else if (verified && !hasChanges) {
-        toast.success("Dados profissionais salvos com a conferência preservada.");
-      } else {
-        toast.success("Dados profissionais salvos aguardando conferência.");
-      }
+      if (
+        savedPerson?.account?.has_credential === false
+        || savedPerson?.account?.status === "pending_credential"
+      ) toast.success(FIRST_ACCESS_MESSAGE);
+      else toast.success("Cadastro profissional autorizado.");
       succeeded = true;
     } catch (error) {
       const duplicate = error?.response?.data?.error
@@ -211,33 +208,12 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
           {errors.registrationNumber && <FieldError>{errors.registrationNumber}</FieldError>}
 
           <Notice>
-            Preencher estes dados não os torna verificados. A confirmação administrativa
-            fica registrada na auditoria e não realiza consulta automática ao conselho
-            profissional.
+            Ao salvar, o cadastro profissional será autorizado pela clínica. O sistema
+            não consulta o CREFITO.
           </Notice>
           {requiresAccess && (
             <Notice>
-              Ao salvar, o perfil Profissional será atribuído. Se ainda não tiver senha,
-              a própria pessoa poderá criá-la no primeiro acesso.
-            </Notice>
-          )}
-          {requiresVerification && (
-            <CheckboxLabel>
-              <input
-                type="checkbox"
-                checked={verificationConfirmed}
-                onChange={(event) => {
-                  setVerificationConfirmed(event.target.checked);
-                  setApiError("");
-                }}
-                disabled={submitting}
-              />
-              Conferi os dados profissionais
-            </CheckboxLabel>
-          )}
-          {hasChanges && !verificationConfirmed && (
-            <Notice role="status">
-              Os dados alterados serão salvos aguardando conferência.
+              Ao salvar, o perfil Profissional será atribuído na mesma operação.
             </Notice>
           )}
           {requiresActivation && (
@@ -314,15 +290,6 @@ const Notice = styled.p`
   margin: 18px 0 0;
   color: ${colors.textMuted};
   line-height: 1.5;
-`;
-
-const CheckboxLabel = styled.label`
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-top: 18px;
-  color: ${colors.text};
-  line-height: 1.4;
 `;
 
 const FieldError = styled.p`
