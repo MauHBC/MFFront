@@ -14,7 +14,8 @@ Conta sem pessoa permanece um estado distinto. Profissional histórico sem acess
 
 O fluxo de pessoas reutiliza somente os contratos oficiais para:
 
-- criar pessoa sem conta de acesso;
+- criar integrante não profissional com e-mail, conta e ao menos um perfil
+  ativo escolhido explicitamente na mesma operação;
 - criar profissional com e-mail, dados profissionais, acesso canônico e perfil
   nativo na mesma operação;
 - editar nome, e-mail e telefone;
@@ -22,13 +23,19 @@ O fluxo de pessoas reutiliza somente os contratos oficiais para:
 
 Os payloads nunca incluem `clinic_id`, senha, grupo ou autoridade. O marcador de
 profissional solicita ao backend o caso de uso completo; o frontend não monta
-conta, membership nem atribuição por conta própria.
+conta, membership nem atribuição por conta própria. Nenhum perfil vem selecionado
+por padrão para não profissionais; falha de carregamento ou ausência de perfil
+ativo bloqueia o envio, sem fallback silencioso.
 Ao marcar Profissional em “Nova pessoa”, o formulário revela profissão e CREFITO
 com as validações canônicas. “Conferi os dados profissionais” começa desmarcado:
 é uma declaração administrativa, não uma consulta automática ao conselho. Sem
 confirmação, o cadastro segue com verificação pendente; o backend revalida a
-autorização antes de aceitar uma confirmação explícita. Credencial e verificação
-continuam exibidas como estados independentes.
+autorização antes de aceitar uma confirmação explícita. O editor usa “Salvar”:
+no-op preserva conferência e não habilita envio; dados alterados podem ser
+confirmados na mesma tela ou salvos aguardando conferência. Senha e conferência
+continuam exibidas como estados independentes, com os textos “Aguardando criação
+da senha”, “Dados profissionais conferidos” e “Dados profissionais aguardando
+conferência”.
 O formulário preserva valores após erro, bloqueia envio duplicado e confirma o
 descarte de alterações pendentes. O drawer de permissões continua estritamente
 somente para consulta.
@@ -77,9 +84,9 @@ cadastrada:
 
 No modo membership, criação/vínculo envia somente o e-mail, aceita identidade
 global existente e pode deixar o acesso em `pending_credential`. A interface não
-solicita senha inicial nem oferece redefinição administrativa. Identidade nova
-recebe uma intenção transacional de primeiro acesso pelo Backend; a interface
-não afirma que houve envio ou entrega, e a recuperação fica disponível na tela
+solicita senha inicial nem oferece redefinição administrativa. Quando ainda não
+há senha, informa que a própria pessoa poderá criá-la no primeiro acesso, sem
+afirmar envio ou entrega de e-mail; a recuperação fica disponível na tela
 pública de login. Bloqueio e desbloqueio atuam somente no membership da clínica
 ativa.
 

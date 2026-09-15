@@ -317,12 +317,16 @@ auditoria da área Equipe estão em
 [team-read-only-module.md](team-read-only-module.md).
 
 Pessoa, atuação profissional, identidade, membership e perfil continuam
-estruturas distintas, mas o cadastro profissional é um único caso de uso. A
-identidade profissional é cadastrada e editada em drawer próprio, por um comando
-transacional do backend que também garante acesso e perfil nativo; a interface
-não ativa a atuação em uma requisição separada. CREFITO não concede permissão nem substitui o vínculo
-canônico da conta com a pessoa e a clínica. Profissionais existentes sem dados
-de identidade permanecem pendentes até revisão administrativa manual.
+estruturas distintas, mas todo novo integrante é cadastrado com acesso em um
+único caso de uso. Não profissionais exigem seleção explícita de ao menos um
+perfil ativo; profissionais recebem apenas o perfil nativo Profissional de forma
+automática. A identidade profissional é cadastrada e editada em drawer próprio,
+por um comando transacional do backend que também garante acesso e perfil
+nativo; a interface não ativa a atuação em uma requisição separada. O editor
+compara os campos normalizados, preserva a conferência no no-op e permite
+confirmar alterações na mesma tela. CREFITO não concede permissão nem substitui
+o vínculo canônico da conta com a pessoa e a clínica. Profissionais existentes
+sem dados de identidade permanecem pendentes até revisão administrativa manual.
 
 ### Estados de autorização e contenção responsiva da Equipe
 

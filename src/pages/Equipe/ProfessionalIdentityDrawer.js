@@ -18,14 +18,14 @@ import { saveTeamProfessionalIdentity } from "../../services/team";
 import { colors } from "../../styles/tokens";
 
 const STATUS_LABELS = Object.freeze({
-  pending: "Pendente",
-  verified: "Verificado",
+  pending: "Dados profissionais aguardando conferência",
+  verified: "Dados profissionais conferidos",
 });
 
 const normalizedIdentityValues = (values) => ({
-  email: (values.email || "").trim().toLowerCase(),
-  profession: values.profession || "",
-  registrationRegion: (values.registrationRegion || "").trim(),
+  profession: (values.profession || "").trim().toLowerCase(),
+  registrationRegion: (values.registrationRegion || "")
+    .trim().replace(/^CREFITO[-\s]*/i, "").toUpperCase(),
   registrationNumber: (values.registrationNumber || "").trim().toUpperCase(),
 });
 
@@ -67,22 +67,33 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
   const [errors, setErrors] = useState({});
   const [submittingAction, setSubmittingAction] = useState(null);
   const [apiError, setApiError] = useState("");
+  const [verificationConfirmed, setVerificationConfirmed] = useState(false);
   const submittingRef = useRef(false);
   const submitting = Boolean(submittingAction);
   const hasChanges = identityValuesChanged(values, initialValues);
+  const accessEmailChanged = requiresAccess
+    && values.email.trim().toLowerCase() !== initialValues.email.trim().toLowerCase();
   const requiresVerification = !verified || hasChanges;
   const statusLabel = verified && hasChanges
-    ? "Alterações ainda não verificadas"
-    : STATUS_LABELS[identity.verificationStatus] || "Pendente";
+    ? "Dados profissionais aguardando conferência"
+    : STATUS_LABELS[identity.verificationStatus]
+      || "Dados profissionais aguardando conferência";
+  const hasAction = requiresActivation
+    || hasChanges
+    || accessEmailChanged
+    || (requiresVerification && verificationConfirmed);
 
   const update = (field, value) => {
     setValues((current) => ({ ...current, [field]: value }));
     setErrors((current) => ({ ...current, [field]: undefined }));
     setApiError("");
+    setVerificationConfirmed(false);
   };
 
-  const submit = async (action) => {
+  const submit = async () => {
     if (submittingRef.current) return;
+    if (!hasAction) return;
+    const action = verificationConfirmed ? "verify" : "save_pending";
     const validationErrors = validateProfessionalIdentity(values, requiresAccess);
     if (Object.keys(validationErrors).length) {
       setErrors(validationErrors);
@@ -103,13 +114,13 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
       });
       await onSaved(savedPerson);
       if (action === "verify") {
-        toast.success("Dados profissionais verificados com sucesso.");
+        toast.success("Dados profissionais conferidos com sucesso.");
       } else if (creating) {
-        toast.success("Profissional cadastrado. A verificação permanece pendente.");
-      } else if (verified) {
-        toast.success("Dados profissionais salvos e verificação definida como pendente.");
+        toast.success("Profissional cadastrado. Os dados aguardam conferência.");
+      } else if (verified && !hasChanges) {
+        toast.success("Dados profissionais salvos com a conferência preservada.");
       } else {
-        toast.success("Dados profissionais salvos como pendentes.");
+        toast.success("Dados profissionais salvos aguardando conferência.");
       }
       succeeded = true;
     } catch (error) {
@@ -128,13 +139,6 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
   const close = () => {
     if (!submitting) onClose();
   };
-
-  let activationButtonLabel = creating
-    ? "Cadastrar profissional"
-    : "Reativar profissional";
-  if (submitting) activationButtonLabel = "Salvando...";
-  let pendingButtonLabel = verified ? "Salvar e tornar pendente" : "Salvar como pendente";
-  if (submittingAction === "save_pending") pendingButtonLabel = "Salvando...";
 
   return (
     <>
@@ -213,15 +217,27 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
           </Notice>
           {requiresAccess && (
             <Notice>
-              Ao salvar, o acesso será vinculado ao perfil nativo Profissional. Se a
-              identidade ainda não tiver senha, uma intenção de primeiro acesso será
-              registrada pelo Backend.
+              Ao salvar, o perfil Profissional será atribuído. Se ainda não tiver senha,
+              a própria pessoa poderá criá-la no primeiro acesso.
             </Notice>
           )}
-          {verified && hasChanges && (
+          {requiresVerification && (
+            <CheckboxLabel>
+              <input
+                type="checkbox"
+                checked={verificationConfirmed}
+                onChange={(event) => {
+                  setVerificationConfirmed(event.target.checked);
+                  setApiError("");
+                }}
+                disabled={submitting}
+              />
+              Conferi os dados profissionais
+            </CheckboxLabel>
+          )}
+          {hasChanges && !verificationConfirmed && (
             <Notice role="status">
-              Os dados modificados ainda não estão verificados. Confirme a verificação
-              para validar os novos dados ou salve como pendente.
+              Os dados alterados serão salvos aguardando conferência.
             </Notice>
           )}
           {requiresActivation && (
@@ -233,36 +249,13 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
           {apiError && <ErrorText role="alert">{apiError}</ErrorText>}
           <DrawerFooter>
             <GhostButton type="button" onClick={close} disabled={submitting}>Cancelar</GhostButton>
-            {requiresActivation ? (
-              <PrimaryButton
-                type="button"
-                onClick={() => submit("save_pending")}
-                disabled={submitting}
-              >
-                {activationButtonLabel}
-              </PrimaryButton>
-            ) : (
-              <>
-                <GhostButton
-                  type="button"
-                  onClick={() => submit("save_pending")}
-                  disabled={submitting}
-                >
-                  {pendingButtonLabel}
-                </GhostButton>
-                {requiresVerification && (
-                  <PrimaryButton
-                    type="button"
-                    onClick={() => submit("verify")}
-                    disabled={submitting}
-                  >
-                    {submittingAction === "verify"
-                      ? "Confirmando..."
-                      : "Confirmar verificação"}
-                  </PrimaryButton>
-                )}
-              </>
-            )}
+            <PrimaryButton
+              type="button"
+              onClick={submit}
+              disabled={submitting || !hasAction}
+            >
+              {submitting ? "Salvando..." : "Salvar"}
+            </PrimaryButton>
           </DrawerFooter>
         </DrawerBody>
       </AppDrawer>
@@ -321,6 +314,15 @@ const Notice = styled.p`
   margin: 18px 0 0;
   color: ${colors.textMuted};
   line-height: 1.5;
+`;
+
+const CheckboxLabel = styled.label`
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 18px;
+  color: ${colors.text};
+  line-height: 1.4;
 `;
 
 const FieldError = styled.p`

@@ -70,7 +70,7 @@ export default function AccountAccessDrawer({
   const copy = MODE_COPY[editor.mode];
   const showPassword = !membershipMode && (editor.mode === "create" || editor.mode === "reset");
   const notice = membershipMode && editor.mode === "create"
-    ? "O vínculo será criado sem senha administrativa. Se a identidade ainda não tiver credencial, o Backend registrará uma intenção de primeiro acesso; a recuperação permanece disponível na tela de login."
+    ? "O acesso será criado sem senha administrativa. Se a pessoa ainda não tiver senha, ela poderá criá-la no primeiro acesso; a recuperação permanece disponível na tela de login."
     : copy.notice;
   return (
     <>

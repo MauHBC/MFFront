@@ -36,6 +36,7 @@ export const createTeamPerson = ({
   registrationRegion,
   registrationNumber,
   professionalVerificationConfirmed,
+  profileIds,
 }) => api.post(
   "/team/people",
   {
@@ -48,7 +49,7 @@ export const createTeamPerson = ({
       registration_region: registrationRegion,
       registration_number: registrationNumber,
       professional_verification_confirmed: professionalVerificationConfirmed === true,
-    } : {}),
+    } : { profile_ids: profileIds }),
   },
 ).then(data);
 

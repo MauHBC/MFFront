@@ -69,7 +69,7 @@ const ACCOUNT_STATUS_LABELS = {
   active: "Acesso ativo",
   blocked: "Acesso bloqueado",
   invalid: "Vínculo inválido",
-  pending_credential: "Credencial pendente",
+  pending_credential: "Aguardando criação da senha",
   identity_blocked: "Identidade bloqueada",
   person_inactive: "Pessoa inativa",
 };
@@ -84,6 +84,12 @@ const accountStatusLabel = (person) => {
   if (person.account) return ACCOUNT_STATUS_LABELS[person.account.status] || "Com acesso";
   return person.isProfessional ? "Vínculo incompleto" : "Sem acesso";
 };
+
+const professionalVerificationLabel = (person) => (
+  person.professionalIdentity?.verificationStatus === "verified"
+    ? "Dados profissionais conferidos"
+    : "Dados profissionais aguardando conferência"
+);
 
 function PersonActionsMenu({ personName, children }) {
   return (
@@ -107,9 +113,10 @@ const EMPTY_PERSON_FORM = Object.freeze({
   registrationRegion: "",
   registrationNumber: "",
   professionalVerificationConfirmed: false,
+  profileIds: [],
 });
 
-export function validatePersonForm(values, validateProfessionalFields = true) {
+export function validatePersonForm(values, validateCreationFields = true) {
   const errors = {};
   const name = values.name.trim();
   const email = values.email.trim();
@@ -120,11 +127,14 @@ export function validatePersonForm(values, validateProfessionalFields = true) {
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     errors.email = "Informe um e-mail válido.";
   }
-  if (values.isProfessional && !email) {
-    errors.email = "O e-mail é obrigatório para cadastrar um profissional.";
+  if (validateCreationFields && !email) {
+    errors.email = "O e-mail é obrigatório para cadastrar um integrante.";
   }
-  if (values.isProfessional && validateProfessionalFields) {
+  if (values.isProfessional && validateCreationFields) {
     Object.assign(errors, validateProfessionalIdentity(values));
+  }
+  if (validateCreationFields && !values.isProfessional && values.profileIds.length === 0) {
+    errors.profileIds = "Selecione pelo menos um perfil para o novo integrante.";
   }
   if (phone.length > 40) errors.phone = "O telefone deve ter no máximo 40 caracteres.";
   return errors;
@@ -271,8 +281,9 @@ function AuthorizationLoadError({ onRetry }) {
 
 AuthorizationLoadError.propTypes = { onRetry: PropTypes.func.isRequired };
 
-function PersonDrawer({ editor, onChange, onClose, onSubmit }) {
+function PersonDrawer({ editor, profiles, onChange, onClose, onSubmit }) {
   const creating = editor.mode === "create";
+  const activeProfiles = profiles.filter(({ is_active: active }) => active);
   return (
     <>
       <DrawerBackdrop onClick={onClose} />
@@ -309,12 +320,13 @@ function PersonDrawer({ editor, onChange, onClose, onSubmit }) {
             </FieldGroup>
             <FieldGroup>
               <FieldLabel htmlFor="team-person-email">
-                E-mail{creating && editor.values.isProfessional ? " *" : ""}
+                E-mail{creating ? " *" : ""}
               </FieldLabel>
               <FieldInput
                 id="team-person-email"
+                aria-label="E-mail"
                 type="email"
-                required={creating && editor.values.isProfessional}
+                required={creating}
                 value={editor.values.email}
                 onChange={(event) => onChange("email", event.target.value)}
                 aria-invalid={Boolean(editor.errors.email)}
@@ -343,7 +355,7 @@ function PersonDrawer({ editor, onChange, onClose, onSubmit }) {
                   onChange={(event) => onChange("isProfessional", event.target.checked)}
                   disabled={editor.submitting}
                 />
-                Registrar como profissional e criar acesso
+                Profissional
               </CheckboxLabel>
             )}
             {creating && editor.values.isProfessional && (
@@ -411,17 +423,50 @@ function PersonDrawer({ editor, onChange, onClose, onSubmit }) {
                 </FormNotice>
               </>
             )}
+            {creating && !editor.values.isProfessional && (
+              <FieldGroup>
+                <FieldLabel>Perfis *</FieldLabel>
+                {activeProfiles.length === 0 ? (
+                  <FormError role="alert">
+                    Nenhum perfil ativo está disponível. Cadastre ou ative um perfil antes
+                    de incluir este integrante.
+                  </FormError>
+                ) : (
+                  <CapabilityGrid>
+                    {activeProfiles.map((profile) => (
+                      <CheckboxLabel key={profile.id}>
+                        <input
+                          type="checkbox"
+                          checked={editor.values.profileIds.includes(profile.id)}
+                          onChange={(event) => onChange("profile", {
+                            id: profile.id,
+                            checked: event.target.checked,
+                          })}
+                          disabled={editor.submitting}
+                        />
+                        {profile.name} {profile.native_type ? "(nativo)" : "(personalizado)"}
+                      </CheckboxLabel>
+                    ))}
+                  </CapabilityGrid>
+                )}
+                {editor.errors.profileIds && <FieldError>{editor.errors.profileIds}</FieldError>}
+              </FieldGroup>
+            )}
             <FormNotice>
               {creating && editor.values.isProfessional
-                ? "O profissional receberá o perfil nativo Profissional. Se ainda não tiver senha, uma intenção de primeiro acesso será registrada."
-                : "Pessoas comuns podem receber acesso posteriormente, sem alterar seu cadastro."}
+                ? "O perfil Profissional será atribuído. Se ainda não tiver senha, a própria pessoa poderá criá-la no primeiro acesso."
+                : "A conta e os perfis selecionados serão criados juntos. Se ainda não tiver senha, a própria pessoa poderá criá-la no primeiro acesso."}
             </FormNotice>
             {editor.apiError && <FormError role="alert">{editor.apiError}</FormError>}
             <DrawerFooter>
               <GhostButton type="button" onClick={onClose} disabled={editor.submitting}>
                 Cancelar
               </GhostButton>
-              <PrimaryButton type="submit" disabled={editor.submitting}>
+              <PrimaryButton
+                type="submit"
+                disabled={editor.submitting || (creating && !editor.values.isProfessional
+                  && activeProfiles.length === 0)}
+              >
                 {editor.submitting ? "Salvando..." : "Salvar"}
               </PrimaryButton>
             </DrawerFooter>
@@ -444,6 +489,7 @@ PersonDrawer.propTypes = {
       registrationRegion: PropTypes.string,
       registrationNumber: PropTypes.string,
       professionalVerificationConfirmed: PropTypes.bool,
+      profileIds: PropTypes.arrayOf(PropTypes.number),
     }).isRequired,
     errors: PropTypes.shape({
       name: PropTypes.string,
@@ -452,10 +498,17 @@ PersonDrawer.propTypes = {
       profession: PropTypes.string,
       registrationRegion: PropTypes.string,
       registrationNumber: PropTypes.string,
+      profileIds: PropTypes.string,
     }).isRequired,
     apiError: PropTypes.string.isRequired,
     submitting: PropTypes.bool.isRequired,
   }).isRequired,
+  profiles: PropTypes.arrayOf(PropTypes.shape({
+    id: PropTypes.number.isRequired,
+    name: PropTypes.string.isRequired,
+    native_type: PropTypes.string,
+    is_active: PropTypes.bool,
+  })).isRequired,
   onChange: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
   onSubmit: PropTypes.func.isRequired,
@@ -797,6 +850,7 @@ export default function Equipe() {
       registrationRegion: person.professionalIdentity?.registrationRegion || "",
       registrationNumber: person.professionalIdentity?.registrationNumber || "",
       professionalVerificationConfirmed: false,
+      profileIds: [],
     };
     setEditor({
       mode: "edit",
@@ -826,18 +880,31 @@ export default function Equipe() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [editor, editorDirty]);
 
-  const changeEditorValue = (field, value) => setEditor((current) => ({
-    ...current,
-    values: {
-      ...current.values,
-      [field]: value,
-      ...(field === "isProfessional" && value === false
-        ? { professionalVerificationConfirmed: false }
-        : {}),
-    },
-    errors: { ...current.errors, [field]: undefined },
-    apiError: "",
-  }));
+  const changeEditorValue = (field, value) => setEditor((current) => {
+    const { profileIds: currentProfileIds } = current.values;
+    let profileIds = currentProfileIds;
+    if (field === "profile") {
+      profileIds = value.checked
+        ? [...currentProfileIds, value.id]
+        : currentProfileIds.filter((id) => id !== value.id);
+    }
+    return {
+      ...current,
+      values: {
+        ...current.values,
+        ...(field === "profile" ? { profileIds } : { [field]: value }),
+        ...(field === "isProfessional" && value === false
+          ? { professionalVerificationConfirmed: false }
+          : {}),
+        ...(field === "isProfessional" && value === true ? { profileIds: [] } : {}),
+      },
+      errors: {
+        ...current.errors,
+        [field === "profile" ? "profileIds" : field]: undefined,
+      },
+      apiError: "",
+    };
+  });
 
   const submitPerson = async (event) => {
     event.preventDefault();
@@ -853,6 +920,9 @@ export default function Equipe() {
       email: editor.values.email.trim(),
       phone: editor.values.phone.trim(),
       isProfessional: editor.values.isProfessional,
+      ...(editor.mode === "create" && !editor.values.isProfessional
+        ? { profileIds: editor.values.profileIds }
+        : {}),
       ...(editor.mode === "create" && editor.values.isProfessional ? {
         profession: editor.values.profession,
         registrationRegion: editor.values.registrationRegion.trim(),
@@ -868,12 +938,21 @@ export default function Equipe() {
       await load();
     } catch (error) {
       const duplicate = error?.response?.data?.error === "TEAM_IDENTITY_ALREADY_EXISTS";
+      const unavailableProfile = [
+        "TEAM_PROFILE_REQUIRED",
+        "TEAM_PROFILE_UNAVAILABLE",
+        "INVALID_PERSISTED_PROFILE",
+        "INVALID_TEAM_PROFILE_SELECTION",
+      ].includes(error?.response?.data?.error);
+      let apiError = getUserFacingApiError(error, "Não foi possível salvar a pessoa.");
+      if (unavailableProfile) {
+        apiError = "Revise os perfis selecionados. Um deles não está mais disponível.";
+      }
+      if (duplicate) apiError = "Já existe uma pessoa com este e-mail na clínica.";
       setEditor((current) => ({
         ...current,
         submitting: false,
-        apiError: duplicate
-          ? "Já existe uma pessoa com este e-mail na clínica."
-          : getUserFacingApiError(error, "Não foi possível salvar a pessoa."),
+        apiError,
       }));
     }
   };
@@ -1160,7 +1239,7 @@ export default function Equipe() {
               </RowActionButton>
             )}
             {membershipMode && !person.account.hasCredential && (
-              <NoAccessText>Primeiro acesso pendente</NoAccessText>
+              <NoAccessText>Aguardando criação da senha</NoAccessText>
             )}
             {renderAccountLifecycleAction(person)}
           </>
@@ -1235,6 +1314,9 @@ export default function Equipe() {
                       <StatusPill $tone={person.professionalActive ? "active" : "paused"}>
                         {person.professionalActive ? "Profissional ativo" : "Profissional inativo"}
                       </StatusPill>
+                    )}
+                    {person.isProfessional && (
+                      <NeutralPill>{professionalVerificationLabel(person)}</NeutralPill>
                     )}
                     <NeutralPill>{accountStatusLabel(person)}</NeutralPill>
                   </Badges>
@@ -1311,6 +1393,7 @@ export default function Equipe() {
       {editor && (
         <PersonDrawer
           editor={editor}
+          profiles={presentation.profiles}
           onChange={changeEditorValue}
           onClose={requestEditorClose}
           onSubmit={submitPerson}

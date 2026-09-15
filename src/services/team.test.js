@@ -121,6 +121,24 @@ describe("team read service", () => {
     });
   });
 
+  it("solicita criação comum com os perfis explícitos no mesmo comando", async () => {
+    api.post.mockResolvedValueOnce({ data: { id: 2 } });
+    await createTeamPerson({
+      name: "Bia",
+      email: "bia@example.test",
+      phone: "",
+      isProfessional: false,
+      profileIds: [22, 23],
+    });
+    expect(api.post).toHaveBeenCalledWith("/team/people", {
+      name: "Bia",
+      email: "bia@example.test",
+      phone: null,
+      is_professional: false,
+      profile_ids: [22, 23],
+    });
+  });
+
   it("edita e reativa pessoa pelos contratos oficiais sem identidade do tenant", async () => {
     api.put.mockResolvedValueOnce({ data: { id: 4 } });
     api.patch.mockResolvedValueOnce({ data: { id: 4 } });
