@@ -31,25 +31,24 @@ export const createTeamPerson = ({
   name,
   email,
   phone,
-  isProfessional,
+  profileIds,
   profession,
   registrationRegion,
   registrationNumber,
   professionalVerificationConfirmed,
-  profileIds,
 }) => api.post(
   "/team/people",
   {
     name,
     email: email || null,
     phone: phone || null,
-    is_professional: isProfessional === true,
-    ...(isProfessional === true ? {
+    profile_ids: profileIds,
+    ...(profession !== undefined ? {
       profession,
       registration_region: registrationRegion,
       registration_number: registrationNumber,
       professional_verification_confirmed: professionalVerificationConfirmed === true,
-    } : { profile_ids: profileIds }),
+    } : {}),
   },
 ).then(data);
 

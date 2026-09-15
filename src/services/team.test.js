@@ -103,7 +103,7 @@ describe("team read service", () => {
       name: "Ana",
       email: "ana@example.test",
       phone: "2799999999",
-      isProfessional: true,
+      profileIds: [24, 20],
       profession: "physiotherapist",
       registrationRegion: "15",
       registrationNumber: "12345-F",
@@ -113,7 +113,7 @@ describe("team read service", () => {
       name: "Ana",
       email: "ana@example.test",
       phone: "2799999999",
-      is_professional: true,
+      profile_ids: [24, 20],
       profession: "physiotherapist",
       registration_region: "15",
       registration_number: "12345-F",
@@ -127,14 +127,12 @@ describe("team read service", () => {
       name: "Bia",
       email: "bia@example.test",
       phone: "",
-      isProfessional: false,
       profileIds: [22, 23],
     });
     expect(api.post).toHaveBeenCalledWith("/team/people", {
       name: "Bia",
       email: "bia@example.test",
       phone: null,
-      is_professional: false,
       profile_ids: [22, 23],
     });
   });

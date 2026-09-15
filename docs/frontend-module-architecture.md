@@ -318,11 +318,14 @@ auditoria da área Equipe estão em
 
 Pessoa, atuação profissional, identidade, membership e perfil continuam
 estruturas distintas, mas todo novo integrante é cadastrado com acesso em um
-único caso de uso. Não profissionais exigem seleção explícita de ao menos um
-perfil ativo; profissionais recebem apenas o perfil nativo Profissional de forma
-automática. A identidade profissional é cadastrada e editada em drawer próprio,
-por um comando transacional do backend que também garante acesso e perfil
-nativo; a interface não ativa a atuação em uma requisição separada. O editor
+único caso de uso e exige seleção explícita de ao menos um perfil ativo. A seleção
+do perfil com `native_type = professional` cria a atuação e revela os campos
+profissionais, preservando combinações como Administrador + Profissional; perfil
+customizado de nome semelhante não aciona esse comportamento. No cadastro, a
+identidade profissional integra o drawer de Novo usuário e o mesmo comando
+transacional do backend garante atuação, acesso e perfis selecionados; a interface
+não ativa a atuação em uma requisição separada. A edição posterior permanece no
+drawer próprio. O editor
 compara os campos normalizados, preserva a conferência no no-op e permite
 confirmar alterações na mesma tela. CREFITO não concede permissão nem substitui
 o vínculo canônico da conta com a pessoa e a clínica. Profissionais existentes

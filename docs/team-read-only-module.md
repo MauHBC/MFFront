@@ -9,33 +9,36 @@ estrutural que possua `access_profiles.manage`.
 A página consulta pessoas, perfis, catálogo, atribuições e contas vinculáveis.
 As junções de apresentação usam `person_id`, `profile_id` e o sujeito oficial da
 autoridade atual: `user_id` no legacy ou `membership_id` no modo membership.
-Conta sem pessoa permanece um estado distinto. Profissional histórico sem acesso
-é exibido como vínculo incompleto e não recebe o fluxo genérico de criação de conta.
+Conta sem pessoa e pessoa histórica sem conta permanecem estados incompletos
+distintos e não são convertidos automaticamente.
 
 O fluxo de pessoas reutiliza somente os contratos oficiais para:
 
-- criar integrante não profissional com e-mail, conta e ao menos um perfil
-  ativo escolhido explicitamente na mesma operação;
-- criar profissional com e-mail, dados profissionais, acesso canônico e perfil
-  nativo na mesma operação;
+- criar integrante com nome, e-mail, conta e ao menos um perfil ativo escolhido
+  explicitamente na mesma operação;
+- ao escolher o perfil nativo Profissional, criar também os dados profissionais
+  e a atuação na mesma operação, preservando todos os demais perfis escolhidos;
 - editar nome, e-mail e telefone;
 - reativar somente a pessoa, sem reativar profissional ou conta.
 
-Os payloads nunca incluem `clinic_id`, senha, grupo ou autoridade. O marcador de
-profissional solicita ao backend o caso de uso completo; o frontend não monta
-conta, membership nem atribuição por conta própria. Nenhum perfil vem selecionado
-por padrão para não profissionais; falha de carregamento ou ausência de perfil
-ativo bloqueia o envio, sem fallback silencioso.
-Ao marcar Profissional em “Nova pessoa”, o formulário revela profissão e CREFITO
+Os payloads nunca incluem `clinic_id`, senha, grupo ou autoridade. A seleção usa
+as identidades canônicas recebidas: somente `native_type = professional` solicita
+ao backend o caso de uso profissional completo; nome exibido ou perfil customizado
+de nome semelhante não serve de marcador. O frontend não monta conta, membership nem
+atribuição por conta própria. Nenhum perfil vem selecionado por padrão; falha de
+carregamento ou ausência de perfil ativo bloqueia o envio, sem fallback silencioso.
+Ao selecionar Profissional em “Novo usuário”, o formulário revela profissão e CREFITO
 com as validações canônicas. “Conferi os dados profissionais” começa desmarcado:
 é uma declaração administrativa, não uma consulta automática ao conselho. Sem
 confirmação, o cadastro segue com verificação pendente; o backend revalida a
 autorização antes de aceitar uma confirmação explícita. O editor usa “Salvar”:
 no-op preserva conferência e não habilita envio; dados alterados podem ser
 confirmados na mesma tela ou salvos aguardando conferência. Senha e conferência
-continuam exibidas como estados independentes, com os textos “Aguardando criação
-da senha”, “Dados profissionais conferidos” e “Dados profissionais aguardando
-conferência”.
+continuam exibidas como estados independentes. O acesso é apresentado somente
+como “Acesso: aguardando ativação”, “Acesso: ativo”, “Acesso: bloqueado” ou
+“Cadastro incompleto”; “Sem perfil” descreve apenas ausência de atribuição.
+Conferência usa “Dados profissionais conferidos” ou “Dados profissionais
+aguardando conferência”.
 O formulário preserva valores após erro, bloqueia envio duplicado e confirma o
 descarte de alterações pendentes. O drawer de permissões continua estritamente
 somente para consulta.
@@ -93,8 +96,9 @@ ativa.
 Os formulários não enviam `clinic_id`, preservam os campos depois de conflito e
 bloqueiam duplo envio. Redefinição, bloqueio e desbloqueio exigem confirmação.
 Criar uma conta geral não cria profissional, grupo, perfil ou permissão; as
-atribuições adicionais continuam no drawer de perfis. O cadastro profissional,
-por sua vez, recebe automaticamente o perfil nativo Profissional pelo backend.
+atribuições adicionais continuam no drawer de perfis. A seleção do perfil nativo
+Profissional no cadastro unificado cria a atuação, mas atribuições posteriores em
+“Gerenciar perfis” não criam nem inativam atuação.
 Vínculo marcado como
 inválido pelo backend não oferece mutações na interface.
 

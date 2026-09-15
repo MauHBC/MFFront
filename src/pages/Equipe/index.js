@@ -65,25 +65,49 @@ const POWER_LABELS = {
   "administrators.manage": "Gerenciar administradores",
   "security_history.view": "Consultar histórico de segurança",
 };
-const ACCOUNT_STATUS_LABELS = {
-  active: "Acesso ativo",
-  blocked: "Acesso bloqueado",
-  invalid: "Vínculo inválido",
-  pending_credential: "Aguardando criação da senha",
-  identity_blocked: "Identidade bloqueada",
-  person_inactive: "Pessoa inativa",
-};
-
 const personAccessSummary = (person) => {
   if (!person.isPerson) return `Conta sem pessoa vinculada · ${person.account?.login}`;
   if (person.account?.login) return person.account.login;
-  return person.isProfessional ? "Vínculo profissional incompleto" : "Sem acesso";
+  return "Cadastro incompleto";
 };
 
 const accountStatusLabel = (person) => {
-  if (person.account) return ACCOUNT_STATUS_LABELS[person.account.status] || "Com acesso";
-  return person.isProfessional ? "Vínculo incompleto" : "Sem acesso";
+  if (
+    !person.isPerson
+    || !person.account
+    || person.account.linkageType === "invalid"
+    || person.account.status === "invalid"
+  ) return "Cadastro incompleto";
+  if (
+    !person.isActive
+    || !person.account.isActive
+    || ["blocked", "identity_blocked", "person_inactive"].includes(person.account.status)
+  ) return "Acesso: bloqueado";
+  if (person.account.status === "pending_credential" || !person.account.hasCredential) {
+    return "Acesso: aguardando ativação";
+  }
+  return person.account.status === "active" ? "Acesso: ativo" : "Cadastro incompleto";
 };
+
+const accountStatusDetail = (person) => {
+  if (!person.isPerson || !person.account) return "Conta ou vínculo ausente.";
+  if (person.account.linkageType === "invalid" || person.account.status === "invalid") {
+    return "Conta ou vínculo inconsistente.";
+  }
+  if (!person.isActive || person.account.status === "person_inactive") return "Pessoa inativa.";
+  if (person.account.status === "identity_blocked") return "Identidade bloqueada.";
+  if (person.account.status === "blocked" || !person.account.isActive) {
+    return "Vínculo com a clínica bloqueado.";
+  }
+  if (person.account.status === "pending_credential" || !person.account.hasCredential) {
+    return "Falta criar senha.";
+  }
+  return "";
+};
+
+const isProfessionalProfileSelected = (profileIds, profiles) => profiles.some((profile) => (
+  profile.native_type === "professional" && profileIds.includes(profile.id)
+));
 
 const professionalVerificationLabel = (person) => (
   person.professionalIdentity?.verificationStatus === "verified"
@@ -108,7 +132,6 @@ const EMPTY_PERSON_FORM = Object.freeze({
   name: "",
   email: "",
   phone: "",
-  isProfessional: false,
   profession: "physiotherapist",
   registrationRegion: "",
   registrationNumber: "",
@@ -116,7 +139,7 @@ const EMPTY_PERSON_FORM = Object.freeze({
   profileIds: [],
 });
 
-export function validatePersonForm(values, validateCreationFields = true) {
+export function validatePersonForm(values, validateCreationFields = true, profiles = []) {
   const errors = {};
   const name = values.name.trim();
   const email = values.email.trim();
@@ -130,10 +153,11 @@ export function validatePersonForm(values, validateCreationFields = true) {
   if (validateCreationFields && !email) {
     errors.email = "O e-mail é obrigatório para cadastrar um integrante.";
   }
-  if (values.isProfessional && validateCreationFields) {
+  const professionalSelected = isProfessionalProfileSelected(values.profileIds, profiles);
+  if (professionalSelected && validateCreationFields) {
     Object.assign(errors, validateProfessionalIdentity(values));
   }
-  if (validateCreationFields && !values.isProfessional && values.profileIds.length === 0) {
+  if (validateCreationFields && values.profileIds.length === 0) {
     errors.profileIds = "Selecione pelo menos um perfil para o novo integrante.";
   }
   if (phone.length > 40) errors.phone = "O telefone deve ter no máximo 40 caracteres.";
@@ -202,12 +226,11 @@ export function buildTeamPresentation(model) {
       account: person.account ? {
         id: person.account.id,
         login: accountState?.login_identifier || person.account.email || null,
-        isActive: person.account.is_active === true,
-        status: (membershipMode ? accountState?.status : person.account.status)
-          || person.account.status || accountState?.status
+        isActive: (accountState?.is_active ?? person.account.is_active) === true,
+        status: accountState?.status || person.account.status
           || (person.account.is_active ? "active" : "blocked"),
-        linkageType: person.account.linkage_type || accountState?.linkage_type || "legacy",
-        hasCredential: person.account.has_credential ?? accountState?.has_credential ?? false,
+        linkageType: accountState?.linkage_type || person.account.linkage_type || "legacy",
+        hasCredential: accountState?.has_credential ?? person.account.has_credential ?? false,
         assignmentSubjectId,
       } : null,
       profiles: profileIds.map((id) => profileById.get(id)).filter(Boolean),
@@ -284,6 +307,10 @@ AuthorizationLoadError.propTypes = { onRetry: PropTypes.func.isRequired };
 function PersonDrawer({ editor, profiles, onChange, onClose, onSubmit }) {
   const creating = editor.mode === "create";
   const activeProfiles = profiles.filter(({ is_active: active }) => active);
+  const professionalSelected = isProfessionalProfileSelected(
+    editor.values.profileIds,
+    activeProfiles,
+  );
   return (
     <>
       <DrawerBackdrop onClick={onClose} />
@@ -295,7 +322,7 @@ function PersonDrawer({ editor, profiles, onChange, onClose, onSubmit }) {
       >
         <DrawerHeader>
           <DrawerTitle id="person-drawer-title">
-            {creating ? "Nova pessoa" : "Editar pessoa"}
+            {creating ? "Novo usuário" : "Editar pessoa"}
           </DrawerTitle>
           <DrawerCloseBtn type="button" aria-label="Fechar formulário" onClick={onClose}>
             <FaTimes />
@@ -348,17 +375,36 @@ function PersonDrawer({ editor, profiles, onChange, onClose, onSubmit }) {
               {editor.errors.phone && <FieldError id="team-person-phone-error">{editor.errors.phone}</FieldError>}
             </FieldGroup>
             {creating && (
-              <CheckboxLabel>
-                <input
-                  type="checkbox"
-                  checked={editor.values.isProfessional}
-                  onChange={(event) => onChange("isProfessional", event.target.checked)}
-                  disabled={editor.submitting}
-                />
-                Profissional
-              </CheckboxLabel>
+              <FieldGroup>
+                <FieldLabel>Perfis de acesso *</FieldLabel>
+                {activeProfiles.length === 0 ? (
+                  <FormError role="alert">
+                    Nenhum perfil ativo está disponível. Cadastre ou ative um perfil antes
+                    de incluir este usuário.
+                  </FormError>
+                ) : (
+                  <CapabilityGrid>
+                    {activeProfiles.map((profile) => (
+                      <CheckboxLabel key={profile.id}>
+                        <input
+                          type="checkbox"
+                          checked={editor.values.profileIds.includes(profile.id)}
+                          onChange={(event) => onChange("profile", {
+                            id: profile.id,
+                            checked: event.target.checked,
+                            nativeType: profile.native_type,
+                          })}
+                          disabled={editor.submitting}
+                        />
+                        {profile.name} {profile.native_type ? "(nativo)" : "(personalizado)"}
+                      </CheckboxLabel>
+                    ))}
+                  </CapabilityGrid>
+                )}
+                {editor.errors.profileIds && <FieldError>{editor.errors.profileIds}</FieldError>}
+              </FieldGroup>
             )}
-            {creating && editor.values.isProfessional && (
+            {creating && professionalSelected && (
               <>
                 <FieldGroup>
                   <FieldLabel htmlFor="team-person-profession">Profissão *</FieldLabel>
@@ -418,45 +464,13 @@ function PersonDrawer({ editor, profiles, onChange, onClose, onSubmit }) {
                   Conferi os dados profissionais
                 </CheckboxLabel>
                 <FormNotice>
-                  Esta confirmação é uma declaração administrativa. Ela não consulta nem
-                  valida automaticamente os dados no conselho profissional.
+                  O sistema não consulta o CREFITO.
                 </FormNotice>
               </>
             )}
-            {creating && !editor.values.isProfessional && (
-              <FieldGroup>
-                <FieldLabel>Perfis *</FieldLabel>
-                {activeProfiles.length === 0 ? (
-                  <FormError role="alert">
-                    Nenhum perfil ativo está disponível. Cadastre ou ative um perfil antes
-                    de incluir este integrante.
-                  </FormError>
-                ) : (
-                  <CapabilityGrid>
-                    {activeProfiles.map((profile) => (
-                      <CheckboxLabel key={profile.id}>
-                        <input
-                          type="checkbox"
-                          checked={editor.values.profileIds.includes(profile.id)}
-                          onChange={(event) => onChange("profile", {
-                            id: profile.id,
-                            checked: event.target.checked,
-                          })}
-                          disabled={editor.submitting}
-                        />
-                        {profile.name} {profile.native_type ? "(nativo)" : "(personalizado)"}
-                      </CheckboxLabel>
-                    ))}
-                  </CapabilityGrid>
-                )}
-                {editor.errors.profileIds && <FieldError>{editor.errors.profileIds}</FieldError>}
-              </FieldGroup>
+            {creating && (
+              <FormNotice>Se ainda não tiver senha, receberá um e-mail para criá-la.</FormNotice>
             )}
-            <FormNotice>
-              {creating && editor.values.isProfessional
-                ? "O perfil Profissional será atribuído. Se ainda não tiver senha, a própria pessoa poderá criá-la no primeiro acesso."
-                : "A conta e os perfis selecionados serão criados juntos. Se ainda não tiver senha, a própria pessoa poderá criá-la no primeiro acesso."}
-            </FormNotice>
             {editor.apiError && <FormError role="alert">{editor.apiError}</FormError>}
             <DrawerFooter>
               <GhostButton type="button" onClick={onClose} disabled={editor.submitting}>
@@ -464,8 +478,7 @@ function PersonDrawer({ editor, profiles, onChange, onClose, onSubmit }) {
               </GhostButton>
               <PrimaryButton
                 type="submit"
-                disabled={editor.submitting || (creating && !editor.values.isProfessional
-                  && activeProfiles.length === 0)}
+                disabled={editor.submitting || (creating && activeProfiles.length === 0)}
               >
                 {editor.submitting ? "Salvando..." : "Salvar"}
               </PrimaryButton>
@@ -484,7 +497,6 @@ PersonDrawer.propTypes = {
       name: PropTypes.string,
       email: PropTypes.string,
       phone: PropTypes.string,
-      isProfessional: PropTypes.bool,
       profession: PropTypes.string,
       registrationRegion: PropTypes.string,
       registrationNumber: PropTypes.string,
@@ -845,7 +857,6 @@ export default function Equipe() {
       name: person.name,
       email: person.email,
       phone: person.phone,
-      isProfessional: person.isProfessional,
       profession: person.professionalIdentity?.profession || "physiotherapist",
       registrationRegion: person.professionalIdentity?.registrationRegion || "",
       registrationNumber: person.professionalIdentity?.registrationNumber || "",
@@ -893,10 +904,9 @@ export default function Equipe() {
       values: {
         ...current.values,
         ...(field === "profile" ? { profileIds } : { [field]: value }),
-        ...(field === "isProfessional" && value === false
+        ...(field === "profile" && value.nativeType === "professional" && !value.checked
           ? { professionalVerificationConfirmed: false }
           : {}),
-        ...(field === "isProfessional" && value === true ? { profileIds: [] } : {}),
       },
       errors: {
         ...current.errors,
@@ -909,21 +919,26 @@ export default function Equipe() {
   const submitPerson = async (event) => {
     event.preventDefault();
     if (!editor || editor.submitting) return;
-    const errors = validatePersonForm(editor.values, editor.mode === "create");
+    const errors = validatePersonForm(
+      editor.values,
+      editor.mode === "create",
+      presentation.profiles,
+    );
     if (Object.keys(errors).length) {
       setEditor((current) => ({ ...current, errors }));
       return;
     }
     setEditor((current) => ({ ...current, submitting: true, apiError: "" }));
+    const professionalSelected = isProfessionalProfileSelected(
+      editor.values.profileIds,
+      presentation.profiles,
+    );
     const payload = {
       name: editor.values.name.trim(),
       email: editor.values.email.trim(),
       phone: editor.values.phone.trim(),
-      isProfessional: editor.values.isProfessional,
-      ...(editor.mode === "create" && !editor.values.isProfessional
-        ? { profileIds: editor.values.profileIds }
-        : {}),
-      ...(editor.mode === "create" && editor.values.isProfessional ? {
+      ...(editor.mode === "create" ? { profileIds: editor.values.profileIds } : {}),
+      ...(editor.mode === "create" && professionalSelected ? {
         profession: editor.values.profession,
         registrationRegion: editor.values.registrationRegion.trim(),
         registrationNumber: editor.values.registrationNumber.trim(),
@@ -1213,9 +1228,6 @@ export default function Equipe() {
 
   const renderAccountActions = (person) => {
     if (!person.account) {
-      if (person.isProfessional) {
-        return <NoAccessText>Vínculo profissional incompleto</NoAccessText>;
-      }
       if (person.isPerson && person.isActive) {
         return (
           <RowActionButton type="button" onClick={() => openAccountAction("create", person)}>
@@ -1223,7 +1235,7 @@ export default function Equipe() {
           </RowActionButton>
         );
       }
-      return <NoAccessText>Sem acesso</NoAccessText>;
+      return <NoAccessText>Cadastro incompleto</NoAccessText>;
     }
     if (person.account.linkageType === "invalid") return null;
     return (
@@ -1237,9 +1249,6 @@ export default function Equipe() {
               <RowActionButton type="button" onClick={() => openAccountAction("reset", person)}>
                 Redefinir senha
               </RowActionButton>
-            )}
-            {membershipMode && !person.account.hasCredential && (
-              <NoAccessText>Aguardando criação da senha</NoAccessText>
             )}
             {renderAccountLifecycleAction(person)}
           </>
@@ -1285,7 +1294,7 @@ export default function Equipe() {
           <ModulePanel as="section">
             <SectionHeader>
               <div><SectionTitle>Pessoas e acessos</SectionTitle><Count>{filteredPeople.length} encontrado(s)</Count></div>
-              <PrimaryButton type="button" onClick={openCreate}><FaPlus /> Nova pessoa</PrimaryButton>
+              <PrimaryButton type="button" onClick={openCreate}><FaPlus /> Novo usuário</PrimaryButton>
             </SectionHeader>
             <Filters aria-label="Filtros da equipe">
               <SearchInput
@@ -1309,10 +1318,12 @@ export default function Equipe() {
                   <Badges>
                     {person.isPerson && <NeutralPill>Pessoa</NeutralPill>}
                     {person.isProfessional && <NeutralPill>Profissional</NeutralPill>}
-                    <StatusPill $tone={person.isActive ? "active" : "paused"}>{person.isActive ? "Ativo" : "Inativo"}</StatusPill>
+                    <StatusPill $tone={person.isActive ? "active" : "paused"}>
+                      {person.isActive ? "Pessoa: ativa" : "Pessoa: inativa"}
+                    </StatusPill>
                     {person.isProfessional && (
                       <StatusPill $tone={person.professionalActive ? "active" : "paused"}>
-                        {person.professionalActive ? "Profissional ativo" : "Profissional inativo"}
+                        {person.professionalActive ? "Atuação: ativa" : "Atuação: inativa"}
                       </StatusPill>
                     )}
                     {person.isProfessional && (
@@ -1320,7 +1331,12 @@ export default function Equipe() {
                     )}
                     <NeutralPill>{accountStatusLabel(person)}</NeutralPill>
                   </Badges>
-                  <ProfileNames>{person.profiles.length ? person.profiles.map(({ name }) => name).join(", ") : "Sem perfil"}</ProfileNames>
+                  <ProfileNames>
+                    <span>{person.profiles.length ? person.profiles.map(({ name }) => name).join(", ") : "Sem perfil"}</span>
+                    {accountStatusDetail(person) && (
+                      <AccessDetail>{accountStatusDetail(person)}</AccessDetail>
+                    )}
+                  </ProfileNames>
                   <RowActions>
                     {(person.isPerson || (person.account && person.account.linkageType !== "invalid")) && (
                       <PersonActionsMenu personName={person.name}>
@@ -1530,7 +1546,13 @@ const PeopleList = styled.div`display: grid;`;
 const PersonRow = styled.article`display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(140px, 0.7fr) auto; gap: 16px; align-items: center; padding: 15px 0; border-top: 1px solid #e8ebe5; @media (max-width: 900px) { grid-template-columns: minmax(180px, 1fr) auto; } @media (max-width: 620px) { grid-template-columns: 1fr; gap: 8px; }`;
 const PersonMain = styled.div`display: grid; gap: 3px; small { color: ${colors.softText}; }`;
 const Badges = styled.div`display: flex; gap: 6px; flex-wrap: wrap;`;
-const ProfileNames = styled.div`color: ${colors.softText}; font-size: 0.88rem;`;
+const ProfileNames = styled.div`
+  display: grid;
+  gap: 3px;
+  color: ${colors.softText};
+  font-size: 0.88rem;
+`;
+const AccessDetail = styled.small`color: ${colors.textMuted};`;
 const RowActions = styled.div`display: flex; justify-content: flex-end;`;
 const ProfileList = styled.div`display: grid; margin-top: 12px;`;
 const ProfileButton = styled.button`display: flex; justify-content: space-between; gap: 16px; width: 100%; padding: 14px 4px; border: 0; border-top: 1px solid #e8ebe5; background: transparent; text-align: left; cursor: pointer; span { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } small { color: ${colors.softText}; } &:hover { background: #f8f9f7; } &:focus-visible { outline: 3px solid rgba(106, 121, 92, 0.28); } @media (max-width: 620px) { flex-direction: column; }`;
