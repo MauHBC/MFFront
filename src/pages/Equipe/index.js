@@ -38,7 +38,9 @@ import { GhostButton, PrimaryButton, RowActionButton } from "../../components/Ap
 import AppActionMenu from "../../components/AppActionMenu";
 import { colors, layout } from "../../styles/tokens";
 import AccountAccessDrawer, { validateAccountAccessForm } from "./AccountAccessDrawer";
-import ProfessionalIdentityDrawer from "./ProfessionalIdentityDrawer";
+import ProfessionalIdentityDrawer, {
+  validateProfessionalIdentity,
+} from "./ProfessionalIdentityDrawer";
 import ProfessionalInactivationDrawer from "./ProfessionalInactivationDrawer";
 import TeamAuditHistory from "./TeamAuditHistory";
 
@@ -101,21 +103,28 @@ const EMPTY_PERSON_FORM = Object.freeze({
   email: "",
   phone: "",
   isProfessional: false,
+  profession: "physiotherapist",
+  registrationRegion: "",
+  registrationNumber: "",
+  professionalVerificationConfirmed: false,
 });
 
-export function validatePersonForm(values) {
+export function validatePersonForm(values, validateProfessionalFields = true) {
   const errors = {};
   const name = values.name.trim();
   const email = values.email.trim();
   const phone = values.phone.trim();
-  if (name.length < 2 || name.length > 255) {
-    errors.name = "Informe um nome entre 2 e 255 caracteres.";
+  if (name.length < 3 || name.length > 255) {
+    errors.name = "Informe um nome entre 3 e 255 caracteres.";
   }
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     errors.email = "Informe um e-mail válido.";
   }
   if (values.isProfessional && !email) {
     errors.email = "O e-mail é obrigatório para cadastrar um profissional.";
+  }
+  if (values.isProfessional && validateProfessionalFields) {
+    Object.assign(errors, validateProfessionalIdentity(values));
   }
   if (phone.length > 40) errors.phone = "O telefone deve ter no máximo 40 caracteres.";
   return errors;
@@ -284,10 +293,12 @@ function PersonDrawer({ editor, onChange, onClose, onSubmit }) {
         <DrawerBody>
           <PersonForm onSubmit={onSubmit} noValidate>
             <FieldGroup>
-              <FieldLabel htmlFor="team-person-name">Nome</FieldLabel>
+              <FieldLabel htmlFor="team-person-name">Nome *</FieldLabel>
               <FieldInput
                 autoFocus
                 id="team-person-name"
+                aria-label="Nome"
+                required
                 value={editor.values.name}
                 onChange={(event) => onChange("name", event.target.value)}
                 aria-invalid={Boolean(editor.errors.name)}
@@ -297,10 +308,13 @@ function PersonDrawer({ editor, onChange, onClose, onSubmit }) {
               {editor.errors.name && <FieldError id="team-person-name-error">{editor.errors.name}</FieldError>}
             </FieldGroup>
             <FieldGroup>
-              <FieldLabel htmlFor="team-person-email">E-mail</FieldLabel>
+              <FieldLabel htmlFor="team-person-email">
+                E-mail{creating && editor.values.isProfessional ? " *" : ""}
+              </FieldLabel>
               <FieldInput
                 id="team-person-email"
                 type="email"
+                required={creating && editor.values.isProfessional}
                 value={editor.values.email}
                 onChange={(event) => onChange("email", event.target.value)}
                 aria-invalid={Boolean(editor.errors.email)}
@@ -310,7 +324,7 @@ function PersonDrawer({ editor, onChange, onClose, onSubmit }) {
               {editor.errors.email && <FieldError id="team-person-email-error">{editor.errors.email}</FieldError>}
             </FieldGroup>
             <FieldGroup>
-              <FieldLabel htmlFor="team-person-phone">Telefone</FieldLabel>
+              <FieldLabel htmlFor="team-person-phone">Telefone (opcional)</FieldLabel>
               <FieldInput
                 id="team-person-phone"
                 value={editor.values.phone}
@@ -332,9 +346,74 @@ function PersonDrawer({ editor, onChange, onClose, onSubmit }) {
                 Registrar como profissional e criar acesso
               </CheckboxLabel>
             )}
+            {creating && editor.values.isProfessional && (
+              <>
+                <FieldGroup>
+                  <FieldLabel htmlFor="team-person-profession">Profissão *</FieldLabel>
+                  <FieldInput
+                    as="select"
+                    id="team-person-profession"
+                    value={editor.values.profession}
+                    required
+                    onChange={(event) => onChange("profession", event.target.value)}
+                    aria-invalid={Boolean(editor.errors.profession)}
+                    disabled={editor.submitting}
+                  >
+                    <option value="physiotherapist">Fisioterapeuta</option>
+                  </FieldInput>
+                  {editor.errors.profession && <FieldError>{editor.errors.profession}</FieldError>}
+                </FieldGroup>
+                <FieldGroup>
+                  <FieldLabel htmlFor="team-person-crefito-region">Região do CREFITO *</FieldLabel>
+                  <FieldInput
+                    id="team-person-crefito-region"
+                    value={editor.values.registrationRegion}
+                    onChange={(event) => onChange("registrationRegion", event.target.value)}
+                    placeholder="Ex.: 15"
+                    required
+                    aria-invalid={Boolean(editor.errors.registrationRegion)}
+                    disabled={editor.submitting}
+                  />
+                  {editor.errors.registrationRegion && (
+                    <FieldError>{editor.errors.registrationRegion}</FieldError>
+                  )}
+                </FieldGroup>
+                <FieldGroup>
+                  <FieldLabel htmlFor="team-person-crefito-number">Número do CREFITO *</FieldLabel>
+                  <FieldInput
+                    id="team-person-crefito-number"
+                    value={editor.values.registrationNumber}
+                    onChange={(event) => onChange("registrationNumber", event.target.value)}
+                    placeholder="Ex.: 12345-F"
+                    required
+                    aria-invalid={Boolean(editor.errors.registrationNumber)}
+                    disabled={editor.submitting}
+                  />
+                  {editor.errors.registrationNumber && (
+                    <FieldError>{editor.errors.registrationNumber}</FieldError>
+                  )}
+                </FieldGroup>
+                <CheckboxLabel>
+                  <input
+                    type="checkbox"
+                    checked={editor.values.professionalVerificationConfirmed}
+                    onChange={(event) => onChange(
+                      "professionalVerificationConfirmed",
+                      event.target.checked,
+                    )}
+                    disabled={editor.submitting}
+                  />
+                  Conferi os dados profissionais
+                </CheckboxLabel>
+                <FormNotice>
+                  Esta confirmação é uma declaração administrativa. Ela não consulta nem
+                  valida automaticamente os dados no conselho profissional.
+                </FormNotice>
+              </>
+            )}
             <FormNotice>
               {creating && editor.values.isProfessional
-                ? "O profissional receberá o perfil nativo Profissional e um link para criar a própria senha."
+                ? "O profissional receberá o perfil nativo Profissional. Se ainda não tiver senha, uma intenção de primeiro acesso será registrada."
                 : "Pessoas comuns podem receber acesso posteriormente, sem alterar seu cadastro."}
             </FormNotice>
             {editor.apiError && <FormError role="alert">{editor.apiError}</FormError>}
@@ -361,11 +440,18 @@ PersonDrawer.propTypes = {
       email: PropTypes.string,
       phone: PropTypes.string,
       isProfessional: PropTypes.bool,
+      profession: PropTypes.string,
+      registrationRegion: PropTypes.string,
+      registrationNumber: PropTypes.string,
+      professionalVerificationConfirmed: PropTypes.bool,
     }).isRequired,
     errors: PropTypes.shape({
       name: PropTypes.string,
       email: PropTypes.string,
       phone: PropTypes.string,
+      profession: PropTypes.string,
+      registrationRegion: PropTypes.string,
+      registrationNumber: PropTypes.string,
     }).isRequired,
     apiError: PropTypes.string.isRequired,
     submitting: PropTypes.bool.isRequired,
@@ -707,6 +793,10 @@ export default function Equipe() {
       email: person.email,
       phone: person.phone,
       isProfessional: person.isProfessional,
+      profession: person.professionalIdentity?.profession || "physiotherapist",
+      registrationRegion: person.professionalIdentity?.registrationRegion || "",
+      registrationNumber: person.professionalIdentity?.registrationNumber || "",
+      professionalVerificationConfirmed: false,
     };
     setEditor({
       mode: "edit",
@@ -738,7 +828,13 @@ export default function Equipe() {
 
   const changeEditorValue = (field, value) => setEditor((current) => ({
     ...current,
-    values: { ...current.values, [field]: value },
+    values: {
+      ...current.values,
+      [field]: value,
+      ...(field === "isProfessional" && value === false
+        ? { professionalVerificationConfirmed: false }
+        : {}),
+    },
     errors: { ...current.errors, [field]: undefined },
     apiError: "",
   }));
@@ -746,7 +842,7 @@ export default function Equipe() {
   const submitPerson = async (event) => {
     event.preventDefault();
     if (!editor || editor.submitting) return;
-    const errors = validatePersonForm(editor.values);
+    const errors = validatePersonForm(editor.values, editor.mode === "create");
     if (Object.keys(errors).length) {
       setEditor((current) => ({ ...current, errors }));
       return;
@@ -757,6 +853,13 @@ export default function Equipe() {
       email: editor.values.email.trim(),
       phone: editor.values.phone.trim(),
       isProfessional: editor.values.isProfessional,
+      ...(editor.mode === "create" && editor.values.isProfessional ? {
+        profession: editor.values.profession,
+        registrationRegion: editor.values.registrationRegion.trim(),
+        registrationNumber: editor.values.registrationNumber.trim(),
+        professionalVerificationConfirmed:
+          editor.values.professionalVerificationConfirmed === true,
+      } : {}),
     };
     try {
       if (editor.mode === "create") await createTeamPerson(payload);
@@ -1057,7 +1160,7 @@ export default function Equipe() {
               </RowActionButton>
             )}
             {membershipMode && !person.account.hasCredential && (
-              <NoAccessText>Link de criação de senha enviado por e-mail</NoAccessText>
+              <NoAccessText>Primeiro acesso pendente</NoAccessText>
             )}
             {renderAccountLifecycleAction(person)}
           </>

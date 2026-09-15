@@ -235,10 +235,43 @@ describe("Equipe", () => {
       target: { value: "eduarda@example.test" },
     });
     fireEvent.click(screen.getByLabelText(/Registrar como profissional e criar acesso/));
+    fireEvent.change(screen.getByLabelText("Região do CREFITO *"), {
+      target: { value: "15" },
+    });
+    fireEvent.change(screen.getByLabelText("Número do CREFITO *"), {
+      target: { value: "12345-F" },
+    });
+    expect(screen.getByLabelText("Conferi os dados profissionais")).not.toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(createTeamPerson).toHaveBeenCalledWith(expect.objectContaining({
       name: "Eduarda",
       isProfessional: true,
+      profession: "physiotherapist",
+      registrationRegion: "15",
+      registrationNumber: "12345-F",
+      professionalVerificationConfirmed: false,
+    })));
+  });
+
+  it("envia a declaração administrativa somente após confirmação explícita", async () => {
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Nova pessoa/ }));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Helena" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "helena@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText(/Registrar como profissional e criar acesso/));
+    fireEvent.change(screen.getByLabelText("Região do CREFITO *"), {
+      target: { value: "15" },
+    });
+    fireEvent.change(screen.getByLabelText("Número do CREFITO *"), {
+      target: { value: "54321-F" },
+    });
+    fireEvent.click(screen.getByLabelText("Conferi os dados profissionais"));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(createTeamPerson).toHaveBeenCalledWith(expect.objectContaining({
+      professionalVerificationConfirmed: true,
     })));
   });
 
@@ -298,7 +331,7 @@ describe("Equipe", () => {
     render(<Equipe />);
     fireEvent.click(await screen.findByRole("button", { name: /Nova pessoa/ }));
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
-    expect(screen.getByText("Informe um nome entre 2 e 255 caracteres.")).toBeInTheDocument();
+    expect(screen.getByText("Informe um nome entre 3 e 255 caracteres.")).toBeInTheDocument();
     expect(createTeamPerson).not.toHaveBeenCalled();
   });
 
@@ -331,6 +364,32 @@ describe("Equipe", () => {
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     expect(await screen.findByText("Não foi possível salvar a pessoa.")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Fernanda")).toBeInTheDocument();
+  });
+
+  it("preserva todos os dados profissionais quando a API rejeita a criação", async () => {
+    createTeamPerson.mockRejectedValueOnce(new Error("offline"));
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Nova pessoa/ }));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Fernanda" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "fernanda@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText(/Registrar como profissional e criar acesso/));
+    fireEvent.change(screen.getByLabelText("Região do CREFITO *"), {
+      target: { value: "15" },
+    });
+    fireEvent.change(screen.getByLabelText("Número do CREFITO *"), {
+      target: { value: "98765-F" },
+    });
+    fireEvent.click(screen.getByLabelText("Conferi os dados profissionais"));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(await screen.findByText("Não foi possível salvar a pessoa.")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Fernanda")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("fernanda@example.test")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("15")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("98765-F")).toBeInTheDocument();
+    expect(screen.getByLabelText("Conferi os dados profissionais")).toBeChecked();
   });
 
   it("impede envio duplicado enquanto a criação está em andamento", async () => {

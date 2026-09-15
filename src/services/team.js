@@ -27,13 +27,28 @@ export const getTeamAuditEvents = (filters = {}) => {
   return api.get("/team/audit-events", { params }).then(data);
 };
 
-export const createTeamPerson = ({ name, email, phone, isProfessional }) => api.post(
+export const createTeamPerson = ({
+  name,
+  email,
+  phone,
+  isProfessional,
+  profession,
+  registrationRegion,
+  registrationNumber,
+  professionalVerificationConfirmed,
+}) => api.post(
   "/team/people",
   {
     name,
     email: email || null,
     phone: phone || null,
     is_professional: isProfessional === true,
+    ...(isProfessional === true ? {
+      profession,
+      registration_region: registrationRegion,
+      registration_number: registrationNumber,
+      professional_verification_confirmed: professionalVerificationConfirmed === true,
+    } : {}),
   },
 ).then(data);
 

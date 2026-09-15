@@ -208,12 +208,14 @@ export default function ProfessionalIdentityDrawer({ person, onClose, onSaved })
 
           <Notice>
             Preencher estes dados não os torna verificados. A confirmação administrativa
-            fica registrada na auditoria.
+            fica registrada na auditoria e não realiza consulta automática ao conselho
+            profissional.
           </Notice>
           {requiresAccess && (
             <Notice>
               Ao salvar, o acesso será vinculado ao perfil nativo Profissional. Se a
-              identidade ainda não tiver senha, enviaremos o link de primeiro acesso.
+              identidade ainda não tiver senha, uma intenção de primeiro acesso será
+              registrada pelo Backend.
             </Notice>
           )}
           {verified && hasChanges && (

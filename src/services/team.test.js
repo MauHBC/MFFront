@@ -104,12 +104,20 @@ describe("team read service", () => {
       email: "ana@example.test",
       phone: "2799999999",
       isProfessional: true,
+      profession: "physiotherapist",
+      registrationRegion: "15",
+      registrationNumber: "12345-F",
+      professionalVerificationConfirmed: true,
     });
     expect(api.post).toHaveBeenCalledWith("/team/people", {
       name: "Ana",
       email: "ana@example.test",
       phone: "2799999999",
       is_professional: true,
+      profession: "physiotherapist",
+      registration_region: "15",
+      registration_number: "12345-F",
+      professional_verification_confirmed: true,
     });
   });
 

@@ -15,13 +15,20 @@ Conta sem pessoa permanece um estado distinto. Profissional histórico sem acess
 O fluxo de pessoas reutiliza somente os contratos oficiais para:
 
 - criar pessoa sem conta de acesso;
-- criar profissional com e-mail, acesso canônico e perfil nativo na mesma operação;
+- criar profissional com e-mail, dados profissionais, acesso canônico e perfil
+  nativo na mesma operação;
 - editar nome, e-mail e telefone;
 - reativar somente a pessoa, sem reativar profissional ou conta.
 
 Os payloads nunca incluem `clinic_id`, senha, grupo ou autoridade. O marcador de
 profissional solicita ao backend o caso de uso completo; o frontend não monta
 conta, membership nem atribuição por conta própria.
+Ao marcar Profissional em “Nova pessoa”, o formulário revela profissão e CREFITO
+com as validações canônicas. “Conferi os dados profissionais” começa desmarcado:
+é uma declaração administrativa, não uma consulta automática ao conselho. Sem
+confirmação, o cadastro segue com verificação pendente; o backend revalida a
+autorização antes de aceitar uma confirmação explícita. Credencial e verificação
+continuam exibidas como estados independentes.
 O formulário preserva valores após erro, bloqueia envio duplicado e confirma o
 descarte de alterações pendentes. O drawer de permissões continua estritamente
 somente para consulta.
@@ -71,9 +78,10 @@ cadastrada:
 No modo membership, criação/vínculo envia somente o e-mail, aceita identidade
 global existente e pode deixar o acesso em `pending_credential`. A interface não
 solicita senha inicial nem oferece redefinição administrativa. Identidade nova
-recebe o link de primeiro acesso pelo Backend; recuperação fica disponível na
-tela pública de login. Bloqueio e desbloqueio atuam somente no membership da
-clínica ativa.
+recebe uma intenção transacional de primeiro acesso pelo Backend; a interface
+não afirma que houve envio ou entrega, e a recuperação fica disponível na tela
+pública de login. Bloqueio e desbloqueio atuam somente no membership da clínica
+ativa.
 
 Os formulários não enviam `clinic_id`, preservam os campos depois de conflito e
 bloqueiam duplo envio. Redefinição, bloqueio e desbloqueio exigem confirmação.
