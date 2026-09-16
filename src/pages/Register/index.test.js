@@ -5,6 +5,10 @@ import { toast } from "react-toastify";
 import Register from ".";
 import { deactivateOwnAccount, updateOwnAccount } from "../../services/account";
 
+jest.mock("../../contexts/AuthorizationContext", () => ({
+  useAuthorization: () => ({ status: "ready", isAdministrator: true, context: {} }),
+}));
+
 jest.mock("react-redux", () => ({
   useDispatch: jest.fn(),
   useSelector: jest.fn(),

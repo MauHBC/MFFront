@@ -169,17 +169,28 @@ cada módulo e endpoint mantém seu próprio gate.
 
 ### Manutenção da própria conta
 
-No fluxo antigo de “Editar minha conta” (`/register/`), o frontend solicita a senha atual para troca
+No modo legacy, o fluxo antigo de “Editar minha conta” (`/register/`) preserva o
+formulário e solicita a senha atual para troca
 efetiva de e-mail, definição de nova senha e autodesativação. Atualização comum,
 como alteração somente do nome, não apresenta essa reautenticação. Depois do
 sucesso de uma mutação que revoga a sessão, o frontend encerra o contexto local
 e conduz a pessoa para novo login.
 
 Esse fluxo consome `PUT/DELETE /users` em `src/services/account.js`, contratos
-legacy indisponíveis no modo membership. Não há suporte membership equivalente
-comprovado; a incompatibilidade permanece aberta na
+legacy indisponíveis no modo membership. Nesse modo, a rota apresenta somente
+o aviso de indisponibilidade, “Recuperar senha” (`/recuperar-senha`) e “Voltar ao
+início” (`/menu`); o formulário legacy, seus efeitos e handlers não são montados.
+A decisão usa o contexto oficial resolvido da sessão atual: carregamento ou
+falha de autorização não permitem exposição transitória do formulário.
+Autenticação e `administratorOnly` permanecem, sem nova entrada nos menus.
+Abrir o aviso, a recuperação pública ou solicitar o link não encerra a sessão;
+concluir a redefinição de senha continua exigindo novo login.
+
+A autogestão de nome/e-mail da identidade global e a autodesativação foram
+explicitamente adiadas para outra sprint, conforme a
 [lista de fechamento do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/team-sprint-checkpoint.md#pendências-de-fechamento-de-appmotriamembership).
 Recuperação pública de senha não resolve edição de e-mail/nome ou autodesativação.
+Gestão da pessoa pela Equipe também não substitui edição do e-mail global de login.
 
 O frontend apenas apresenta e consome esse fluxo. Critérios de sensibilidade,
 validação da senha, revogação e autorização permanecem no Backend, nas fontes
