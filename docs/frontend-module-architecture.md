@@ -132,9 +132,10 @@ efetiva usa `scope_level: own`, `canAccessModule` só a disponibiliza se
 profissional inativa falha fechado. Módulos com alcance `clinic`, permissões
 administrativas e o modo legacy não dependem desse sinal. Como navegação,
 guards e bootstraps usam o mesmo helper, módulos `own` indisponíveis não são
-montados nem iniciam cargas previsivelmente recusadas. A atribuição de perfil
-não cria atuação profissional: esse cadastro continua no fluxo de Dados
-profissionais.
+montados nem iniciam cargas previsivelmente recusadas. A atribuição manual de
+perfil não cria atuação profissional. O fluxo de Dados profissionais é a exceção
+explícita: exige e-mail quando falta acesso e solicita ao Backend atuação,
+identidade/membership e perfil nativo em uma única operação.
 
 A Central de Pendências também aguarda esse contexto oficial. Ela só fica
 disponível e carrega sessões, alertas operacionais e serviços quando o módulo
@@ -200,6 +201,17 @@ automática. A nova senha é global para todos os memberships e a conclusão inv
 sessões antigas; o frontend não escolhe clínica nem preserva um contexto
 autenticado nesse fluxo. O contrato canônico está no Backend em
 [lifecycle de credenciais membership](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/membership-credential-lifecycle.md).
+
+#### Ações de Pacientes
+
+A consulta de Pacientes permanece disponível com `patients/view` ou superior.
+“Novo paciente”, “Gerar link” e a rota `/pacientes/novo` exigem `patients/manage`
+no contexto oficial. O cadastro só carrega responsáveis e permite envio com
+esse nível; a escolha de responsável continua exigindo a capacidade própria.
+As suítes de `PatientsSearch`, `PatientsNew` e rotas de Pacientes cobrem esses
+gates. O `testMatch` do Jest usa padrões independentes do caminho absoluto para
+que `npm test -- --watchAll=false --runInBand` também descubra as suítes em
+worktrees Windows sob `.codex-worktrees`.
 
 #### Composição modular de `PatientDetails`
 
@@ -304,12 +316,23 @@ Os contratos visuais específicos de pessoas, contas, perfis, inativação e
 auditoria da área Equipe estão em
 [team-read-only-module.md](team-read-only-module.md).
 
-Pessoa, atuação profissional, conta e perfil continuam entidades distintas. A
-identidade profissional é cadastrada e editada em drawer próprio, por um único
-comando transacional do backend; a interface não ativa a atuação em uma
-requisição separada. CREFITO não concede permissão nem substitui o vínculo
-canônico da conta com a pessoa e a clínica. Profissionais existentes sem dados
-de identidade permanecem pendentes até revisão administrativa manual.
+Pessoa, atuação profissional, identidade, membership e perfil continuam
+estruturas distintas, mas todo novo integrante é cadastrado com acesso em um
+único caso de uso e exige seleção explícita de ao menos um perfil ativo. A seleção
+do perfil com `native_type = professional` cria a atuação e revela os campos
+profissionais, preservando combinações como Administrador + Profissional; perfil
+customizado de nome semelhante não aciona esse comportamento. No cadastro, a
+identidade profissional integra o drawer de Novo usuário e o mesmo comando
+transacional do backend garante atuação, acesso e perfis selecionados; a interface
+não ativa a atuação em uma requisição separada. A edição posterior permanece no
+drawer próprio. Temporariamente, cadastro e editor enviam a ação existente de
+confirmação automaticamente no salvamento administrativo autorizado, sem
+checkbox e sem representar conferência humana ou consulta externa; a revisão
+definitiva permanece para outra sprint. O editor compara os campos normalizados,
+preserva autor e momento no no-op já autorizado e permite salvar individualmente
+um registro pendente. CREFITO não concede permissão nem substitui
+o vínculo canônico da conta com a pessoa e a clínica. Profissionais existentes
+sem dados de identidade permanecem pendentes até revisão administrativa manual.
 
 ### Estados de autorização e contenção responsiva da Equipe
 

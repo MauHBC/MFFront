@@ -110,7 +110,7 @@ export default function Routes() {
         {/* Rotas protegidas */}
         <MyRoute exact path="/register/" component={Register} isClosed administratorOnly />
         <MyRoute exact path="/pacientes" component={PatientsSearch} isClosed requiredModule="patients" />
-        <MyRoute exact path="/pacientes/novo" component={PatientsNew} isClosed requiredModule="patients" minimumAccessLevel="edit" />
+        <MyRoute exact path="/pacientes/novo" component={PatientsNew} isClosed requiredModule="patients" minimumAccessLevel="manage" />
         <MyRoute exact path="/pacientes/consultar" component={PatientsSearch} isClosed requiredModule="patients" />
         <MyRoute exact path="/pacientes/:id" component={PatientDetails} isClosed requiredModule="patients" />
         <MyRoute exact path="/pacientes/:id/avaliacoes/nova" component={PatientEvaluationNew} isClosed requiredModule="clinical_records" minimumAccessLevel="edit" requiredCapability="clinical_records.write" />

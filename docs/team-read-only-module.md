@@ -9,16 +9,36 @@ estrutural que possua `access_profiles.manage`.
 A página consulta pessoas, perfis, catálogo, atribuições e contas vinculáveis.
 As junções de apresentação usam `person_id`, `profile_id` e o sujeito oficial da
 autoridade atual: `user_id` no legacy ou `membership_id` no modo membership.
-Conta sem pessoa e profissional sem login permanecem estados distintos.
+Conta sem pessoa e pessoa histórica sem conta permanecem estados incompletos
+distintos e não são convertidos automaticamente.
 
 O fluxo de pessoas reutiliza somente os contratos oficiais para:
 
-- criar pessoa sem conta de acesso;
-- criar pessoa com atuação profissional, ainda sem conta;
+- criar integrante com nome, e-mail, conta e ao menos um perfil ativo escolhido
+  explicitamente na mesma operação;
+- ao escolher o perfil nativo Profissional, criar também os dados profissionais
+  e a atuação na mesma operação, preservando todos os demais perfis escolhidos;
 - editar nome, e-mail e telefone;
 - reativar somente a pessoa, sem reativar profissional ou conta.
 
-Os payloads nunca incluem `clinic_id`, senha, conta, grupo, perfil ou permissão.
+Os payloads nunca incluem `clinic_id`, senha, grupo ou autoridade. A seleção usa
+as identidades canônicas recebidas: somente `native_type = professional` solicita
+ao backend o caso de uso profissional completo; nome exibido ou perfil customizado
+de nome semelhante não serve de marcador. O frontend não monta conta, membership nem
+atribuição por conta própria. Nenhum perfil vem selecionado por padrão; falha de
+carregamento ou ausência de perfil ativo bloqueia o envio, sem fallback silencioso.
+Ao selecionar Profissional em “Novo usuário”, o formulário revela profissão e CREFITO
+com as validações canônicas. Como decisão temporária, não há checkbox separado:
+o cadastro e o editor enviam a confirmação existente automaticamente ao salvar.
+Isso representa um salvamento administrativo autorizado, não conferência humana
+nem consulta ao conselho, e a revisão definitiva ficou para outra sprint. Um
+pendente existente pode ser autorizado somente por salvamento individual; no-op
+já autorizado preserva autor e momento e permanece desabilitado. Senha e estado
+profissional continuam exibidos separadamente. O acesso é apresentado somente
+como “Acesso: aguardando ativação”, “Acesso: ativo”, “Acesso: bloqueado” ou
+“Cadastro incompleto”; “Sem perfil” descreve apenas ausência de atribuição.
+O estado profissional usa “Cadastro profissional autorizado” ou “Cadastro
+profissional pendente de autorização”.
 O formulário preserva valores após erro, bloqueia envio duplicado e confirma o
 descarte de alterações pendentes. O drawer de permissões continua estritamente
 somente para consulta.
@@ -26,7 +46,8 @@ somente para consulta.
 O fluxo de perfis permite criar e editar perfis personalizados e atribuir um ou
 vários perfis a contas existentes. Administrador e Profissional são
 exibidos como nativos e bloqueados para edição, conforme o contrato oficial.
-Pessoa ou profissional sem conta não recebe controles de atribuição. Módulos,
+Pessoa sem conta não recebe controles de atribuição. Profissional histórico com
+vínculo incompleto só pode ser reconciliado pelo fluxo de Dados profissionais. Módulos,
 níveis, escopos, exportação e capacidades são renderizados a partir do catálogo
 recebido; o frontend não calcula permissões efetivas. A composição exibida vem
 do backend, que usa o resolvedor oficial.
@@ -66,15 +87,20 @@ cadastrada:
 
 No modo membership, criação/vínculo envia somente o e-mail, aceita identidade
 global existente e pode deixar o acesso em `pending_credential`. A interface não
-solicita senha inicial nem oferece redefinição administrativa. Identidade nova
-recebe o link de primeiro acesso pelo Backend; recuperação fica disponível na
+solicita senha inicial nem oferece redefinição administrativa. Somente quando a
+resposta confirma ausência de senha, informa “Para o primeiro acesso ao Motria,
+enviaremos um e-mail para criar a senha.”; uma identidade já credenciada não
+recebe essa promessa nem tem a senha alterada. A recuperação fica disponível na
 tela pública de login. Bloqueio e desbloqueio atuam somente no membership da
 clínica ativa.
 
 Os formulários não enviam `clinic_id`, preservam os campos depois de conflito e
 bloqueiam duplo envio. Redefinição, bloqueio e desbloqueio exigem confirmação.
-Criar uma conta não cria profissional, grupo, perfil ou permissão; as
-atribuições continuam exclusivamente no drawer de perfis. Vínculo marcado como
+Criar uma conta geral não cria profissional, grupo, perfil ou permissão; as
+atribuições adicionais continuam no drawer de perfis. A seleção do perfil nativo
+Profissional no cadastro unificado cria a atuação, mas atribuições posteriores em
+“Gerenciar perfis” não criam nem inativam atuação.
+Vínculo marcado como
 inválido pelo backend não oferece mutações na interface.
 
 A entrega de contas não oferece exclusão, convite ou edição de perfis nativos.

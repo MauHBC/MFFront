@@ -97,19 +97,43 @@ describe("team read service", () => {
     ]);
   });
 
-  it("cria pessoa sem enviar clinic_id, conta, senha ou perfil", async () => {
+  it("solicita criação profissional sem enviar autoridade do tenant", async () => {
     api.post.mockResolvedValueOnce({ data: { id: 1 } });
     await createTeamPerson({
       name: "Ana",
       email: "ana@example.test",
       phone: "2799999999",
-      isProfessional: true,
+      profileIds: [24, 20],
+      profession: "physiotherapist",
+      registrationRegion: "15",
+      registrationNumber: "12345-F",
+      professionalVerificationConfirmed: true,
     });
     expect(api.post).toHaveBeenCalledWith("/team/people", {
       name: "Ana",
       email: "ana@example.test",
       phone: "2799999999",
-      is_professional: true,
+      profile_ids: [24, 20],
+      profession: "physiotherapist",
+      registration_region: "15",
+      registration_number: "12345-F",
+      professional_verification_confirmed: true,
+    });
+  });
+
+  it("solicita criação comum com os perfis explícitos no mesmo comando", async () => {
+    api.post.mockResolvedValueOnce({ data: { id: 2 } });
+    await createTeamPerson({
+      name: "Bia",
+      email: "bia@example.test",
+      phone: "",
+      profileIds: [22, 23],
+    });
+    expect(api.post).toHaveBeenCalledWith("/team/people", {
+      name: "Bia",
+      email: "bia@example.test",
+      phone: null,
+      profile_ids: [22, 23],
     });
   });
 
@@ -140,6 +164,7 @@ describe("team read service", () => {
     await saveTeamProfessionalIdentity(4, {
       action: "save_pending",
       activate: true,
+      email: "bia@example.test",
       profession: "physiotherapist",
       registrationRegion: "15",
       registrationNumber: "12345-f",
@@ -147,6 +172,7 @@ describe("team read service", () => {
     expect(api.put).toHaveBeenCalledWith("/team/people/4/professional-identity", {
       action: "save_pending",
       activate: true,
+      email: "bia@example.test",
       profession: "physiotherapist",
       registration_region: "15",
       registration_number: "12345-f",

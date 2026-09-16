@@ -11,6 +11,18 @@ import { toast } from "react-toastify";
 import PatientsSearch from ".";
 import axios from "../../services/axios";
 
+let mockPatientAccessLevel = "manage";
+
+jest.mock("../../contexts/AuthorizationContext", () => ({
+  useAuthorization: () => ({
+    canAccessModule: (moduleKey, minimumAccessLevel = "view") => {
+      const levels = { none: 0, view: 1, edit: 2, manage: 3 };
+      return moduleKey === "patients"
+        && levels[mockPatientAccessLevel] >= levels[minimumAccessLevel];
+    },
+  }),
+}));
+
 jest.mock("../../services/axios", () => ({
   __esModule: true,
   default: {
@@ -43,6 +55,7 @@ function renderPage() {
 describe("PatientsSearch", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPatientAccessLevel = "manage";
     axios.get.mockResolvedValue({ data: patients });
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -51,6 +64,24 @@ describe("PatientsSearch", () => {
       },
     });
   });
+
+  it.each(["view", "edit"])(
+    "preserva consulta com %s sem anunciar criação ou convite",
+    async (accessLevel) => {
+      mockPatientAccessLevel = accessLevel;
+      renderPage();
+
+      expect(await screen.findByText("12 pacientes cadastrados")).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Novo paciente" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Gerar link" })).not.toBeInTheDocument();
+      fireEvent.change(screen.getByPlaceholderText("Digite para buscar"), {
+        target: { value: "agata" },
+      });
+      expect(screen.getByRole("link", { name: "Ágata Teste Ver detalhes" })).toBeInTheDocument();
+      expect(axios.get).toHaveBeenCalledWith("/patients");
+      expect(axios.post).not.toHaveBeenCalled();
+    },
+  );
 
   it("carrega, pesquisa sem diferenciar acentos e preserva os links reais", async () => {
     renderPage();

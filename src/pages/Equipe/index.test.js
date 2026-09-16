@@ -3,6 +3,7 @@ import "@testing-library/jest-dom";
 import {
   fireEvent, render, screen, waitFor, within,
 } from "@testing-library/react";
+import { toast } from "react-toastify";
 import Equipe, { buildTeamPresentation } from ".";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
@@ -49,17 +50,22 @@ jest.mock("../../services/team", () => ({
 jest.mock("../../services/axios", () => ({
   getUserFacingApiError: (error, fallback) => fallback,
 }));
+jest.mock("react-toastify", () => ({
+  toast: { success: jest.fn() },
+}));
 
 const model = {
   people: [
     { id: 1, name: "Ana", email: "ana@clinica.test", phone: "2799999999", is_active: true, professional: { id: 101, is_active: true }, account: { id: 10, email: "ana@clinica.test", is_active: true, status: "active", linkage_type: "legacy", has_credential: true } },
     { id: 2, name: "Bia", email: "bia@clinica.test", phone: null, is_active: true, professional: { id: 102, is_active: true }, account: null },
     { id: 3, name: "Caio", email: null, phone: null, is_active: false, professional: null, account: null },
+    { id: 4, name: "Elisa", email: "elisa@clinica.test", phone: null, is_active: true, professional: null, account: null },
   ],
   profiles: [
     { id: 20, name: "Administrador", native_type: "administrator", is_active: true, permissions: [], capabilities: [] },
     { id: 21, name: "Recepção", native_type: null, is_active: false, permissions: [{ moduleKey: "patients", accessLevel: "view", scopeLevel: "clinic", canExport: false }], capabilities: [] },
     { id: 22, name: "Atendimento", native_type: null, is_active: true, permissions: [], capabilities: [] },
+    { id: 24, name: "Profissional", native_type: "professional", is_active: true, permissions: [], capabilities: [] },
   ],
   catalog: {
     access_levels: [{ key: "none", rank: 0 }, { key: "view", rank: 1 }, { key: "manage", rank: 2 }],
@@ -189,6 +195,7 @@ describe("Equipe", () => {
     resetTeamAccountPassword.mockReset();
     saveTeamProfessionalIdentity.mockReset();
     unblockTeamAccount.mockReset();
+    toast.success.mockReset();
     createTeamPerson.mockResolvedValue({ id: 30 });
     createTeamAccount.mockResolvedValue({ user_id: 11, status: "active" });
     confirmProfessionalInactivation.mockResolvedValue({ professional_id: 101 });
@@ -210,32 +217,241 @@ describe("Equipe", () => {
     unblockTeamAccount.mockResolvedValue({ user_id: 10, status: "active" });
   });
 
-  it("cria pessoa comum sem campos de conta, perfil ou credencial", async () => {
+  it("cria integrante comum com conta e perfil escolhido explicitamente", async () => {
     render(<Equipe />);
-    fireEvent.click(await screen.findByRole("button", { name: /Nova pessoa/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
     fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Daniela" } });
     fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "daniela@example.test" } });
+    expect(screen.getByLabelText(/Atendimento/)).not.toBeChecked();
+    fireEvent.click(screen.getByLabelText(/Atendimento/));
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(createTeamPerson).toHaveBeenCalledTimes(1));
     expect(createTeamPerson).toHaveBeenCalledWith({
       name: "Daniela",
       email: "daniela@example.test",
       phone: "",
-      isProfessional: false,
+      profileIds: [22],
     });
     await waitFor(() => expect(screen.queryByLabelText("Nome")).not.toBeInTheDocument());
   });
 
-  it("cria profissional sem login apenas quando marcado explicitamente", async () => {
+  it("envia vários perfis permitidos sem selecionar nenhum por padrão", async () => {
+    loadTeamReadModel.mockResolvedValue({
+      ...model,
+      profiles: [
+        ...model.profiles,
+        {
+          id: 23,
+          name: "Operação",
+          native_type: null,
+          is_active: true,
+          permissions: [],
+          capabilities: [],
+        },
+      ],
+    });
     render(<Equipe />);
-    fireEvent.click(await screen.findByRole("button", { name: /Nova pessoa/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Débora" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "debora@example.test" },
+    });
+    expect(screen.getByLabelText(/Atendimento/)).not.toBeChecked();
+    expect(screen.getByLabelText(/Operação/)).not.toBeChecked();
+    fireEvent.click(screen.getByLabelText(/Atendimento/));
+    fireEvent.click(screen.getByLabelText(/Operação/));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(createTeamPerson).toHaveBeenCalledWith({
+      name: "Débora",
+      email: "debora@example.test",
+      phone: "",
+      profileIds: [22, 23],
+    }));
+  });
+
+  it("cria Administrador sem exigir nem enviar dados profissionais", async () => {
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Admin local" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "admin.local@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText("Administrador (nativo)"));
+
+    expect(screen.queryByLabelText("Região do CREFITO *")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(createTeamPerson).toHaveBeenCalledWith({
+      name: "Admin local",
+      email: "admin.local@example.test",
+      phone: "",
+      profileIds: [20],
+    }));
+  });
+
+  it("preserva Administrador e Profissional quando ambos são escolhidos", async () => {
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Admin profissional" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "admin.pro@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText("Administrador (nativo)"));
+    fireEvent.click(screen.getByLabelText("Profissional (nativo)"));
+    fireEvent.change(screen.getByLabelText("Região do CREFITO *"), { target: { value: "15" } });
+    fireEvent.change(screen.getByLabelText("Número do CREFITO *"), {
+      target: { value: "12345-F" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(createTeamPerson).toHaveBeenCalledWith(expect.objectContaining({
+      profileIds: [20, 24],
+      profession: "physiotherapist",
+    })));
+  });
+
+  it("não confunde perfil personalizado de nome semelhante com o perfil nativo", async () => {
+    loadTeamReadModel.mockResolvedValue({
+      ...model,
+      profiles: [
+        ...model.profiles,
+        {
+          id: 25,
+          name: "Profissional personalizado",
+          native_type: null,
+          is_active: true,
+          permissions: [],
+          capabilities: [],
+        },
+      ],
+    });
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Perfil customizado" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "custom@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText("Profissional personalizado (personalizado)"));
+
+    expect(screen.queryByLabelText("Região do CREFITO *")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(createTeamPerson).toHaveBeenCalledWith({
+      name: "Perfil customizado",
+      email: "custom@example.test",
+      phone: "",
+      profileIds: [25],
+    }));
+  });
+
+  it("ao desmarcar Profissional mantém outros perfis e omite os dados ocultos", async () => {
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Mudança de intenção" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "mudanca@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText("Administrador (nativo)"));
+    fireEvent.click(screen.getByLabelText("Profissional (nativo)"));
+    fireEvent.change(screen.getByLabelText("Região do CREFITO *"), { target: { value: "15" } });
+    fireEvent.change(screen.getByLabelText("Número do CREFITO *"), { target: { value: "999-F" } });
+    fireEvent.click(screen.getByLabelText("Profissional (nativo)"));
+
+    expect(screen.getByLabelText("Administrador (nativo)")).toBeChecked();
+    expect(screen.queryByLabelText("Região do CREFITO *")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(createTeamPerson).toHaveBeenCalledWith({
+      name: "Mudança de intenção",
+      email: "mudanca@example.test",
+      phone: "",
+      profileIds: [20],
+    }));
+  });
+
+  it("impede cadastro comum quando não existe perfil ativo disponível", async () => {
+    loadTeamReadModel.mockResolvedValue({
+      ...model,
+      profiles: model.profiles.map((profile) => ({ ...profile, is_active: false })),
+    });
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
+
+    expect(screen.getByText(/Nenhum perfil ativo está disponível/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Salvar" })).toBeDisabled();
+    expect(createTeamPerson).not.toHaveBeenCalled();
+  });
+
+  it("cria profissional ao selecionar o perfil nativo explicitamente", async () => {
+    createTeamPerson.mockResolvedValueOnce({
+      id: 30,
+      account: { has_credential: false, status: "pending_credential" },
+    });
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
     fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Eduarda" } });
-    fireEvent.click(screen.getByLabelText(/Registrar também como profissional/));
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "eduarda@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText("Profissional (nativo)"));
+    fireEvent.change(screen.getByLabelText("Região do CREFITO *"), {
+      target: { value: "15" },
+    });
+    fireEvent.change(screen.getByLabelText("Número do CREFITO *"), {
+      target: { value: "12345-F" },
+    });
+    expect(screen.queryByLabelText("Conferi os dados profissionais")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(createTeamPerson).toHaveBeenCalledWith(expect.objectContaining({
       name: "Eduarda",
-      isProfessional: true,
+      profileIds: [24],
+      profession: "physiotherapist",
+      registrationRegion: "15",
+      registrationNumber: "12345-F",
+      professionalVerificationConfirmed: true,
     })));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(
+      "Para o primeiro acesso ao Motria, enviaremos um e-mail para criar a senha.",
+    ));
+  });
+
+  it("não promete novo envio quando a identidade já possui senha", async () => {
+    createTeamPerson.mockResolvedValueOnce({
+      id: 31,
+      account: { has_credential: true, status: "active" },
+    });
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Helena" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "helena@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText("Profissional (nativo)"));
+    fireEvent.change(screen.getByLabelText("Região do CREFITO *"), {
+      target: { value: "15" },
+    });
+    fireEvent.change(screen.getByLabelText("Número do CREFITO *"), {
+      target: { value: "54321-F" },
+    });
+    expect(screen.queryByLabelText("Conferi os dados profissionais")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(createTeamPerson).toHaveBeenCalledWith(expect.objectContaining({
+      professionalVerificationConfirmed: true,
+    })));
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("não permite cadastrar profissional sem e-mail", async () => {
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Eduarda" } });
+    fireEvent.click(screen.getByLabelText("Profissional (nativo)"));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(await screen.findByText(
+      "O e-mail é obrigatório para cadastrar um integrante.",
+    )).toBeInTheDocument();
+    expect(createTeamPerson).not.toHaveBeenCalled();
   });
 
   it("cadastra atuação e identidade profissional em um único comando", async () => {
@@ -266,10 +482,11 @@ describe("Equipe", () => {
     fireEvent.change(within(drawer).getByLabelText("Número do CREFITO"), {
       target: { value: "12345-F" },
     });
-    fireEvent.click(within(drawer).getByRole("button", { name: "Cadastrar profissional" }));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(saveTeamProfessionalIdentity).toHaveBeenCalledWith(4, {
-      action: "save_pending",
+      action: "verify",
       activate: true,
+      email: "davi@clinica.test",
       profession: "physiotherapist",
       registrationRegion: "15",
       registrationNumber: "12345-F",
@@ -278,23 +495,27 @@ describe("Equipe", () => {
 
   it("valida campos obrigatórios junto ao campo e não envia", async () => {
     render(<Equipe />);
-    fireEvent.click(await screen.findByRole("button", { name: /Nova pessoa/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
-    expect(screen.getByText("Informe um nome entre 2 e 255 caracteres.")).toBeInTheDocument();
+    expect(screen.getByText("Informe um nome entre 3 e 255 caracteres.")).toBeInTheDocument();
+    expect(screen.getByText("O e-mail é obrigatório para cadastrar um integrante."))
+      .toBeInTheDocument();
+    expect(screen.getByText("Selecione pelo menos um perfil para o novo integrante."))
+      .toBeInTheDocument();
     expect(createTeamPerson).not.toHaveBeenCalled();
   });
 
   it("fecha formulário sem confirmação quando não existem alterações", async () => {
     render(<Equipe />);
-    fireEvent.click(await screen.findByRole("button", { name: /Nova pessoa/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
-    expect(screen.queryByRole("dialog", { name: "Nova pessoa" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Novo usuário" })).not.toBeInTheDocument();
     expect(screen.queryByText("Alterações não salvas")).not.toBeInTheDocument();
   });
 
   it("pede confirmação antes de descartar alterações pendentes", async () => {
     render(<Equipe />);
-    fireEvent.click(await screen.findByRole("button", { name: /Nova pessoa/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
     fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Rascunho" } });
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(screen.getByText("Alterações não salvas")).toBeInTheDocument();
@@ -308,11 +529,60 @@ describe("Equipe", () => {
   it("preserva os dados quando a API rejeita a criação", async () => {
     createTeamPerson.mockRejectedValueOnce(new Error("offline"));
     render(<Equipe />);
-    fireEvent.click(await screen.findByRole("button", { name: /Nova pessoa/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
     fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Fernanda" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "fernanda@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText(/Atendimento/));
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     expect(await screen.findByText("Não foi possível salvar a pessoa.")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Fernanda")).toBeInTheDocument();
+  });
+
+  it("explica perfil indisponível e preserva a seleção para correção", async () => {
+    const unavailableProfileError = new Error("profile unavailable");
+    unavailableProfileError.response = { data: { error: "TEAM_PROFILE_UNAVAILABLE" } };
+    createTeamPerson.mockRejectedValueOnce(unavailableProfileError);
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Fernanda" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "fernanda@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText(/Atendimento/));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(await screen.findByText(
+      "Revise os perfis selecionados. Um deles não está mais disponível.",
+    )).toBeInTheDocument();
+    expect(screen.getByLabelText(/Atendimento/)).toBeChecked();
+    expect(screen.getByDisplayValue("Fernanda")).toBeInTheDocument();
+  });
+
+  it("preserva todos os dados profissionais quando a API rejeita a criação", async () => {
+    createTeamPerson.mockRejectedValueOnce(new Error("offline"));
+    render(<Equipe />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Fernanda" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "fernanda@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText("Profissional (nativo)"));
+    fireEvent.change(screen.getByLabelText("Região do CREFITO *"), {
+      target: { value: "15" },
+    });
+    fireEvent.change(screen.getByLabelText("Número do CREFITO *"), {
+      target: { value: "98765-F" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(await screen.findByText("Não foi possível salvar a pessoa.")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Fernanda")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("fernanda@example.test")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("15")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("98765-F")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Conferi os dados profissionais")).not.toBeInTheDocument();
   });
 
   it("impede envio duplicado enquanto a criação está em andamento", async () => {
@@ -321,8 +591,12 @@ describe("Equipe", () => {
       resolveRequest = resolve;
     }));
     render(<Equipe />);
-    fireEvent.click(await screen.findByRole("button", { name: /Nova pessoa/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Novo usuário/ }));
     fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Gabriela" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "gabriela@example.test" },
+    });
+    fireEvent.click(screen.getByLabelText(/Atendimento/));
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     const savingButton = await screen.findByRole("button", { name: "Salvando..." });
     expect(savingButton).toBeDisabled();
@@ -343,7 +617,6 @@ describe("Equipe", () => {
       name: "Ana editada",
       email: "ana@clinica.test",
       phone: "2799999999",
-      isProfessional: true,
     }));
   });
 
@@ -354,10 +627,11 @@ describe("Equipe", () => {
     await waitFor(() => expect(activateTeamPerson).toHaveBeenCalledWith(3));
   });
 
-  it("diferencia pessoa com conta, profissional sem login e múltiplos perfis", async () => {
+  it("diferencia acesso válido, cadastro incompleto e múltiplos perfis", async () => {
     render(<Equipe />);
     expect(await screen.findByText("ana@clinica.test")).toBeInTheDocument();
-    expect(screen.getByText("Profissional sem login")).toBeInTheDocument();
+    expect(screen.getByText("Acesso: ativo")).toBeInTheDocument();
+    expect(screen.getAllByText("Cadastro incompleto").length).toBeGreaterThan(0);
     expect(screen.getByText("Administrador, Recepção")).toBeInTheDocument();
     expect(screen.getAllByText("Perfil personalizado").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Inativo").length).toBeGreaterThan(0);
@@ -371,7 +645,8 @@ describe("Equipe", () => {
     fireEvent.click(within(anaRow).getByRole("button", { name: "Ações de Ana" }));
     expect(within(anaRow).getByRole("menuitem", { name: "Editar" })).toBeInTheDocument();
     expect(within(anaRow).getByRole("menuitem", { name: "Gerenciar perfis" })).toBeInTheDocument();
-    expect(within(anaRow).getByRole("menuitem", { name: "Redefinir senha" })).toBeInTheDocument();
+    expect(within(anaRow).queryByRole("menuitem", { name: "Redefinir senha" }))
+      .not.toBeInTheDocument();
     expect(within(anaRow).getByRole("menuitem", { name: "Bloquear" })).toBeInTheDocument();
 
     fireEvent.mouseDown(document.body);
@@ -384,7 +659,7 @@ describe("Equipe", () => {
       resolveRequest = resolve;
     }));
     render(<Equipe />);
-    const row = await openActionsFor("Bia");
+    const row = await openActionsFor("Elisa");
     fireEvent.click(within(row).getByRole("menuitem", { name: "Criar acesso" }));
     const drawer = screen.getByRole("dialog", { name: "Criar acesso" });
     fireEvent.change(within(drawer).getByLabelText("E-mail de login"), {
@@ -401,7 +676,7 @@ describe("Equipe", () => {
     expect(pending).toBeDisabled();
     fireEvent.click(pending);
     expect(createTeamAccount).toHaveBeenCalledTimes(1);
-    expect(createTeamAccount).toHaveBeenCalledWith(2, {
+    expect(createTeamAccount).toHaveBeenCalledWith(4, {
       email: "BIA@Example.Test",
       password: "Senha@123",
       passwordConfirmation: "Senha@123",
@@ -415,13 +690,13 @@ describe("Equipe", () => {
     loadTeamReadModel.mockResolvedValue(membershipModel);
     render(<Equipe />);
 
-    expect(await screen.findByText("Credencial pendente")).toBeInTheDocument();
+    expect((await screen.findAllByText("Acesso: aguardando ativação")).length).toBeGreaterThan(0);
     const anaRow = await openActionsFor("Ana");
     expect(within(anaRow).queryByRole("menuitem", { name: "Redefinir senha" }))
       .not.toBeInTheDocument();
 
-    const biaRow = await openActionsFor("Bia");
-    fireEvent.click(within(biaRow).getByRole("menuitem", { name: "Criar acesso" }));
+    const elisaRow = await openActionsFor("Elisa");
+    fireEvent.click(within(elisaRow).getByRole("menuitem", { name: "Criar acesso" }));
     const drawer = screen.getByRole("dialog", { name: "Criar acesso" });
     expect(within(drawer).queryByLabelText("Senha inicial")).not.toBeInTheDocument();
     fireEvent.change(within(drawer).getByLabelText("E-mail de login"), {
@@ -430,7 +705,7 @@ describe("Equipe", () => {
     fireEvent.click(within(drawer).getByRole("button", { name: "Criar acesso" }));
 
     await waitFor(() => expect(createTeamAccount).toHaveBeenCalledWith(
-      2,
+      4,
       { email: "bia@membership.test" },
       "membership",
     ));
@@ -442,7 +717,7 @@ describe("Equipe", () => {
       response: { data: { error: "LOGIN_IDENTIFIER_UNAVAILABLE" } },
     });
     render(<Equipe />);
-    const row = await openActionsFor("Bia");
+    const row = await openActionsFor("Elisa");
     fireEvent.click(within(row).getByRole("menuitem", { name: "Criar acesso" }));
     const drawer = screen.getByRole("dialog", { name: "Criar acesso" });
     fireEvent.change(within(drawer).getByLabelText("Senha inicial"), {
@@ -458,6 +733,12 @@ describe("Equipe", () => {
   });
 
   it("redefine senha com confirmação sem modificar perfis", async () => {
+    loadTeamReadModel.mockResolvedValue({
+      ...model,
+      people: model.people.map((person) => (
+        person.id === 1 ? { ...person, professional: null } : person
+      )),
+    });
     render(<Equipe />);
     const row = await openActionsFor("Ana");
     fireEvent.click(within(row).getByRole("menuitem", { name: "Redefinir senha" }));
@@ -476,6 +757,21 @@ describe("Equipe", () => {
     }));
     expect(assignAuthorizationProfile).not.toHaveBeenCalled();
     expect(unassignAuthorizationProfile).not.toHaveBeenCalled();
+  });
+
+  it("distingue o estado da pessoa da atuação profissional inativa", async () => {
+    loadTeamReadModel.mockResolvedValue({
+      ...model,
+      people: model.people.map((person) => (
+        person.id === 2
+          ? { ...person, professional: { ...person.professional, is_active: false } }
+          : person
+      )),
+    });
+    render(<Equipe />);
+    const row = (await screen.findByText("Bia")).closest("article");
+    expect(within(row).getByText("Pessoa: ativa")).toBeInTheDocument();
+    expect(within(row).getByText("Atuação: inativa")).toBeInTheDocument();
   });
 
   it("preserva confirmação quando o último Administrador não pode ser bloqueado", async () => {
@@ -509,6 +805,7 @@ describe("Equipe", () => {
     loadTeamReadModel.mockResolvedValue(blockedModel);
     const { unmount } = render(<Equipe />);
     const blockedRow = await openActionsFor("Ana");
+    expect(within(blockedRow).getByText("Acesso: bloqueado")).toBeInTheDocument();
     fireEvent.click(within(blockedRow).getByRole("menuitem", { name: "Desbloquear" }));
     const drawer = screen.getByRole("dialog", { name: "Desbloquear acesso" });
     fireEvent.click(within(drawer).getByLabelText(/Confirmo esta operação/));
@@ -524,7 +821,7 @@ describe("Equipe", () => {
       } : person)),
     });
     render(<Equipe />);
-    expect(await screen.findByText("Vínculo inválido")).toBeInTheDocument();
+    expect(await screen.findByText("Conta ou vínculo inconsistente.")).toBeInTheDocument();
     await openActionsFor("Ana");
     expect(screen.queryByRole("button", { name: "Redefinir senha" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Bloquear" })).not.toBeInTheDocument();

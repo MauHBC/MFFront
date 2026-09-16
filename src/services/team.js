@@ -27,13 +27,28 @@ export const getTeamAuditEvents = (filters = {}) => {
   return api.get("/team/audit-events", { params }).then(data);
 };
 
-export const createTeamPerson = ({ name, email, phone, isProfessional }) => api.post(
+export const createTeamPerson = ({
+  name,
+  email,
+  phone,
+  profileIds,
+  profession,
+  registrationRegion,
+  registrationNumber,
+  professionalVerificationConfirmed,
+}) => api.post(
   "/team/people",
   {
     name,
     email: email || null,
     phone: phone || null,
-    is_professional: isProfessional === true,
+    profile_ids: profileIds,
+    ...(profession !== undefined ? {
+      profession,
+      registration_region: registrationRegion,
+      registration_number: registrationNumber,
+      professional_verification_confirmed: professionalVerificationConfirmed === true,
+    } : {}),
   },
 ).then(data);
 
@@ -58,6 +73,7 @@ export const setTeamProfessionalState = (personId, isActive) => api.patch(
 export const saveTeamProfessionalIdentity = (personId, {
   action,
   activate,
+  email,
   profession,
   registrationRegion,
   registrationNumber,
@@ -66,6 +82,7 @@ export const saveTeamProfessionalIdentity = (personId, {
   {
     action,
     activate: activate === true,
+    ...(email ? { email } : {}),
     profession,
     registration_region: registrationRegion,
     registration_number: registrationNumber,
