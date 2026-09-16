@@ -169,11 +169,17 @@ cada módulo e endpoint mantém seu próprio gate.
 
 ### Manutenção da própria conta
 
-Na manutenção da própria conta, o frontend solicita a senha atual para troca
+No fluxo antigo de “Editar minha conta” (`/register/`), o frontend solicita a senha atual para troca
 efetiva de e-mail, definição de nova senha e autodesativação. Atualização comum,
 como alteração somente do nome, não apresenta essa reautenticação. Depois do
 sucesso de uma mutação que revoga a sessão, o frontend encerra o contexto local
 e conduz a pessoa para novo login.
+
+Esse fluxo consome `PUT/DELETE /users` em `src/services/account.js`, contratos
+legacy indisponíveis no modo membership. Não há suporte membership equivalente
+comprovado; a incompatibilidade permanece aberta na
+[lista de fechamento do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/team-sprint-checkpoint.md#pendências-de-fechamento-de-appmotriamembership).
+Recuperação pública de senha não resolve edição de e-mail/nome ou autodesativação.
 
 O frontend apenas apresenta e consome esse fluxo. Critérios de sensibilidade,
 validação da senha, revogação e autorização permanecem no Backend, nas fontes
@@ -182,7 +188,7 @@ canônicas de
 e de
 [política e armazenamento de senhas](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/password-security.md).
 
-### Primeiro acesso e recuperação membership
+### Primeiro acesso e recuperação — lifecycle público legacy/membership
 
 O login público oferece “Esqueci minha senha” em `/recuperar-senha`. O formulário
 envia somente o e-mail e apresenta a mesma confirmação neutra; não tenta concluir
@@ -200,7 +206,7 @@ Após sucesso, a tela limpa os campos e conduz ao login sem autenticação
 automática. A nova senha é global para todos os memberships e a conclusão invalida
 sessões antigas; o frontend não escolhe clínica nem preserva um contexto
 autenticado nesse fluxo. O contrato canônico está no Backend em
-[lifecycle de credenciais membership](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/membership-credential-lifecycle.md).
+[lifecycle de credenciais](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/membership-credential-lifecycle.md).
 
 #### Ações de Pacientes
 
@@ -316,23 +322,13 @@ Os contratos visuais específicos de pessoas, contas, perfis, inativação e
 auditoria da área Equipe estão em
 [team-read-only-module.md](team-read-only-module.md).
 
-Pessoa, atuação profissional, identidade, membership e perfil continuam
-estruturas distintas, mas todo novo integrante é cadastrado com acesso em um
-único caso de uso e exige seleção explícita de ao menos um perfil ativo. A seleção
-do perfil com `native_type = professional` cria a atuação e revela os campos
-profissionais, preservando combinações como Administrador + Profissional; perfil
-customizado de nome semelhante não aciona esse comportamento. No cadastro, a
-identidade profissional integra o drawer de Novo usuário e o mesmo comando
-transacional do backend garante atuação, acesso e perfis selecionados; a interface
-não ativa a atuação em uma requisição separada. A edição posterior permanece no
-drawer próprio. Temporariamente, cadastro e editor enviam a ação existente de
-confirmação automaticamente no salvamento administrativo autorizado, sem
-checkbox e sem representar conferência humana ou consulta externa; a revisão
-definitiva permanece para outra sprint. O editor compara os campos normalizados,
-preserva autor e momento no no-op já autorizado e permite salvar individualmente
-um registro pendente. CREFITO não concede permissão nem substitui
-o vínculo canônico da conta com a pessoa e a clínica. Profissionais existentes
-sem dados de identidade permanecem pendentes até revisão administrativa manual.
+Pessoa, atuação profissional, identidade, membership e perfil são estruturas
+distintas. Cadastro unificado, seleção múltipla pelo perfil nativo canônico,
+estados de acesso e autorização profissional automática TEMPORÁRIA pertencem ao
+[contrato visual da Equipe](team-read-only-module.md), não a uma segunda regra
+nesta arquitetura. A interface não cria vínculos por conta própria nem aprova
+registros históricos em massa; requisitos autoritativos e demais controles de
+assinatura permanecem nas fontes do Backend encaminhadas pelo módulo.
 
 ### Estados de autorização e contenção responsiva da Equipe
 
