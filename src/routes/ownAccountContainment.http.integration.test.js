@@ -10,6 +10,9 @@ import Routes from ".";
 import { AuthorizationProvider } from "../contexts/AuthorizationContext";
 import api from "../services/axios";
 
+const realBackend = process.env.MOTRIA_ACCOUNT_REAL_BACKEND
+  ? JSON.parse(process.env.MOTRIA_ACCOUNT_REAL_BACKEND) : null;
+
 // Keep the real route declarations, MyRoute, AuthorizationProvider, account and
 // recovery pages/services. Unrelated modules/chrome are outside this HTTP gate.
 jest.mock("../components/ImobNavbar/TopNavbar", () => () => null);
@@ -69,6 +72,7 @@ const respond = (res, status, body) => {
 
 beforeAll(async () => {
   originalBaseURL = api.defaults.baseURL;
+  if (realBackend) { api.defaults.baseURL = realBackend.baseURL; return; }
   server = http.createServer((req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -107,7 +111,7 @@ afterEach(() => {
 
 afterAll(async () => {
   api.defaults.baseURL = originalBaseURL;
-  await new Promise((resolve) => { server.close(resolve); });
+  if (server) await new Promise((resolve) => { server.close(resolve); });
 });
 
 const renderAccountRoute = (initialAuth = auth()) => {
@@ -137,6 +141,10 @@ const waitForLegacyForm = async () => {
   await screen.findByLabelText("E-mail:");
   await waitFor(() => expect(screen.getByLabelText("E-mail:")).toHaveValue("titular@example.test"));
 };
+
+// Normal CI keeps the existing fake-API suite. The isolated cross-repo gate
+// supplies identities/tokens from the real Backend, without persisting them.
+(realBackend ? describe.skip : describe)("API falsa loopback", () => {
 
 test("admin membership por URL direta recebe aviso; recuperação autenticada usa HTTP público sem logout", async () => {
   const { actions, history, store } = renderAccountRoute();
@@ -255,4 +263,46 @@ test("legacy mantém edição, troca de senha e desativação com HTTP observáv
   expect(requests.filter((req) => req.method === "DELETE")).toEqual([{
     method: "DELETE", path: "/api/users", body: { current_password: "Nova-senha-local-456!" },
   }]);
+});
+});
+
+(realBackend ? describe : describe.skip)("Backend real + MariaDB descartável", () => {
+  beforeEach(() => {
+    api.defaults.headers.Authorization = `Bearer ${realBackend.administrator.token}`;
+  });
+  afterEach(() => { delete api.defaults.headers.Authorization; });
+
+  test("administrador recebe somente aviso e volta ao início sem logout", async () => {
+    const { actions, history, store } = renderAccountRoute(realBackend.administrator);
+    expect(await screen.findByText("A edição da conta não está disponível nesta versão."))
+      .toBeInTheDocument();
+    expect(screen.queryByLabelText("Nome:")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Salvar" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "Voltar ao início" }));
+    expect(history.location.pathname).toBe("/menu");
+    expect(store.getState().auth.token).toBe(realBackend.administrator.token);
+    expect(actions).not.toContain("LOGIN_FAILURE");
+  });
+
+  test("não administrador permanece bloqueado pelo contexto real", async () => {
+    api.defaults.headers.Authorization = `Bearer ${realBackend.nonAdministrator.token}`;
+    renderAccountRoute(realBackend.nonAdministrator);
+    expect(await screen.findByText("Você não tem acesso")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Nome:")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Recuperar senha" })).not.toBeInTheDocument();
+  });
+
+  test("recuperação autenticada retorna 202 real e mantém o token utilizável", async () => {
+    const { actions, store } = renderAccountRoute(realBackend.administrator);
+    fireEvent.click(await screen.findByRole("link", { name: "Recuperar senha" }));
+    fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: realBackend.administrator.user.email } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar link" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Se a conta estiver apta");
+    expect(store.getState().auth.isLoggedIn).toBe(true);
+    expect(actions).not.toContain("LOGIN_FAILURE");
+    const response = await api.get("/team/authorization-context");
+    expect(response.status).toBe(200);
+    expect(response.data.is_administrator).toBe(true);
+    expect(response.data.authorization_source).toBe("membership");
+  });
 });
