@@ -5,6 +5,7 @@ import styled from "styled-components";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import { normalizePublicLandingConfig } from "../../utils/publicLanding";
 import { publicLandingSpacing } from "../PublicLanding/publicLandingLayout";
+import { useEntryPolicy } from "../../routes/EntryBoundary";
 
 function FooterLink({ children, href, isExternal = false }) {
   return (
@@ -41,6 +42,7 @@ FooterColumn.propTypes = {
 };
 
 export default function Footer() {
+  const { loginHref } = useEntryPolicy();
   const { publicClinic, displayName } = usePublicClinicContext();
   const config = normalizePublicLandingConfig({ publicClinic, displayName });
   const currentYear = new Date().getFullYear();
@@ -112,7 +114,7 @@ export default function Footer() {
         <FooterColumn title={"\u00c1rea da equipe"}>
           <LinkList>
             <li>
-              <FooterLink href="/login">Entrar no sistema</FooterLink>
+              <FooterLink href={loginHref}>Entrar no sistema</FooterLink>
             </li>
           </LinkList>
         </FooterColumn>
