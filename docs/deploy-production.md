@@ -28,6 +28,15 @@ ou sua pasta `build` para concluir o que está publicado.
 
 ### Publicação app.motria — marco de 17–18/09/2026
 
+Este marco descreve a janela histórica do corte app.motria iniciado em
+17/09/2026. SHAs, releases e horários abaixo não são um inventário
+permanentemente atualizado da versão ativa. A integração financeira posterior
+no GitHub está comprovada; seu deploy foi informado por Maurício, mas não foi
+independentemente comprovado nesta conferência, conforme o
+[checkpoint do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/team-sprint-checkpoint.md#versões-efetivamente-ativadas).
+Não se atribuem ao deploy financeiro os releases, horários, smokes ou evidências
+originais deste corte.
+
 Ativado em 17/09 às 23:27:25–26 BRT (18/09 02:27:25–26 UTC), o SHA
 `560a8217803217ac8c67bb3415341578027419dc` foi comprovado pelo `current`
 em `/var/www/espacocuidarvix-frontend/releases/560a82178032-20260918T012649Z`,
