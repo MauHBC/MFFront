@@ -1095,7 +1095,76 @@ landing no MFPlatformAdmin.
 
 A landing renderiza Contato e Unidades como áreas visuais independentes do mesmo módulo. Cada área aplica seu campo `background_variant` interno com os mesmos tokens semânticos da landing; quando o campo não existe, herda o fundo do módulo. Áreas sem conteúdo não geram faixas vazias. Uma unidade não exibe índice; duas ou mais preservam a numeração.
 
-O endereço geral de Contato é omitido nessa área quando coincide com o endereço de uma unidade visível. O rodapé não repete o endereço completo quando não existem campos estruturados suficientes para um resumo confiável. O acesso administrativo não aparece no cabeçalho público e permanece no rodapé como "Área da equipe" / "Entrar no sistema", apontando para `/login`. O link "Estrutura" aponta para `#gallery` e só é oferecido quando a Galeria está visível.
+O endereço geral de Contato é omitido nessa área quando coincide com o endereço de uma unidade visível. O rodapé não repete o endereço completo quando não existem campos estruturados suficientes para um resumo confiável. O acesso da equipe não aparece no cabeçalho público e permanece no rodapé como "Área da equipe" / "Entrar no sistema". Seu destino segue a política de entrada abaixo; antes da ativação continua em `/login`. O link "Estrutura" aponta para `#gallery` e só é oferecido quando a Galeria está visível.
+
+### Entrada central e compatibilidade durante o corte
+
+Implementação preparada, **não ativada em produção**. `src/config/entryPolicy.js`
+concentra os sete hosts: `app.motria.com.br`, os sites
+`espacocuidarvix.com.br`/`cmtrfisio.com.br` com seus aliases `www`, e
+`camila.motria.com.br`/`gabi.motria.com.br`. Essa lista define navegação,
+nunca identidade de clínica, membership ou autorização.
+
+`EntryBoundary` fica antes dos providers de sessão/tenant e módulos. Nos hosts
+gerenciados, lê `GET /entry-policy.json` same-origin, sem credenciais, sem cache
+e sem seguir redirects, uma vez por documento. O arquivo do build contém
+`{"version":1,"enabled":false}`: publicar o bundle não ativa encaminhamentos.
+O Nginx autorizado pode responder `enabled:true` por host. Falha/formato inválido
+mantém uma mensagem com tentativa explícita, sem montar consumidores. A decisão
+de encaminhar é recalculada a cada rota, sem remontar providers na navegação
+normal. Uma aba já aberta observa mudança da chave ao recarregar o documento;
+a ativação operacional exige recarregar essas abas. Desenvolvimento e hosts não
+gerenciados não consultam essa chave nem encaminham para produção.
+
+Com a chave ativa:
+
+- Os sites preservam `/`, seções, `/politica`, conteúdo e assets. O rodapé usa
+  o destino fechado `https://app.motria.com.br/login#`.
+- Rotas internas reconhecidas nos seis hosts antigos encaminham antes de
+  montar módulos, também na navegação React. IDs, queries, filtros e fragmentos
+  são descartados; nenhuma sessão é transferida. Destinos da URL não são aceitos.
+- A raiz central conduz à rota de login existente: anônimo vê login; sessão
+  validada pelo contexto do Backend segue para `/menu`. Falha de validação
+  não promove a sessão ao início. Não é necessário tenant público no Host.
+- As raízes de Camila/Gabi encaminham, **exceto** quando há marcador
+  `landing_preview`: a prévia existente valida token/clínica no Backend.
+  O marcador sozinho não autoriza acesso, nem escolhe clínica autenticada.
+- Convites `/cadastro/paciente/:token`, `/credencial`, `/recuperar-senha`,
+  APIs, arquivos e caminhos desconhecidos não recebem encaminhamento genérico.
+  Códigos de links preservados continuam na origem e seguem seus validadores.
+
+O fragmento vazio explícito no destino impede a herança definida na
+[RFC 9110, 10.2.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.2).
+Nginx não vê o fragmento de prévia; portanto não pode redirecionar genericamente
+as raízes de Camila/Gabi. A preparação operacional, precedência e ativação estão
+no [runbook de domínios do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/deploy/white-label-domains.md).
+`admin.motria.com.br` permanece fora desta política.
+
+Validação: `npm test -- --watchAll=false --runInBand`, `npm run build`,
+`npm run lint`, `npm run check:mojibake` e `git diff --check`.
+Após build, o gate `node tests/central-entry-real-backend.cjs --backend <worktree-backend>`
+reutiliza o orchestrator MariaDB do Backend e
+`scripts/test-central-entry-nginx.cjs`. Exige Docker iniciado pelo operador,
+imagens locais `mariadb:11.4`/`nginx:1.28-alpine` e Playwright/Chromium já
+disponíveis no runtime de testes (via `NODE_PATH`, se externo à worktree).
+`MOTRIA_TEST_BROWSER_EXECUTABLE_PATH` seleciona um Chromium já instalado;
+`MOTRIA_TEST_OPENSSL` seleciona OpenSSL local para TLS sintético descartável.
+Ausência desses pré-requisitos falha, não é aprovação ou skip. O navegador
+headless executa o bundle compilado através de proxy **somente loopback**,
+que entrega Nginx local e recusa outras origens sem abrir conexão externa.
+Isso inclui todos os saltos HTTP→HTTPS: interceptação Playwright isolada não
+garante essa cobertura. TLS de teste é aceito somente nesse navegador isolado,
+sem alterar certificados/configuração reais. APIs de
+login/convite/credencial/prévia usam Backend real e dados sintéticos, sem envio.
+Isso comprova navegação, não substitui a validação visual de Maurício.
+
+Execução local de 2026-09-17: 28 testes focados; suíte completa com 93 suítes,
+831 testes aprovados e 3 condicionais de `ownAccountContainment` não executados
+(exigem seu runner próprio); 5 testes do launcher local aprovados. Build, lint
+e mojibake aprovados. O gate separado desta entrada executou 10 cenários no
+Chromium 148.0.7778.96, Backend real/MariaDB 11.4.12 e 772 casos HTTP no Nginx,
+com zero intenções de e-mail. Não houve teste do console administrativo real:
+sua barreira foi representada por Basic sintético e bloqueio `/api/platform`.
 
 ### Refinamentos visuais da landing
 

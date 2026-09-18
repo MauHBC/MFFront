@@ -17,17 +17,20 @@ import { PublicClinicProvider, usePublicClinicContext } from "./contexts/PublicC
 import productIdentity from "./config/productIdentity";
 import TenantLoading from "./components/TenantLoading";
 import useAppVersionUpdate from "./hooks/useAppVersionUpdate";
+import EntryBoundary, { useEntryPolicy } from "./routes/EntryBoundary";
 
 const PUBLIC_LANDING_PATH = "/";
 const AUTH_REDIRECT_PATHS = new Set(["/login", "/login/"]);
 
 function InitialRenderGate({ children }) {
+  const { central } = useEntryPolicy();
   const location = useLocation();
   const isLoggedIn = useSelector((state) => state.auth.isLoggedIn);
   const { switching } = useClinicSession();
   const {
     loading: clinicLoading,
     loaded: clinicLoaded,
+    error: clinicError,
   } = useClinicContext();
   const {
     loading: publicLoading,
@@ -37,12 +40,15 @@ function InitialRenderGate({ children }) {
   const shouldRedirectAuthenticatedPath = AUTH_REDIRECT_PATHS.has(location.pathname);
 
   useEffect(() => {
-    if (isLoggedIn && clinicLoaded && shouldRedirectAuthenticatedPath) {
+    if (isLoggedIn && clinicLoaded && shouldRedirectAuthenticatedPath && (!central || !clinicError)) {
       history.replace("/menu");
     }
-  }, [clinicLoaded, isLoggedIn, shouldRedirectAuthenticatedPath]);
+  }, [central, clinicError, clinicLoaded, isLoggedIn, shouldRedirectAuthenticatedPath]);
 
   if (switching) return <TenantLoading />;
+  if (central && isLoggedIn && clinicLoaded && clinicError && shouldRedirectAuthenticatedPath) {
+    return <div role="alert">Não foi possível validar sua sessão. Recarregue a página para tentar novamente.</div>;
+  }
 
   if (isPublicLandingPath) {
     if (publicLoading || !publicLoaded) {
@@ -139,9 +145,11 @@ function App() {
     <Provider store={store}>
       <PersistGate loading={<TenantLoading />} persistor={persistor}>
         <Router history={history}>
-          <PublicClinicProvider>
-            <AuthenticatedApplication />
-          </PublicClinicProvider>
+          <EntryBoundary>
+            <PublicClinicProvider>
+              <AuthenticatedApplication />
+            </PublicClinicProvider>
+          </EntryBoundary>
         </Router>
       </PersistGate>
     </Provider>
