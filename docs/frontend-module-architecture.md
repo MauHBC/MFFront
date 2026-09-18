@@ -1196,6 +1196,13 @@ scanner/GET não cria Agenda. Falha transitória oferece retry; expiração perm
 reenvio; cadastro vinculado a conta pede login canônico/reabrir link. Conclusão
 recarrega lista de vínculos sem trocar automaticamente a Agenda atual.
 
+“Entrar na minha conta” em `/cadastro` transporta `returnTo: /cadastro` no estado
+interno da navegação. Login, saga e gate inicial aceitam exclusivamente esse
+destino ou o padrão `/menu`; URLs externas ou caminhos arbitrários não são
+aceitos. Após login canônico, o cadastro autenticado retoma automaticamente,
+carrega identidade real, verifica elegibilidade e solicita a prova pertinente.
+Senha, memberships e clínica ativa anteriores permanecem preservados.
+
 `CommercialProvider`, dentro da árvore isolada por token, consulta `/commercial`
 com bearer explícito. Generation guard recusa respostas de sessão anterior;
 navigation, foco, minuto e evento de 403 comercial atualizam contexto. Boundary
@@ -1205,8 +1212,10 @@ login; 401 mantém seu contrato anterior. Regras comerciais/autorização contin
 canônicas no MFBackend (`docs/regras-negocio/tenant-clinica.md`, TEN-006–TEN-010;
 exceção profissional CLI-009 em `prontuario.md`). O Frontend não concede trial.
 
-Home inclui orientação recolhível/não bloqueante de cidade/UF e se atende,
-sem alterar acesso, e checklist compacto recolhível com três marcos reais.
+Home apresenta inicialmente aberta a orientação não bloqueante de cidade/UF e
+se atende, com “Preencher depois” para recolher o formulário sem gravar resposta
+implícita ou alterar permissões. Inclui checklist compacto recolhível com três
+marcos reais.
 Links apontam à criação do primeiro serviço, paciente e agendamento; 3/3 remove
 o checklist. Header apresenta fim completo no timezone da Agenda e destaque
 nos últimos três dias. A página `/situacao-comercial` preserva App Shell,
@@ -1215,6 +1224,13 @@ registrar interesse em reativação e solicitar exclusão com confirmação expl
 do pedido. Não oferece checkout, cobrança ou exclusão física. No modo legado,
 criar segunda Agenda recebe erro explicativo antes de consumir dados/vínculos;
 esse fluxo exige rollout membership no Backend.
+
+As ações clínicas mostram `eligible_to_sign` separadamente de
+`verification_status`. `temporary_trial_owner` com credenciais pending exibe
+“Credenciais profissionais pendentes — uso liberado durante o teste gratuito.”,
+sem CREFITO vazio ou identidade verificada. Conselho e identidade verificada
+somente aparecem com status verified e região/número efetivos retornados pelo
+Backend.
 
 Gates: `src/pages/SelfService/SelfService.test.js` e
 `src/contexts/CommercialContext.test.js` cobrem teclado, checkbox, submit ocupado,
@@ -1229,6 +1245,12 @@ browser já instalado em `MOTRIA_TEST_BROWSER_EXECUTABLE_PATH`; não compartilha
 dependências de aplicação. Interceptação recusa todas as origens fora do único
 HTTP loopback; não há envio real ou acesso a produção. Docker e build são
 pré-requisitos, e a ausência falha sem skip.
+
+O mesmo gate comprova login real e retorno automático de identidade com duas
+clínicas anteriores, confirmação autenticada, preservação da senha e clínica
+ativa, consumo único e apresentação visível/adiamento da orientação inicial.
+`src/services/axiosCommercialInterceptor.test.js` exercita o interceptor Axios
+real com Redux: 403 comercial conserva token/sessão e não navega ao login.
 
 ### Refinamentos visuais da landing
 

@@ -71,6 +71,6 @@ export default function Signup() {
         <button type="submit" disabled={busy || !legal || (logged && !commercial?.identity)}>{busy ? "Enviando…" : "Confirmar e-mail para criar Agenda"}</button>
       </form>
     </>}
-    <p><Link to="/login">Entrar na minha conta</Link></p>
+    <p><Link to={{ pathname: "/login", state: { returnTo: "/cadastro" } }}>Entrar na minha conta</Link></p>
   </main>;
 }

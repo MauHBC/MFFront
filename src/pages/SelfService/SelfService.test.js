@@ -144,15 +144,26 @@ test("checklist usa os marcos do servidor, é recolhível e desaparece em 3/3", 
   view.rerender(<MemoryRouter><TrialPanel /></MemoryRouter>);
   expect(screen.queryByText(/Comece por aqui/)).not.toBeInTheDocument();
 });
-test("orientação não bloqueia módulos e resposta não é usada para decidir acesso", async () => {
+test.each([["yes", true], ["no", false]])("orientação visível não bloqueia módulos: resposta %s", async (choice, answer) => {
   useCommercial.mockReturnValue({ data: active, refresh });
   wrap(<TrialPanel />);
+  expect(screen.getByText("Complete as informações iniciais da Agenda").closest("details")).toHaveAttribute("open");
   act(() => { userEvent.type(screen.getByLabelText("Cidade"), "Curitiba"); });
   act(() => { userEvent.selectOptions(screen.getByLabelText("UF"), "PR"); });
-  act(() => { userEvent.selectOptions(screen.getByLabelText("Você realiza atendimentos?"), "no"); });
+  act(() => { userEvent.selectOptions(screen.getByLabelText("Você realiza atendimentos?"), choice); });
   act(() => { userEvent.click(screen.getByRole("button", { name: "Salvar informações" })); });
-  await waitFor(() => expect(axios.post).toHaveBeenCalledWith("/commercial/orientation", { city: "Curitiba", state: "PR", performs_care: false }));
+  await waitFor(() => expect(axios.post).toHaveBeenCalledWith("/commercial/orientation", { city: "Curitiba", state: "PR", performs_care: answer }));
   await waitFor(() => expect(refresh).toHaveBeenCalled());
+});
+
+test("preencher depois fecha somente a orientação, sem escrita ou alteração de acesso", () => {
+  useCommercial.mockReturnValue({ data: active, refresh });
+  const { container } = wrap(<TrialPanel />);
+  fireEvent.click(screen.getByRole("button", { name: "Preencher depois" }));
+  expect(screen.getByText("Complete as informações iniciais da Agenda").closest("details")).not.toHaveAttribute("open");
+  expect(axios.post).not.toHaveBeenCalled();
+  expect(screen.getByRole("link", { name: "Cadastrar primeiro paciente" })).toBeInTheDocument();
+  expect(container).not.toHaveTextContent(/CEP|endereço completo|telefone|CREFITO/i);
 });
 test("indicador usa datas no fuso da Agenda e destaca os últimos três dias", () => {
   useCommercial.mockReturnValue({ data: { ...active, remaining_days: 3 }, refresh });

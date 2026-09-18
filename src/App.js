@@ -8,6 +8,7 @@ import PropTypes from "prop-types";
 
 import store, { persistor } from "./store";
 import history from "./services/history";
+import loginReturnPath from "./services/loginReturnPath";
 import Routes from "./routes";
 import { CommercialProvider } from "./contexts/CommercialContext";
 import CommercialBoundary from "./pages/SelfService/CommercialBoundary";
@@ -40,12 +41,13 @@ function InitialRenderGate({ children }) {
   } = usePublicClinicContext();
   const isPublicLandingPath = location.pathname === PUBLIC_LANDING_PATH;
   const shouldRedirectAuthenticatedPath = AUTH_REDIRECT_PATHS.has(location.pathname);
+  const returnTo = loginReturnPath(location.state?.returnTo);
 
   useEffect(() => {
     if (isLoggedIn && clinicLoaded && shouldRedirectAuthenticatedPath && (!central || !clinicError)) {
-      history.replace("/menu");
+      history.replace(returnTo);
     }
-  }, [central, clinicError, clinicLoaded, isLoggedIn, shouldRedirectAuthenticatedPath]);
+  }, [central, clinicError, clinicLoaded, isLoggedIn, shouldRedirectAuthenticatedPath, returnTo]);
 
   if (switching) return <TenantLoading />;
   if (central && isLoggedIn && clinicLoaded && clinicError && shouldRedirectAuthenticatedPath) {

@@ -19,6 +19,7 @@ export default function TrialPanel() {
   const [care, setCare] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [deferred, setDeferred] = useState(false);
   if (!data?.managed || data.state !== "trial_active") return null;
   const submit = async (event) => {
     event.preventDefault(); setBusy(true); setError("");
@@ -38,7 +39,7 @@ export default function TrialPanel() {
         <li><span aria-label={milestones.sessions ? "Concluído" : "Pendente"}>{milestones.sessions ? "✓" : "○"}</span><Link to="/agendamentos">Criar primeiro agendamento</Link></li>
       </ul>
     </details>}
-    {data.owner && !data.orientation.completed && <details className="trial-panel">
+    {data.owner && !data.orientation.completed && <details className="trial-panel" open={!deferred}>
       <summary>Complete as informações iniciais da Agenda</summary>
       <p>Você pode continuar usando a Agenda enquanto preenche estas informações. Sua resposta sobre atendimentos não altera o acesso durante o teste.</p>
       <form className="motria-onboarding" onSubmit={submit} aria-busy={busy}>
@@ -47,6 +48,7 @@ export default function TrialPanel() {
         <label htmlFor="trial-care">Você realiza atendimentos?<select id="trial-care" required value={care} onChange={(e) => setCare(e.target.value)}><option value="">Selecione</option><option value="yes">Sim</option><option value="no">Não</option></select></label>
         {error && <p role="alert">{error}</p>}
         <button type="submit" disabled={busy}>{busy ? "Salvando…" : "Salvar informações"}</button>
+        <button type="button" disabled={busy} onClick={() => setDeferred(true)}>Preencher depois</button>
       </form>
     </details>}
   </>;
