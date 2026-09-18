@@ -47,6 +47,12 @@ export function ClinicSessionProvider({ children }) {
     revision: guardRevision,
   } = useClinicTransitionGuardRegistry();
   const [session, setSession] = useState(persistedSession || null);
+  const [membershipRefresh, setMembershipRefresh] = useState(0);
+  useEffect(() => {
+    const refresh = () => setMembershipRefresh((value) => value + 1);
+    window.addEventListener("motria:clinic-memberships-changed", refresh);
+    return () => window.removeEventListener("motria:clinic-memberships-changed", refresh);
+  }, []);
   const [loading, setLoading] = useState(membershipSession);
   const [switching, setSwitching] = useState(false);
   const [mutationPending, setMutationPending] = useState(false);
@@ -125,7 +131,7 @@ export function ClinicSessionProvider({ children }) {
     return () => {
       activeRequest.current += 1;
     };
-  }, [isLoggedIn, membershipSession, persistedSession, token]);
+  }, [isLoggedIn, membershipSession, membershipRefresh, persistedSession, token]);
 
   const switchClinic = useCallback(async (membershipId) => {
     const target = Number(membershipId);

@@ -13,6 +13,11 @@ import Page404 from "../pages/Page404";
 import PatientSelfSignup from "../pages/PatientSelfSignup";
 import RecoveryRequest from "../pages/CredentialLifecycle/RecoveryRequest";
 import CredentialAction from "../pages/CredentialLifecycle/CredentialAction";
+import Signup from "../pages/SelfService/Signup";
+import Confirmation from "../pages/SelfService/Confirmation";
+import Terms from "../pages/SelfService/Terms";
+import Privacy from "../pages/SelfService/Privacy";
+import Commercial from "../pages/SelfService/Commercial";
 
 // Páginas protegidas (requer autenticação)
 import Register from "../pages/Register";
@@ -70,7 +75,8 @@ export default function Routes() {
   const location = useLocation();
 
   // Condicional para verificar se não é a HomePage
-  const isPublicSignup = location.pathname.startsWith("/cadastro/paciente");
+  const isPublicSignup = location.pathname.startsWith("/cadastro/paciente")
+    || ["/cadastro", "/confirmar-email", "/termos", "/privacidade"].includes(location.pathname);
   const isCredentialLifecycle = ["/recuperar-senha", "/credencial"].includes(location.pathname);
   const usesPatientsAppShell = location.pathname === "/pacientes"
     || location.pathname.startsWith("/pacientes/");
@@ -99,6 +105,11 @@ export default function Routes() {
   const routeContent = (
     <Switch>
         {/* Rotas públicas */}
+        <MyRoute exact path="/cadastro" component={Signup} isClosed={false} />
+        <MyRoute exact path="/confirmar-email" component={Confirmation} isClosed={false} />
+        <MyRoute exact path="/termos" component={Terms} isClosed={false} />
+        <MyRoute exact path="/privacidade" component={Privacy} isClosed={false} />
+        <MyRoute exact path="/situacao-comercial" component={Commercial} isClosed />
         <MyRoute exact path="/" component={HomePage} isClosed={false} />
         <MyRoute exact path="/menu" component={Menu} isClosed />
         <MyRoute exact path="/login/" component={Login} isClosed={false} />

@@ -9,6 +9,8 @@ import PropTypes from "prop-types";
 import store, { persistor } from "./store";
 import history from "./services/history";
 import Routes from "./routes";
+import { CommercialProvider } from "./contexts/CommercialContext";
+import CommercialBoundary from "./pages/SelfService/CommercialBoundary";
 import { ClinicProvider, useClinicContext } from "./contexts/ClinicContext";
 import { AuthorizationProvider } from "./contexts/AuthorizationContext";
 import { ClinicSessionProvider, useClinicSession } from "./contexts/ClinicSessionContext";
@@ -85,9 +87,11 @@ function AuthenticatedApplication() {
         <ClinicProvider>
           <AuthorizationProvider>
             <AppHelmet />
-            <InitialRenderGate>
-              <Routes />
-            </InitialRenderGate>
+            <CommercialProvider>
+              <InitialRenderGate>
+                <CommercialBoundary><Routes /></CommercialBoundary>
+              </InitialRenderGate>
+            </CommercialProvider>
             <AppVersionReloader />
             <ToastContainer autoClose={2000} className="toats-container" />
           </AuthorizationProvider>

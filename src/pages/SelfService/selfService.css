@@ -1,0 +1,20 @@
+.motria-onboarding { width: min(100% - 32px, 560px); margin: 40px auto; color: #243b44; }
+.motria-onboarding h1 { font-size: clamp(1.5rem, 5vw, 2rem); line-height: 1.2; }
+.motria-onboarding p { line-height: 1.6; }
+.motria-onboarding form { display: grid; gap: 16px; margin: 24px 0; }
+.motria-onboarding label { display: grid; gap: 6px; font-weight: 600; }
+.motria-onboarding input:not([type=checkbox]), .motria-onboarding select { width: 100%; box-sizing: border-box; min-height: 44px; padding: 10px; border: 1px solid #78909c; border-radius: 8px; background: white; color: #243b44; font: inherit; }
+.motria-onboarding .legal-check { display: flex; align-items: flex-start; gap: 10px; font-weight: 400; line-height: 1.5; }
+.motria-onboarding .legal-check input { width: 20px; height: 20px; flex: 0 0 20px; margin-top: 2px; }
+.motria-onboarding button, .trial-panel button { min-height: 44px; padding: 10px 16px; border-radius: 8px; border: 1px solid #165d68; background: #165d68; color: white; font: inherit; cursor: pointer; }
+.motria-onboarding button:disabled { opacity: .6; cursor: wait; }
+.motria-onboarding a, .trial-panel a, .trial-indicator { color: #165d68; text-decoration: underline; }
+.motria-onboarding :focus-visible, .trial-panel :focus-visible { outline: 3px solid #d38b2e; outline-offset: 3px; }
+.motria-onboarding [role=alert] { padding: 12px; background: #fff0d9; border-radius: 8px; }
+.trial-panel { border: 1px solid #cadbdc; border-radius: 12px; padding: 16px; margin-bottom: 20px; color: #243b44; background: #f6faf9; }
+.trial-panel summary { cursor: pointer; font-weight: 600; min-height: 32px; }
+.trial-panel ul { display: flex; gap: 16px; flex-wrap: wrap; list-style: none; padding: 0; margin: 12px 0 0; }
+.trial-panel li { display: flex; gap: 6px; align-items: center; }
+.trial-indicator { font-size: .8rem; line-height: 1.4; padding: 4px 8px; max-width: 280px; }
+.trial-indicator[data-urgent=true] { background: #fff0d9; border-radius: 8px; color: #704409; }
+@media (max-width: 600px) { .motria-onboarding { margin-top: 24px; } .trial-indicator { max-width: 160px; } .trial-panel ul { flex-direction: column; gap: 10px; } }

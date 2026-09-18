@@ -155,6 +155,9 @@ export function setupAxiosInterceptors({ store, persistor, history }) {
       const status = error?.response?.status;
       const requestUrl = error?.config?.url || "";
       const authMessage = getAuthMessage(error);
+      if (status === 403 && ["TRIAL_OPERATIONAL_ACCESS_EXPIRED", "COMMERCIAL_ACCESS_INCONSISTENT"].includes(authMessage)) {
+        window.dispatchEvent(new Event("motria:commercial-access-changed"));
+      }
       const shouldHandleUnauthorized =
         status === 401 &&
         !isLoginRequest(requestUrl) &&
