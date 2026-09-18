@@ -1184,6 +1184,74 @@ Chromium 148.0.7778.96, Backend real/MariaDB 11.4.12 e 772 casos HTTP no Nginx,
 com zero intenções de e-mail. Não houve teste do console administrativo real:
 sua barreira foi representada por Basic sintético e bloqueio `/api/platform`.
 
+### Cadastro automático e contexto comercial
+
+`/cadastro` recebe nome, e-mail, senha e checkbox legal inicialmente desmarcado;
+conta autenticada usa nome/e-mail canônicos somente leitura e não solicita senha.
+Metadados/versionamento vêm do Backend; placeholders de `/termos` e `/privacidade`
+exibem revisão técnica e `noindex`. `/politica` antigo permanece independente.
+Resposta pública é neutra. `/confirmar-email#token=...` mantém bearer somente em
+memória, remove fragmento antes de interação e confirma por botão explícito;
+scanner/GET não cria Agenda. Falha transitória oferece retry; expiração permite
+reenvio; cadastro vinculado a conta pede login canônico/reabrir link. Conclusão
+recarrega lista de vínculos sem trocar automaticamente a Agenda atual.
+
+“Entrar na minha conta” em `/cadastro` transporta `returnTo: /cadastro` no estado
+interno da navegação. Login, saga e gate inicial aceitam exclusivamente esse
+destino ou o padrão `/menu`; URLs externas ou caminhos arbitrários não são
+aceitos. Após login canônico, o cadastro autenticado retoma automaticamente,
+carrega identidade real, verifica elegibilidade e solicita a prova pertinente.
+Senha, memberships e clínica ativa anteriores permanecem preservados.
+
+`CommercialProvider`, dentro da árvore isolada por token, consulta `/commercial`
+com bearer explícito. Generation guard recusa respostas de sessão anterior;
+navigation, foco, minuto e evento de 403 comercial atualizam contexto. Boundary
+aguarda validação, oferece retry na falha e impede montar módulos operacionais
+quando o Backend informa estado comercial fechado. 403 de expiração preserva
+login; 401 mantém seu contrato anterior. Regras comerciais/autorização continuam
+canônicas no MFBackend (`docs/regras-negocio/tenant-clinica.md`, TEN-006–TEN-010;
+exceção profissional CLI-009 em `prontuario.md`). O Frontend não concede trial.
+
+Home apresenta inicialmente aberta a orientação não bloqueante de cidade/UF e
+se atende, com “Preencher depois” para recolher o formulário sem gravar resposta
+implícita ou alterar permissões. Inclui checklist compacto recolhível com três
+marcos reais.
+Links apontam à criação do primeiro serviço, paciente e agendamento; 3/3 remove
+o checklist. Header apresenta fim completo no timezone da Agenda e destaque
+nos últimos três dias. A página `/situacao-comercial` preserva App Shell,
+troca de Agenda/logout e ações do owner informadas pelo Backend: exportar JSON,
+registrar interesse em reativação e solicitar exclusão com confirmação explícita
+do pedido. Não oferece checkout, cobrança ou exclusão física. No modo legado,
+criar segunda Agenda recebe erro explicativo antes de consumir dados/vínculos;
+esse fluxo exige rollout membership no Backend.
+
+As ações clínicas mostram `eligible_to_sign` separadamente de
+`verification_status`. `temporary_trial_owner` com credenciais pending exibe
+“Credenciais profissionais pendentes — uso liberado durante o teste gratuito.”,
+sem CREFITO vazio ou identidade verificada. Conselho e identidade verificada
+somente aparecem com status verified e região/número efetivos retornados pelo
+Backend.
+
+Gates: `src/pages/SelfService/SelfService.test.js` e
+`src/contexts/CommercialContext.test.js` cobrem teclado, checkbox, submit ocupado,
+erro/retry, fragmento, identidade existente, marcos, orientação, expiração,
+timezone e isolamento de resposta antiga; suíte completa, lint, mojibake e build.
+
+`node tests/trial-real-backend.cjs <worktree-backend>` testa o bundle compilado
+em Chromium headless a 375px, com Backend/MariaDB descartáveis, teclado, gate
+legal, nenhuma Agenda antes da prova, fragmento removido, confirmação explícita
+e ausência de overflow horizontal. Usa Playwright externo via `NODE_PATH` e
+browser já instalado em `MOTRIA_TEST_BROWSER_EXECUTABLE_PATH`; não compartilha
+dependências de aplicação. Interceptação recusa todas as origens fora do único
+HTTP loopback; não há envio real ou acesso a produção. Docker e build são
+pré-requisitos, e a ausência falha sem skip.
+
+O mesmo gate comprova login real e retorno automático de identidade com duas
+clínicas anteriores, confirmação autenticada, preservação da senha e clínica
+ativa, consumo único e apresentação visível/adiamento da orientação inicial.
+`src/services/axiosCommercialInterceptor.test.js` exercita o interceptor Axios
+real com Redux: 403 comercial conserva token/sessão e não navega ao login.
+
 ### Refinamentos visuais da landing
 
 O Hero usa altura limitada por viewport e largura, preserva `object-fit: cover` e aceita `title_line_2` como continuação editorial dentro do mesmo `h1`. `eyebrow`, `title` e `title_line_2` são lidos separadamente do documento modular; um `eyebrow` vazio não reativa texto legado. Seções usam revelação progressiva nativa com fallback visível e respeito a `prefers-reduced-motion`. O carrossel inicia automaticamente apenas com múltiplas imagens, pausa em hover ou foco e não expõe controle de play/pausa. Biografias longas são recolhidas com reticências e podem ser expandidas individualmente por botão semântico com rótulo visual "Ver mais" ou "Ver menos".

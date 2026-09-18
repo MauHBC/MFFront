@@ -12,6 +12,7 @@ import {
   FaTimes,
   FaUserAlt,
 } from "react-icons/fa";
+import ClinicalSigningIdentitySummary from "../../components/ClinicalSigningIdentitySummary";
 
 import DataLoadingState from "../../components/DataLoadingState";
 import ClinicalSignatureConfirmModal from "../../components/ClinicalSignatureConfirmModal";
@@ -3847,10 +3848,7 @@ export default function PatientDetails() {
                   {signingIdentity.status === "ready" && signingIdentity.data?.eligible_to_sign && (
                     <>
                       <strong>{signingIdentity.data.name}</strong>
-                      <span>
-                        CREFITO-{signingIdentity.data.registration_region} nº
-                        {" "}{signingIdentity.data.registration_number} · identidade verificada
-                      </span>
+                      <ClinicalSigningIdentitySummary identity={signingIdentity.data} />
                     </>
                   )}
                   {signingIdentity.status === "ready" && !signingIdentity.data?.eligible_to_sign && (
@@ -3996,11 +3994,7 @@ export default function PatientDetails() {
               <ModalBody>
                 <SigningIdentityPanel $eligible={signingIdentity.data?.eligible_to_sign === true}>
                   {signingIdentity.data?.eligible_to_sign ? (
-                    <span>
-                      {signingIdentity.data.name} — CREFITO-
-                      {signingIdentity.data.registration_region} nº
-                      {" "}{signingIdentity.data.registration_number}
-                    </span>
+                    <ClinicalSigningIdentitySummary identity={signingIdentity.data} />
                   ) : (
                     <span>Identidade profissional ativa e verificada obrigatória.</span>
                   )}
@@ -4070,7 +4064,7 @@ export default function PatientDetails() {
               <ModalBody>
                 <SigningIdentityPanel $eligible={signingIdentity.data?.eligible_to_sign === true}>
                   {signingIdentity.data?.eligible_to_sign
-                    ? `${signingIdentity.data.name} — CREFITO-${signingIdentity.data.registration_region} nº ${signingIdentity.data.registration_number}`
+                    ? <ClinicalSigningIdentitySummary identity={signingIdentity.data} />
                     : "É necessária identidade profissional verificada e atribuição ativa."}
                 </SigningIdentityPanel>
                 {clinicalCaseActionModal.type === "consolidate" && (
