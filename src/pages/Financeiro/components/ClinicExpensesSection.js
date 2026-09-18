@@ -16,6 +16,8 @@ export default function ClinicExpensesSection({
   clinicExpensesPeriodMode,
   clinicExpensesFilters,
   clinicExpensePayingId,
+  canManageExpenses,
+  canSettleExpenses,
   formatCurrency,
   formatDateOnlyBR,
   getClinicExpenseStatus,
@@ -94,9 +96,11 @@ export default function ClinicExpensesSection({
       return (
         <AttendanceEmptyState>
           <p>Nenhuma despesa cadastrada neste mês.</p>
-          <AttendancePrimaryAction type="button" onClick={() => openClinicExpenseModal()}>
-            Cadastrar despesa
-          </AttendancePrimaryAction>
+          {canManageExpenses ? (
+            <AttendancePrimaryAction type="button" onClick={() => openClinicExpenseModal()}>
+              Cadastrar despesa
+            </AttendancePrimaryAction>
+          ) : null}
         </AttendanceEmptyState>
       );
     }
@@ -130,6 +134,47 @@ export default function ClinicExpensesSection({
                 && Boolean(paidDateOnly)
                 && paidDateOnly !== dueDateOnly;
               const dueAlertLabel = getExpenseDueAlertLabel(entry);
+              let paymentActions = null;
+
+              if (canSettleExpenses && status !== "paid") {
+                paymentActions = (
+                  <ActionMenuItem
+                    type="button"
+                    onClick={(event) => {
+                      closeActionMenu(event);
+                      openClinicExpensePaymentModal(entry);
+                    }}
+                    disabled={isPaying}
+                  >
+                    {isPaying ? "Salvando..." : "Marcar como pago"}
+                  </ActionMenuItem>
+                );
+              } else if (canSettleExpenses) {
+                paymentActions = (
+                  <>
+                    <ActionMenuItem
+                      type="button"
+                      onClick={(event) => {
+                        closeActionMenu(event);
+                        openClinicExpensePaymentModal(entry);
+                      }}
+                      disabled={isPaying}
+                    >
+                      {isPaying ? "Salvando..." : "Editar pagamento"}
+                    </ActionMenuItem>
+                    <ActionMenuItem
+                      type="button"
+                      onClick={(event) => {
+                        closeActionMenu(event);
+                        openClinicExpenseUnpayModal(entry);
+                      }}
+                      disabled={isPaying}
+                    >
+                      {isPaying ? "Salvando..." : "Desfazer pagamento"}
+                    </ActionMenuItem>
+                  </>
+                );
+              }
 
               return (
                 <tr key={entry.id}>
@@ -172,64 +217,36 @@ export default function ClinicExpensesSection({
                   </td>
                   <td>
                     <AttendanceRowActions>
-                      <ActionMenu onToggle={handleActionMenuToggle}>
-                        <ActionMenuTrigger>Ações</ActionMenuTrigger>
-                        <ActionMenuList>
-                          {status !== "paid" ? (
-                            <ActionMenuItem
-                              type="button"
-                              onClick={(event) => {
-                                closeActionMenu(event);
-                                openClinicExpensePaymentModal(entry);
-                              }}
-                              disabled={isPaying}
-                            >
-                              {isPaying ? "Salvando..." : "Marcar como pago"}
-                            </ActionMenuItem>
-                          ) : (
-                            <>
+                      {canManageExpenses || canSettleExpenses ? (
+                        <ActionMenu onToggle={handleActionMenuToggle}>
+                          <ActionMenuTrigger>Ações</ActionMenuTrigger>
+                          <ActionMenuList>
+                            {paymentActions}
+                            {canManageExpenses ? (
                               <ActionMenuItem
                                 type="button"
                                 onClick={(event) => {
                                   closeActionMenu(event);
-                                  openClinicExpensePaymentModal(entry);
+                                  openClinicExpenseModal(entry);
                                 }}
-                                disabled={isPaying}
                               >
-                                {isPaying ? "Salvando..." : "Editar pagamento"}
+                                Editar
                               </ActionMenuItem>
+                            ) : null}
+                            {canManageExpenses && status !== "paid" ? (
                               <ActionMenuItem
                                 type="button"
                                 onClick={(event) => {
                                   closeActionMenu(event);
-                                  openClinicExpenseUnpayModal(entry);
+                                  openClinicExpenseDeleteModal(entry);
                                 }}
-                                disabled={isPaying}
                               >
-                                {isPaying ? "Salvando..." : "Desfazer pagamento"}
+                                Excluir
                               </ActionMenuItem>
-                            </>
-                          )}
-                          <ActionMenuItem
-                            type="button"
-                            onClick={(event) => {
-                              closeActionMenu(event);
-                              openClinicExpenseModal(entry);
-                            }}
-                          >
-                            Editar
-                          </ActionMenuItem>
-                          <ActionMenuItem
-                            type="button"
-                            onClick={(event) => {
-                              closeActionMenu(event);
-                              openClinicExpenseDeleteModal(entry);
-                            }}
-                          >
-                            Excluir
-                          </ActionMenuItem>
-                        </ActionMenuList>
-                      </ActionMenu>
+                            ) : null}
+                          </ActionMenuList>
+                        </ActionMenu>
+                      ) : "-"}
                     </AttendanceRowActions>
                   </td>
                 </tr>
@@ -367,10 +384,12 @@ export default function ClinicExpensesSection({
           <AttendanceTableCard>
             <AttendanceDetailHeader style={{ padding: "16px 16px 0" }}>
               <AttendanceDetailTitle>Resumo de despesas — {clinicExpensesMonthLabel}</AttendanceDetailTitle>
-              <AttendancePrimaryAction type="button" onClick={() => openClinicExpenseModal()}>
-                <FaPlus />
-                Nova despesa
-              </AttendancePrimaryAction>
+              {canManageExpenses ? (
+                <AttendancePrimaryAction type="button" onClick={() => openClinicExpenseModal()}>
+                  <FaPlus />
+                  Nova despesa
+                </AttendancePrimaryAction>
+              ) : null}
             </AttendanceDetailHeader>
             {renderTable()}
           </AttendanceTableCard>

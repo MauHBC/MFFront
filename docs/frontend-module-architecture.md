@@ -3,6 +3,24 @@
 Este documento é a fonte oficial para a landing pública, seus contextos e os
 padrões dos módulos autenticados.
 
+## Despesas operacionais
+
+A exclusão de despesa aberta exige confirmação, sem campo de motivo. Despesas
+pagas oferecem desfazimento como ação separada; a exclusão só fica disponível
+depois de reabrir a ocorrência. A confirmação de recorrência informa que apenas
+a ocorrência selecionada será removida. As ações respeitam o contexto oficial
+de autorização da sessão atual.
+
+No cadastro, “Já foi paga? = Sim” usa somente
+`POST /clinic-expenses/with-payment`, com dados da obrigação e objeto `payment`.
+Falhas mantêm o formulário, sem criar ou compensar por chamadas separadas.
+Cadastro e baixa compartilham campos de confirmação e motivo para quitação
+ajustada. Cadastro recorrente pago mostra em vermelho “Somente a primeira
+despesa será marcada como paga.”; futuras permanecem abertas. A opção Sim e as
+ações de pagamento exigem gestão financeira e `finance.settle`.
+As regras autoritativas estão na
+[FIN-008 do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#fin-008).
+
 ## Landing pública multi-tenant
 
 - O backend resolve o tenant pelo `Host` e entrega

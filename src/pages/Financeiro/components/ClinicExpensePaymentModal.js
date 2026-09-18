@@ -1,6 +1,7 @@
 /* eslint-disable react/prop-types */
 import React from "react";
 import { FaTimes } from "react-icons/fa";
+import ClinicExpenseSettlementFields from "./ClinicExpenseSettlementFields";
 
 export default function ClinicExpensePaymentModal({
   ui,
@@ -11,6 +12,7 @@ export default function ClinicExpensePaymentModal({
   onAmountBlur,
   onClose,
   onSave,
+  requiresAdjustment,
 }) {
   const {
     ModalOverlay,
@@ -77,6 +79,14 @@ export default function ClinicExpensePaymentModal({
                 placeholder="informações adicionais"
               />
             </Field>
+            {!isEditing ? (
+              <ClinicExpenseSettlementFields
+                ui={ui}
+                form={form}
+                onChange={onChange}
+                requiresAdjustment={requiresAdjustment}
+              />
+            ) : null}
           </ModalBody>
           <ModalActions>
             <SecondaryButton type="button" onClick={onClose} disabled={isSaving}>

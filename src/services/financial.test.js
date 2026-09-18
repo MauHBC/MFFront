@@ -1,5 +1,7 @@
 import {
   createFinancialPayment,
+  deleteClinicExpense,
+  createClinicExpenseWithPayment,
   getFinancialOverview,
   getFinancialRevenuePatientDetail,
   getFinancialRevenuesSummary,
@@ -11,6 +13,7 @@ jest.mock("./axios", () => ({
   __esModule: true,
   default: {
     get: jest.fn(),
+    delete: jest.fn(),
     patch: jest.fn(),
     post: jest.fn(),
   },
@@ -19,6 +22,7 @@ jest.mock("./axios", () => ({
 describe("financial service", () => {
   beforeEach(() => {
     api.get.mockReset();
+    api.delete.mockReset();
     api.patch.mockReset();
     api.post.mockReset();
   });
@@ -77,6 +81,19 @@ describe("financial service", () => {
     expect(api.patch).toHaveBeenCalledWith("/clinic-expenses/102/unpay", {
       reason: "Pagamento registrado em duplicidade",
     });
+  });
+
+  it("exclui uma despesa sem enviar motivo ou outro payload", () => {
+    deleteClinicExpense(101);
+
+    expect(api.delete).toHaveBeenCalledWith("/clinic-expenses/101");
+  });
+
+  it("cadastra e paga uma despesa pelo comando atômico, sem segunda chamada de baixa", () => {
+    const payload = { name: "Energia", payment: { paid_at: "2026-08-12", paid_amount_cents: 32050 } };
+    createClinicExpenseWithPayment(payload);
+    expect(api.post).toHaveBeenCalledWith("/clinic-expenses/with-payment", payload);
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
   it("envia Idempotency-Key ao criar recebimento", () => {

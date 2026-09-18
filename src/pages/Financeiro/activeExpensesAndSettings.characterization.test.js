@@ -6,10 +6,12 @@ import { MemoryRouter } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import Financeiro from "./index";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import axios from "../../services/axios";
 import {
   activateClinicExpenseCategory,
   createClinicExpense,
+  createClinicExpenseWithPayment,
   createClinicExpenseCategory,
   createPaymentMethod,
   deactivateClinicExpenseCategory,
@@ -34,6 +36,10 @@ import {
 
 jest.mock("react-toastify", () => ({
   toast: { error: jest.fn(), success: jest.fn(), info: jest.fn() },
+}));
+
+jest.mock("../../contexts/AuthorizationContext", () => ({
+  useAuthorization: jest.fn(),
 }));
 
 jest.mock("../../services/axios", () => ({
@@ -67,6 +73,7 @@ jest.mock("../../services/financial", () => ({
   getClinicExpenseAlerts: jest.fn(),
   listClinicExpenseCategories: jest.fn(),
   createClinicExpense: jest.fn(),
+  createClinicExpenseWithPayment: jest.fn(),
   updateClinicExpense: jest.fn(),
   deleteClinicExpense: jest.fn(),
   payClinicExpense: jest.fn(),
@@ -147,6 +154,10 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
   beforeEach(() => {
     jest.useFakeTimers().setSystemTime(FINANCIAL_TEST_NOW);
     jest.clearAllMocks();
+    useAuthorization.mockReturnValue({
+      canAccessModule: jest.fn(() => true),
+      hasCapability: jest.fn(() => true),
+    });
     window.matchMedia = jest.fn().mockReturnValue({
       matches: false,
       addEventListener: jest.fn(),
@@ -184,6 +195,7 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
     listPaymentMethods.mockResolvedValue({ data: paymentMethods });
     [
       createClinicExpense,
+      createClinicExpenseWithPayment,
       updateClinicExpense,
       deleteClinicExpense,
       payClinicExpense,
@@ -257,6 +269,106 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
       .not.toBeInTheDocument());
   });
 
+  const fillNewExpense = async () => {
+    await screen.findByText("Aluguel");
+    await userEvent.click(screen.getByRole("button", { name: "Nova despesa" }));
+    fireEvent.change(screen.getByLabelText("Nome da despesa"), { target: { value: "Energia paga" } });
+    fireEvent.change(document.getElementById("clinic-expense-category"), { target: { value: "7" } });
+    fireEvent.change(screen.getByLabelText("Valor"), { target: { value: "320,50" } });
+    fireEvent.change(screen.getByLabelText("Vencimento"), { target: { value: "2026-08-20" } });
+  };
+
+  it("cria e paga em uma única chamada, preserva pagamento e recarrega a despesa paga", async () => {
+    listClinicExpenses.mockResolvedValueOnce({ data: { items: [pendingExpense], summary: {} } })
+      .mockResolvedValue({ data: { items: [{ ...paidExpense, name: "Energia paga" }], summary: {} } });
+    renderFinanceiro("/financeiro/despesas");
+    await fillNewExpense();
+    fireEvent.change(screen.getByLabelText("Já foi paga?"), { target: { value: "paid" } });
+    fireEvent.change(screen.getByLabelText("Data do pagamento"), { target: { value: "2026-08-12" } });
+    fireEvent.change(screen.getByLabelText("Observação"), { target: { value: "Pix antecipado" } });
+    await userEvent.click(screen.getByRole("button", { name: "Salvar despesa" }));
+    await waitFor(() => expect(createClinicExpenseWithPayment).toHaveBeenCalledWith({
+      name: "Energia paga", amount_cents: 32050, due_date: "2026-08-20", notes: null,
+      category_id: 7, recurrence_type: "none",
+      payment: { paid_at: "2026-08-12", paid_amount_cents: 32050, payment_notes: "Pix antecipado" },
+    }));
+    expect(createClinicExpense).not.toHaveBeenCalled();
+    expect(payClinicExpense).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Nova despesa" })).not.toBeInTheDocument());
+    expect(within(screen.getByText("Energia paga").closest("tr")).getByText("Pago")).toBeInTheDocument();
+  });
+
+  it("falha na operação paga mantém o formulário e não tenta cadastrar ou compensar separadamente", async () => {
+    createClinicExpenseWithPayment.mockRejectedValueOnce(new Error("Pagamento não concluído"));
+    renderFinanceiro("/financeiro/despesas");
+    await fillNewExpense();
+    fireEvent.change(screen.getByLabelText("Já foi paga?"), { target: { value: "paid" } });
+    await userEvent.click(screen.getByRole("button", { name: "Salvar despesa" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(screen.getByRole("heading", { name: "Nova despesa" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Nome da despesa")).toHaveValue("Energia paga");
+    expect(createClinicExpense).not.toHaveBeenCalled();
+    expect(payClinicExpense).not.toHaveBeenCalled();
+    expect(deleteClinicExpense).not.toHaveBeenCalled();
+    expect(listClinicExpenses).toHaveBeenCalledTimes(1);
+  });
+
+  it("exige intenção final e motivo para cadastrar com valor pago diferente", async () => {
+    renderFinanceiro("/financeiro/despesas");
+    await fillNewExpense();
+    fireEvent.change(screen.getByLabelText("Já foi paga?"), { target: { value: "paid" } });
+    fireEvent.change(screen.getByLabelText("Valor pago"), { target: { value: "300,00" } });
+    await userEvent.click(screen.getByRole("button", { name: "Salvar despesa" }));
+    expect(createClinicExpenseWithPayment).not.toHaveBeenCalled();
+    expect(screen.getByText(/Pagamento parcial não é suportado/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Este valor quita integralmente a despesa." }));
+    await userEvent.click(screen.getByRole("button", { name: "Salvar despesa" }));
+    expect(createClinicExpenseWithPayment).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Motivo da quitação com valor diferente"), {
+      target: { value: "Desconto negociado" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Salvar despesa" }));
+    await waitFor(() => expect(createClinicExpenseWithPayment).toHaveBeenCalledWith(expect.objectContaining({
+      payment: expect.objectContaining({ paid_amount_cents: 30000, settlement_type: "adjusted_final", reason: "Desconto negociado" }),
+    })));
+  });
+
+  it("avisa em vermelho somente para cadastro recorrente pago e envia a combinação correta", async () => {
+    renderFinanceiro("/financeiro/despesas");
+    await fillNewExpense();
+    const warning = "Somente a primeira despesa será marcada como paga.";
+    const recurrence = screen.getByLabelText("Essa despesa se repete?");
+    const status = screen.getByLabelText("Já foi paga?");
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+    fireEvent.change(recurrence, { target: { value: "monthly" } });
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+    fireEvent.change(status, { target: { value: "paid" } });
+    expect(screen.getByText(warning)).toHaveStyle({ color: "#a33b32" });
+    fireEvent.change(status, { target: { value: "open" } });
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+    fireEvent.change(status, { target: { value: "paid" } });
+    fireEvent.change(recurrence, { target: { value: "none" } });
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+    fireEvent.change(recurrence, { target: { value: "monthly" } });
+    await userEvent.click(screen.getByRole("button", { name: "Salvar despesa" }));
+    await waitFor(() => expect(createClinicExpenseWithPayment).toHaveBeenCalledWith(expect.objectContaining({
+      recurrence_type: "monthly", payment: expect.objectContaining({ paid_amount_cents: 32050 }),
+    })));
+  });
+
+  it("sem finance settle bloqueia Sim mesmo por evento forçado e permite cadastro aberto", async () => {
+    useAuthorization.mockReturnValue({ canAccessModule: jest.fn(() => true), hasCapability: jest.fn(() => false) });
+    renderFinanceiro("/financeiro/despesas");
+    await fillNewExpense();
+    expect(screen.getByRole("option", { name: "Sim", exact: true })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Já foi paga?"), { target: { value: "paid" } });
+    expect(screen.getByLabelText("Já foi paga?")).toHaveValue("open");
+    expect(screen.queryByLabelText("Data do pagamento")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Salvar despesa" }));
+    await waitFor(() => expect(createClinicExpense).toHaveBeenCalled());
+    expect(createClinicExpenseWithPayment).not.toHaveBeenCalled();
+  });
+
   it("paga uma despesa pelo comando publicado", async () => {
     renderFinanceiro("/financeiro/despesas");
     await screen.findByText("Aluguel");
@@ -265,12 +377,18 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
     fireEvent.change(screen.getByLabelText("Data do pagamento"), { target: { value: "2026-08-12" } });
     fireEvent.change(screen.getByLabelText("Valor pago"), { target: { value: "2400,00" } });
     fireEvent.change(screen.getByLabelText("Observação"), { target: { value: "Desconto negociado" } });
+    await userEvent.click(screen.getByRole("checkbox", { name: "Este valor quita integralmente a despesa." }));
+    fireEvent.change(screen.getByLabelText("Motivo da quitação com valor diferente"), {
+      target: { value: "Desconto negociado" },
+    });
     await userEvent.click(screen.getByRole("button", { name: "Confirmar pagamento" }));
 
     await waitFor(() => expect(payClinicExpense).toHaveBeenCalledWith(101, {
       paid_at: "2026-08-12",
       paid_amount_cents: 240000,
       payment_notes: "Desconto negociado",
+      settlement_type: "adjusted_final",
+      reason: "Desconto negociado",
     }));
   });
 
@@ -322,8 +440,14 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
     await waitFor(() => expect(unpayClinicExpense).toHaveBeenCalledWith(102, {
       reason: "Pagamento registrado em duplicidade",
     }));
+    expect(deleteClinicExpense).not.toHaveBeenCalled();
     await waitFor(() => expect(within(screen.getByText("Internet").closest("tr"))
       .getByText("Pendente")).toBeInTheDocument());
+
+    await openExpenseAction("Internet", "Excluir");
+    expect(deleteClinicExpense).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Excluir despesa" }));
+    await waitFor(() => expect(deleteClinicExpense).toHaveBeenCalledWith(102));
   });
 
   it("cancela o estorno sem chamar o backend", async () => {
@@ -337,12 +461,105 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
     expect(screen.queryByRole("heading", { name: "Desfazer pagamento" })).not.toBeInTheDocument();
   });
 
-  it("exclui uma despesa pelo comando publicado", async () => {
+  it("não oferece exclusão direta para despesa paga", async () => {
+    renderFinanceiro("/financeiro/despesas");
+    const row = (await screen.findByText("Internet")).closest("tr");
+    await userEvent.click(within(row).getByText("Ações"));
+
+    expect(within(row).queryByRole("button", { name: "Excluir" })).not.toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Desfazer pagamento" })).toBeInTheDocument();
+  });
+
+  it("exige confirmação, permite cancelar e recarrega lista e resumo após excluir", async () => {
+    listClinicExpenses.mockResolvedValueOnce({
+      data: {
+        items: [pendingExpense],
+        summary: {
+          total_cents: 250000,
+          pending_cents: 250000,
+          paid_cents: 0,
+          overdue_cents: 0,
+        },
+      },
+    }).mockResolvedValueOnce({
+      data: {
+        items: [],
+        summary: {
+          total_cents: 0,
+          pending_cents: 0,
+          paid_cents: 0,
+          overdue_cents: 0,
+        },
+      },
+    });
+
     renderFinanceiro("/financeiro/despesas");
     await screen.findByText("Aluguel");
+    await userEvent.click(screen.getByRole("button", { name: "Mostrar valores financeiros" }));
+    expect(within(screen.getByText("Total do mês").parentElement)
+      .getByText("R$ 2.500,00")).toBeInTheDocument();
+    await openExpenseAction("Aluguel", "Excluir");
+
+    expect(screen.getByText("Esta ação é definitiva.")).toBeInTheDocument();
+    expect(screen.getByText("Tem certeza que deseja excluir definitivamente esta despesa?"))
+      .toBeInTheDocument();
+    expect(deleteClinicExpense).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(deleteClinicExpense).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Excluir despesa" })).not.toBeInTheDocument();
+
     await openExpenseAction("Aluguel", "Excluir");
     await userEvent.click(screen.getByRole("button", { name: "Excluir despesa" }));
     await waitFor(() => expect(deleteClinicExpense).toHaveBeenCalledWith(101));
+    await waitFor(() => expect(listClinicExpenses).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText("Aluguel")).not.toBeInTheDocument());
+    expect(screen.getByText("Nenhuma despesa cadastrada neste mês.")).toBeInTheDocument();
+    expect(within(screen.getByText("Total do mês").parentElement)
+      .getByText("R$ 0,00")).toBeInTheDocument();
+  });
+
+  it("explica e envia somente a ocorrência recorrente selecionada", async () => {
+    listClinicExpenses.mockResolvedValueOnce({
+      data: {
+        items: [{
+          ...pendingExpense,
+          id: 201,
+          name: "Aluguel recorrente",
+          recurrence_type: "monthly",
+          recurrence_group_id: "expense-group-1",
+        }],
+        summary: {
+          total_cents: 250000,
+          pending_cents: 250000,
+          paid_cents: 0,
+          overdue_cents: 0,
+        },
+      },
+    });
+
+    renderFinanceiro("/financeiro/despesas");
+    await openExpenseAction("Aluguel recorrente", "Excluir");
+
+    expect(screen.getByText(
+      "Somente esta ocorrência da despesa recorrente será removida. As demais não serão alteradas.",
+    )).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Excluir despesa" }));
+    await waitFor(() => expect(deleteClinicExpense).toHaveBeenCalledWith(201));
+  });
+
+  it("oculta gestão e exclusão para usuário sem finance manage", async () => {
+    useAuthorization.mockReturnValue({
+      canAccessModule: jest.fn((_module, minimum) => minimum === "view"),
+      hasCapability: jest.fn(() => false),
+    });
+
+    renderFinanceiro("/financeiro/despesas");
+    const row = (await screen.findByText("Aluguel")).closest("tr");
+
+    expect(within(row).queryByText("Ações")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Nova despesa" })).not.toBeInTheDocument();
+    expect(deleteClinicExpense).not.toHaveBeenCalled();
   });
 
   it("cria, edita e desativa categorias de despesas", async () => {

@@ -24,6 +24,7 @@ import {
 } from "../../components/AppMetricCard";
 import { DataTable as SharedDataTable } from "../../components/AppTable";
 import PatientSearchField from "../../components/PatientSearchField";
+import { useAuthorization } from "../../contexts/AuthorizationContext";
 import { colors as appColors } from "../../styles/tokens";
 import axios, { getUserFacingApiError } from "../../services/axios";
 import {
@@ -38,6 +39,7 @@ import {
   getClinicExpenseAlerts,
   listClinicExpenseCategories,
   createClinicExpense,
+  createClinicExpenseWithPayment,
   updateClinicExpense,
   deleteClinicExpense,
   payClinicExpense,
@@ -65,6 +67,10 @@ import ClinicExpenseCategoryModal from "./components/ClinicExpenseCategoryModal"
 import ClinicExpenseCategoriesSection from "./components/ClinicExpenseCategoriesSection";
 import ClinicExpensesSection from "./components/ClinicExpensesSection";
 import ClinicExpensePaymentModal from "./components/ClinicExpensePaymentModal";
+import {
+  buildClinicExpensePaymentInput,
+  requiresExpenseSettlementAdjustment,
+} from "./helpers/clinicExpensePayment";
 import FinancialPaymentModal from "./components/FinancialPaymentModal";
 import FinancialOverviewSection from "./components/FinancialOverviewSection";
 import useFinancialPaymentFlow from "./hooks/useFinancialPaymentFlow";
@@ -623,6 +629,8 @@ const createEmptyClinicExpense = () => ({
   paid_amount: "",
   payment_notes: "",
   notes: "",
+  adjusted_final_confirmed: false,
+  settlement_reason: "",
 });
 
 const createEmptyClinicExpensePayment = () => ({
@@ -630,6 +638,8 @@ const createEmptyClinicExpensePayment = () => ({
   paid_at: toDateInputValue(new Date()),
   paid_amount: "",
   payment_notes: "",
+  adjusted_final_confirmed: false,
+  settlement_reason: "",
 });
 
 const emptyFinancialOverview = (period = "", periodMode = "month") => ({
@@ -732,6 +742,10 @@ const normalizeFinancialOverview = (
 
 export default function Financeiro() {
   const routeLocation = useLocation();
+  const authorization = useAuthorization();
+  const canManageClinicExpenses = authorization.canAccessModule("finance", "manage");
+  const canSettleClinicExpenses = canManageClinicExpenses
+    && authorization.hasCapability("finance.settle");
   const [activeSection, setActiveSection] = useState(() =>
     getFinancialSectionFromPath(routeLocation.pathname)
   );
@@ -1887,11 +1901,16 @@ export default function Financeiro() {
   }, [isClinicExpenseSaving]);
 
   const handleClinicExpenseChange = useCallback((event) => {
-    const { name, value } = event.target;
+    const { name, value, checked } = event.target;
+    if (name === "adjusted_final_confirmed") {
+      setClinicExpenseForm((prev) => ({ ...prev, [name]: checked }));
+      return;
+    }
     if (name === "amount") {
       setClinicExpenseForm((prev) => ({
         ...prev,
         amount: sanitizePositiveCurrencyInput(value),
+        adjusted_final_confirmed: false,
         paid_amount: prev.status === "paid" && !prev.paid_amount
           ? sanitizePositiveCurrencyInput(value)
           : prev.paid_amount,
@@ -1902,10 +1921,12 @@ export default function Financeiro() {
       setClinicExpenseForm((prev) => ({
         ...prev,
         paid_amount: sanitizePositiveCurrencyInput(value),
+        adjusted_final_confirmed: false,
       }));
       return;
     }
     if (name === "status") {
+      if (editingClinicExpenseId || (value === "paid" && !canSettleClinicExpenses)) return;
       setClinicExpenseForm((prev) => ({
         ...prev,
         status: value,
@@ -1927,7 +1948,7 @@ export default function Financeiro() {
       return;
     }
     setClinicExpenseForm((prev) => ({ ...prev, [name]: value }));
-  }, [clinicExpenseCategories]);
+  }, [clinicExpenseCategories, editingClinicExpenseId, canSettleClinicExpenses]);
 
   const handleClinicExpenseAmountBlur = useCallback(() => {
     setClinicExpenseForm((prev) => ({
@@ -2041,6 +2062,8 @@ export default function Financeiro() {
   }, [shiftClinicExpensesPeriod]);
 
   const handleSaveClinicExpense = useCallback(async () => {
+    if (isClinicExpenseSaving) return;
+    if (!canManageClinicExpenses) return;
     const amountValue = parseCurrencyInputToNumber(clinicExpenseForm.amount);
     const paidAmountValue = parseCurrencyInputToNumber(clinicExpenseForm.paid_amount);
     if (!clinicExpenseForm.description.trim()) {
@@ -2059,16 +2082,22 @@ export default function Financeiro() {
       toast.error("Informe o vencimento.");
       return;
     }
-    if (clinicExpenseForm.status === "paid" && !clinicExpenseForm.paid_at) {
-      toast.error("Informe a data do pagamento.");
-      return;
-    }
-    if (
-      clinicExpenseForm.status === "paid"
-      && (Number.isNaN(paidAmountValue) || paidAmountValue <= 0)
-    ) {
-      toast.error("Informe o valor pago.");
-      return;
+    let payment = null;
+    if (!editingClinicExpenseId && clinicExpenseForm.status === "paid") {
+      if (!canSettleClinicExpenses) {
+        toast.error("Você não tem permissão para registrar pagamentos.");
+        return;
+      }
+      const input = buildClinicExpensePaymentInput({
+        form: clinicExpenseForm,
+        paidAmount: paidAmountValue,
+        obligationAmountCents: Math.round(amountValue * 100),
+      });
+      if (input.error) {
+        toast.error(input.error);
+        return;
+      }
+      payment = input.payload;
     }
 
     const payload = {
@@ -2077,15 +2106,6 @@ export default function Financeiro() {
       due_date: clinicExpenseForm.due_date,
       notes: clinicExpenseForm.notes.trim() || null,
     };
-    if (clinicExpenseForm.status === "paid") {
-      payload.paid_at = clinicExpenseForm.paid_at;
-      payload.paid_amount_cents = Math.round(paidAmountValue * 100);
-      payload.payment_notes = clinicExpenseForm.payment_notes.trim() || null;
-    } else {
-      payload.paid_at = null;
-      payload.paid_amount_cents = null;
-      payload.payment_notes = null;
-    }
     if (clinicExpenseForm.category_id) {
       payload.category_id = Number(clinicExpenseForm.category_id);
     } else {
@@ -2102,7 +2122,11 @@ export default function Financeiro() {
         await updateClinicExpense(editingClinicExpenseId, payload);
         toast.success("Despesa atualizada com sucesso.");
       } else {
-        await createClinicExpense(payload);
+        if (payment) {
+          await createClinicExpenseWithPayment({ ...payload, payment });
+        } else {
+          await createClinicExpense(payload);
+        }
         toast.success(
           payload.recurrence_type === "monthly"
             ? "Despesa recorrente cadastrada com sucesso."
@@ -2117,11 +2141,13 @@ export default function Financeiro() {
     } finally {
       setIsClinicExpenseSaving(false);
     }
-  }, [clinicExpenseForm, editingClinicExpenseId, closeClinicExpenseModal, loadClinicExpensesData]);
+  }, [clinicExpenseForm, editingClinicExpenseId, closeClinicExpenseModal, loadClinicExpensesData,
+    isClinicExpenseSaving, canManageClinicExpenses, canSettleClinicExpenses]);
 
   const openClinicExpensePaymentModal = useCallback((entry) => {
     if (!entry?.id) return;
     setClinicExpensePaymentForm({
+      ...createEmptyClinicExpensePayment(),
       expense: entry,
       paid_at: entry.paid_at ? String(entry.paid_at).slice(0, 10) : toDateInputValue(new Date()),
       paid_amount: formatCurrencyInput(
@@ -2139,11 +2165,16 @@ export default function Financeiro() {
   }, [clinicExpensePayingId]);
 
   const handleClinicExpensePaymentChange = useCallback((event) => {
-    const { name, value } = event.target;
+    const { name, value, checked } = event.target;
+    if (name === "adjusted_final_confirmed") {
+      setClinicExpensePaymentForm((prev) => ({ ...prev, [name]: checked }));
+      return;
+    }
     if (name === "paid_amount") {
       setClinicExpensePaymentForm((prev) => ({
         ...prev,
         paid_amount: sanitizePositiveCurrencyInput(value),
+        adjusted_final_confirmed: false,
       }));
       return;
     }
@@ -2159,25 +2190,22 @@ export default function Financeiro() {
 
   const handleSaveClinicExpensePayment = useCallback(async () => {
     const entry = clinicExpensePaymentForm.expense;
-    if (!entry?.id || clinicExpensePayingId) return;
+    if (!entry?.id || clinicExpensePayingId || !canSettleClinicExpenses) return;
 
     const paidAmountValue = parseCurrencyInputToNumber(clinicExpensePaymentForm.paid_amount);
-    if (!clinicExpensePaymentForm.paid_at) {
-      toast.error("Informe a data do pagamento.");
-      return;
-    }
-    if (Number.isNaN(paidAmountValue) || paidAmountValue <= 0) {
-      toast.error("Informe o valor pago.");
+    const input = buildClinicExpensePaymentInput({
+      form: clinicExpensePaymentForm,
+      paidAmount: paidAmountValue,
+      obligationAmountCents: Number(entry.amount_cents),
+    });
+    if (input.error) {
+      toast.error(input.error);
       return;
     }
 
     try {
       setClinicExpensePayingId(entry.id);
-      await payClinicExpense(entry.id, {
-        paid_at: clinicExpensePaymentForm.paid_at,
-        paid_amount_cents: Math.round(paidAmountValue * 100),
-        payment_notes: clinicExpensePaymentForm.payment_notes.trim() || null,
-      });
+      await payClinicExpense(entry.id, input.payload);
       toast.success(entry.paid_at ? "Pagamento atualizado com sucesso." : "Despesa marcada como paga.");
       setIsClinicExpensePaymentOpen(false);
       setClinicExpensePaymentForm(createEmptyClinicExpensePayment());
@@ -2187,7 +2215,7 @@ export default function Financeiro() {
     } finally {
       setClinicExpensePayingId(null);
     }
-  }, [clinicExpensePaymentForm, clinicExpensePayingId, loadClinicExpensesData]);
+  }, [clinicExpensePaymentForm, clinicExpensePayingId, loadClinicExpensesData, canSettleClinicExpenses]);
 
   const openClinicExpenseUnpayModal = useCallback((entry) => {
     if (!entry?.id) return;
@@ -5217,6 +5245,8 @@ export default function Financeiro() {
       clinicExpensesPeriodMode={clinicExpensesPeriodMode}
       clinicExpensesFilters={clinicExpensesFilters}
       clinicExpensePayingId={clinicExpensePayingId}
+      canManageExpenses={canManageClinicExpenses}
+      canSettleExpenses={canSettleClinicExpenses}
       formatCurrency={formatCurrency}
       formatDateOnlyBR={formatExpenseDateOnlyBR}
       getClinicExpenseStatus={getClinicExpenseStatus}
@@ -6755,6 +6785,11 @@ export default function Financeiro() {
             MutedText,
           }}
           clinicExpenseForm={clinicExpenseForm}
+          canSettleExpenses={canSettleClinicExpenses}
+          requiresAdjustment={requiresExpenseSettlementAdjustment(
+            parseCurrencyInputToNumber(clinicExpenseForm.paid_amount),
+            Math.round(parseCurrencyInputToNumber(clinicExpenseForm.amount) * 100),
+          )}
           clinicExpenseCategories={clinicExpenseCategories}
           editingClinicExpenseId={editingClinicExpenseId}
           isClinicExpenseSaving={isClinicExpenseSaving}
@@ -6786,6 +6821,10 @@ export default function Financeiro() {
             backdropHasInput: clinicExpensePaymentModalHasInput,
           }}
           form={clinicExpensePaymentForm}
+          requiresAdjustment={requiresExpenseSettlementAdjustment(
+            parseCurrencyInputToNumber(clinicExpensePaymentForm.paid_amount),
+            Number(clinicExpensePaymentForm.expense?.amount_cents),
+          )}
           isSaving={Boolean(clinicExpensePayingId)}
           isEditing={Boolean(clinicExpensePaymentForm.expense?.paid_at)}
           onChange={handleClinicExpensePaymentChange}
@@ -6928,7 +6967,7 @@ export default function Financeiro() {
               <ModalHeader>
                 <div>
                   <ModalTitle>Excluir despesa</ModalTitle>
-                  <ModalSubtitle>Essa ação removerá apenas esta despesa.</ModalSubtitle>
+                  <ModalSubtitle>Esta ação é definitiva.</ModalSubtitle>
                 </div>
                 <IconButton
                   type="button"
@@ -6940,10 +6979,10 @@ export default function Financeiro() {
               </ModalHeader>
               <ModalBody>
                 <EmptyState>
-                  Tem certeza que deseja excluir esta despesa?
+                  Tem certeza que deseja excluir definitivamente esta despesa?
                   {clinicExpenseDeleteTarget.recurrence_type === "monthly" ? (
                     <MutedText>
-                      Essa despesa faz parte de uma recorrência mensal. Nesta versão, apenas este mês será removido.
+                      Somente esta ocorrência da despesa recorrente será removida. As demais não serão alteradas.
                     </MutedText>
                   ) : null}
                 </EmptyState>

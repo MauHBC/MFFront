@@ -1,6 +1,8 @@
 /* eslint-disable react/prop-types */
 import React from "react";
 import { FaTimes } from "react-icons/fa";
+import { colors } from "../../../styles/tokens";
+import ClinicExpenseSettlementFields from "./ClinicExpenseSettlementFields";
 
 export default function ClinicExpenseModal({
   ui,
@@ -13,6 +15,8 @@ export default function ClinicExpenseModal({
   handleClinicExpenseAmountBlur,
   handleClinicExpensePaidAmountBlur,
   handleSaveClinicExpense,
+  canSettleExpenses,
+  requiresAdjustment,
 }) {
   const {
     ModalOverlay,
@@ -117,9 +121,10 @@ export default function ClinicExpenseModal({
                   name="status"
                   value={clinicExpenseForm.status}
                   onChange={handleClinicExpenseChange}
+                  disabled={isEditing}
                 >
                   <option value="open">Não</option>
-                  <option value="paid">Sim</option>
+                  <option value="paid" disabled={!canSettleExpenses}>Sim</option>
                 </Select>
               </Field>
             </FormGrid>
@@ -131,6 +136,7 @@ export default function ClinicExpenseModal({
                     id="clinic-expense-paid-at"
                     type="date"
                     name="paid_at"
+                    disabled={isEditing}
                     value={String(clinicExpenseForm.paid_at || "").slice(0, 10)}
                     onChange={handleClinicExpenseChange}
                   />
@@ -140,6 +146,7 @@ export default function ClinicExpenseModal({
                   <Input
                     id="clinic-expense-paid-amount"
                     name="paid_amount"
+                    disabled={isEditing}
                     value={clinicExpenseForm.paid_amount}
                     onChange={handleClinicExpenseChange}
                     onBlur={handleClinicExpensePaidAmountBlur}
@@ -151,12 +158,21 @@ export default function ClinicExpenseModal({
                   <TextArea
                     id="clinic-expense-payment-notes"
                     name="payment_notes"
+                    disabled={isEditing}
                     rows="3"
                     value={clinicExpenseForm.payment_notes}
                     onChange={handleClinicExpenseChange}
                   />
                 </Field>
               </FormGrid>
+            ) : null}
+            {!isEditing && clinicExpenseForm.status === "paid" ? (
+              <ClinicExpenseSettlementFields
+                ui={ui}
+                form={clinicExpenseForm}
+                onChange={handleClinicExpenseChange}
+                requiresAdjustment={requiresAdjustment}
+              />
             ) : null}
             {!isEditing ? (
               <Field>
@@ -174,6 +190,11 @@ export default function ClinicExpenseModal({
                   <MutedText>Serão criadas 12 despesas mensais, incluindo este mês.</MutedText>
                 ) : null}
               </Field>
+            ) : null}
+            {!isEditing && isRecurring && clinicExpenseForm.status === "paid" ? (
+              <MutedText style={{ color: colors.danger }}>
+                Somente a primeira despesa será marcada como paga.
+              </MutedText>
             ) : null}
             <Field>
               <Label htmlFor="clinic-expense-notes">Observações</Label>

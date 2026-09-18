@@ -87,6 +87,9 @@ export const deactivateClinicExpenseCategory = (id) =>
 export const createClinicExpense = (payload) =>
   api.post('/clinic-expenses', payload);
 
+export const createClinicExpenseWithPayment = (payload) =>
+  api.post('/clinic-expenses/with-payment', payload);
+
 export const updateClinicExpense = (id, payload) =>
   api.put(`/clinic-expenses/${id}`, payload);
 
@@ -220,6 +223,7 @@ export default {
   activateClinicExpenseCategory,
   deactivateClinicExpenseCategory,
   createClinicExpense,
+  createClinicExpenseWithPayment,
   updateClinicExpense,
   deleteClinicExpense,
   payClinicExpense,
