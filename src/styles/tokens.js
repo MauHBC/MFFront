@@ -55,6 +55,8 @@ export const colors = {
   dangerBackgroundHover: "rgba(200, 70, 70, 0.07)",
   infoText: "#3a5a8a",
   pausedText: "#7a5a1a",
+  recurrenceText: "#8a6caf",
+  recurrenceBackground: "#f7f3fc",
 };
 
 export const alpha = {

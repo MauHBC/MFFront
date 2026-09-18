@@ -1,4 +1,5 @@
 import React from "react";
+import "@testing-library/jest-dom";
 import { render, screen, within } from "@testing-library/react";
 
 import ClinicExpensesSection from "./ClinicExpensesSection";
@@ -115,6 +116,21 @@ const defaultProps = {
 };
 
 describe("ClinicExpensesSection", () => {
+  it("identifica somente recorrentes, inclusive pagas, sem oferecer exclusão de pagas", () => {
+    render(<ClinicExpensesSection {...defaultProps} clinicExpenses={[
+      { id: 1, name: "Mensal aberta", recurrence_type: "monthly", due_date: addDays(2), paid_at: null },
+      { id: 2, name: "Mensal paga", recurrence_type: "monthly", due_date: addDays(2), paid_at: addDays(0) },
+      { id: 3, name: "Avulsa", recurrence_type: "none", due_date: addDays(2), paid_at: null },
+      { id: 4, name: "Legada", due_date: addDays(2), paid_at: null },
+    ]} />);
+    const open = screen.getByText("Mensal aberta").closest("tr");
+    const paid = screen.getByText("Mensal paga").closest("tr");
+    expect(within(open).getByText("Recorrente")).toBeInTheDocument();
+    expect(within(paid).getByText("Recorrente")).toBeInTheDocument();
+    expect(within(paid).queryByRole("button", { name: "Excluir" })).not.toBeInTheDocument();
+    expect(within(screen.getByText("Avulsa").closest("tr")).queryByText("Recorrente")).toBeNull();
+    expect(within(screen.getByText("Legada").closest("tr")).queryByText("Recorrente")).toBeNull();
+  });
   it("mantem detalhes de pagamento e observacao apenas como excecoes dentro das colunas principais", () => {
     render(
       <ClinicExpensesSection

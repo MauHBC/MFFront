@@ -1,6 +1,7 @@
 /* eslint-disable react/prop-types */
 import React from "react";
 import { FaPlus } from "react-icons/fa";
+import { colors, fontSizes, radii } from "../../../styles/tokens";
 
 import { getExpenseDueAlertLabel } from "../helpers/expenseDueAlerts";
 import { formatClinicExpenseStatus } from "../helpers/expenseStatus";
@@ -181,6 +182,19 @@ export default function ClinicExpensesSection({
                   <td>
                     <AttendanceCellStack>
                       <AttendancePrimaryText>{entry.name || "-"}</AttendancePrimaryText>
+                      {entry.recurrence_type === "monthly" ? (
+                        <span style={{
+                          width: "fit-content",
+                          color: colors.recurrenceText,
+                          background: colors.recurrenceBackground,
+                          borderRadius: radii.xs,
+                          padding: "1px 6px",
+                          fontSize: fontSizes.tiny,
+                          lineHeight: "16px",
+                        }}>
+                          Recorrente
+                        </span>
+                      ) : null}
                       {hasObservation ? (
                         <ClinicExpenseTableHint title={observation}>Obs.</ClinicExpenseTableHint>
                       ) : null}

@@ -93,8 +93,10 @@ export const createClinicExpenseWithPayment = (payload) =>
 export const updateClinicExpense = (id, payload) =>
   api.put(`/clinic-expenses/${id}`, payload);
 
-export const deleteClinicExpense = (id) =>
-  api.delete(`/clinic-expenses/${id}`);
+export const deleteClinicExpense = (id, scope = "single") =>
+  scope === "single"
+    ? api.delete(`/clinic-expenses/${id}`)
+    : api.delete(`/clinic-expenses/${id}`, { params: { scope } });
 
 export const payClinicExpense = (id, payload) =>
   api.patch(`/clinic-expenses/${id}/pay`, payload);

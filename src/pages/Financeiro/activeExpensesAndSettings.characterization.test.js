@@ -1,6 +1,6 @@
 /* eslint-env jest */
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -503,6 +503,12 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
     expect(screen.getByText("Esta ação é definitiva.")).toBeInTheDocument();
     expect(screen.getByText("Tem certeza que deseja excluir definitivamente esta despesa?"))
       .toBeInTheDocument();
+    const standaloneModalBody = screen.getByText("Tem certeza que deseja excluir definitivamente esta despesa?")
+      .parentElement;
+    expect(standaloneModalBody).not.toHaveAttribute("style");
+    expect(standaloneModalBody).toHaveStyle({ paddingRight: "4px", marginRight: "-4px", overflowY: "auto" });
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirmar exclusão" })).not.toBeInTheDocument();
     expect(deleteClinicExpense).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
@@ -519,7 +525,7 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
       .getByText("R$ 0,00")).toBeInTheDocument();
   });
 
-  it("explica e envia somente a ocorrência recorrente selecionada", async () => {
+  it("abre recorrente com seleção única padrão e confirma somente a ocorrência selecionada", async () => {
     listClinicExpenses.mockResolvedValueOnce({
       data: {
         items: [{
@@ -541,11 +547,101 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
     renderFinanceiro("/financeiro/despesas");
     await openExpenseAction("Aluguel recorrente", "Excluir");
 
-    expect(screen.getByText(
-      "Somente esta ocorrência da despesa recorrente será removida. As demais não serão alteradas.",
-    )).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Excluir despesa" }));
+    expect(screen.getByRole("heading", { name: "Excluir despesa recorrente" })).toBeInTheDocument();
+    const recurringOptions = screen.getByRole("group", {
+      name: "Esta é uma despesa recorrente. Escolha o que deseja excluir:",
+    });
+    expect(recurringOptions).toBeInTheDocument();
+    expect(recurringOptions.parentElement).toHaveStyle({ padding: "4px", margin: "-4px", overflowY: "auto" });
+    const single = screen.getByRole("radio", { name: "Excluir somente esta" });
+    const future = screen.getByRole("radio", { name: "Excluir esta e lançamentos futuros" });
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+    expect(single).toBeChecked();
+    expect(future).not.toBeChecked();
+    expect(screen.getByText("Remove apenas esta ocorrência.")).toBeInTheDocument();
+    expect(screen.getByText(/Lançamentos já pagos serão preservados/)).toBeInTheDocument();
+    await userEvent.click(future);
+    expect(future).toBeChecked();
+    expect(single).not.toBeChecked();
+    await userEvent.click(single);
+    expect(single).toBeChecked();
+    expect(future).not.toBeChecked();
+    expect(deleteClinicExpense).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Confirmar exclusão" }));
     await waitFor(() => expect(deleteClinicExpense).toHaveBeenCalledWith(201));
+    expect(deleteClinicExpense).toHaveBeenCalledTimes(1);
+  });
+
+  it("envia a intenção de excluir futuras, bloqueia enquanto carrega e recarrega após sucesso", async () => {
+    const recurring = { ...pendingExpense, recurrence_type: "monthly", name: "Aluguel recorrente" };
+    listClinicExpenses.mockResolvedValueOnce({ data: { items: [recurring], summary: {} } })
+      .mockResolvedValue({ data: { items: [], summary: {} } });
+    let resolveDeletion;
+    deleteClinicExpense.mockImplementationOnce(() => new Promise((resolve) => { resolveDeletion = resolve; }));
+    renderFinanceiro("/financeiro/despesas");
+    await openExpenseAction("Aluguel recorrente", "Excluir");
+    expect(within(screen.getByText("Aluguel recorrente").closest("tr")).getByText("Recorrente"))
+      .toBeInTheDocument();
+    const single = screen.getByRole("radio", { name: "Excluir somente esta" });
+    const future = screen.getByRole("radio", { name: "Excluir esta e lançamentos futuros" });
+    await userEvent.click(future);
+    expect(future).toBeChecked();
+    expect(single).not.toBeChecked();
+    expect(deleteClinicExpense).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Confirmar exclusão" }));
+    expect(deleteClinicExpense).toHaveBeenCalledWith(101, "this_and_future");
+    expect(screen.getByRole("button", { name: "Cancelar" })).toBeDisabled();
+    expect(single).toBeDisabled();
+    expect(future).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Excluindo..." })).toBeDisabled();
+    await userEvent.click(single);
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(future).toBeChecked();
+    expect(deleteClinicExpense).toHaveBeenCalledTimes(1);
+    expect(listClinicExpenses).toHaveBeenCalledTimes(1);
+    await act(async () => { resolveDeletion({}); });
+    await waitFor(() => expect(listClinicExpenses).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("heading", { name: "Excluir despesa recorrente" })).not.toBeInTheDocument();
+    expect(toast.success).toHaveBeenCalledWith("Despesa excluída com sucesso.");
+  });
+
+  it("mantém o modal e permite nova tentativa quando a exclusão futura falha", async () => {
+    listClinicExpenses.mockResolvedValue({ data: {
+      items: [{ ...pendingExpense, recurrence_type: "monthly" }], summary: {},
+    } });
+    deleteClinicExpense.mockRejectedValueOnce(new Error("Falha na exclusão"));
+    renderFinanceiro("/financeiro/despesas");
+    await openExpenseAction("Aluguel", "Excluir");
+    await userEvent.click(screen.getByRole("radio", { name: "Excluir esta e lançamentos futuros" }));
+    expect(deleteClinicExpense).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Confirmar exclusão" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(screen.getByRole("heading", { name: "Excluir despesa recorrente" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Excluir esta e lançamentos futuros" })).toBeEnabled();
+    expect(screen.getByRole("radio", { name: "Excluir esta e lançamentos futuros" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Excluir somente esta" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Confirmar exclusão" })).toBeEnabled();
+    expect(listClinicExpenses).toHaveBeenCalledTimes(1);
+    expect(toast.success).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("heading", { name: "Excluir despesa recorrente" })).not.toBeInTheDocument();
+    expect(deleteClinicExpense).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancelar a escolha recorrente não exclui e reabrir restaura somente esta", async () => {
+    listClinicExpenses.mockResolvedValue({ data: {
+      items: [{ ...pendingExpense, recurrence_type: "monthly" }], summary: {},
+    } });
+    renderFinanceiro("/financeiro/despesas");
+    await openExpenseAction("Aluguel", "Excluir");
+    await userEvent.click(screen.getByRole("radio", { name: "Excluir esta e lançamentos futuros" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(deleteClinicExpense).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Excluir despesa recorrente" })).not.toBeInTheDocument();
+    await openExpenseAction("Aluguel", "Excluir");
+    expect(screen.getByRole("radio", { name: "Excluir somente esta" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Excluir esta e lançamentos futuros" })).not.toBeChecked();
+    expect(deleteClinicExpense).not.toHaveBeenCalled();
   });
 
   it("oculta gestão e exclusão para usuário sem finance manage", async () => {
