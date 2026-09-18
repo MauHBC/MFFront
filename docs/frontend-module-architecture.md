@@ -3,6 +3,18 @@
 Este documento é a fonte oficial para a landing pública, seus contextos e os
 padrões dos módulos autenticados.
 
+## Recebido e pago no Financeiro
+
+A Visão geral possui a terceira aba “Recebido e pago”, montada e consultada
+somente para `useAuthorization().isAdministrator === true`. Seu painel anual
+e modal de distribuição reutilizam os componentes locais e a privacidade do
+Financeiro. Trocas de ano, contexto oficial ou token desmontam o estado privado;
+respostas atrasadas são descartadas. Conflito de gravação recarrega a configuração
+para nova edição, sem reaplicar o comando. A UI valida participantes, mas exibe
+os totais e rateios entregues pelo Backend. Não há gráfico ou tela de histórico.
+Semântica e contratos permanecem em
+[FIN-014/015 do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#fin-014--recebido-e-pago).
+
 ## Despesas operacionais
 
 A exclusão de despesa aberta exige confirmação, sem campo de motivo. Despesas
