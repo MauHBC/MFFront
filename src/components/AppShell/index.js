@@ -11,6 +11,7 @@ import {
   FaUserCircle,
 } from "react-icons/fa";
 import { useClinicContext } from "../../contexts/ClinicContext";
+import { TrialIndicator } from "../../pages/SelfService/TrialPanel";
 import { useAuth } from "../../hooks/useAuth";
 import { useLogout } from "../../hooks/useLogout";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
@@ -508,6 +509,7 @@ export default function AppShell({ children, pageTitle }) {
           </HeaderContext>
 
           <HeaderActions>
+            <TrialIndicator />
             <PendingCenterTrigger />
             <UserArea>
               <UserButton

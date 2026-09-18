@@ -5,19 +5,20 @@ import * as actions from "./actions";
 import * as types from "../types";
 import axios from "../../../services/axios";
 import history from "../../../services/history";
+import loginReturnPath from "../../../services/loginReturnPath";
 
 // Login in Saga, if success, send login_success data to reducer.
 function* loginRequest({ payload }) {
   // console.log("SAGA loginRequest", payload);
   try {
     // sending payload to backend, this return a token.
-    const response = yield call(axios.post, "/tokens", payload);
+    const response = yield call(axios.post, "/tokens", { email: payload.email, password: payload.password });
     axios.defaults.headers.Authorization = `Bearer ${response.data.token}`;
     yield put(actions.loginSuccess({ ...response.data }));
 
     toast.success("Você fez login");
 
-    history.push("/menu");
+    history.replace(loginReturnPath(payload.redirectTo));
   } catch (e) {
     toast.error("Usuário ou senha inválidos");
 

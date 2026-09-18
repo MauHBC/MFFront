@@ -5,6 +5,7 @@ import { FaCalendarAlt, FaUserFriends, FaMoneyBillWave, FaClipboardList, FaChart
 import styled from "styled-components";
 import { isPlansModuleEnabled } from "../../config/features";
 import AppShell from "../../components/AppShell";
+import TrialPanel from "../SelfService/TrialPanel";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   colors,
@@ -24,6 +25,7 @@ export default function Menu() {
     <AppShell pageTitle="Atalhos">
       <Wrapper>
         <Content>
+          <TrialPanel />
           {hasNoPermissions ? (
             <Title role="status">
               <span>Acesso</span>

@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { isEmail } from "validator";
 import { useDispatch, useSelector } from "react-redux";
@@ -11,12 +11,15 @@ import * as actions from "../../store/modules/auth/actions";
 import Loading from "../../components/Loading";
 import { useIsLoggedIn } from "../../hooks/useIsLoggedIn";
 import history from "../../services/history";
+import loginReturnPath from "../../services/loginReturnPath";
 import productIdentity from "../../config/productIdentity";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import TenantLoading from "../../components/TenantLoading";
 
 export default function Login() {
   const dispatch = useDispatch();
+  const location = useLocation();
+  const returnTo = loginReturnPath(location.state?.returnTo);
   const isLoggedIn = useIsLoggedIn();
   const isLoading = useSelector((state) => state.auth.isLoading);
   const { displayName, loaded, loading, logoSrc } = usePublicClinicContext();
@@ -26,9 +29,9 @@ export default function Login() {
 
   useEffect(() => {
     if (isLoggedIn) {
-      history.push("/menu");
+      history.replace(returnTo);
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, returnTo]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -46,7 +49,7 @@ export default function Login() {
     }
 
     if (!formErrors) {
-      dispatch(actions.loginRequest({ email, password, redirectTo: "/menu" }));
+      dispatch(actions.loginRequest({ email, password, redirectTo: returnTo }));
     }
   }
 
