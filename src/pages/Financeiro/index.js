@@ -25,7 +25,7 @@ import {
 import { DataTable as SharedDataTable } from "../../components/AppTable";
 import PatientSearchField from "../../components/PatientSearchField";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
-import { colors as appColors } from "../../styles/tokens";
+import { colors as appColors, fontSizes, radii, spacing } from "../../styles/tokens";
 import axios, { getUserFacingApiError } from "../../services/axios";
 import {
   listFinancialEntries,
@@ -929,6 +929,7 @@ export default function Financeiro() {
   const [clinicExpenseForm, setClinicExpenseForm] = useState(() => createEmptyClinicExpense());
   const [editingClinicExpenseId, setEditingClinicExpenseId] = useState(null);
   const [clinicExpenseDeleteTarget, setClinicExpenseDeleteTarget] = useState(null);
+  const [clinicExpenseDeleteScope, setClinicExpenseDeleteScope] = useState("single");
   const [clinicExpenseUnpayTarget, setClinicExpenseUnpayTarget] = useState(null);
   const [clinicExpenseUnpayReason, setClinicExpenseUnpayReason] = useState("");
   const [isClinicExpenseSaving, setIsClinicExpenseSaving] = useState(false);
@@ -2254,19 +2255,28 @@ export default function Financeiro() {
   );
 
   const openClinicExpenseDeleteModal = useCallback((entry) => {
+    setClinicExpenseDeleteScope("single");
     setClinicExpenseDeleteTarget(entry || null);
   }, []);
+
+  const isRecurringExpenseDelete = clinicExpenseDeleteTarget?.recurrence_type === "monthly";
+  const clinicExpenseDeleteConfirmLabel = clinicExpenseDeleteTarget?.recurrence_type === "monthly"
+    ? "Confirmar exclusão" : "Excluir despesa";
 
   const closeClinicExpenseDeleteModal = useCallback(() => {
     if (isClinicExpenseDeleting) return;
     setClinicExpenseDeleteTarget(null);
   }, [isClinicExpenseDeleting]);
 
-  const handleDeleteClinicExpense = useCallback(async () => {
+  const handleDeleteClinicExpense = useCallback(async (scope = "single") => {
     if (!clinicExpenseDeleteTarget?.id || isClinicExpenseDeleting) return;
     try {
       setIsClinicExpenseDeleting(true);
-      await deleteClinicExpense(clinicExpenseDeleteTarget.id);
+      if (scope === "single") {
+        await deleteClinicExpense(clinicExpenseDeleteTarget.id);
+      } else {
+        await deleteClinicExpense(clinicExpenseDeleteTarget.id, scope);
+      }
       toast.success("Despesa excluída com sucesso.");
       setClinicExpenseDeleteTarget(null);
       loadClinicExpensesData();
@@ -6966,8 +6976,10 @@ export default function Financeiro() {
             <ModalCard>
               <ModalHeader>
                 <div>
-                  <ModalTitle>Excluir despesa</ModalTitle>
-                  <ModalSubtitle>Esta ação é definitiva.</ModalSubtitle>
+                  <ModalTitle>
+                    {isRecurringExpenseDelete ? "Excluir despesa recorrente" : "Excluir despesa"}
+                  </ModalTitle>
+                  {!isRecurringExpenseDelete && <ModalSubtitle>Esta ação é definitiva.</ModalSubtitle>}
                 </div>
                 <IconButton
                   type="button"
@@ -6977,17 +6989,55 @@ export default function Financeiro() {
                   <FaTimes />
                 </IconButton>
               </ModalHeader>
-              <ModalBody>
-                <EmptyState>
-                  Tem certeza que deseja excluir definitivamente esta despesa?
-                  {clinicExpenseDeleteTarget.recurrence_type === "monthly" ? (
-                    <MutedText>
-                      Somente esta ocorrência da despesa recorrente será removida. As demais não serão alteradas.
-                    </MutedText>
-                  ) : null}
-                </EmptyState>
+              <ModalBody style={isRecurringExpenseDelete ? {
+                padding: spacing.xs,
+                margin: `-${spacing.xs}`,
+              } : undefined}>
+                {isRecurringExpenseDelete ? (
+                  <ExpenseDeleteOptions disabled={isClinicExpenseDeleting}>
+                    <legend>Esta é uma despesa recorrente. Escolha o que deseja excluir:</legend>
+                    <ExpenseDeleteOption>
+                      <input
+                        type="radio"
+                        name="clinic-expense-delete-scope"
+                        value="single"
+                        checked={clinicExpenseDeleteScope === "single"}
+                        disabled={isClinicExpenseDeleting}
+                        onChange={(event) => setClinicExpenseDeleteScope(event.target.value)}
+                        aria-labelledby="expense-delete-single-title"
+                        aria-describedby="expense-delete-single-hint"
+                      />
+                      <span>
+                        <strong id="expense-delete-single-title">Excluir somente esta</strong>
+                        <small id="expense-delete-single-hint">Remove apenas esta ocorrência.</small>
+                      </span>
+                    </ExpenseDeleteOption>
+                    <ExpenseDeleteOption>
+                      <input
+                        type="radio"
+                        name="clinic-expense-delete-scope"
+                        value="this_and_future"
+                        checked={clinicExpenseDeleteScope === "this_and_future"}
+                        disabled={isClinicExpenseDeleting}
+                        onChange={(event) => setClinicExpenseDeleteScope(event.target.value)}
+                        aria-labelledby="expense-delete-future-title"
+                        aria-describedby="expense-delete-future-hint"
+                      />
+                      <span>
+                        <strong id="expense-delete-future-title">Excluir esta e lançamentos futuros</strong>
+                        <small id="expense-delete-future-hint">
+                          Remove esta ocorrência e os próximos lançamentos não pagos. Lançamentos já pagos serão preservados.
+                        </small>
+                      </span>
+                    </ExpenseDeleteOption>
+                  </ExpenseDeleteOptions>
+                ) : (
+                  <EmptyState>Tem certeza que deseja excluir definitivamente esta despesa?</EmptyState>
+                )}
               </ModalBody>
-              <ModalActions>
+              <ModalActions style={clinicExpenseDeleteTarget.recurrence_type === "monthly" ? {
+                flexWrap: "wrap",
+              } : undefined}>
                 <SecondaryButton
                   type="button"
                   onClick={closeClinicExpenseDeleteModal}
@@ -6997,10 +7047,12 @@ export default function Financeiro() {
                 </SecondaryButton>
                 <PrimaryButton
                   type="button"
-                  onClick={handleDeleteClinicExpense}
+                  onClick={() => handleDeleteClinicExpense(
+                    isRecurringExpenseDelete ? clinicExpenseDeleteScope : "single",
+                  )}
                   disabled={isClinicExpenseDeleting}
                 >
-                  {isClinicExpenseDeleting ? "Excluindo..." : "Excluir despesa"}
+                  {isClinicExpenseDeleting ? "Excluindo..." : clinicExpenseDeleteConfirmLabel}
                 </PrimaryButton>
               </ModalActions>
             </ModalCard>
@@ -9219,6 +9271,72 @@ const ModalActions = styled.div`
   padding-top: 12px;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
   flex-shrink: 0;
+`;
+
+const ExpenseDeleteOptions = styled.fieldset`
+  display: flex;
+  flex-direction: column;
+  gap: ${spacing.md};
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+
+  legend {
+    margin-bottom: ${spacing.lg};
+    padding: 0;
+    color: ${appColors.textSecondary};
+    line-height: 1.5;
+  }
+
+  &:disabled label {
+    opacity: 0.65;
+    cursor: default;
+  }
+`;
+
+const ExpenseDeleteOption = styled.label`
+  display: flex;
+  align-items: flex-start;
+  gap: ${spacing.md};
+  padding: ${spacing.md} ${spacing.lg};
+  border: 1px solid ${appColors.borderSubtle};
+  border-radius: ${radii.sm};
+  background: ${appColors.surface};
+  cursor: pointer;
+
+  &:focus-within {
+    outline: 2px solid ${appColors.focus};
+    outline-offset: 2px;
+  }
+
+  input {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    margin: 3px 0 0;
+    accent-color: ${appColors.brand};
+  }
+
+  span {
+    display: flex;
+    flex-direction: column;
+    gap: ${spacing.xs};
+    min-width: 0;
+  }
+
+  strong {
+    color: ${appColors.textPrimary};
+    font-size: ${fontSizes.body};
+    font-weight: 600;
+    line-height: 1.5;
+  }
+
+  small {
+    color: ${appColors.textSecondary};
+    font-size: ${fontSizes.small};
+    line-height: 1.5;
+  }
 `;
 
 const CompactModalCard = styled(ModalCard)`
