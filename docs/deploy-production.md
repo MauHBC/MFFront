@@ -9,7 +9,8 @@ publicação. Ele não substitui este runbook nem
 
 ## Fonte da verdade
 
-O Nginx atende `espacocuidarvix.com.br` e `cmtrfisio.com.br` a partir de:
+O Nginx atende `app.motria.com.br`, os sites `espacocuidarvix.com.br` e
+`cmtrfisio.com.br` (incluindo `www`) e as entradas Camila/Gabi a partir de:
 
 ```text
 /var/www/espacocuidarvix-frontend/current
@@ -24,6 +25,30 @@ O Nginx atende `espacocuidarvix.com.br` e `cmtrfisio.com.br` a partir de:
 O checkout `/opt/apps/mffront` existe para Git, dependências e manutenção. Ele
 não é servido pelo Nginx. Nunca use seu `HEAD`, seu atraso em relação ao remoto
 ou sua pasta `build` para concluir o que está publicado.
+
+### Publicação app.motria — marco de 17–18/09/2026
+
+Ativado em 17/09 às 23:27:25–26 BRT (18/09 02:27:25–26 UTC), o SHA
+`560a8217803217ac8c67bb3415341578027419dc` foi comprovado pelo `current`
+em `/var/www/espacocuidarvix-frontend/releases/560a82178032-20260918T012649Z`,
+`app-version.json` servido (`560a82178032`) e assets públicos comparados ao
+release, não pelo checkout auxiliar. `previous` foi preservado.
+
+A central foi aceita por Maurício após login/consultas nas quatro clínicas;
+os encaminhamentos seletivos foram liberados somente depois, às 23:49:33 BRT
+de 17/09. Os sites próprios e aliases conservaram conteúdo, política, imagens e
+assets na própria origem; Camila/Gabi mantiveram o mecanismo React e suas
+exceções. Os smokes técnicos não se limitaram ao index. Em 18/09 Maurício
+confirmou também que testou os sites e que voltaram. Isso não afirma teste
+visual exaustivo de todo fragmento ou novo link assinado.
+
+Cronologia, evidências, observação delimitada e backlog ficam no
+[checkpoint do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/team-sprint-checkpoint.md#appmotriamembership--publicação-concluída-em-1718092026);
+política e ordem operacional, no
+[runbook de domínios](https://github.com/MauHBC/MFBackend/blob/main/docs/deploy/white-label-domains.md).
+Este marco registra ativação efetiva, não apenas preparação, e não fixa alvo
+nem autoriza nova publicação. O default `false` do artefato continua distinto
+da política ativa servida pelo Nginx.
 
 ## Identificar a versão publicada
 
