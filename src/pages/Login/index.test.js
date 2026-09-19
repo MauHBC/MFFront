@@ -36,7 +36,7 @@ beforeEach(() => {
   });
 });
 
-test("apresenta o login Motria sem a identidade SG e com destinos públicos corretos", () => {
+test("apresenta o login Motria sem os acessos ao trial e à recuperação", () => {
   renderLogin();
 
   expect(screen.getByRole("heading", { name: "Entrar na sua conta" })).toBeInTheDocument();
@@ -45,8 +45,9 @@ test("apresenta o login Motria sem a identidade SG e com destinos públicos corr
   expect(screen.getByLabelText("E-mail")).toHaveAttribute("type", "email");
   expect(screen.getByLabelText("E-mail")).toHaveAttribute("autocomplete", "username");
   expect(screen.getByLabelText("Senha")).toHaveAttribute("autocomplete", "current-password");
-  expect(screen.getByRole("link", { name: "Esqueci minha senha" })).toHaveAttribute("href", "/recuperar-senha");
-  expect(screen.getByRole("link", { name: "Começar teste grátis" })).toHaveAttribute("href", "/cadastro");
+  expect(screen.queryByRole("link", { name: "Esqueci minha senha" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Começar teste grátis" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Ainda não tem uma conta/)).not.toBeInTheDocument();
 });
 
 test("mostra e oculta a senha por botão acessível sem enviar o formulário", () => {
@@ -118,4 +119,5 @@ test("domínio de clínica mantém o branding white-label legado", () => {
   expect(screen.getByRole("heading", { name: "Clínica Exemplo" })).toBeInTheDocument();
   expect(screen.getByAltText("Clínica Exemplo")).toHaveAttribute("src", "/logo-clinica.png");
   expect(screen.queryByRole("heading", { name: "Entrar na sua conta" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Esqueci minha senha" })).toHaveAttribute("href", "/recuperar-senha");
 });

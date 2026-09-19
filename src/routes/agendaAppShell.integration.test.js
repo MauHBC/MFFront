@@ -43,6 +43,8 @@ jest.mock("../components/ImobNavbar/TopNavbar", () => function OldNavbarMock() {
 jest.mock("../pages/Home", () => () => <div>Home</div>);
 jest.mock("../pages/Politica", () => () => <div>Política</div>);
 jest.mock("../pages/Login", () => () => <div>Login</div>);
+jest.mock("../pages/SelfService/Signup", () => () => <div>Cadastro direto</div>);
+jest.mock("../pages/CredentialLifecycle/RecoveryRequest", () => () => <div>Recuperação direta</div>);
 jest.mock("../pages/SemAcesso", () => () => <div>Sem acesso</div>);
 jest.mock("../pages/Page404", () => () => <div>404</div>);
 jest.mock("../pages/PatientSelfSignup", () => () => <div>Cadastro</div>);
@@ -72,6 +74,14 @@ describe("fluxo real Menu para Agenda", () => {
 
     expect(screen.getByText("Login")).toBeInTheDocument();
     expect(screen.queryByTestId("old-navbar")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["/cadastro", "Cadastro direto"],
+    ["/recuperar-senha", "Recuperação direta"],
+  ])("mantém %s roteável diretamente", (pathname, page) => {
+    render(<MemoryRouter initialEntries={[pathname]}><Routes /></MemoryRouter>);
+    expect(screen.getByText(page)).toBeInTheDocument();
   });
 
   it("preserva a navbar antiga no login de domínio white-label", () => {
