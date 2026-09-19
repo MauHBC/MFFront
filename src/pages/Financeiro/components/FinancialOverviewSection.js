@@ -1,8 +1,10 @@
 /* eslint-disable react/prop-types */
-import React, { useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import styled from "styled-components";
 
 import AnnualFinancialResultChart from "./AnnualFinancialResultChart";
+import FinancialReceivedPaidSection from "./FinancialReceivedPaidSection";
+import { useAuthorization } from "../../../contexts/AuthorizationContext";
 
 const MONTH_NAMES = [
   "Janeiro",
@@ -68,6 +70,15 @@ export default function FinancialOverviewSection({
 
   const monthlyTabRef = useRef(null);
   const annualTabRef = useRef(null);
+  const realizedTabRef = useRef(null);
+  const authorization = useAuthorization();
+  const canSeeRealized = authorization.isAdministrator === true;
+  const isRealized = canSeeRealized && overviewPeriodMode === "realized";
+  useEffect(() => {
+    if (!canSeeRealized && overviewPeriodMode === "realized") {
+      handleOverviewPeriodModeChange("month");
+    }
+  }, [canSeeRealized, overviewPeriodMode, handleOverviewPeriodModeChange]);
   const summary = overview.summary || {
     received: 0,
     receivable: 0,
@@ -128,13 +139,19 @@ export default function FinancialOverviewSection({
   ];
 
   const handleModeKeyDown = (event, currentMode) => {
-    let nextMode = null;
-    if (["ArrowLeft", "ArrowUp", "Home"].includes(event.key)) nextMode = "month";
-    if (["ArrowRight", "ArrowDown", "End"].includes(event.key)) nextMode = "year";
-    if (!nextMode || nextMode === currentMode) return;
+    const modes = canSeeRealized ? ["month", "year", "realized"] : ["month", "year"];
+    const position = modes.indexOf(currentMode);
+    let nextPosition = position;
+    if (["ArrowLeft", "ArrowUp"].includes(event.key)) nextPosition = (position + modes.length - 1) % modes.length;
+    else if (["ArrowRight", "ArrowDown"].includes(event.key)) nextPosition = (position + 1) % modes.length;
+    else if (event.key === "Home") nextPosition = 0;
+    else if (event.key === "End") nextPosition = modes.length - 1;
+    else return;
+    const nextMode = modes[nextPosition];
     event.preventDefault();
+    if (nextMode === currentMode) return;
     handleOverviewPeriodModeChange(nextMode);
-    (nextMode === "year" ? annualTabRef : monthlyTabRef).current?.focus();
+    ({ month: monthlyTabRef, year: annualTabRef, realized: realizedTabRef })[nextMode].current?.focus();
   };
 
   return (
@@ -146,10 +163,10 @@ export default function FinancialOverviewSection({
             id="financial-overview-monthly-tab"
             type="button"
             role="tab"
-            aria-selected={!isAnnual}
+            aria-selected={!isAnnual && !isRealized}
             aria-controls="financial-overview-monthly-panel"
-            tabIndex={isAnnual ? -1 : 0}
-            $active={!isAnnual}
+            tabIndex={isAnnual || isRealized ? -1 : 0}
+            $active={!isAnnual && !isRealized}
             onClick={() => handleOverviewPeriodModeChange("month")}
             onKeyDown={(event) => handleModeKeyDown(event, "month")}
           >
@@ -169,10 +186,40 @@ export default function FinancialOverviewSection({
           >
             Evolução anual
           </AttendanceTabButton>
+          {canSeeRealized ? (
+            <AttendanceTabButton
+              ref={realizedTabRef}
+              id="financial-realized-tab"
+              type="button"
+              role="tab"
+              aria-selected={isRealized}
+              aria-controls="financial-realized-panel"
+              tabIndex={isRealized ? 0 : -1}
+              $active={isRealized}
+              onClick={() => handleOverviewPeriodModeChange("realized")}
+              onKeyDown={(event) => handleModeKeyDown(event, "realized")}
+            >
+              Recebido e pago
+            </AttendanceTabButton>
+          ) : null}
         </AttendanceTabGroup>
       </OverviewModeNavigation>
 
-      <div
+      {isRealized ? (
+        <div id="financial-realized-panel" role="tabpanel" aria-labelledby="financial-realized-tab" tabIndex={0}>
+          <FinancialReceivedPaidSection
+            ui={ui}
+            year={overviewYear}
+            yearOptions={overviewYearOptions}
+            onYearChange={handleOverviewYearChange}
+            onPreviousYear={handleOverviewPreviousMonth}
+            onNextYear={handleOverviewNextMonth}
+            valuesVisible={financialValuesVisible}
+            formatCurrency={formatCurrency}
+            currentDate={currentDate}
+          />
+        </div>
+      ) : <div
         id={activePanelId}
         role="tabpanel"
         aria-labelledby={activeTabId}
@@ -399,7 +446,7 @@ export default function FinancialOverviewSection({
             ) : null}
           </>
         )}
-      </div>
+      </div>}
     </AttendanceSectionSurface>
   );
 }

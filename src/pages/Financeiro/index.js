@@ -1391,6 +1391,7 @@ export default function Financeiro() {
   ]);
 
   const loadOverviewData = useCallback(async () => {
+    if (overviewPeriodMode === "realized") return;
     const overviewPeriod = overviewPeriodMode === "year"
       ? overviewPeriodYear
       : overviewPeriodMonth;
@@ -1982,7 +1983,7 @@ export default function Financeiro() {
   }, []);
 
   const handleOverviewPeriodModeChange = useCallback((mode) => {
-    const nextMode = mode === "year" ? "year" : "month";
+    const nextMode = ["year", "realized"].includes(mode) ? mode : "month";
     setLoadingOverview(true);
     setOverviewPeriodMode(nextMode);
   }, []);
@@ -2017,7 +2018,7 @@ export default function Financeiro() {
 
   const shiftOverviewPeriod = useCallback((direction) => {
     if (!Number.isFinite(direction) || direction === 0) return;
-    if (overviewPeriodMode === "year") {
+    if (["year", "realized"].includes(overviewPeriodMode)) {
       setOverviewPeriodYear((previousYear) => (
         String((Number(previousYear) || new Date().getFullYear()) + direction)
       ));
@@ -5178,6 +5179,18 @@ export default function Financeiro() {
         AttendanceTableScroll,
         AnnualOverviewTable,
         AttendanceMoneyText,
+        ModalOverlay,
+        ModalCard,
+        ModalHeader,
+        ModalTitle,
+        ModalBody,
+        ModalActions,
+        Field,
+        Label,
+        Input,
+        IconButton,
+        PrimaryButton,
+        SecondaryButton,
         attendancePalette: ATTENDANCE_UI.colors,
       }}
       loading={loadingOverview}
