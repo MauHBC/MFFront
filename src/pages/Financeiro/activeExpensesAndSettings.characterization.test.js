@@ -269,6 +269,60 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
       .not.toBeInTheDocument());
   });
 
+  it("preenche edição e baixa em centavos exatos, inclusive despesas já pagas", async () => {
+    listClinicExpenses.mockResolvedValue({ data: {
+      items: [
+        { ...pendingExpense, id: 201, name: "Internet aberta", amount_cents: 8690 },
+        { ...paidExpense, id: 202, name: "Aluguel pago", amount_cents: 107702, paid_amount_cents: 107702 },
+      ],
+      summary: {},
+    } });
+    renderFinanceiro("/financeiro/despesas");
+
+    await openExpenseAction("Internet aberta", "Editar");
+    expect(screen.getByLabelText("Valor")).toHaveValue("86,90");
+    await userEvent.click(screen.getByRole("button", { name: "Salvar despesa" }));
+    await waitFor(() => expect(updateClinicExpense).toHaveBeenCalledWith(201,
+      expect.objectContaining({ amount_cents: 8690 })));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Editar despesa" }))
+      .not.toBeInTheDocument());
+
+    await openExpenseAction("Aluguel pago", "Editar");
+    expect(screen.getByLabelText("Valor")).toHaveValue("1.077,02");
+    expect(screen.getByLabelText("Valor pago")).toHaveValue("1.077,02");
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Editar despesa" }))
+      .not.toBeInTheDocument());
+
+    await openExpenseAction("Aluguel pago", "Editar pagamento");
+    expect(screen.getByLabelText("Valor pago")).toHaveValue("1.077,02");
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+
+    await openExpenseAction("Internet aberta", "Marcar como pago");
+    expect(screen.getByLabelText("Valor pago")).toHaveValue("86,90");
+    await userEvent.click(screen.getByRole("button", { name: "Confirmar pagamento" }));
+    await waitFor(() => expect(payClinicExpense).toHaveBeenCalledWith(201,
+      expect.objectContaining({ paid_amount_cents: 8690 })));
+  });
+
+  it("após desfazer a baixa, reabre o valor original para refazê-la", async () => {
+    const expense = { ...paidExpense, amount_cents: 8690, paid_amount_cents: 8690 };
+    listClinicExpenses.mockResolvedValueOnce({ data: { items: [expense], summary: {} } })
+      .mockResolvedValue({ data: { items: [{ ...expense, paid_at: null, paid_amount_cents: null }], summary: {} } });
+    renderFinanceiro("/financeiro/despesas");
+    await openExpenseAction("Internet", "Desfazer pagamento");
+    fireEvent.change(screen.getByLabelText("Motivo"), { target: { value: "Baixa incorreta" } });
+    await userEvent.click(screen.getByRole("button", { name: "Confirmar estorno" }));
+    await waitFor(() => expect(unpayClinicExpense).toHaveBeenCalled());
+    await waitFor(() => expect(within(screen.getByText("Internet").closest("tr"))
+      .getByText("Pendente")).toBeInTheDocument());
+    await openExpenseAction("Internet", "Marcar como pago");
+    expect(screen.getByLabelText("Valor pago")).toHaveValue("86,90");
+    await userEvent.click(screen.getByRole("button", { name: "Confirmar pagamento" }));
+    await waitFor(() => expect(payClinicExpense).toHaveBeenCalledWith(102,
+      expect.objectContaining({ paid_amount_cents: 8690 })));
+  });
+
   const fillNewExpense = async () => {
     await screen.findByText("Aluguel");
     await userEvent.click(screen.getByRole("button", { name: "Nova despesa" }));

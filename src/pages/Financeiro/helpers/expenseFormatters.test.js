@@ -2,6 +2,7 @@ import {
   emptyClinicExpenseSummary,
   formatDateOnlyBR,
   formatCurrencyInput,
+  formatCurrencyInputFromCents,
   getClinicExpenseObservation,
   getClinicExpensePaidAmountCents,
   normalizeClinicExpenseSummary,
@@ -21,6 +22,15 @@ describe("expenseFormatters", () => {
   it("formata input monetario sem expor centavos crus", () => {
     expect(formatCurrencyInput("3500")).toBe("3.500,00");
     expect(formatCurrencyInput("0")).toBe("0,00");
+    [
+      [8690, "86,90"],
+      [107702, "1.077,02"],
+      [700, "7,00"],
+      [0, "0,00"],
+    ].forEach(([cents, formatted]) => {
+      expect(formatCurrencyInputFromCents(cents)).toBe(formatted);
+      expect(parseCurrencyInputToCents(formatted)).toBe(cents);
+    });
   });
 
   it("sanitiza valores positivos", () => {

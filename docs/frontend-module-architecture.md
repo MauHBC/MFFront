@@ -17,6 +17,11 @@ Semântica e contratos permanecem em
 
 ## Despesas operacionais
 
+A lista exibe “Pago em DD/MM/AAAA” para toda despesa paga, inclusive quando
+pagamento e vencimento caem no mesmo dia. Os valores monetários pré-preenchidos
+nos formulários de despesas e recebimentos vêm dos centavos da API sem mudança
+de escala; salvar sem editar o valor preserva os centavos originais.
+
 A exclusão de despesa aberta exige confirmação, sem campo de motivo. Despesas
 pagas oferecem desfazimento como ação separada; a exclusão só fica disponível
 depois de reabrir a ocorrência. A confirmação de recorrência informa que apenas

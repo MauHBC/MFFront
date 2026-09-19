@@ -188,7 +188,7 @@ describe("ClinicExpensesSection", () => {
     expect(internetObservation.getAttribute("title")).toBe("Contrato anual");
     expect(normalizeCellText(internetCells[3].textContent)).toBe("R$ 13,00");
     expect(internetCells[3].textContent).not.toContain("Pago:");
-    expect(within(internetCells[4]).queryByText(/em /)).toBeNull();
+    expect(within(internetCells[4]).getByText(`em ${formatDateOnlyBR(addDays(0))}`)).toBeTruthy();
 
     const energiaRow = screen.getByRole("row", { name: /Energia/ });
     const energiaCells = within(energiaRow).getAllByRole("cell");
@@ -202,5 +202,6 @@ describe("ClinicExpensesSection", () => {
     const condominioRow = screen.getByRole("row", { name: /Condominio/ });
     const condominioCells = within(condominioRow).getAllByRole("cell");
     expect(within(condominioCells[2]).getByText("Vence em 5 dias")).toBeTruthy();
+    expect(within(condominioCells[4]).queryByText(/em /)).toBeNull();
   });
 });
