@@ -13,9 +13,7 @@ import {
   LegacyForm,
   LoadingStatus,
   PasswordControl,
-  RecoveryRow,
   SubmitButton,
-  TrialPrompt,
 } from "./styled";
 import * as actions from "../../store/modules/auth/actions";
 
@@ -114,7 +112,6 @@ export default function Login() {
     <PublicAuthShell
       title="Entrar na sua conta"
       description="Acesse sua Agenda Motria."
-      footer={<TrialPrompt>Ainda não tem uma conta? <Link to="/cadastro">Começar teste grátis</Link></TrialPrompt>}
     >
       {/* eslint-disable-next-line react/jsx-no-bind */}
       <Form onSubmit={handleSubmit} noValidate aria-busy={isLoading}>
@@ -161,7 +158,6 @@ export default function Login() {
           </PasswordControl>
           {errors.password && <FieldError id="login-password-error" role="alert">{errors.password}</FieldError>}
         </Field>
-        <RecoveryRow><Link to="/recuperar-senha">Esqueci minha senha</Link></RecoveryRow>
         <SubmitButton type="submit" disabled={isLoading}>
           {isLoading ? "Entrando..." : "Entrar"}
         </SubmitButton>
