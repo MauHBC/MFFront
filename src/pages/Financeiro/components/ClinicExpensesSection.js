@@ -129,11 +129,7 @@ export default function ClinicExpensesSection({
               const originalAmountCents = Number(entry.amount_cents || 0);
               const shouldShowPaidAmount = Boolean(entry.paid_at)
                 && paidAmountCents !== originalAmountCents;
-              const dueDateOnly = String(entry.due_date || "").slice(0, 10);
-              const paidDateOnly = String(entry.paid_at || "").slice(0, 10);
-              const shouldShowPaidDate = Boolean(entry.paid_at)
-                && Boolean(paidDateOnly)
-                && paidDateOnly !== dueDateOnly;
+              const shouldShowPaidDate = Boolean(entry.paid_at);
               const dueAlertLabel = getExpenseDueAlertLabel(entry);
               let paymentActions = null;
 

@@ -8,6 +8,7 @@ import {
   createFinancialPayment,
 } from "../../../services/financial";
 import { getPatientDisplayName } from "../../../utils/patientSearch";
+import { formatCurrencyInputFromCents } from "../helpers/expenseFormatters";
 
 const emptyPayment = {
   patient_id: "",
@@ -140,7 +141,7 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
     setForm({
       ...emptyPayment,
       patient_id: patientId,
-      amount: totalOpenCents > 0 ? formatCurrencyInput(totalOpenCents / 100) : "",
+      amount: totalOpenCents > 0 ? formatCurrencyInputFromCents(totalOpenCents) : "",
       paid_at: toDateInputValue(new Date()),
     });
     setContext({
