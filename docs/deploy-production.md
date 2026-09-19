@@ -97,6 +97,14 @@ como pendente uma alteração que já está presente no artefato.
 - Os dois domínios devem passar pelo smoke test antes de concluir.
 - Não é necessário recarregar o Nginx quando apenas o symlink muda.
 
+Prepare a árvore pública com `umask 022`: owner/group `root:root`, diretórios
+`755` e arquivos `644`, inclusive JS/CSS. `umask 077` global no build/release
+gerou `700`/`600` e impediu a leitura pelo Nginx; restrinja `600`/`700` a
+evidências ou configurações sensíveis, fora da árvore pública. Antes de ativar
+`current`, confira ownership, ausência de permissões restritivas indevidas,
+leitura de `index.html`, `app-version.json` e assets pelo usuário do Nginx, e
+o commit de `app-version.json`. Pare se qualquer verificação falhar.
+
 ## Procedimento recomendado
 
 Atualize apenas o checkout auxiliar para obter o script. Isso não publica nada:
@@ -118,6 +126,7 @@ bash /opt/apps/mffront/scripts/deploy-production.sh \
 Revise o release atual, os commits e o diff efetivo exibidos. Para publicar:
 
 ```bash
+umask 022
 bash /opt/apps/mffront/scripts/deploy-production.sh --ref origin/main
 ```
 
