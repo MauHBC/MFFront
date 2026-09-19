@@ -197,7 +197,9 @@ export function PublicClinicProvider({ children }) {
         const nextContext = normalizeContext(response.data);
         setPublicClinic(nextContext);
         applyPublicVariables(nextContext);
-        document.title = nextContext.public_name;
+        if (window.location.pathname.replace(/\/$/, "") !== "/login" || nextContext.has_public_tenant) {
+          document.title = nextContext.public_name;
+        }
         applyPublicFavicon(nextContext.favicon_url);
       } catch (err) {
         if (!active) return;
@@ -205,7 +207,9 @@ export function PublicClinicProvider({ children }) {
         setError(err);
         setPublicClinic(DEFAULT_PUBLIC_CONTEXT);
         applyPublicVariables(DEFAULT_PUBLIC_CONTEXT);
-        document.title = DEFAULT_PUBLIC_CONTEXT.public_name;
+        if (window.location.pathname.replace(/\/$/, "") !== "/login") {
+          document.title = DEFAULT_PUBLIC_CONTEXT.public_name;
+        }
         applyPublicFavicon(DEFAULT_PUBLIC_CONTEXT.favicon_url);
       } finally {
         if (active) {

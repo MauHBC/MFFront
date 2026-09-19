@@ -3,6 +3,7 @@ import "@testing-library/jest-dom";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route as MockRoute } from "react-router-dom";
 import MockAppShell from "../components/AppShell";
+import { usePublicClinicContext } from "../contexts/PublicClinicContext";
 import Routes from ".";
 
 jest.mock("./MyRoute", () => function MyRouteMock({ component: Component, ...props }) {
@@ -20,6 +21,7 @@ jest.mock("../hooks/useAuth", () => ({
   useAuth: () => ({ isLoggedIn: true, username: "Maurício" }),
 }));
 jest.mock("../hooks/useLogout", () => ({ useLogout: () => jest.fn() }));
+jest.mock("../contexts/PublicClinicContext", () => ({ usePublicClinicContext: jest.fn() }));
 jest.mock("../contexts/AuthorizationContext", () => ({
   useAuthorization: () => ({
     canViewTeam: false, canAccessModule: () => true, hasCapability: () => true,
@@ -57,6 +59,33 @@ jest.mock("../pages/Planos", () => () => <div>Planos</div>);
 jest.mock("../pages/PlatformPaused", () => () => <div>Plataforma</div>);
 
 describe("fluxo real Menu para Agenda", () => {
+  beforeEach(() => {
+    usePublicClinicContext.mockReturnValue({ publicClinic: { has_public_tenant: false } });
+  });
+
+  it.each(["/login", "/login/"])("não monta a navbar antiga no login público central %s", (pathname) => {
+    render(
+      <MemoryRouter initialEntries={[pathname]}>
+        <Routes />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Login")).toBeInTheDocument();
+    expect(screen.queryByTestId("old-navbar")).not.toBeInTheDocument();
+  });
+
+  it("preserva a navbar antiga no login de domínio white-label", () => {
+    usePublicClinicContext.mockReturnValue({ publicClinic: { has_public_tenant: true } });
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <Routes />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Login")).toBeInTheDocument();
+    expect(screen.getByTestId("old-navbar")).toBeInTheDocument();
+  });
+
   it("navega para /agendamentos, renderiza a Agenda no App Shell e não monta a navbar antiga", () => {
     render(
       <MemoryRouter initialEntries={["/menu"]}>

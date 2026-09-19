@@ -111,6 +111,7 @@ function AppHelmet() {
     loaded: clinicLoaded,
   } = useClinicContext();
   const {
+    publicClinic,
     displayName: publicDisplayName,
     loaded: publicLoaded,
   } = usePublicClinicContext();
@@ -122,6 +123,9 @@ function AppHelmet() {
     title = clinicDisplayName;
   } else if (!isLoggedIn && publicLoaded && publicDisplayName) {
     title = publicDisplayName;
+  }
+  if (AUTH_REDIRECT_PATHS.has(location.pathname) && !publicClinic?.has_public_tenant) {
+    title = "Entrar | Motria";
   }
 
   return (
