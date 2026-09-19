@@ -38,6 +38,7 @@ import AppShell from "../components/AppShell";
 import Equipe from "../pages/Equipe";
 import SettingsDocuments from "../pages/SettingsDocuments";
 import { PendingCenterProvider } from "../components/PendingCenter";
+import { usePublicClinicContext } from "../contexts/PublicClinicContext";
 
 function getPatientsPageTitle(pathname) {
   if (pathname === "/pacientes/novo") return "Novo paciente";
@@ -73,8 +74,10 @@ function LegacyFinancialRoute() {
 
 export default function Routes() {
   const location = useLocation();
+  const { publicClinic } = usePublicClinicContext();
 
   // Condicional para verificar se não é a HomePage
+  const isLogin = ["/login", "/login/"].includes(location.pathname);
   const isPublicSignup = location.pathname.startsWith("/cadastro/paciente")
     || ["/cadastro", "/confirmar-email", "/termos", "/privacidade"].includes(location.pathname);
   const isCredentialLifecycle = ["/recuperar-senha", "/credencial"].includes(location.pathname);
@@ -100,7 +103,8 @@ export default function Routes() {
     || usesTeamAppShell
     || usesSettingsAppShell;
   const shouldShowNavbar = location.pathname !== "/" && !isPublicSignup
-    && !isCredentialLifecycle && !usesAppShell;
+    && !isCredentialLifecycle && !usesAppShell
+    && (!isLogin || publicClinic?.has_public_tenant);
 
   const routeContent = (
     <Switch>
