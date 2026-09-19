@@ -82,6 +82,7 @@ import {
 } from "./helpers/financialRevenuesSummary";
 import {
   emptyClinicExpenseSummary,
+  formatCurrencyInputFromCents,
   formatDateOnlyBR as formatExpenseDateOnlyBR,
   getClinicExpenseObservation,
   getClinicExpensePaidAmountCents,
@@ -1733,7 +1734,7 @@ export default function Financeiro() {
       patient_id: entry.patient_id || "",
       payment_method_id: paymentMethodId,
       allocation_mode: "entry",
-      amount: formatCurrencyInput(openAmountCents / 100),
+      amount: formatCurrencyInputFromCents(openAmountCents),
       convert_entry_to_installments: false,
       entry_installments_count: String(Math.max(2, existingInstallmentsCount)),
       paid_at: paidAt,
@@ -1873,14 +1874,14 @@ export default function Financeiro() {
         description: expense.name || "",
         category: expense.category_name || expense.category || "",
         category_id: expense.category_id ? String(expense.category_id) : "",
-        amount: formatCurrencyInput(Number(expense.amount_cents || 0) / 100),
+        amount: formatCurrencyInputFromCents(expense.amount_cents),
         reference_month: String(expense.reference_month || expense.due_date || "").slice(0, 7),
         due_date: String(expense.due_date || "").slice(0, 10),
         status: expense.paid_at ? "paid" : "open",
         recurrence_type: expense.recurrence_type || "none",
         paid_at: expense.paid_at ? String(expense.paid_at).slice(0, 10) : toDateInputValue(new Date()),
-        paid_amount: formatCurrencyInput(
-          Number((expense.paid_amount_cents || expense.amount_cents || 0)) / 100,
+        paid_amount: formatCurrencyInputFromCents(
+          expense.paid_amount_cents || expense.amount_cents,
         ),
         payment_notes: expense.payment_notes || "",
         notes: expense.notes || "",
@@ -2152,8 +2153,8 @@ export default function Financeiro() {
       ...createEmptyClinicExpensePayment(),
       expense: entry,
       paid_at: entry.paid_at ? String(entry.paid_at).slice(0, 10) : toDateInputValue(new Date()),
-      paid_amount: formatCurrencyInput(
-        Number((entry.paid_amount_cents || entry.amount_cents || 0)) / 100,
+      paid_amount: formatCurrencyInputFromCents(
+        entry.paid_amount_cents || entry.amount_cents,
       ),
       payment_notes: entry.payment_notes || "",
     });

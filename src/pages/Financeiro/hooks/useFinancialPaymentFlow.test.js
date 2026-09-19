@@ -32,13 +32,13 @@ const scopedPayment = {
   entries: [{ entryId: 501, openCents: 10000 }],
 };
 
-function PaymentFlowHarness({ onPaymentSaved }) {
+function PaymentFlowHarness({ onPaymentSaved, payment = scopedPayment }) {
   const flow = useFinancialPaymentFlow({ onPaymentSaved });
   return (
     <div>
       <button
         type="button"
-        onClick={() => flow.openScopedPatientPaymentModal(patient, scopedPayment)}
+        onClick={() => flow.openScopedPatientPaymentModal(patient, payment)}
       >
         Abrir
       </button>
@@ -80,6 +80,23 @@ describe("useFinancialPaymentFlow - idempotência da confirmação", () => {
     jest.clearAllMocks();
     createFinancialEntry.mockResolvedValue({ data: { id: 990 } });
     createFinancialPayment.mockResolvedValue({ data: { id: 991 } });
+  });
+
+  it.each([
+    [8690, "86,90"],
+    [107702, "1.077,02"],
+  ])("preenche recebimento de %i centavos e preserva valor ao confirmar", async (cents, formatted) => {
+    const payment = { ...scopedPayment, totalOpenCents: cents,
+      entries: [{ entryId: 501, openCents: cents }] };
+    render(<PaymentFlowHarness onPaymentSaved={jest.fn()} payment={payment} />);
+    await userEvent.click(screen.getByRole("button", { name: "Abrir" }));
+    expect(screen.getByLabelText("Valor").value).toBe(formatted);
+    fireEvent.change(screen.getByLabelText("Forma"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Data"), { target: { value: "2026-08-15" } });
+    await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ amount_cents: cents }), expect.any(String),
+    ));
   });
 
   it("reutiliza chave e anchor quando o retry sucede após erro ambíguo", async () => {
@@ -142,4 +159,11 @@ describe("useFinancialPaymentFlow - idempotência da confirmação", () => {
 
 PaymentFlowHarness.propTypes = {
   onPaymentSaved: PropTypes.func.isRequired,
+  payment: PropTypes.shape({
+    totalOpenCents: PropTypes.number,
+  }),
+};
+
+PaymentFlowHarness.defaultProps = {
+  payment: scopedPayment,
 };

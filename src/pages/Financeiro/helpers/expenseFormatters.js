@@ -23,6 +23,15 @@ export const formatCurrencyInput = (value) => {
   });
 };
 
+export const formatCurrencyInputFromCents = (cents) => {
+  const amount = Number(cents || 0);
+  if (!Number.isSafeInteger(amount)) return "";
+  return (amount / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
 export const sanitizeCurrencyInput = (value) => {
   const source = String(value || "");
   const validChars = source.replace(/[^\d,.-]/g, "");
