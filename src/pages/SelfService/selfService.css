@@ -11,6 +11,15 @@
 .motria-onboarding a, .trial-panel a, .trial-indicator { color: #165d68; text-decoration: underline; }
 .motria-onboarding :focus-visible, .trial-panel :focus-visible { outline: 3px solid #d38b2e; outline-offset: 3px; }
 .motria-onboarding [role=alert] { padding: 12px; background: #fff0d9; border-radius: 8px; }
+.motria-legal { width: min(100% - 32px, 760px); margin-bottom: 64px; overflow-wrap: break-word; }
+.motria-legal h1 { margin-bottom: 8px; }
+.motria-legal .motria-legal-updated { margin: 0 0 32px; color: #526b73; font-size: .9rem; }
+.motria-legal-content { font-size: 1rem; line-height: 1.7; }
+.motria-legal-content h2 { margin: 32px 0 12px; font-size: clamp(1.15rem, 3vw, 1.4rem); line-height: 1.35; }
+.motria-legal-content p { margin: 0 0 16px; line-height: inherit; }
+.motria-legal-content ul { margin: 0 0 20px; padding-left: 24px; list-style: disc outside; }
+.motria-legal-content li { padding-left: 4px; margin-bottom: 8px; }
+.motria-legal .motria-legal-back { margin-top: 40px; font-size: .9rem; }
 .trial-panel { border: 1px solid #cadbdc; border-radius: 12px; padding: 16px; margin-bottom: 20px; color: #243b44; background: #f6faf9; }
 .trial-panel summary { cursor: pointer; font-weight: 600; min-height: 32px; }
 .trial-panel ul { display: flex; gap: 16px; flex-wrap: wrap; list-style: none; padding: 0; margin: 12px 0 0; }

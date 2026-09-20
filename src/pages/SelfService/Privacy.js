@@ -1,14 +1,7 @@
 import React from "react";
-import { Link } from "react-router-dom";
-import { Helmet } from "react-helmet";
-import "./selfService.css";
+import LegalDocument from "./LegalDocument";
+import legalContent from "./legalContent.json";
 
 export default function Privacy() {
-  return <main className="motria-onboarding">
-    <Helmet><meta name="robots" content="noindex,nofollow" /></Helmet>
-    <h1>Política de Privacidade</h1>
-    <p>Documento aguardando aprovação e publicação. Esta página é um placeholder para revisão técnica do cadastro e não apresenta termos legais aprovados.</p>
-    <p>A abertura comercial do cadastro depende da publicação do conteúdo jurídico aprovado e de suas versões.</p>
-    <Link to="/cadastro">Voltar ao cadastro</Link>
-  </main>;
+  return <LegalDocument legalDocument={legalContent.privacy} />;
 }

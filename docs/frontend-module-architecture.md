@@ -243,6 +243,11 @@ legada, usa a identidade Motria fornecida em `src/assets/brand` e carrega
 Sora/Inter localmente, com tipografia restrita ao shell. Em domínio público de
 clínica, login e navbar continuam com o branding white-label anterior.
 
+Na entrada central, o favicon, ícone Apple e ícones do manifest usam o símbolo
+Motria. Contextos públicos de clínica continuam aplicando o favicon específico
+quando disponível, ou o ícone neutro; o contexto autenticado também não herda
+o ícone Motria como fallback de clínica.
+
 O shell recebe título, descrição, conteúdo e rodapé; não encapsula a saga de
 autenticação. `EntryBoundary`, `InitialRenderGate`, `CommercialBoundary`,
 `PublicClinicProvider` e o retorno permitido pelo login permanecem fora dele.
@@ -251,10 +256,12 @@ adotar a camada visual separadamente no futuro, sem mudar seus contratos.
 
 ### Primeiro acesso e recuperação — lifecycle público legacy/membership
 
-O login público oferece “Esqueci minha senha” em `/recuperar-senha`. O formulário
-envia somente o e-mail e apresenta a mesma confirmação neutra; não tenta concluir
-se existe conta, membership ou envio. O Backend mantém proteção contra abuso e é
-a autoridade sobre elegibilidade.
+O login central oculta temporariamente os acessos a `/recuperar-senha` e ao
+teste gratuito, sem remover as rotas ou fluxos. O login white-label preserva
+“Esqueci minha senha”. Em `/recuperar-senha`, o formulário envia somente o
+e-mail e apresenta a mesma confirmação neutra; não tenta concluir se existe
+conta, membership ou envio. O Backend mantém proteção contra abuso e é a
+autoridade sobre elegibilidade.
 
 Links de primeiro acesso e recuperação apontam para `/credencial#token=...`. A
 tela lê o bearer do fragmento e remove o fragmento da URL imediatamente, antes de
@@ -1218,22 +1225,27 @@ sua barreira foi representada por Basic sintético e bloqueio `/api/platform`.
 
 ### Cadastro automático e contexto comercial
 
-`/cadastro` recebe nome, e-mail, senha e checkbox legal inicialmente desmarcado;
-conta autenticada usa nome/e-mail canônicos somente leitura e não solicita senha.
-Metadados/versionamento vêm do Backend; placeholders de `/termos` e `/privacidade`
-exibem revisão técnica e `noindex`. `/politica` antigo permanece independente.
+`/cadastro` deslogado apresenta “Crie sua conta”, nome, e-mail, senha (ajuda
+“Mínimo de 8 caracteres”), checkbox legal inicialmente desmarcado e o acesso
+secundário “Já tenho uma conta” / “Ir para o login” em `/login`. Os limites do
+campo seguem 8–128 caracteres; a política de senha permanece no Backend. Uma
+conta já autenticada é redirecionada a `/menu` sem montar o formulário nem
+provisionar outra Agenda. Metadados e versões do aceite vêm do Backend;
+`/termos` e `/privacidade` publicam os documentos aprovados, preservam
+`noindex,nofollow` e retornam a `/cadastro`. `/politica` antigo permanece
+independente.
 Resposta pública é neutra. `/confirmar-email#token=...` mantém bearer somente em
 memória, remove fragmento antes de interação e confirma por botão explícito;
 scanner/GET não cria Agenda. Falha transitória oferece retry; expiração permite
 reenvio; cadastro vinculado a conta pede login canônico/reabrir link. Conclusão
 recarrega lista de vínculos sem trocar automaticamente a Agenda atual.
 
-“Entrar na minha conta” em `/cadastro` transporta `returnTo: /cadastro` no estado
-interno da navegação. Login, saga e gate inicial aceitam exclusivamente esse
-destino ou o padrão `/menu`; URLs externas ou caminhos arbitrários não são
-aceitos. Após login canônico, o cadastro autenticado retoma automaticamente,
-carrega identidade real, verifica elegibilidade e solicita a prova pertinente.
-Senha, memberships e clínica ativa anteriores permanecem preservados.
+O link do cadastro para login não transporta `returnTo: /cadastro`; após login,
+o destino normal é `/menu`. Login, saga e gate inicial ainda aceitam apenas o
+destino interno `/cadastro` quando explicitamente recebido ou o padrão `/menu`;
+URLs externas ou caminhos arbitrários não são aceitos. A rota pública de
+cadastro não cria outra Agenda para usuário autenticado. Senha, memberships e
+clínica ativa anteriores permanecem preservados.
 
 `CommercialProvider`, dentro da árvore isolada por token, consulta `/commercial`
 com bearer explícito. Generation guard recusa respostas de sessão anterior;

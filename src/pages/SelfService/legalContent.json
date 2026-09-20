@@ -1,0 +1,615 @@
+{
+  "terms": {
+    "title": "Termos de Uso da Motria",
+    "updated": "Última atualização: 2026-09-20",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": "Estes Termos de Uso regulam o cadastro, o teste gratuito, a contratação e a utilização da plataforma Motria. Ao marcar a opção de aceite e criar uma conta, o Cliente confirma que leu e concorda com estes Termos e com a Política de Privacidade da Motria."
+      },
+      {
+        "type": "heading",
+        "text": "1. Fornecedora e âmbito do contrato"
+      },
+      {
+        "type": "paragraph",
+        "text": "A Motria é fornecida por MAURICIO HENRIQUE BORGES CORREA SOLUCOES EM TECNOLOGIA LTDA, nome fantasia MB LABS, inscrita no CNPJ sob nº 62.440.916/0001-10, com sede na Av. Paulista, 1471, CXPST 7703, Sala 1110, Bela Vista, São Paulo/SP, CEP 01311-927 (“MB LABS” ou “Motria”)."
+      },
+      {
+        "type": "paragraph",
+        "text": "Estes Termos formam o contrato eletrônico entre a MB LABS e a pessoa física ou jurídica que cria a Agenda ou contrata a assinatura (“Cliente”). Quando existir contrato escrito separado, ele prevalecerá sobre estes Termos apenas nos pontos em que houver disposição expressamente diferente."
+      },
+      {
+        "type": "heading",
+        "text": "2. Definições"
+      },
+      {
+        "type": "paragraph",
+        "text": "“Plataforma” significa o software Motria e as funcionalidades disponibilizadas pela MB LABS. “Agenda” significa o ambiente digital criado para o Cliente, seja ele profissional autônomo, clínica ou outro estabelecimento, sem pressupor a existência de espaço físico. “Usuário” significa qualquer pessoa autorizada pelo Cliente a acessar a Agenda. “Dados do Cliente” são as informações inseridas pelo Cliente ou por seus Usuários, inclusive dados de pacientes, agenda, financeiro e prontuários."
+      },
+      {
+        "type": "heading",
+        "text": "3. Capacidade e aceite eletrônico"
+      },
+      {
+        "type": "paragraph",
+        "text": "O Cliente declara possuir capacidade legal para contratar e, quando agir em nome de uma empresa ou clínica, declara possuir poderes para representá-la."
+      },
+      {
+        "type": "paragraph",
+        "text": "O aceite eletrônico registrado no cadastro tem validade contratual. O Cliente deve fornecer informações verdadeiras, completas e atualizadas. Não é permitido criar conta em nome de terceiros sem autorização."
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS poderá registrar a versão aceita, a data e a hora do aceite e as informações técnicas necessárias à sua comprovação. A versão vigente destes Termos e da Política de Privacidade será disponibilizada em meio que permita consulta e reprodução."
+      },
+      {
+        "type": "heading",
+        "text": "4. Objeto e licença de uso"
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS concede ao Cliente, durante a vigência do teste ou da assinatura, licença limitada, revogável, não exclusiva, intransferível e sem direito de sublicenciamento para utilizar a Plataforma em suas atividades internas."
+      },
+      {
+        "type": "paragraph",
+        "text": "A Motria oferece recursos de organização de agenda, pacientes, equipe, serviços, planos, pacotes, mensalidades, registros de atendimento, prontuários, pendências e informações financeiras, conforme as funcionalidades disponíveis em cada momento."
+      },
+      {
+        "type": "paragraph",
+        "text": "O plano não inclui site personalizado, domínio público exclusivo, desenvolvimento sob encomenda, consultoria profissional, serviço médico, fisioterapêutico, contábil, fiscal, bancário ou jurídico, salvo contratação escrita específica."
+      },
+      {
+        "type": "heading",
+        "text": "5. Conta, Agenda e equipe"
+      },
+      {
+        "type": "paragraph",
+        "text": "Cada pessoa deve utilizar credenciais próprias. O Cliente é responsável por cadastrar corretamente sua equipe, manter permissões adequadas, desativar acessos que não sejam mais necessários e informar imediatamente suspeitas de uso indevido."
+      },
+      {
+        "type": "paragraph",
+        "text": "Um mesmo e-mail não concede direito a múltiplas contas, Agendas ou testes gratuitos. Exceções somente poderão ser liberadas manualmente pela MB LABS. As Agendas são independentes e não compartilham dados entre si, salvo funcionalidade futura expressamente disponibilizada."
+      },
+      {
+        "type": "heading",
+        "text": "6. Teste gratuito"
+      },
+      {
+        "type": "paragraph",
+        "text": "A Motria poderá oferecer um teste gratuito de 10 dias corridos, com acesso às funcionalidades do plano pago disponível naquele momento."
+      },
+      {
+        "type": "paragraph",
+        "text": "O teste começa após a confirmação do e-mail e a criação da Agenda. Não é necessário cadastrar cartão ou outro meio de pagamento. O teste não gera cobrança automática e somente será convertido em assinatura mediante contratação expressa pelo Cliente."
+      },
+      {
+        "type": "paragraph",
+        "text": "É permitido um único teste por pessoa, e-mail, conta e Agenda. Ao final do prazo, a Motria enviará comunicação ao e-mail cadastrado e restringirá o acesso, apresentando a opção de contratação. A MB LABS poderá encerrar testes criados com dados falsos, duplicados, por meios automatizados ou para contornar essas limitações."
+      },
+      {
+        "type": "heading",
+        "text": "7. Planos e condições comerciais"
+      },
+      {
+        "type": "paragraph",
+        "text": "Os planos, preços, limites de uso, periodicidade, descontos e formas de pagamento aplicáveis serão apresentados ao Cliente antes da confirmação da contratação, na oferta ou no checkout."
+      },
+      {
+        "type": "paragraph",
+        "text": "As condições comerciais confirmadas pelo Cliente passam a integrar estes Termos. Promoções ou condições especiais valerão somente nos termos informados na respectiva oferta."
+      },
+      {
+        "type": "heading",
+        "text": "8. Contratação, pagamento e reajuste"
+      },
+      {
+        "type": "paragraph",
+        "text": "A assinatura é paga antecipadamente, na periodicidade escolhida pelo Cliente, por meio do prestador de pagamentos indicado no momento da contratação."
+      },
+      {
+        "type": "paragraph",
+        "text": "As formas de pagamento disponíveis serão apresentadas no momento da contratação. A existência de cobrança recorrente ou de emissão de nova cobrança a cada período será informada antes da confirmação pelo Cliente."
+      },
+      {
+        "type": "paragraph",
+        "text": "A data, o valor, a periodicidade e a recorrência serão apresentados antes da confirmação da contratação. O Cliente é responsável por manter os dados de cobrança atualizados e verificar o recebimento das cobranças."
+      },
+      {
+        "type": "paragraph",
+        "text": "Após 12 meses de contratação, os preços poderão ser reajustados uma vez por ano pela variação positiva acumulada do IPCA, ou por índice oficial que o substitua, mediante comunicação prévia. Mudanças comerciais além do reajuste serão informadas com antecedência razoável e não alterarão retroativamente períodos já pagos."
+      },
+      {
+        "type": "heading",
+        "text": "9. Renovação, cancelamento e reembolso"
+      },
+      {
+        "type": "paragraph",
+        "text": "As assinaturas mensal e anual serão renovadas automaticamente ao final de cada período, salvo cancelamento realizado antes da próxima renovação."
+      },
+      {
+        "type": "paragraph",
+        "text": "O Cliente pode cancelar a qualquer momento, sem multa. O cancelamento impede cobranças futuras, mas o acesso permanece ativo até o fim do período já pago. Não haverá reembolso proporcional pelo período não utilizado, tanto no plano mensal quanto no anual."
+      },
+      {
+        "type": "paragraph",
+        "text": "Quando o direito de arrependimento previsto na legislação brasileira for aplicável, o Cliente poderá desistir da contratação inicial em até 7 dias corridos, com reembolso integral dos valores pagos. Após esse prazo, permanecem as regras de cancelamento sem reembolso proporcional, ressalvados cobranças indevidas, falhas comprovadas imputáveis à MB LABS e demais direitos que não possam ser afastados por lei."
+      },
+      {
+        "type": "paragraph",
+        "text": "A solicitação de cancelamento deverá ser feita pelo recurso disponibilizado na Plataforma ou pelo canal eletrônico divulgado nos canais oficiais da Motria."
+      },
+      {
+        "type": "heading",
+        "text": "10. Inadimplência e suspensão"
+      },
+      {
+        "type": "paragraph",
+        "text": "Em caso de atraso, a MB LABS poderá enviar lembretes ao Cliente. Será concedida tolerância de 7 dias corridos após o vencimento."
+      },
+      {
+        "type": "paragraph",
+        "text": "Decorrido esse prazo sem confirmação do pagamento, a Motria poderá suspender novas operações e restringir o acesso até a regularização. A suspensão não extingue valores já vencidos nem gera prorrogação do período contratado."
+      },
+      {
+        "type": "paragraph",
+        "text": "Após a confirmação do pagamento, o acesso será restabelecido em prazo técnico razoável. Se a inadimplência persistir, a assinatura poderá ser encerrada, iniciando-se então o prazo de disponibilidade restrita previsto nestes Termos."
+      },
+      {
+        "type": "heading",
+        "text": "11. Encerramento, exportação e prazo de 90 dias"
+      },
+      {
+        "type": "paragraph",
+        "text": "Após o fim do período pago, o encerramento do teste sem contratação ou o término da assinatura, o acesso será restringido."
+      },
+      {
+        "type": "paragraph",
+        "text": "Durante 90 dias, o Cliente poderá reativar a assinatura e utilizar os recursos disponíveis para consulta, exportação ou solicitação de exclusão dos seus dados. Depois desse prazo, os dados deixarão de estar disponíveis na área do Cliente."
+      },
+      {
+        "type": "paragraph",
+        "text": "O Cliente deve realizar as exportações necessárias dentro desse prazo. As regras de retenção aplicáveis depois da indisponibilidade, inclusive obrigações legais, segurança e cópias técnicas, estão descritas na Política de Privacidade da Motria."
+      },
+      {
+        "type": "heading",
+        "text": "12. Dados do Cliente e prontuários"
+      },
+      {
+        "type": "paragraph",
+        "text": "Os Dados do Cliente continuam pertencendo ao Cliente ou aos respectivos titulares. A MB LABS não adquire propriedade sobre o conteúdo inserido na Plataforma e somente poderá tratá-lo para prestar o serviço, manter segurança, cumprir obrigações legais e exercer direitos, conforme a Política de Privacidade."
+      },
+      {
+        "type": "paragraph",
+        "text": "O Cliente é responsável pela licitude, exatidão, necessidade e atualização dos dados que inserir, bem como por possuir bases legais, autorizações e avisos adequados."
+      },
+      {
+        "type": "paragraph",
+        "text": "Prontuários e registros assistenciais devem ser elaborados, finalizados, assinados, corrigidos, exportados e conservados pelos profissionais autorizados, conforme a legislação e as regras dos respectivos conselhos. A Plataforma apoia a organização dos registros, mas não transfere à MB LABS a responsabilidade profissional ou a obrigação legal de guarda do Cliente."
+      },
+      {
+        "type": "heading",
+        "text": "13. Responsabilidade profissional e financeira"
+      },
+      {
+        "type": "paragraph",
+        "text": "A Motria é uma ferramenta de gestão e não realiza diagnósticos, prescrições, decisões terapêuticas ou validação do conteúdo clínico. Cada profissional permanece integralmente responsável pelos atendimentos, decisões e registros que realizar."
+      },
+      {
+        "type": "paragraph",
+        "text": "As informações financeiras da Agenda são registros operacionais inseridos pelo Cliente. Elas não substituem conciliação bancária, contabilidade, emissão fiscal ou orientação tributária. O prestador utilizado para cobrar a assinatura da Motria não se confunde com o controle financeiro dos pacientes dentro da Plataforma, salvo se uma integração específica for disponibilizada."
+      },
+      {
+        "type": "heading",
+        "text": "14. Privacidade e proteção de dados"
+      },
+      {
+        "type": "paragraph",
+        "text": "A Política de Privacidade da Motria integra estes Termos. Para dados de conta, contratação, suporte e segurança, a MB LABS poderá atuar como controladora. Para dados de pacientes e prontuários inseridos pelo Cliente, o Cliente atua como controlador e a MB LABS como operadora."
+      },
+      {
+        "type": "paragraph",
+        "text": "O Cliente deverá orientar seus Usuários, limitar acessos ao necessário e atender pedidos dos titulares. A MB LABS prestará o apoio técnico cabível, conforme a LGPD, a Política de Privacidade e o contrato."
+      },
+      {
+        "type": "heading",
+        "text": "15. Uso permitido e condutas proibidas"
+      },
+      {
+        "type": "paragraph",
+        "text": "O Cliente e os Usuários devem utilizar a Motria apenas para finalidades lícitas relacionadas às suas atividades."
+      },
+      {
+        "type": "paragraph",
+        "text": "É proibido compartilhar senhas; acessar dados de outra Agenda sem autorização; inserir conteúdo ilícito, discriminatório, malicioso ou que viole direitos de terceiros; testar vulnerabilidades sem autorização; interferir no funcionamento da Plataforma; utilizar robôs ou automações não autorizadas; contornar limites de contratação; copiar, revender ou explorar comercialmente a Plataforma; realizar engenharia reversa, descompilação ou tentativa de obtenção do código-fonte, salvo quando a lei não permitir essa restrição."
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS poderá limitar ou suspender acessos quando houver indício razoável de fraude, abuso, risco à segurança, violação destes Termos ou determinação legal, adotando medida proporcional ao risco e comunicando o Cliente quando isso não comprometer a investigação ou a segurança."
+      },
+      {
+        "type": "heading",
+        "text": "16. Suporte, manutenção e disponibilidade"
+      },
+      {
+        "type": "paragraph",
+        "text": "O suporte será prestado pelo canal eletrônico divulgado nos canais oficiais da Motria. A meta de resposta inicial é de até 1 dia útil, o que não significa garantia de solução definitiva nesse prazo."
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS empregará esforços razoáveis para manter a Plataforma disponível e segura. Poderão ocorrer interrupções por manutenção programada ou emergencial, atualizações, falhas de internet, energia, fornecedores, ataques ou eventos fora do controle razoável da MB LABS."
+      },
+      {
+        "type": "paragraph",
+        "text": "Não é oferecido acordo específico de nível de serviço ou disponibilidade mínima garantida, salvo contratação escrita em separado. Sempre que possível, manutenções relevantes serão comunicadas previamente."
+      },
+      {
+        "type": "heading",
+        "text": "17. Atualizações e serviços de terceiros"
+      },
+      {
+        "type": "paragraph",
+        "text": "A Plataforma poderá receber correções, melhorias e alterações necessárias à segurança, ao funcionamento ou à evolução do produto. A MB LABS buscará não remover, durante um período já pago, funcionalidade essencial que comprometa de forma relevante a finalidade principal do serviço, salvo por exigência legal, risco de segurança ou inviabilidade técnica."
+      },
+      {
+        "type": "paragraph",
+        "text": "Alguns recursos podem depender de serviços de terceiros, sujeitos às respectivas regras e condições de disponibilidade. A MB LABS realizará a escolha e a gestão diligente dos fornecedores sob seu controle, sem afastar os direitos assegurados pela legislação aplicável."
+      },
+      {
+        "type": "heading",
+        "text": "18. Segurança, backups e recuperação"
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS adotará medidas técnicas e administrativas compatíveis com os riscos do serviço, incluindo controles de acesso, proteção de credenciais, registros técnicos e backups."
+      },
+      {
+        "type": "paragraph",
+        "text": "Backups são medidas de continuidade e não substituem a responsabilidade do Cliente de exportar e guardar prontuários, documentos e informações sujeitos a deveres profissionais ou legais. Em caso de perda ou corrupção de dados imputável à infraestrutura da Motria, a MB LABS empregará esforços razoáveis para recuperar a versão tecnicamente disponível mais recente, sem garantia de recuperação integral em todas as situações."
+      },
+      {
+        "type": "heading",
+        "text": "19. Propriedade intelectual e confidencialidade"
+      },
+      {
+        "type": "paragraph",
+        "text": "A Plataforma, seu código, marca, design, estrutura, documentação e demais componentes pertencem à MB LABS ou aos respectivos licenciadores. Estes Termos concedem somente o direito temporário de uso, sem transferência de propriedade intelectual."
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS e o Cliente deverão manter confidenciais as informações comerciais, técnicas, pessoais e clínicas a que tiverem acesso em razão da relação, utilizando-as somente para as finalidades autorizadas e protegendo-as com medidas adequadas."
+      },
+      {
+        "type": "heading",
+        "text": "20. Limites de responsabilidade"
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS responde pelos danos diretos comprovadamente causados por descumprimento de suas obrigações, observadas a legislação aplicável e as circunstâncias do caso."
+      },
+      {
+        "type": "paragraph",
+        "text": "Na extensão permitida por lei, a MB LABS não responde por decisões profissionais, dados incorretos inseridos pelo Cliente, uso indevido de credenciais, falhas em equipamentos ou conexões do Cliente, indisponibilidade causada por terceiros fora de seu controle, perda de lucros, perda de oportunidade ou danos indiretos não comprovadamente causados pela MB LABS."
+      },
+      {
+        "type": "paragraph",
+        "text": "Nenhuma disposição destes Termos exclui responsabilidade por dolo, culpa grave, violação de direitos que não possam ser afastados, deveres de proteção de dados ou garantias obrigatórias previstas na legislação de defesa do consumidor quando aplicáveis."
+      },
+      {
+        "type": "heading",
+        "text": "21. Encerramento pela MB LABS"
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS poderá encerrar a relação em caso de violação grave ou reiterada destes Termos, fraude, atividade ilícita, risco relevante à segurança, determinação de autoridade ou inviabilidade legal da prestação."
+      },
+      {
+        "type": "paragraph",
+        "text": "Sempre que a situação permitir, o Cliente será previamente notificado e terá oportunidade razoável de corrigir a irregularidade. O encerramento não prejudica obrigações pendentes, deveres de confidencialidade, proteção de dados, propriedade intelectual e responsabilidade."
+      },
+      {
+        "type": "paragraph",
+        "text": "Se a MB LABS decidir descontinuar definitivamente a Motria por motivo comercial, comunicará os Clientes ativos com antecedência razoável e fornecerá oportunidade para exportação dos dados, ressalvadas situações emergenciais ou determinações legais."
+      },
+      {
+        "type": "heading",
+        "text": "22. Alterações destes Termos"
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS poderá atualizar estes Termos para acompanhar mudanças legais, técnicas ou comerciais. Alterações relevantes serão comunicadas por e-mail, pela Plataforma ou pelo site antes de produzirem efeitos, assegurando prazo razoável para conhecimento e, quando cabível, cancelamento sem multa antes da vigência da nova condição."
+      },
+      {
+        "type": "paragraph",
+        "text": "Mudanças urgentes exigidas por lei ou necessárias para conter risco de segurança poderão entrar em vigor imediatamente. A versão vigente indicará a data da última atualização."
+      },
+      {
+        "type": "heading",
+        "text": "23. Disposições gerais e foro"
+      },
+      {
+        "type": "paragraph",
+        "text": "A eventual tolerância de uma Parte não significa renúncia de direito. Se alguma disposição for considerada inválida, as demais continuarão em vigor. O Cliente não poderá ceder este contrato sem autorização escrita da MB LABS. A MB LABS poderá transferi-lo em reorganização societária, venda do negócio ou operação equivalente, preservados os direitos do Cliente."
+      },
+      {
+        "type": "paragraph",
+        "text": "Aplicam-se as leis brasileiras. Fica eleito o foro da Comarca de São Paulo/SP para resolver controvérsias, sem prejuízo do foro legalmente assegurado ao consumidor e de tentativa prévia de solução pelo suporte."
+      },
+      {
+        "type": "heading",
+        "text": "24. Contato"
+      },
+      {
+        "type": "paragraph",
+        "text": "MB LABS — Motria"
+      },
+      {
+        "type": "paragraph",
+        "text": "E-mail: suporte@motria.com.br"
+      },
+      {
+        "type": "paragraph",
+        "text": "Endereço empresarial: Av. Paulista, 1471, CXPST 7703, Sala 1110, Bela Vista, São Paulo/SP, CEP 01311-927."
+      }
+    ]
+  },
+  "privacy": {
+    "title": "Política de Privacidade da Motria",
+    "updated": "Última atualização: 2026-09-20",
+    "blocks": [
+      {
+        "type": "heading",
+        "text": "Introdução"
+      },
+      {
+        "type": "paragraph",
+        "text": "Esta Política de Privacidade explica como a MAURICIO HENRIQUE BORGES CORREA SOLUCOES EM TECNOLOGIA LTDA, nome fantasia MB LABS (“MB LABS”, “Motria” ou “nós”), trata dados pessoais relacionados ao site da Motria, à criação de contas, ao teste gratuito, à contratação e ao uso da plataforma Motria."
+      },
+      {
+        "type": "paragraph",
+        "text": "A Motria é um software de gestão destinado a profissionais autônomos, clínicas e estabelecimentos que organizam atendimentos, agenda, cadastros, planos, informações financeiras e registros clínicos. Ao utilizar a Motria, o Cliente declara ter lido esta Política e compromete-se a tratar os dados inseridos na plataforma de acordo com a legislação aplicável."
+      },
+      {
+        "type": "heading",
+        "text": "1. Quem é a MB LABS"
+      },
+      {
+        "type": "paragraph",
+        "text": "A Motria é fornecida por MAURICIO HENRIQUE BORGES CORREA SOLUCOES EM TECNOLOGIA LTDA, nome fantasia MB LABS, inscrita no CNPJ sob nº 62.440.916/0001-10, com sede na Av. Paulista, 1471, CXPST 7703, Sala 1110, Bela Vista, São Paulo/SP, CEP 01311-927."
+      },
+      {
+        "type": "heading",
+        "text": "2. A quem esta Política se aplica"
+      },
+      {
+        "type": "paragraph",
+        "text": "Esta Política se aplica às pessoas que visitam o site da Motria, criam ou utilizam uma conta, participam do teste gratuito, contratam o serviço, integram a equipe de um Cliente ou entram em contato com o suporte."
+      },
+      {
+        "type": "paragraph",
+        "text": "Ela também explica como a Motria trata, na qualidade de operadora, os dados de pacientes, responsáveis e demais pessoas cadastradas por profissionais autônomos e clínicas."
+      },
+      {
+        "type": "heading",
+        "text": "3. Papéis da MB LABS e do Cliente na LGPD"
+      },
+      {
+        "type": "paragraph",
+        "text": "A definição do papel de cada parte depende do tipo de dado e da finalidade do tratamento."
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS atua como controladora quando decide como serão tratados os dados necessários à administração de contas, teste gratuito, contratação, cobrança, comunicação, suporte, segurança, prevenção a fraudes, cumprimento de obrigações legais e melhoria da Motria."
+      },
+      {
+        "type": "paragraph",
+        "text": "O profissional autônomo, a clínica ou o estabelecimento que utiliza a Motria (“Cliente”) atua como controlador dos dados de pacientes, responsáveis e demais pessoas que cadastrar na plataforma, inclusive dos dados de saúde e dos prontuários. Nesses casos, a MB LABS atua como operadora e trata os dados para disponibilizar o serviço, conforme o contrato, esta Política e as instruções lícitas do Cliente."
+      },
+      {
+        "type": "paragraph",
+        "text": "O Cliente é responsável por definir as finalidades, as bases legais e os prazos de guarda aplicáveis aos dados que inserir, bem como por orientar seus usuários e atender diretamente os titulares. A Motria prestará o apoio técnico razoavelmente necessário para essas atividades."
+      },
+      {
+        "type": "heading",
+        "text": "4. Dados pessoais que podemos tratar"
+      },
+      {
+        "type": "paragraph",
+        "text": "Conforme o modo de utilização da Motria, podemos tratar as seguintes categorias de dados:"
+      },
+      {
+        "type": "list",
+        "items": [
+          "Dados de conta e identificação: nome, e-mail, senha protegida por técnicas criptográficas, dados profissionais, vínculo com a Agenda e permissões de acesso.",
+          "Dados do negócio: nome da Agenda, serviços, equipe, horários, configurações e informações necessárias à operação.",
+          "Dados de pacientes e responsáveis: identificação, contato, dados cadastrais e informações fornecidas pelo Cliente.",
+          "Dados de atendimento e saúde: agendamentos, avaliações, evoluções, prontuários, observações clínicas, faltas, remarcações e outros registros inseridos pelos profissionais.",
+          "Dados financeiros e administrativos: planos, pacotes, mensalidades, cobranças, recebimentos, despesas e registros relacionados à contratação da Motria.",
+          "Dados de pagamento: informações necessárias ao processamento da assinatura. Os dados completos do cartão e o código de segurança são processados pelo prestador de pagamentos e não devem ser armazenados pela Motria.",
+          "Dados técnicos e de segurança: endereço IP, data e hora de acesso, navegador, dispositivo, registros de autenticação, logs, erros e eventos necessários à segurança e ao funcionamento do serviço.",
+          "Comunicações: mensagens e informações enviadas ao suporte ou em outras interações com a MB LABS."
+        ]
+      },
+      {
+        "type": "heading",
+        "text": "5. Para que utilizamos os dados"
+      },
+      {
+        "type": "paragraph",
+        "text": "Utilizamos os dados pessoais somente para finalidades legítimas e compatíveis com a relação com o titular ou com as instruções do Cliente, incluindo:"
+      },
+      {
+        "type": "list",
+        "items": [
+          "Criar, autenticar e administrar contas e a Agenda do Cliente.",
+          "Disponibilizar o teste gratuito e as funcionalidades contratadas.",
+          "Executar agenda, cadastros, prontuários, controles financeiros e demais recursos solicitados pelo Cliente.",
+          "Processar assinaturas, cobranças e pagamentos.",
+          "Enviar comunicações transacionais sobre acesso, segurança, teste, vencimento, pagamento, alterações relevantes e suporte.",
+          "Prestar suporte, investigar falhas e melhorar a estabilidade, a segurança e a experiência da plataforma.",
+          "Prevenir fraudes, abusos e acessos não autorizados.",
+          "Realizar backups, auditorias e registros técnicos.",
+          "Cumprir obrigações legais, regulatórias ou ordens de autoridades competentes.",
+          "Exercer direitos em processos administrativos, arbitrais ou judiciais.",
+          "Enviar comunicações comerciais quando permitido pela legislação, sempre oferecendo uma forma adequada de oposição ou descadastramento."
+        ]
+      },
+      {
+        "type": "paragraph",
+        "text": "As bases legais utilizadas podem incluir execução de contrato e procedimentos preliminares, cumprimento de obrigação legal ou regulatória, exercício regular de direitos, legítimo interesse, proteção da vida ou da incolumidade física e consentimento, quando ele for efetivamente necessário. A base aplicável depende do dado, da finalidade e do papel exercido pela MB LABS."
+      },
+      {
+        "type": "paragraph",
+        "text": "O tratamento de dados pessoais sensíveis, especialmente dados de saúde inseridos por Clientes, deverá estar amparado por uma das hipóteses previstas na LGPD. Cabe ao Cliente, como controlador, definir e documentar a base legal adequada. A MB LABS tratará esses dados como operadora, conforme as instruções lícitas do Cliente e as obrigações aplicáveis."
+      },
+      {
+        "type": "heading",
+        "text": "6. Compartilhamento com fornecedores"
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS poderá compartilhar os dados estritamente necessários com fornecedores que apoiam a operação da Motria, sujeitos a deveres de confidencialidade, segurança e proteção de dados. As categorias de fornecedores incluem hospedagem e banco de dados, infraestrutura e segurança, envio de e-mails, processamento de pagamentos, armazenamento de backups, monitoramento de erros, suporte técnico, contabilidade, assessoria jurídica e serviços exigidos por lei."
+      },
+      {
+        "type": "paragraph",
+        "text": "Os fornecedores efetivamente utilizados poderão mudar conforme os recursos habilitados. A MB LABS avaliará esses fornecedores de acordo com a finalidade, a segurança e as obrigações aplicáveis e poderá divulgar informações adicionais nos canais oficiais da Motria."
+      },
+      {
+        "type": "paragraph",
+        "text": "Também poderemos compartilhar dados quando necessário para cumprir obrigação legal, ordem judicial ou requisição válida de autoridade pública; proteger direitos, segurança e integridade da Motria, de seus Clientes ou de terceiros; ou em uma operação societária, observadas as garantias previstas na legislação."
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS não vende dados pessoais como produto."
+      },
+      {
+        "type": "heading",
+        "text": "7. Transferências internacionais"
+      },
+      {
+        "type": "paragraph",
+        "text": "Alguns fornecedores podem armazenar ou processar dados fora do Brasil. Nesses casos, a MB LABS adotará os mecanismos e salvaguardas exigidos pela LGPD e pela regulamentação da Autoridade Nacional de Proteção de Dados, incluindo medidas contratuais e de segurança adequadas ao risco e à natureza das informações."
+      },
+      {
+        "type": "heading",
+        "text": "8. Cookies e tecnologias semelhantes"
+      },
+      {
+        "type": "paragraph",
+        "text": "A Motria poderá utilizar cookies e tecnologias semelhantes estritamente necessários à autenticação, manutenção da sessão, segurança, prevenção a fraudes e funcionamento da plataforma. Esses recursos são utilizados somente quando indispensáveis ao serviço solicitado e não dependem de consentimento."
+      },
+      {
+        "type": "paragraph",
+        "text": "No lançamento, a Motria não utilizará cookies de publicidade, rastreamento comportamental, Google Analytics, Meta Pixel, Hotjar ou ferramentas equivalentes. Se tecnologias opcionais forem adicionadas futuramente, esta Política será atualizada e, quando necessário, elas somente serão ativadas após a escolha do visitante por um mecanismo próprio de consentimento."
+      },
+      {
+        "type": "paragraph",
+        "text": "O usuário poderá configurar ou excluir cookies pelo navegador. A desativação de cookies essenciais, porém, poderá impedir o login ou o funcionamento de recursos da plataforma."
+      },
+      {
+        "type": "heading",
+        "text": "9. Segurança da informação"
+      },
+      {
+        "type": "paragraph",
+        "text": "A MB LABS adota medidas técnicas e administrativas compatíveis com o porte do serviço, a natureza dos dados e os riscos envolvidos. Essas medidas podem incluir controle de acesso, separação lógica entre Clientes, proteção criptográfica de credenciais, conexão segura, registros de segurança, backups, restrição de privilégios e monitoramento técnico."
+      },
+      {
+        "type": "paragraph",
+        "text": "Nenhum sistema é completamente imune a falhas ou ataques. Por isso, as medidas são revisadas e aprimoradas conforme a evolução da Motria, dos riscos e das práticas de segurança."
+      },
+      {
+        "type": "paragraph",
+        "text": "Se ocorrer um incidente de segurança, a MB LABS adotará medidas de contenção e investigação. Quando atuar como controladora, realizará as comunicações legalmente exigidas à ANPD e aos titulares. Quando atuar como operadora dos dados do Cliente, informará o Cliente sem demora indevida e fornecerá as informações disponíveis para que ele cumpra suas obrigações."
+      },
+      {
+        "type": "heading",
+        "text": "10. Retenção, encerramento e acesso restrito"
+      },
+      {
+        "type": "paragraph",
+        "text": "Os dados serão mantidos durante o teste gratuito e a contratação pelo tempo necessário à prestação do serviço e às finalidades descritas nesta Política."
+      },
+      {
+        "type": "paragraph",
+        "text": "Após o encerramento do teste ou da assinatura, o acesso do Cliente será restringido. Durante 90 dias, os dados poderão permanecer disponíveis nos recursos destinados à reativação, consulta, exportação ou solicitação de exclusão, conforme as funcionalidades então oferecidas pela Motria."
+      },
+      {
+        "type": "paragraph",
+        "text": "Depois dos 90 dias, os dados deixarão de ficar disponíveis ao Cliente na plataforma. Isso não significa exclusão imediata de todos os ambientes da MB LABS. Informações poderão permanecer em arquivos internos de acesso restrito, cópias de segurança ou registros técnicos enquanto forem necessárias para cumprir obrigações legais ou regulatórias, preservar segurança, prevenir fraudes, exercer direitos ou respeitar os ciclos técnicos de backup. Encerradas essas finalidades e os prazos aplicáveis, os dados serão eliminados ou anonimizados de forma segura."
+      },
+      {
+        "type": "paragraph",
+        "text": "O Cliente é responsável por exportar e conservar os prontuários e demais documentos sujeitos a prazos profissionais ou legais de guarda. A Motria fornecerá os meios técnicos disponíveis e o suporte aplicável, mas não substitui a obrigação de guarda do profissional ou da clínica."
+      },
+      {
+        "type": "heading",
+        "text": "11. Direitos dos titulares"
+      },
+      {
+        "type": "paragraph",
+        "text": "Nos termos da LGPD, o titular poderá solicitar, quando aplicável, confirmação de tratamento, acesso, correção, anonimização, bloqueio ou eliminação, portabilidade, informação sobre compartilhamentos, revisão de decisões automatizadas, oposição e revogação do consentimento."
+      },
+      {
+        "type": "paragraph",
+        "text": "Para dados de conta, contratação, atendimento ou comunicações tratados pela MB LABS como controladora, a solicitação deverá ser apresentada pelo canal eletrônico divulgado nos canais oficiais da Motria. Poderemos solicitar informações adicionais para confirmar a identidade do requerente e proteger os dados contra acesso indevido."
+      },
+      {
+        "type": "paragraph",
+        "text": "Para dados de pacientes e prontuários inseridos por um Cliente, o pedido deve ser dirigido inicialmente ao profissional autônomo ou à clínica responsável pelo atendimento. A MB LABS apoiará tecnicamente o Cliente no atendimento da solicitação, conforme a lei e o contrato."
+      },
+      {
+        "type": "heading",
+        "text": "12. Dados de crianças e adolescentes"
+      },
+      {
+        "type": "paragraph",
+        "text": "A Motria pode armazenar dados de pacientes crianças ou adolescentes quando eles forem inseridos por profissionais ou clínicas responsáveis pelo atendimento. O Cliente deverá observar o melhor interesse da criança ou do adolescente, utilizar a base legal adequada e cumprir os deveres de informação e representação previstos na legislação. A MB LABS tratará esses dados como operadora, de acordo com as instruções lícitas do Cliente."
+      },
+      {
+        "type": "heading",
+        "text": "13. Responsabilidades de quem utiliza a Motria"
+      },
+      {
+        "type": "paragraph",
+        "text": "O Cliente e seus usuários devem utilizar a plataforma de forma legítima, inserir apenas os dados necessários, manter seus dados de acesso em sigilo, configurar corretamente as permissões e comunicar imediatamente suspeitas de acesso indevido."
+      },
+      {
+        "type": "paragraph",
+        "text": "Cada usuário deverá utilizar credenciais próprias. O compartilhamento de senhas ou o uso de contas de terceiros pode comprometer a segurança, a rastreabilidade e a confidencialidade dos dados."
+      },
+      {
+        "type": "heading",
+        "text": "14. Alterações desta Política"
+      },
+      {
+        "type": "paragraph",
+        "text": "Esta Política poderá ser atualizada para refletir mudanças legais, regulatórias, técnicas ou comerciais. A versão vigente será disponibilizada nos canais oficiais da Motria, com indicação da data da última atualização. Alterações relevantes poderão ser comunicadas por e-mail ou dentro da plataforma."
+      },
+      {
+        "type": "heading",
+        "text": "15. Contato"
+      },
+      {
+        "type": "paragraph",
+        "text": "Dúvidas, solicitações ou comunicações sobre privacidade e proteção de dados podem ser enviadas para:"
+      },
+      {
+        "type": "paragraph",
+        "text": "MB LABS — Motria"
+      },
+      {
+        "type": "paragraph",
+        "text": "Encarregado pelo tratamento de dados: Maurício Henrique Borges Corrêa"
+      },
+      {
+        "type": "paragraph",
+        "text": "E-mail: suporte@motria.com.br"
+      },
+      {
+        "type": "paragraph",
+        "text": "Endereço empresarial: Av. Paulista, 1471, CXPST 7703, Sala 1110, Bela Vista, São Paulo/SP, CEP 01311-927."
+      }
+    ]
+  }
+}
