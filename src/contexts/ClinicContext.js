@@ -53,15 +53,15 @@ function applyBrandingVariables(clinic) {
 }
 
 function applyFavicon(faviconUrl) {
-  if (!faviconUrl) return;
-
   let link = document.querySelector("link[rel='icon']");
   if (!link) {
     link = document.createElement("link");
     link.rel = "icon";
     document.head.appendChild(link);
   }
-  link.href = faviconUrl;
+  link.href = faviconUrl || `${process.env.PUBLIC_URL || ""}/neutral-icon.svg`;
+  const appleTouchIcon = document.querySelector("link[rel='apple-touch-icon']");
+  if (appleTouchIcon) appleTouchIcon.href = `${process.env.PUBLIC_URL || ""}/neutral-icon.svg`;
 }
 
 function getInitials(value) {
@@ -129,6 +129,7 @@ export function ClinicProvider({ children }) {
         setError(err);
         setClinic(FALLBACK_CONTEXT);
         applyBrandingVariables(FALLBACK_CONTEXT);
+        applyFavicon(null);
       } finally {
         if (active) {
           setLoading(false);

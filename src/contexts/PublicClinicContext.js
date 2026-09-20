@@ -148,7 +148,7 @@ function applyPublicVariables(publicClinic) {
   root.style.setProperty("--public-accent-color", publicClinic.accent_color);
 }
 
-function applyPublicFavicon(faviconUrl) {
+function applyPublicFavicon(faviconUrl, hasPublicTenant) {
   let link = document.querySelector("link[rel='icon']");
   if (!link) {
     link = document.createElement("link");
@@ -156,7 +156,12 @@ function applyPublicFavicon(faviconUrl) {
     document.head.appendChild(link);
   }
 
-  link.href = faviconUrl || `${process.env.PUBLIC_URL || ""}/neutral-icon.svg`;
+  const publicRoot = process.env.PUBLIC_URL || "";
+  link.href = faviconUrl || `${publicRoot}/${hasPublicTenant ? "neutral-icon.svg" : "favicon.ico"}`;
+  const appleTouchIcon = document.querySelector("link[rel='apple-touch-icon']");
+  if (appleTouchIcon) {
+    appleTouchIcon.href = `${publicRoot}/${hasPublicTenant ? "neutral-icon.svg" : "apple-touch-icon.png"}`;
+  }
 }
 
 export function PublicClinicProvider({ children }) {
@@ -200,7 +205,7 @@ export function PublicClinicProvider({ children }) {
         if (window.location.pathname.replace(/\/$/, "") !== "/login" || nextContext.has_public_tenant) {
           document.title = nextContext.public_name;
         }
-        applyPublicFavicon(nextContext.favicon_url);
+        applyPublicFavicon(nextContext.favicon_url, nextContext.has_public_tenant);
       } catch (err) {
         if (!active) return;
 
@@ -210,7 +215,7 @@ export function PublicClinicProvider({ children }) {
         if (window.location.pathname.replace(/\/$/, "") !== "/login") {
           document.title = DEFAULT_PUBLIC_CONTEXT.public_name;
         }
-        applyPublicFavicon(DEFAULT_PUBLIC_CONTEXT.favicon_url);
+        applyPublicFavicon(DEFAULT_PUBLIC_CONTEXT.favicon_url, false);
       } finally {
         if (active) {
           setLoading(false);

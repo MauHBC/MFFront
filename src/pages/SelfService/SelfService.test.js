@@ -3,11 +3,13 @@ import "@testing-library/jest-dom";
 import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Switch } from "react-router-dom";
 import { useSelector } from "react-redux";
 import axios from "../../services/axios";
 import { useCommercial } from "../../contexts/CommercialContext";
 import Signup from "./Signup";
+import Terms from "./Terms";
+import Privacy from "./Privacy";
 import Confirmation from "./Confirmation";
 import TrialPanel, { TrialIndicator } from "./TrialPanel";
 import CommercialBoundary from "./CommercialBoundary";
@@ -37,7 +39,7 @@ beforeEach(() => {
   axios.post.mockResolvedValue({ data: { accepted: true } });
 });
 const fill = async () => {
-  await screen.findByText("Ambiente de revisão técnica: os documentos legais ainda aguardam aprovação para abertura comercial.");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Confirmar e-mail para criar Agenda" })).toBeEnabled());
   act(() => { userEvent.type(screen.getByLabelText("Nome"), "Pessoa de Teste"); });
   act(() => { userEvent.type(screen.getByLabelText("E-mail"), "pessoa@example.test"); });
   act(() => { userEvent.type(screen.getByLabelText(/^Senha/), "SenhaForteTeste!28"); });
@@ -54,6 +56,20 @@ test("confirmação distingue bloqueio jurídico de falha temporária de provisi
 test("cadastro começa sem aceite e contém somente nome, e-mail e senha, com links legais", async () => {
   wrap(<Signup />);
   await fill();
+  expect(screen.getByRole("heading", { name: "Crie sua conta" })).toBeInTheDocument();
+  expect(screen.getByLabelText("Nome")).toBeInTheDocument();
+  expect(screen.getByLabelText("E-mail")).toBeInTheDocument();
+  expect(screen.getByLabelText(/^Senha/)).toBeInTheDocument();
+  expect(screen.getByText("Mínimo de 8 caracteres")).toBeInTheDocument();
+  expect(screen.queryByText(/Entre 8 e 128 caracteres/)).not.toBeInTheDocument();
+  expect(screen.getByLabelText(/^Senha/)).toHaveAttribute("minlength", "8");
+  expect(screen.getByLabelText(/^Senha/)).toHaveAttribute("maxlength", "128");
+  expect(screen.queryByText(/Confirme seu e-mail e receba uma Agenda vazia/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Ambiente de revisão técnica/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Usaremos sua conta autenticada/)).not.toBeInTheDocument();
+  expect(screen.queryByText("Entrar na minha conta")).not.toBeInTheDocument();
+  expect(screen.getByText(/Já tenho uma conta/)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Ir para o login" })).toHaveAttribute("href", "/login");
   expect(screen.getByRole("checkbox")).not.toBeChecked();
   expect(screen.getByRole("link", { name: "Termos de Uso" })).toHaveAttribute("href", "/termos");
   expect(screen.getByRole("link", { name: "Política de Privacidade" })).toHaveAttribute("href", "/privacidade");
@@ -61,6 +77,32 @@ test("cadastro começa sem aceite e contém somente nome, e-mail e senha, com li
   act(() => { userEvent.click(screen.getByRole("button", { name: "Confirmar e-mail para criar Agenda" })); });
   expect(await screen.findByRole("alert")).toHaveTextContent("aceite");
   expect(axios.post).not.toHaveBeenCalled();
+});
+test.each([
+  ["/termos", "Termos de Uso da Motria", 24,
+    "Estes Termos de Uso regulam o cadastro, o teste gratuito, a contratação e a utilização da plataforma Motria.",
+    "Endereço empresarial: Av. Paulista, 1471, CXPST 7703, Sala 1110, Bela Vista, São Paulo/SP, CEP 01311-927."],
+  ["/privacidade", "Política de Privacidade da Motria", 16,
+    "Esta Política de Privacidade explica como a MAURICIO HENRIQUE BORGES CORREA SOLUCOES EM TECNOLOGIA LTDA",
+    "Encarregado pelo tratamento de dados: Maurício Henrique Borges Corrêa"],
+])("%s publica o documento completo e volta ao cadastro", (path, title, headings, opening, ending) => {
+  render(<MemoryRouter initialEntries={[path]}>
+    <Switch>
+      <Route exact path="/termos" component={Terms} />
+      <Route exact path="/privacidade" component={Privacy} />
+      <Route exact path="/cadastro" render={() => <div>Cadastro público</div>} />
+    </Switch>
+  </MemoryRouter>);
+  expect(screen.getByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+  expect(screen.getByText("Última atualização: 2026-09-20")).toBeInTheDocument();
+  expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(headings);
+  expect(screen.getByRole("article")).toHaveTextContent(opening);
+  expect(screen.getByRole("article")).toHaveTextContent(ending);
+  expect(screen.queryByText(/Documento aguardando aprovação|placeholder|revisão técnica/i)).not.toBeInTheDocument();
+  const back = screen.getByRole("link", { name: "Voltar ao cadastro" });
+  expect(back).toHaveAttribute("href", "/cadastro");
+  fireEvent.click(back);
+  expect(screen.getByText("Cadastro público")).toBeInTheDocument();
 });
 test("teclado em viewport móvel envia as versões e impede duplo envio durante loading", async () => {
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
@@ -97,19 +139,22 @@ test("falha de metadados permite retry e falha de submissão mantém formulário
   expect(await screen.findByRole("alert")).toHaveTextContent("menos comum");
   expect(screen.getByLabelText("Nome")).toHaveValue("Pessoa de Teste");
 });
-test("conta autenticada usa identidade canônica e não transmite senha nova", async () => {
+test("conta autenticada sai de /cadastro para /menu sem montar o formulário ou provisionar", () => {
   useSelector.mockImplementation((selector) => selector({ auth: { isLoggedIn: true } }));
   useCommercial.mockReturnValue({ status: "ready", data: { managed: false,
     identity: { name: "Conta Existente", email: "existente@example.test" } }, refresh });
-  wrap(<Signup />);
-  await screen.findByText(/Ambiente de revisão técnica/);
-  expect(screen.getByLabelText("Nome")).toHaveValue("Conta Existente");
+  render(<MemoryRouter initialEntries={["/cadastro"]}>
+    <Switch>
+      <Route exact path="/cadastro" component={Signup} />
+      <Route exact path="/menu" render={() => <div>Menu autenticado</div>} />
+    </Switch>
+  </MemoryRouter>);
+  expect(screen.getByText("Menu autenticado")).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Crie sua conta" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Nome")).not.toBeInTheDocument();
   expect(screen.queryByLabelText(/^Senha/)).not.toBeInTheDocument();
-  act(() => { userEvent.click(screen.getByRole("checkbox")); });
-  act(() => { userEvent.click(screen.getByRole("button", { name: "Confirmar e-mail para criar Agenda" })); });
-  await screen.findByRole("heading", { name: "Confira seu e-mail" });
-  expect(axios.post.mock.calls[0][0]).toBe("/commercial/registrations");
-  expect(axios.post.mock.calls[0][1]).not.toHaveProperty("password");
+  expect(axios.get).not.toHaveBeenCalled();
+  expect(axios.post).not.toHaveBeenCalled();
 });
 test("confirmação remove bearer do histórico, exige ação e recupera falha de provisionamento", async () => {
   window.history.replaceState({}, "", "/confirmar-email#token=confirmation-test");
