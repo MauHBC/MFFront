@@ -6,15 +6,15 @@ import { useDispatch, useSelector } from "react-redux";
 import { FiEye, FiEyeOff } from "react-icons/fi";
 
 import { Container } from "../../styles/GlobalStyles";
+import { LegacyForm } from "./styled";
 import {
   Field,
   FieldError,
   Form,
-  LegacyForm,
   LoadingStatus,
   PasswordControl,
   SubmitButton,
-} from "./styled";
+} from "../../components/PublicAuthShell/controls";
 import * as actions from "../../store/modules/auth/actions";
 
 import Loading from "../../components/Loading";

@@ -237,11 +237,12 @@ e de
 ### Public/Auth Shell da entrada central
 
 `src/components/PublicAuthShell` é uma camada de apresentação pública, sem
-sessão, autorização, seleção de clínica ou acesso à API. A primeira adoção é
-somente `/login` na entrada SaaS sem tenant público: a rota não monta a navbar
-legada, usa a identidade Motria fornecida em `src/assets/brand` e carrega
-Sora/Inter localmente, com tipografia restrita ao shell. Em domínio público de
-clínica, login e navbar continuam com o branding white-label anterior.
+sessão, autorização, seleção de clínica ou acesso à API. O `/login` central e as
+rotas públicas `/recuperar-senha` e `/credencial` compartilham a identidade Motria
+fornecida em `src/assets/brand` e carregam Sora/Inter localmente, com tipografia
+restrita ao shell. Os controles visuais compartilhados ficam em
+`src/components/PublicAuthShell/controls.js`. Em domínio público de clínica,
+o login e a navbar continuam com o branding white-label anterior.
 
 Na entrada central, o favicon, ícone Apple e ícones do manifest usam o símbolo
 Motria. Contextos públicos de clínica continuam aplicando o favicon específico
@@ -251,8 +252,9 @@ o ícone Motria como fallback de clínica.
 O shell recebe título, descrição, conteúdo e rodapé; não encapsula a saga de
 autenticação. `EntryBoundary`, `InitialRenderGate`, `CommercialBoundary`,
 `PublicClinicProvider` e o retorno permitido pelo login permanecem fora dele.
-Cadastro, confirmação e credenciais conservam seus layouts nesta etapa e podem
-adotar a camada visual separadamente no futuro, sem mudar seus contratos.
+Cadastro e confirmação conservam seus layouts e podem adotar a camada visual
+separadamente no futuro, sem mudar seus contratos. Recuperação e credenciais
+mantêm os contratos e estados funcionais existentes ao usar o shell.
 
 ### Primeiro acesso e recuperação — lifecycle público legacy/membership
 
