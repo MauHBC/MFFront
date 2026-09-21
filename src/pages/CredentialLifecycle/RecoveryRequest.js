@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { isEmail } from "validator";
 import { Link } from "react-router-dom";
+import PublicAuthShell from "../../components/PublicAuthShell";
+import { Field, Form, SubmitButton, LoadingStatus } from "../../components/PublicAuthShell/controls";
 import { requestCredentialRecovery } from "../../services/credentialLifecycle";
-import { BackLink, Card, Form, Message, Page } from "./styled";
+import { ActionRow, Message } from "./styled";
 
 const GENERIC_SUCCESS = "Se a conta estiver apta, enviaremos um link para o e-mail informado.";
 
@@ -14,6 +16,7 @@ export default function RecoveryRequest() {
 
   const submit = async (event) => {
     event.preventDefault();
+    if (submitting) return;
     setError("");
     if (!isEmail(email)) {
       setError("Informe um e-mail válido.");
@@ -31,30 +34,36 @@ export default function RecoveryRequest() {
   };
 
   return (
-    <Page>
-      <Card>
-        <h1>Recuperar senha</h1>
-        <p>Informe seu e-mail de acesso ao Motria.</p>
-        {message ? <Message role="status">{message}</Message> : (
-          <Form onSubmit={submit}>
-            <label htmlFor="recovery-email">
-              E-mail
+    <PublicAuthShell
+      title="Recuperar senha"
+      description="Informe seu e-mail para receber o link de recuperação."
+    >
+      {message ? <Message role="status">{message}</Message> : (
+        <Form onSubmit={submit} noValidate aria-busy={submitting}>
+          <Field>
+            <label htmlFor="recovery-email">E-mail
               <input
                 id="recovery-email"
                 type="email"
                 autoComplete="email"
+                inputMode="email"
+                placeholder="seu@email.com"
                 value={email}
+                disabled={submitting}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? "recovery-error" : undefined}
                 onChange={(event) => setEmail(event.target.value)}
               />
             </label>
-            {error && <Message $error role="alert">{error}</Message>}
-            <button type="submit" disabled={submitting}>
-              {submitting ? "Enviando..." : "Enviar link"}
-            </button>
-          </Form>
-        )}
-        <BackLink as={Link} to="/login/">Voltar para o login</BackLink>
-      </Card>
-    </Page>
+          </Field>
+          {error && <Message $error id="recovery-error" role="alert">{error}</Message>}
+          <SubmitButton type="submit" disabled={submitting}>
+            {submitting ? "Enviando..." : "Enviar link"}
+          </SubmitButton>
+          {submitting && <LoadingStatus role="status">Enviando solicitação...</LoadingStatus>}
+        </Form>
+      )}
+      <ActionRow><Link to="/login">Voltar para o login</Link></ActionRow>
+    </PublicAuthShell>
   );
 }

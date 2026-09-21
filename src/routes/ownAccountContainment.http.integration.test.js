@@ -157,7 +157,8 @@ test("admin membership por URL direta recebe aviso; recuperação autenticada us
   expect(history.location.pathname).toBe("/recuperar-senha");
   fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "titular@example.test" } });
   fireEvent.click(screen.getByRole("button", { name: "Enviar link" }));
-  expect(await screen.findByRole("status")).toHaveTextContent("Se a conta estiver apta");
+  expect(await screen.findByText("Se a conta estiver apta, enviaremos um link para o e-mail informado."))
+    .toHaveAttribute("role", "status");
   expect(requests.filter((req) => req.method === "POST")).toEqual([{
     method: "POST", path: "/api/public/credential-recovery-requests", body: { email: "titular@example.test" },
   }]);
