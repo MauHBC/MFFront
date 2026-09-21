@@ -115,7 +115,42 @@ git -C /opt/apps/mffront pull --ff-only origin main
 ```
 
 Se o checkout auxiliar estiver sujo, pare e preserve as alterações antes do
-pull. Em seguida, primeiro execute o planejamento sem alterar o release:
+pull.
+
+### Precheck do runtime de build
+
+Antes de executar o script, confira as versões disponíveis e compare-as com
+`engines` do `package.json`. O script executa `npm ci` e `npm run build` na
+worktree descartável:
+
+```bash
+node --version
+npm --version
+```
+
+Se o runtime padrão for compatível, prossiga normalmente. Se for incompatível,
+verifique o Node 24 já instalado em `/opt/nodejs/node-v24.20.0-linux-x64/bin`
+e selecione-o somente no shell deste deploy:
+
+```bash
+/opt/nodejs/node-v24.20.0-linux-x64/bin/node --version
+export PATH="/opt/nodejs/node-v24.20.0-linux-x64/bin:$PATH"
+/opt/nodejs/node-v24.20.0-linux-x64/bin/npm --version
+node --version
+npm --version
+```
+
+Confirme que Node e npm atendem às faixas de `engines` antes de continuar para
+`npm ci` e build. Execute o dry-run e a publicação no mesmo shell; se abrir
+outro, repita o precheck e a seleção temporária. Não instale outro Node durante
+o deploy, não troque o Node global nem modifique `/usr/bin/node`,
+`alternatives`, `.bashrc`, `.profile`,
+outro arquivo de inicialização do shell ou symlink persistente. Se nem o runtime
+padrão nem o runtime aprovado puderem ser comprovados como compatíveis, pare
+antes de `npm ci`; não crie nem ative um release incompleto e trate o deploy como
+`BLOCKED`.
+
+Com o runtime confirmado, primeiro execute o planejamento sem alterar o release:
 
 ```bash
 bash /opt/apps/mffront/scripts/deploy-production.sh \
