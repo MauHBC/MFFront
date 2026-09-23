@@ -1,3 +1,5 @@
+import { normalizeSearchText } from "../../../utils/patientSearch";
+
 export const emptyFinancialRevenuesSummary = (month = "") => ({
   month,
   summary: {
@@ -24,11 +26,32 @@ export const normalizeFinancialRevenuesSummary = (payload = {}, fallbackMonth = 
     patients: patients.map((patient) => ({
       patient_id: Number(patient.patient_id || 0),
       patient_name: patient.patient_name || "Paciente",
+      patient_full_name: patient.patient_full_name || patient.patient_name || "Paciente",
       total: toCents(patient.total),
       received: toCents(patient.received),
       pending: toCents(patient.pending),
       entries_count: Number(patient.entries_count || 0),
     })).filter((patient) => patient.patient_id > 0),
+  };
+};
+
+export const filterFinancialRevenuesSummary = (payload = {}, query = "") => {
+  const search = normalizeSearchText(query);
+  if (!search) return payload;
+
+  const patients = (payload.patients || []).filter((patient) => (
+    [patient.patient_name, patient.patient_full_name]
+      .some((name) => normalizeSearchText(name).includes(search))
+  ));
+
+  return {
+    ...payload,
+    patients,
+    summary: patients.reduce((summary, patient) => ({
+      total: summary.total + toCents(patient.total),
+      received: summary.received + toCents(patient.received),
+      pending: summary.pending + toCents(patient.pending),
+    }), { total: 0, received: 0, pending: 0 }),
   };
 };
 

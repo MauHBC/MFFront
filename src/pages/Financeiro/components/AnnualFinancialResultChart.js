@@ -45,11 +45,9 @@ export default function AnnualFinancialResultChart({
     );
   }
 
-  const realizedValues = months
-    .filter((item) => !item.isFutureEmpty)
-    .map((item) => Number(item.currentResult || 0));
-  const scaleValues = realizedValues.length ? realizedValues : [0];
-  const allZero = realizedValues.length > 0 && realizedValues.every((value) => value === 0);
+  const accountValues = months.map((item) => item.periodResult);
+  const scaleValues = accountValues.length ? accountValues : [0];
+  const allZero = accountValues.length > 0 && accountValues.every((value) => value === 0);
   const rawMinimum = Math.min(0, ...scaleValues);
   const rawMaximum = Math.max(0, ...scaleValues);
   const range = rawMaximum - rawMinimum;
@@ -69,18 +67,18 @@ export default function AnnualFinancialResultChart({
 
   return (
     <ChartFigure>
-      <ChartScroll aria-label="Gráfico de resultado mensal">
+      <ChartScroll aria-label="Gráfico do saldo das contas">
         <ChartSvg
           viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
           role="img"
-          aria-label="Resultado financeiro por mês"
+          aria-label="Saldo das contas por mês"
           aria-describedby={descriptionId}
           preserveAspectRatio="xMidYMid meet"
         >
-          <title>Resultado financeiro por mês</title>
+          <title>Saldo das contas por mês</title>
           <desc id={descriptionId}>
             Gráfico de barras de janeiro a dezembro. Valores positivos ficam acima da linha zero
-            e valores negativos ficam abaixo. Meses futuros vazios não apresentam barra.
+            e valores negativos ficam abaixo. Inclui as contas de meses futuros.
             A tabela seguinte apresenta os valores exatos.
           </desc>
           <ZeroLine
@@ -91,33 +89,8 @@ export default function AnnualFinancialResultChart({
             $stroke={palette.borderStrong}
           />
           {months.map((item, index) => {
-            const value = Number(item.currentResult || 0);
+            const value = item.periodResult;
             const x = PLOT_LEFT + index * slotWidth + (slotWidth - barWidth) / 2;
-
-            if (item.isFutureEmpty) {
-              return (
-                <g key={item.month} data-month={item.month} data-future-empty="true">
-                  <title>{`${MONTH_LABELS[index]}: sem movimentação realizada`}</title>
-                  <FutureMonthLabel
-                    x={x + barWidth / 2}
-                    y={Math.max(PLOT_TOP + 14, zeroY - 8)}
-                    textAnchor="middle"
-                    data-month={item.month}
-                    $fill={palette.textTertiary}
-                  >
-                    —
-                  </FutureMonthLabel>
-                  <MonthLabel
-                    x={x + barWidth / 2}
-                    y={CHART_HEIGHT - 12}
-                    textAnchor="middle"
-                    $fill={palette.textTertiary}
-                  >
-                    {MONTH_LABELS[index]}
-                  </MonthLabel>
-                </g>
-              );
-            }
 
             const formattedValue = formatCurrency(value);
             const valueY = toY(value);
@@ -134,7 +107,7 @@ export default function AnnualFinancialResultChart({
               <g
                 key={item.month}
                 data-month={item.month}
-                data-current-result={value}
+                data-period-result={value}
                 data-current-month={item.isCurrent ? "true" : undefined}
               >
                 <title>{`${MONTH_LABELS[index]}: ${formattedValue}`}</title>
@@ -198,7 +171,7 @@ export default function AnnualFinancialResultChart({
       </ChartScroll>
       {allZero ? (
         <ZeroResultNote $color={palette.textTertiary}>
-          Todos os resultados realizados do ano são R$ 0,00.
+          O saldo das contas é R$ 0,00 em todos os meses.
         </ZeroResultNote>
       ) : null}
     </ChartFigure>
@@ -208,9 +181,8 @@ export default function AnnualFinancialResultChart({
 AnnualFinancialResultChart.propTypes = {
   months: PropTypes.arrayOf(PropTypes.shape({
     month: PropTypes.string.isRequired,
-    currentResult: PropTypes.number.isRequired,
+    periodResult: PropTypes.number.isRequired,
     isCurrent: PropTypes.bool,
-    isFutureEmpty: PropTypes.bool,
   })).isRequired,
   valuesVisible: PropTypes.bool.isRequired,
   formatCurrency: PropTypes.func.isRequired,
@@ -281,13 +253,6 @@ const CurrentMonthMarker = styled.text`
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-`;
-
-const FutureMonthLabel = styled.text`
-  fill: ${(props) => props.$fill};
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 700;
 `;
 
 const HiddenChartState = styled.div`

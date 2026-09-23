@@ -3,12 +3,13 @@
 Este documento é a fonte oficial para a landing pública, seus contextos e os
 padrões dos módulos autenticados.
 
-## Recebido e pago no Financeiro
+## Recebido e pago e Distribuição no Financeiro
 
-A Visão geral possui a terceira aba “Recebido e pago”, montada e consultada
-somente para `useAuthorization().isAdministrator === true`. Seu painel anual
-e modal de distribuição reutilizam os componentes locais e a privacidade do
-Financeiro. Trocas de ano, contexto oficial ou token desmontam o estado privado;
+A Visão geral possui as abas separadas “Recebido e pago” e “Distribuição”,
+montadas e consultadas somente para `useAuthorization().isAdministrator === true`.
+Os painéis anuais e o modal de configuração da Distribuição reutilizam os
+componentes locais e a privacidade do Financeiro. Trocas de aba, ano, contexto
+oficial ou token desmontam o estado privado;
 respostas atrasadas são descartadas. Conflito de gravação recarrega a configuração
 para nova edição, sem reaplicar o comando. A UI valida participantes, mas exibe
 os totais e rateios entregues pelo Backend. Não há gráfico ou tela de histórico.
@@ -439,18 +440,56 @@ renderização de Mensalidades permanecem no fluxo de Mensalidades. A visão
 dedicada de Recebimentos continua desabilitada intencionalmente e fora dessa
 capacidade compartilhada ativa.
 
-### Evolução anual da Visão geral financeira
+### Pesquisa e identificação do paciente em Receitas
 
-A Visão geral separa `Resumo mensal` e `Evolução anual` como modos principais,
-cada um com estado de período e controles próprios. A evolução anual preserva o
-resumo consolidado e consome os 12 buckets de competência retornados por
-`GET /financial-overview?year=YYYY`. A página valida estruturalmente o contrato,
-mas não recalcula valores financeiros: o backend permanece a autoridade dos
-totais e de `currentResult`.
+Em Receitas, pesquisar restringe os pacientes apresentados e preserva a
+interpretação financeira dos pacotes nos valores da lista, dos totais e do
+detalhe. Pesquisa vazia, parcial, completa ou limpa mantém a competência
+definida pela [FIN-001 do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#fin-001),
+sem mudar a semântica dos demais filtros.
 
-O gráfico de barras, seus rótulos monetários e a tabela usam diretamente os
-mesmos buckets. Com a privacidade ativa, a tabela mascara os valores e o gráfico
-não renderiza rótulos nem qualquer proporção financeira real.
+Ao abrir o detalhe, o campo **Pesquisar paciente** mostra o nome completo do
+paciente e permanece desabilitado. Esse texto identifica o detalhe e é separado
+do estado da pesquisa: não dispara uma busca nem recalcula valores. Voltar à
+lista restaura a pesquisa anterior e permite sua edição.
+
+### Abas da Visão geral financeira
+
+A Visão geral contém **Resumo**, **Recebido e pago** e **Distribuição**. O Resumo
+reúne as antigas seleções Resumo mensal e Evolução anual nos controles
+**Mensal/Anual**, preservando separadamente o mês e o ano selecionados. As abas
+são estado local da página; a rota `/financeiro/visao-geral` permanece válida.
+
+O Resumo representa as contas pertencentes ao período, independentemente da
+data do pagamento, conforme a [FIN-002 do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#fin-002).
+`GET /financial-overview?month=YYYY-MM` ou `?year=YYYY` fornece **Total de receitas**
+(`incomeTotal`), **Total de despesas** (`expenseTotal`) e **Saldo das contas**
+(`periodResult`). **Liquidado/A receber** e **Pago/A pagar** representam a situação
+dessas mesmas contas. O pacote integral pertence ao mês da primeira sessão;
+pagamento posterior atualiza sua situação sem deslocar sua competência.
+
+Os cartões, o gráfico **Saldo das contas por mês**, a tabela **Contas por mês** e
+o total anual usam os agregados do Backend, sem recalcular valores financeiros
+no Frontend. Os 12 meses incluem valores futuros já lançados. `hasAccounts`
+distingue ausência de contas de contas com valor zero; carregamento, falha e
+contrato incompleto possuem estados próprios. Uma resposta incompleta nunca é
+transformada em saldo zero. Com a privacidade ativa, os valores são mascarados
+e o gráfico não renderiza proporções ou rótulos monetários reais.
+
+**Recebido e pago** mantém `GET /financial-received-paid?year=YYYY`, com dinheiro
+efetivamente recebido/pago pela data do pagamento em São Paulo (FIN-014).
+**Distribuição**, com título interno **Distribuição do resultado**, usa a mesma
+fonte de caixa e a configuração existente (FIN-015): distribui apenas resultados
+positivos pelos percentuais configurados, de forma demonstrativa, sem repasses
+automáticos. O Resumo não alimenta essa distribuição. Os períodos e permissões
+existentes são preservados: somente administradores acessam as duas abas, e
+apenas a aba Distribuição consulta sua configuração. Mudanças de aba, ano ou
+contexto descartam respostas privadas antigas.
+
+As regressões em `Financeiro/index.test.js`, `FinancialOverviewSection.test.js`
+e `FinancialReceivedPaidSection.test.js`
+cobrem contratos, competência, futuro, navegação, privacidade e permissões. Os
+cálculos do Resumo também são validados por HTTP/MariaDB no Backend.
 
 ### Despesas da clínica
 

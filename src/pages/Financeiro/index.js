@@ -76,6 +76,7 @@ import FinancialOverviewSection from "./components/FinancialOverviewSection";
 import useFinancialPaymentFlow from "./hooks/useFinancialPaymentFlow";
 import {
   emptyFinancialRevenuesSummary,
+  filterFinancialRevenuesSummary,
   mapRevenuesSummaryPatientsToAttendanceRows,
   mapRevenuesSummaryToAttendanceSummary,
   normalizeFinancialRevenuesSummary,
@@ -646,6 +647,10 @@ const createEmptyClinicExpensePayment = () => ({
 const emptyFinancialOverview = (period = "", periodMode = "month") => ({
   ...(periodMode === "year" ? { year: period } : { month: period }),
   summary: {
+    incomeTotal: 0,
+    expenseTotal: 0,
+    periodResult: 0,
+    hasAccounts: false,
     received: 0,
     receivable: 0,
     paidExpenses: 0,
@@ -658,9 +663,23 @@ const emptyFinancialOverview = (period = "", periodMode = "month") => ({
   hasMovement: false,
 });
 
-const normalizeFinancialAmount = (value) => {
-  const normalized = Number(value);
-  return Number.isFinite(normalized) ? normalized : 0;
+const OVERVIEW_AMOUNT_FIELDS = [
+  "incomeTotal", "expenseTotal", "periodResult", "received", "receivable",
+  "paidExpenses", "pendingExpenses",
+];
+
+const normalizeOverviewSummary = (payload) => {
+  if (!payload || typeof payload.hasAccounts !== "boolean") return null;
+  const summary = { hasAccounts: payload.hasAccounts };
+  for (let index = 0; index < OVERVIEW_AMOUNT_FIELDS.length; index += 1) {
+    const field = OVERVIEW_AMOUNT_FIELDS[index];
+    const raw = payload[field];
+    if (raw == null || raw === "" || !["number", "string"].includes(typeof raw)) return null;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return null;
+    summary[field] = value;
+  }
+  return summary;
 };
 
 const normalizeFinancialOverviewMonths = (items, year) => {
@@ -676,29 +695,15 @@ const normalizeFinancialOverviewMonths = (items, year) => {
     itemsByMonth.set(month, item);
   }
 
-  const fields = [
-    "received",
-    "receivable",
-    "paidExpenses",
-    "pendingExpenses",
-    "currentResult",
-    "pendingBalance",
-  ];
-
   const normalizedItems = [];
   for (let index = 0; index < 12; index += 1) {
     const month = `${year}-${String(index + 1).padStart(2, "0")}`;
     const source = itemsByMonth.get(month);
     if (!source) return null;
 
-    const normalized = { month };
-    for (let fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
-      const field = fields[fieldIndex];
-      const value = Number(source[field]);
-      if (!Number.isFinite(value)) return null;
-      normalized[field] = value;
-    }
-    normalizedItems.push(normalized);
+    const summary = normalizeOverviewSummary(source);
+    if (!summary) return null;
+    normalizedItems.push({ month, ...summary });
   }
   return normalizedItems;
 };
@@ -708,12 +713,8 @@ const normalizeFinancialOverview = (
   fallbackPeriod = "",
   periodMode = "month",
 ) => {
-  const received = normalizeFinancialAmount(payload.received);
-  const receivable = normalizeFinancialAmount(payload.receivable);
-  const paidExpenses = normalizeFinancialAmount(payload.paidExpenses);
-  const pendingExpenses = normalizeFinancialAmount(payload.pendingExpenses);
-  const currentResult = normalizeFinancialAmount(payload.currentResult);
-  const pendingBalance = normalizeFinancialAmount(payload.pendingBalance);
+  const summary = normalizeOverviewSummary(payload);
+  if (!summary) throw new Error("Invalid financial overview response");
   const annualMonths = periodMode === "year"
     ? normalizeFinancialOverviewMonths(payload.months, payload.year || fallbackPeriod)
     : null;
@@ -722,22 +723,10 @@ const normalizeFinancialOverview = (
     ...(periodMode === "year"
       ? { year: payload.year || fallbackPeriod }
       : { month: payload.month || fallbackPeriod }),
-    summary: {
-      received,
-      receivable,
-      paidExpenses,
-      pendingExpenses,
-      currentResult,
-      pendingBalance,
-    },
+    summary,
     months: annualMonths || [],
     hasMonthlyBreakdown: Array.isArray(annualMonths),
-    hasMovement: [
-      received,
-      receivable,
-      paidExpenses,
-      pendingExpenses,
-    ].some((value) => Number(value || 0) !== 0),
+    hasMovement: summary.hasAccounts,
   };
 };
 
@@ -757,6 +746,7 @@ export default function Financeiro() {
     [financialValuesVisible],
   );
   const [loadingOverview, setLoadingOverview] = useState(true);
+  const [overviewError, setOverviewError] = useState("");
   const [loadingRevenues, setLoadingRevenues] = useState(false);
   const [loadingRevenuesSummary, setLoadingRevenuesSummary] = useState(false);
   const [revenuesSummaryError, setRevenuesSummaryError] = useState("");
@@ -792,6 +782,7 @@ export default function Financeiro() {
   const [clinicExpensesMonth, setClinicExpensesMonth] = useState(() =>
     toMonthInputValue(new Date()),
   );
+  const [overviewTab, setOverviewTab] = useState("summary");
   const [overviewPeriodMode, setOverviewPeriodMode] = useState("month");
   const [overviewPeriodMonth, setOverviewPeriodMonth] = useState(() =>
     toMonthInputValue(new Date()),
@@ -1380,19 +1371,17 @@ export default function Financeiro() {
     && attendanceFilters.financial === "all"
     && !attendanceFilters.patient_id
     && !attendanceFilters.professional_id
-    && !String(attendanceFilters.search || "").trim()
     && !attendanceDrilldownPatientId
   ), [
     attendanceDrilldownPatientId,
     attendanceFilters.financial,
     attendanceFilters.patient_id,
     attendanceFilters.professional_id,
-    attendanceFilters.search,
     receitasView,
   ]);
 
   const loadOverviewData = useCallback(async () => {
-    if (overviewPeriodMode === "realized") return;
+    if (overviewTab !== "summary") return;
     const overviewPeriod = overviewPeriodMode === "year"
       ? overviewPeriodYear
       : overviewPeriodMonth;
@@ -1402,6 +1391,7 @@ export default function Financeiro() {
     overviewRequestRef.current = requestId;
     try {
       setLoadingOverview(true);
+      setOverviewError("");
       const [
         overviewResponse,
         clinicExpenseAlertsResponse,
@@ -1420,13 +1410,14 @@ export default function Financeiro() {
     } catch (error) {
       if (requestId !== overviewRequestRef.current) return;
       toast.error("Não foi possível carregar a visão geral financeira.");
+      setOverviewError("Não foi possível carregar o Resumo. Tente novamente selecionando o período.");
       setOverviewSummary(emptyFinancialOverview(overviewPeriod, overviewPeriodMode));
     } finally {
       if (requestId === overviewRequestRef.current) {
         setLoadingOverview(false);
       }
     }
-  }, [overviewPeriodMode, overviewPeriodMonth, overviewPeriodYear]);
+  }, [overviewTab, overviewPeriodMode, overviewPeriodMonth, overviewPeriodYear]);
 
   const loadRevenuesSummary = useCallback(async () => {
     const summaryPeriod = attendancePeriodMode === "year"
@@ -1983,11 +1974,24 @@ export default function Financeiro() {
     setClinicExpensesPeriodMode(mode === "year" ? "year" : "month");
   }, []);
 
+  const handleOverviewTabChange = useCallback((tab) => {
+    const nextTab = ["received-paid", "distribution"].includes(tab) ? tab : "summary";
+    if (nextTab === overviewTab) return;
+    overviewRequestRef.current += 1;
+    setLoadingOverview(true);
+    setOverviewTab(nextTab);
+  }, [overviewTab]);
+
   const handleOverviewPeriodModeChange = useCallback((mode) => {
-    const nextMode = ["year", "realized"].includes(mode) ? mode : "month";
+    if (mode === "realized") {
+      handleOverviewTabChange("received-paid");
+      return;
+    }
+    const nextMode = mode === "year" ? "year" : "month";
+    if (nextMode === overviewPeriodMode) return;
     setLoadingOverview(true);
     setOverviewPeriodMode(nextMode);
-  }, []);
+  }, [handleOverviewTabChange, overviewPeriodMode]);
 
   const handleOverviewMonthChange = useCallback((event) => {
     const { value } = event.target;
@@ -2019,7 +2023,7 @@ export default function Financeiro() {
 
   const shiftOverviewPeriod = useCallback((direction) => {
     if (!Number.isFinite(direction) || direction === 0) return;
-    if (["year", "realized"].includes(overviewPeriodMode)) {
+    if (overviewTab !== "summary" || overviewPeriodMode === "year") {
       setOverviewPeriodYear((previousYear) => (
         String((Number(previousYear) || new Date().getFullYear()) + direction)
       ));
@@ -2033,7 +2037,7 @@ export default function Financeiro() {
       const target = new Date(baseDate.getFullYear(), baseDate.getMonth() + direction, 1);
       return toMonthInputValue(target);
     });
-  }, [overviewPeriodMode]);
+  }, [overviewTab, overviewPeriodMode]);
 
   const handleOverviewPreviousMonth = useCallback(() => {
     shiftOverviewPeriod(-1);
@@ -2711,7 +2715,8 @@ export default function Financeiro() {
     const detailPatient = detail?.patient?.id
       ? {
         id: Number(detail.patient.id),
-        full_name: detail.patient.name || "Paciente",
+        full_name: detail.patient.full_name || detail.patient.name || "Paciente",
+        display_name: detail.patient.name || "Paciente",
       }
       : null;
 
@@ -2792,7 +2797,8 @@ export default function Financeiro() {
         map.set(patientIdNumber, {
           ...(map.get(patientIdNumber) || {}),
           id: patientIdNumber,
-          full_name: summaryPatient.patient_name || "Paciente",
+          full_name: summaryPatient.patient_full_name || summaryPatient.patient_name || "Paciente",
+          display_name: summaryPatient.patient_name || "Paciente",
         });
         return Array.from(map.values());
       });
@@ -2834,7 +2840,8 @@ export default function Financeiro() {
       const detailPatient = detail.patient?.id
         ? {
           id: Number(detail.patient.id),
-          full_name: detail.patient.name || "Paciente",
+          full_name: detail.patient.full_name || detail.patient.name || "Paciente",
+          display_name: detail.patient.name || "Paciente",
         }
         : null;
 
@@ -4338,8 +4345,13 @@ export default function Financeiro() {
     return data;
   }, [attendanceByPatient, creditBalanceByPatient]);
 
+  const filteredRevenuesSummary = useMemo(
+    () => filterFinancialRevenuesSummary(revenuesSummary, attendanceFilters.search),
+    [attendanceFilters.search, revenuesSummary],
+  );
+
   const aggregatedAttendanceByPatient = useMemo(
-    () => mapRevenuesSummaryPatientsToAttendanceRows(revenuesSummary).map((row) => {
+    () => mapRevenuesSummaryPatientsToAttendanceRows(filteredRevenuesSummary).map((row) => {
       const presentation = attendanceListPresentationByPatient.get(row.patientId) || {};
       return {
         ...row,
@@ -4352,12 +4364,12 @@ export default function Financeiro() {
         ),
       };
     }),
-    [attendanceListPresentationByPatient, revenuesSummary],
+    [attendanceListPresentationByPatient, filteredRevenuesSummary],
   );
 
   const aggregatedAttendanceSummary = useMemo(
-    () => mapRevenuesSummaryToAttendanceSummary(revenuesSummary),
-    [revenuesSummary],
+    () => mapRevenuesSummaryToAttendanceSummary(filteredRevenuesSummary),
+    [filteredRevenuesSummary],
   );
 
   const resolveBillingCycleFinancial = useCallback((cycle) => {
@@ -5195,7 +5207,10 @@ export default function Financeiro() {
         attendancePalette: ATTENDANCE_UI.colors,
       }}
       loading={loadingOverview}
+      error={overviewError}
       overview={overviewSummary}
+      overviewTab={overviewTab}
+      handleOverviewTabChange={handleOverviewTabChange}
       overviewMonth={overviewPeriodMonth}
       overviewYear={overviewPeriodYear}
       overviewYearOptions={overviewYearOptions}
@@ -5786,7 +5801,10 @@ export default function Financeiro() {
                 <PatientSearchField
                   mode="filter"
                   inputId="attendance-search"
-                  value={attendanceFilters.search}
+                  value={attendanceDrilldownPatientId
+                    ? selectedAttendancePatient?.full_name || ""
+                    : attendanceFilters.search}
+                  disabled={Boolean(attendanceDrilldownPatientId)}
                   onChange={(nextValue) => setAttendanceFilters((prev) => ({
                     ...prev,
                     search: nextValue,

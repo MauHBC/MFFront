@@ -171,6 +171,10 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
     axios.delete.mockResolvedValue({ data: {} });
     getFinancialOverview.mockResolvedValue({
       data: {
+        incomeTotal: 175000,
+        expenseTotal: 265000,
+        periodResult: -90000,
+        hasAccounts: true,
         received: 125000,
         receivable: 50000,
         paidExpenses: 15000,
