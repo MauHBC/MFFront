@@ -6666,19 +6666,15 @@ export default function Financeiro() {
 			                            <AttendancePackageSummaryTitle>Financeiro do pacote</AttendancePackageSummaryTitle>
 			                            <AttendancePackageFinanceGrid>
 			                              <AttendancePackageFinanceItem>
-			                                <span>Contratado</span>
-			                                <strong>{formatCurrency(item.contractedAmountCents || item.amountCents || 0)}</strong>
-			                              </AttendancePackageFinanceItem>
-			                              <AttendancePackageFinanceItem>
-			                                <span>Cobrável</span>
+			                                <span>Valor do pacote</span>
 			                                <strong>{formatCurrency(item.amountCents || 0)}</strong>
 		                              </AttendancePackageFinanceItem>
 		                              <AttendancePackageFinanceItem>
-		                                <span>Recebido</span>
+		                                <span>Pago</span>
 		                                <strong>{formatCurrency(item.paidCents || 0)}</strong>
 		                              </AttendancePackageFinanceItem>
 		                              <AttendancePackageFinanceItem $highlight>
-		                                <span>Pendente</span>
+		                                <span>A receber</span>
 		                                <strong>{formatCurrency(item.openCents || 0)}</strong>
 		                              </AttendancePackageFinanceItem>
 		                            </AttendancePackageFinanceGrid>

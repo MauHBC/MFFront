@@ -453,6 +453,24 @@ paciente e permanece desabilitado. Esse texto identifica o detalhe e é separado
 do estado da pesquisa: não dispara uma busca nem recalcula valores. Voltar à
 lista restaura a pesquisa anterior e permite sua edição.
 
+### Valores no modal de sessões do pacote
+
+Em **Receitas > Por sessão > Detalhes > Cobranças > Sessões**, o modal
+**Sessões do pacote** apresenta exatamente **Valor do pacote**, **Pago** e
+**A receber**. Esses cards usam, respectivamente, `amount_cents`, `paid_cents`
+e `open_cents` do pacote agregado por `financial-revenues/patient-detail`,
+conforme a [FIN-002 do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#fin-002).
+
+A consulta operacional de sessões ao abrir o modal não substitui esses
+agregados, nem recalcula o valor pela quantidade visível ou pelo preço atual do
+serviço. A competência usa a data de referência recebida do Backend. O campo
+`contracted_amount_cents` permanece compatível na API, mas não é exibido nos
+cards. O modal mantém a ocultação de valores existente.
+
+As regressões em `Financeiro/index.test.js` cobrem os cards, a privacidade,
+pesquisa e a independência dos valores agregados em relação às sessões ainda
+visíveis; persistência e lifecycle são validados por HTTP/MariaDB no Backend.
+
 ### Abas da Visão geral financeira
 
 A Visão geral contém **Resumo**, **Recebido e pago** e **Distribuição**. O Resumo
@@ -471,7 +489,9 @@ pagamento posterior atualiza sua situação sem deslocar sua competência.
 Os cartões, o gráfico **Saldo das contas por mês**, a tabela **Contas por mês** e
 o total anual usam os agregados do Backend, sem recalcular valores financeiros
 no Frontend. Os 12 meses incluem valores futuros já lançados. `hasAccounts`
-distingue ausência de contas de contas com valor zero; carregamento, falha e
+distingue ausência de contas de contas com valor zero. No Resumo mensal, a
+ausência de contas mantém os indicadores zerados, sem bloco de mensagem ou
+espaço reservado. Carregamento, falha e
 contrato incompleto possuem estados próprios. Uma resposta incompleta nunca é
 transformada em saldo zero. Com a privacidade ativa, os valores são mascarados
 e o gráfico não renderiza proporções ou rótulos monetários reais.

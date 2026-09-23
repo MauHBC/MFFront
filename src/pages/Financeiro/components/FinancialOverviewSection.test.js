@@ -226,7 +226,7 @@ describe("FinancialOverviewSection", () => {
     expect(field("receivable")).toHaveTextContent("A receberR$ 0,00");
     expect(field("periodResult")).toHaveTextContent("Saldo das contasR$ 200,00");
     expect(
-      screen.getByText("Contas que pertencem ao período, independentemente da data do pagamento."),
+      screen.getByText("Contas que pertencem ao período, considerando a data em que foram lançadas"),
     ).toBeInTheDocument();
     expect(screen.queryByText("Recebido")).not.toBeInTheDocument();
   });
@@ -325,10 +325,12 @@ describe("FinancialOverviewSection", () => {
     ).toHaveLength(39);
   });
 
-  it("distingue conta zero, ausência de contas, carregamento, erro e resposta ausente", () => {
-    const options = props();
+  it("mantém zeros sem bloco de ausência mensal e preserva carregamento e erros", () => {
+    const emptyState = jest.fn(passthrough());
+    const options = props({ ui: { ...ui, AttendanceEmptyState: emptyState } });
     const { container, rerender } = render(<FinancialOverviewSection {...options} />);
-    expect(screen.getByText("Nenhuma conta encontrada para este mês.")).toBeInTheDocument();
+    expect(screen.queryByText("Nenhuma conta encontrada para este mês.")).not.toBeInTheDocument();
+    expect(emptyState).not.toHaveBeenCalled();
     expect(screen.getAllByText("R$ 0,00")).toHaveLength(7);
     rerender(
       <FinancialOverviewSection
