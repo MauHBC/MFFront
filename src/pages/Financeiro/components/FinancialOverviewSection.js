@@ -20,11 +20,23 @@ const MONTH_NAMES = [
   "Novembro",
   "Dezembro",
 ];
+const SUMMARY_FIELDS = [
+  "incomeTotal",
+  "expenseTotal",
+  "periodResult",
+  "received",
+  "receivable",
+  "paidExpenses",
+  "pendingExpenses",
+];
 
 export default function FinancialOverviewSection({
   ui,
   loading,
-  overview,
+  error = "",
+  overview = {},
+  overviewTab = "summary",
+  handleOverviewTabChange,
   overviewMonth,
   overviewYear,
   overviewYearOptions,
@@ -67,148 +79,109 @@ export default function FinancialOverviewSection({
     AttendanceMoneyText,
     attendancePalette,
   } = ui;
-
-  const monthlyTabRef = useRef(null);
-  const annualTabRef = useRef(null);
-  const realizedTabRef = useRef(null);
+  const summaryTabRef = useRef(null);
+  const receivedPaidTabRef = useRef(null);
+  const distributionTabRef = useRef(null);
   const authorization = useAuthorization();
   const canSeeRealized = authorization.isAdministrator === true;
-  const isRealized = canSeeRealized && overviewPeriodMode === "realized";
+  const activeTab =
+    canSeeRealized && ["received-paid", "distribution"].includes(overviewTab)
+      ? overviewTab
+      : "summary";
   useEffect(() => {
-    if (!canSeeRealized && overviewPeriodMode === "realized") {
-      handleOverviewPeriodModeChange("month");
-    }
-  }, [canSeeRealized, overviewPeriodMode, handleOverviewPeriodModeChange]);
-  const summary = overview.summary || {
-    received: 0,
-    receivable: 0,
-    paidExpenses: 0,
-    pendingExpenses: 0,
-    currentResult: 0,
-    pendingBalance: 0,
-  };
+    if (activeTab !== overviewTab) handleOverviewTabChange?.(activeTab);
+  }, [activeTab, overviewTab, handleOverviewTabChange]);
+  const tabs = [
+    { key: "summary", label: "Resumo", ref: summaryTabRef },
+    ...(canSeeRealized
+      ? [
+          { key: "received-paid", label: "Recebido e pago", ref: receivedPaidTabRef },
+          { key: "distribution", label: "Distribuição", ref: distributionTabRef },
+        ]
+      : []),
+  ];
   const isAnnual = overviewPeriodMode === "year";
-  const activePanelId = isAnnual ? "financial-overview-annual-panel" : "financial-overview-monthly-panel";
-  const activeTabId = isAnnual ? "financial-overview-annual-tab" : "financial-overview-monthly-tab";
-  const validCurrentDate = currentDate instanceof Date && !Number.isNaN(currentDate.getTime())
-    ? currentDate
-    : new Date();
-  const currentYear = String(validCurrentDate.getFullYear());
-  const currentMonthNumber = validCurrentDate.getMonth() + 1;
-  const isCurrentYearSelected = String(overviewYear) === currentYear;
-  const monthPresentations = (overview.months || []).map((item) => {
-    const monthNumber = Number(String(item.month || "").slice(5, 7));
-    return {
-      ...item,
-      isCurrent: isCurrentYearSelected && monthNumber === currentMonthNumber,
-      isFutureEmpty: isCurrentYearSelected
-        && monthNumber > currentMonthNumber
-        && Number(item.received) === 0
-        && Number(item.paidExpenses) === 0,
-    };
-  });
+  const { summary } = overview;
+  const hasSummary = summary && SUMMARY_FIELDS.every((field) => Number.isFinite(summary[field]));
+  const summaryError =
+    error || (!hasSummary ? "Não foi possível carregar as contas deste período." : "");
+  const validCurrentDate =
+    currentDate instanceof Date && !Number.isNaN(currentDate.getTime()) ? currentDate : new Date();
+  const monthPresentations = (overview.months || []).map((item) => ({
+    ...item,
+    isCurrent:
+      String(overviewYear) === String(validCurrentDate.getFullYear()) &&
+      Number(String(item.month || "").slice(5, 7)) === validCurrentDate.getMonth() + 1,
+  }));
   const summaryGroups = [
     {
-      key: "current",
-      label: "Atual",
+      key: "income",
+      label: "Receitas",
       items: [
-        { key: "received", label: "Recebido", value: summary.received },
-        { key: "paidExpenses", label: "Despesas pagas", value: summary.paidExpenses },
-        {
-          key: "currentResult",
-          label: isAnnual ? "Resultado do ano atual" : "Resultado do mês atual",
-          value: summary.currentResult,
-          emphasis: true,
-        },
+        { key: "incomeTotal", label: "Total de receitas", emphasis: true },
+        { key: "received", label: "Liquidado" },
+        { key: "receivable", label: "A receber" },
       ],
     },
     {
-      key: "pending",
-      label: "Pendente",
+      key: "expense",
+      label: "Despesas",
       items: [
-        { key: "receivable", label: "A receber", value: summary.receivable },
-        { key: "pendingExpenses", label: "Despesas pendentes", value: summary.pendingExpenses },
-        {
-          key: "pendingBalance",
-          label: "Saldo pendente",
-          value: summary.pendingBalance,
-          emphasis: true,
-        },
+        { key: "expenseTotal", label: "Total de despesas", emphasis: true },
+        { key: "paidExpenses", label: "Pago" },
+        { key: "pendingExpenses", label: "A pagar" },
       ],
     },
   ];
-
-  const handleModeKeyDown = (event, currentMode) => {
-    const modes = canSeeRealized ? ["month", "year", "realized"] : ["month", "year"];
-    const position = modes.indexOf(currentMode);
+  const handleTabKeyDown = (event, key) => {
+    const position = tabs.findIndex((tab) => tab.key === key);
     let nextPosition = position;
-    if (["ArrowLeft", "ArrowUp"].includes(event.key)) nextPosition = (position + modes.length - 1) % modes.length;
-    else if (["ArrowRight", "ArrowDown"].includes(event.key)) nextPosition = (position + 1) % modes.length;
+    if (["ArrowLeft", "ArrowUp"].includes(event.key))
+      nextPosition = (position + tabs.length - 1) % tabs.length;
+    else if (["ArrowRight", "ArrowDown"].includes(event.key))
+      nextPosition = (position + 1) % tabs.length;
     else if (event.key === "Home") nextPosition = 0;
-    else if (event.key === "End") nextPosition = modes.length - 1;
+    else if (event.key === "End") nextPosition = tabs.length - 1;
     else return;
-    const nextMode = modes[nextPosition];
     event.preventDefault();
-    if (nextMode === currentMode) return;
-    handleOverviewPeriodModeChange(nextMode);
-    ({ month: monthlyTabRef, year: annualTabRef, realized: realizedTabRef })[nextMode].current?.focus();
+    const nextTab = tabs[nextPosition];
+    if (nextTab.key !== key) handleOverviewTabChange?.(nextTab.key);
+    nextTab.ref.current?.focus();
   };
 
   return (
     <AttendanceSectionSurface>
       <OverviewModeNavigation aria-label="Visualização da visão geral financeira">
-        <AttendanceTabGroup role="tablist" aria-label="Período da visão geral">
-          <AttendanceTabButton
-            ref={monthlyTabRef}
-            id="financial-overview-monthly-tab"
-            type="button"
-            role="tab"
-            aria-selected={!isAnnual && !isRealized}
-            aria-controls="financial-overview-monthly-panel"
-            tabIndex={isAnnual || isRealized ? -1 : 0}
-            $active={!isAnnual && !isRealized}
-            onClick={() => handleOverviewPeriodModeChange("month")}
-            onKeyDown={(event) => handleModeKeyDown(event, "month")}
-          >
-            Resumo mensal
-          </AttendanceTabButton>
-          <AttendanceTabButton
-            ref={annualTabRef}
-            id="financial-overview-annual-tab"
-            type="button"
-            role="tab"
-            aria-selected={isAnnual}
-            aria-controls="financial-overview-annual-panel"
-            tabIndex={isAnnual ? 0 : -1}
-            $active={isAnnual}
-            onClick={() => handleOverviewPeriodModeChange("year")}
-            onKeyDown={(event) => handleModeKeyDown(event, "year")}
-          >
-            Evolução anual
-          </AttendanceTabButton>
-          {canSeeRealized ? (
+        <AttendanceTabGroup role="tablist" aria-label="Abas da visão geral">
+          {tabs.map((tab) => (
             <AttendanceTabButton
-              ref={realizedTabRef}
-              id="financial-realized-tab"
+              key={tab.key}
+              ref={tab.ref}
+              id={`financial-${tab.key}-tab`}
               type="button"
               role="tab"
-              aria-selected={isRealized}
-              aria-controls="financial-realized-panel"
-              tabIndex={isRealized ? 0 : -1}
-              $active={isRealized}
-              onClick={() => handleOverviewPeriodModeChange("realized")}
-              onKeyDown={(event) => handleModeKeyDown(event, "realized")}
+              aria-selected={activeTab === tab.key}
+              aria-controls={`financial-${tab.key}-panel`}
+              tabIndex={activeTab === tab.key ? 0 : -1}
+              $active={activeTab === tab.key}
+              onClick={() => handleOverviewTabChange?.(tab.key)}
+              onKeyDown={(event) => handleTabKeyDown(event, tab.key)}
             >
-              Recebido e pago
+              {tab.label}
             </AttendanceTabButton>
-          ) : null}
+          ))}
         </AttendanceTabGroup>
       </OverviewModeNavigation>
-
-      {isRealized ? (
-        <div id="financial-realized-panel" role="tabpanel" aria-labelledby="financial-realized-tab" tabIndex={0}>
+      <div
+        id={`financial-${activeTab}-panel`}
+        role="tabpanel"
+        aria-labelledby={`financial-${activeTab}-tab`}
+        tabIndex={0}
+      >
+        {activeTab !== "summary" ? (
           <FinancialReceivedPaidSection
             ui={ui}
+            view={activeTab}
             year={overviewYear}
             yearOptions={overviewYearOptions}
             onYearChange={handleOverviewYearChange}
@@ -218,235 +191,242 @@ export default function FinancialOverviewSection({
             formatCurrency={formatCurrency}
             currentDate={currentDate}
           />
-        </div>
-      ) : <div
-        id={activePanelId}
-        role="tabpanel"
-        aria-labelledby={activeTabId}
-        tabIndex={0}
-      >
-        <AttendancePeriodBlock>
-          <AttendancePeriodBlockLeft>
-            <AttendancePeriodBlockLabel>
-              {isAnnual ? "Ano financeiro" : "Competência financeira"}
-            </AttendancePeriodBlockLabel>
-            <AttendancePeriodBlockValue>{overviewPeriodLabel}</AttendancePeriodBlockValue>
-          </AttendancePeriodBlockLeft>
-          <AttendancePeriodBlockRight>
-            <AttendancePeriodControls>
-              <AttendancePeriodButton type="button" onClick={handleOverviewPreviousMonth}>
-                {isAnnual ? "< Ano anterior" : "< Anterior"}
-              </AttendancePeriodButton>
-              {isAnnual ? (
-                <AttendancePeriodChip>
-                  {overviewPeriodLabel}
-                  <AttendancePeriodYearSelect
-                    aria-label="Selecionar ano da evolução anual"
-                    value={overviewYear}
-                    onChange={handleOverviewYearChange}
-                  >
-                    {overviewYearOptions.map((year) => (
-                      <option key={year} value={year}>{year}</option>
-                    ))}
-                  </AttendancePeriodYearSelect>
-                </AttendancePeriodChip>
-              ) : (
-                <AttendancePeriodChip
-                  role="button"
-                  tabIndex={0}
-                  onClick={handleOverviewPeriodTagClick}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      handleOverviewPeriodTagClick();
-                    }
-                  }}
-                >
-                  {overviewPeriodLabel}
-                  <AttendancePeriodMonthInput
-                    ref={overviewMonthPickerRef}
-                    aria-label="Selecionar mês e ano do resumo mensal"
-                    type="month"
-                    value={overviewMonth}
-                    onChange={handleOverviewMonthChange}
-                  />
-                </AttendancePeriodChip>
-              )}
-              <AttendancePeriodButton type="button" onClick={handleOverviewNextMonth}>
-                {isAnnual ? "Próximo ano >" : "Próximo >"}
-              </AttendancePeriodButton>
-            </AttendancePeriodControls>
-          </AttendancePeriodBlockRight>
-        </AttendancePeriodBlock>
-
-        {loading ? (
-          <BlockLoader>
-            <Spinner />
-            Carregando financeiro...
-          </BlockLoader>
         ) : (
           <>
-            <AttendanceCard>
-              <AttendanceCardHeader>
-                <AttendanceCardTitle>
-                  {isAnnual ? "Resumo do ano" : "Resumo do mês"}
-                </AttendanceCardTitle>
-              </AttendanceCardHeader>
-              <CompactSummaryGrid
-                aria-label={isAnnual ? "Resumo financeiro anual" : "Resumo financeiro mensal"}
-                $palette={attendancePalette}
-              >
-                {summaryGroups.map((group) => (
-                  <CompactSummaryGroup
-                    key={group.key}
-                    role="group"
-                    aria-label={group.label}
-                    data-summary-group={group.key}
-                    $variant={group.key}
+            <SummaryPeriodNavigation>
+              <AttendanceTabGroup role="group" aria-label="Período do Resumo">
+                <AttendanceTabButton
+                  type="button"
+                  aria-pressed={!isAnnual}
+                  $active={!isAnnual}
+                  onClick={() => handleOverviewPeriodModeChange("month")}
+                >
+                  Mensal
+                </AttendanceTabButton>
+                <AttendanceTabButton
+                  type="button"
+                  aria-pressed={isAnnual}
+                  $active={isAnnual}
+                  onClick={() => handleOverviewPeriodModeChange("year")}
+                >
+                  Anual
+                </AttendanceTabButton>
+              </AttendanceTabGroup>
+            </SummaryPeriodNavigation>
+            <AttendancePeriodBlock>
+              <AttendancePeriodBlockLeft>
+                <AttendancePeriodBlockLabel>
+                  {isAnnual ? "Ano das contas" : "Mês das contas"}
+                </AttendancePeriodBlockLabel>
+                <AttendancePeriodBlockValue>{overviewPeriodLabel}</AttendancePeriodBlockValue>
+              </AttendancePeriodBlockLeft>
+              <AttendancePeriodBlockRight>
+                <AttendancePeriodControls>
+                  <AttendancePeriodButton type="button" onClick={handleOverviewPreviousMonth}>
+                    {isAnnual ? "< Ano anterior" : "< Anterior"}
+                  </AttendancePeriodButton>
+                  {isAnnual ? (
+                    <AttendancePeriodChip>
+                      {overviewPeriodLabel}
+                      <AttendancePeriodYearSelect
+                        aria-label="Selecionar ano do Resumo"
+                        value={overviewYear}
+                        onChange={handleOverviewYearChange}
+                      >
+                        {overviewYearOptions.map((year) => (
+                          <option key={year} value={year}>
+                            {year}
+                          </option>
+                        ))}
+                      </AttendancePeriodYearSelect>
+                    </AttendancePeriodChip>
+                  ) : (
+                    <AttendancePeriodChip
+                      role="button"
+                      tabIndex={0}
+                      onClick={handleOverviewPeriodTagClick}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          handleOverviewPeriodTagClick();
+                        }
+                      }}
+                    >
+                      {overviewPeriodLabel}
+                      <AttendancePeriodMonthInput
+                        ref={overviewMonthPickerRef}
+                        aria-label="Selecionar mês e ano do Resumo"
+                        type="month"
+                        value={overviewMonth}
+                        onChange={handleOverviewMonthChange}
+                      />
+                    </AttendancePeriodChip>
+                  )}
+                  <AttendancePeriodButton type="button" onClick={handleOverviewNextMonth}>
+                    {isAnnual ? "Próximo ano >" : "Próximo >"}
+                  </AttendancePeriodButton>
+                </AttendancePeriodControls>
+              </AttendancePeriodBlockRight>
+            </AttendancePeriodBlock>
+            <SummaryExplanation $color={attendancePalette.textSecondary}>
+              Contas que pertencem ao período, independentemente da data do pagamento.
+            </SummaryExplanation>
+            {loading && (
+              <BlockLoader>
+                <Spinner />
+                Carregando contas do período...
+              </BlockLoader>
+            )}
+            {!loading && summaryError && <div role="alert">{summaryError}</div>}
+            {!loading && !summaryError && (
+              <>
+                <AttendanceCard>
+                  <AttendanceCardHeader>
+                    <AttendanceCardTitle>
+                      {isAnnual ? "Contas do ano" : "Contas do mês"}
+                    </AttendanceCardTitle>
+                  </AttendanceCardHeader>
+                  <CompactSummaryGrid
+                    aria-label={isAnnual ? "Resumo financeiro anual" : "Resumo financeiro mensal"}
                     $palette={attendancePalette}
                   >
-                    <CompactSummaryHeader $palette={attendancePalette}>
-                      {group.label}
-                    </CompactSummaryHeader>
-                    <CompactSummaryList>
-                      {group.items.map((item) => (
-                        <CompactSummaryRow
-                          key={item.key}
-                          data-summary-field={item.key}
-                          $emphasis={item.emphasis}
-                          $variant={group.key}
-                          $palette={attendancePalette}
-                        >
-                          <dt>{item.label}</dt>
-                          <dd>{formatCurrency(item.value)}</dd>
-                        </CompactSummaryRow>
-                      ))}
-                    </CompactSummaryList>
-                  </CompactSummaryGroup>
-                ))}
-              </CompactSummaryGrid>
-            </AttendanceCard>
-
-            {isAnnual ? (
-              <AttendanceCard>
-                <EvolutionHeader>
-                  <AttendanceCardTitle>Evolução mensal</AttendanceCardTitle>
-                  <EvolutionSubtitle $color={attendancePalette.textSecondary}>
-                    Resultado recebido menos despesas pagas em cada competência.
-                  </EvolutionSubtitle>
-                </EvolutionHeader>
-                {overview.hasMonthlyBreakdown ? (
-                  <>
-                    <EvolutionChartBlock>
-                      <AnnualFinancialResultChart
-                        months={monthPresentations}
-                        valuesVisible={financialValuesVisible}
-                        formatCurrency={formatCurrency}
-                        palette={attendancePalette}
-                      />
-                    </EvolutionChartBlock>
-                    <AttendanceTableCard>
-                      <AttendanceTableScroll>
-                        <AnnualOverviewTable aria-label="Evolução financeira mensal">
-                          <thead>
-                            <tr>
-                              <th>Mês</th>
-                              <th>Recebido</th>
-                              <th>Despesas pagas</th>
-                              <th data-primary-metric="true">Resultado</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {monthPresentations.map((item, index) => (
-                              <tr
-                                key={item.month}
-                                data-month={item.month}
-                                data-current-month={item.isCurrent ? "true" : undefined}
-                                data-future-empty={item.isFutureEmpty ? "true" : undefined}
-                              >
-                                <td>
-                                  <MonthCellContent>
-                                    <span>{MONTH_NAMES[index]}</span>
-                                    {item.isCurrent ? (
-                                      <CurrentMonthBadge $palette={attendancePalette}>
-                                        Atual
-                                      </CurrentMonthBadge>
-                                    ) : null}
-                                  </MonthCellContent>
-                                </td>
-                                <td data-field="received">
-                                  {item.isFutureEmpty ? (
-                                    <FutureMonthPlaceholder
-                                      $color={attendancePalette.textMuted}
-                                      aria-label="Sem movimentação realizada"
-                                    >
-                                      —
-                                    </FutureMonthPlaceholder>
-                                  ) : (
-                                    <AttendanceMoneyText>{formatCurrency(item.received)}</AttendanceMoneyText>
-                                  )}
-                                </td>
-                                <td data-field="paidExpenses">
-                                  {item.isFutureEmpty ? (
-                                    <FutureMonthPlaceholder
-                                      $color={attendancePalette.textMuted}
-                                      aria-label="Sem movimentação realizada"
-                                    >
-                                      —
-                                    </FutureMonthPlaceholder>
-                                  ) : (
-                                    <AttendanceMoneyText>{formatCurrency(item.paidExpenses)}</AttendanceMoneyText>
-                                  )}
-                                </td>
-                                <td data-field="currentResult" data-primary-metric="true">
-                                  {item.isFutureEmpty ? (
-                                    <FutureMonthPlaceholder
-                                      $color={attendancePalette.textMuted}
-                                      aria-label="Sem movimentação realizada"
-                                    >
-                                      —
-                                    </FutureMonthPlaceholder>
-                                  ) : (
-                                    <AttendanceMoneyText>{formatCurrency(item.currentResult)}</AttendanceMoneyText>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot>
-                            <tr data-annual-total="true">
-                              <td>Acumulado anual</td>
-                              <td data-field="received">{formatCurrency(summary.received)}</td>
-                              <td data-field="paidExpenses">{formatCurrency(summary.paidExpenses)}</td>
-                              <td data-field="currentResult" data-primary-metric="true">
-                                {formatCurrency(summary.currentResult)}
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </AnnualOverviewTable>
-                      </AttendanceTableScroll>
-                    </AttendanceTableCard>
-                  </>
-                ) : (
+                    {summaryGroups.map((group) => (
+                      <CompactSummaryGroup
+                        key={group.key}
+                        role="group"
+                        aria-label={group.label}
+                        data-summary-group={group.key}
+                        $palette={attendancePalette}
+                      >
+                        <CompactSummaryHeader $palette={attendancePalette}>
+                          {group.label}
+                        </CompactSummaryHeader>
+                        <CompactSummaryList>
+                          {group.items.map((item) => (
+                            <CompactSummaryRow
+                              key={item.key}
+                              data-summary-field={item.key}
+                              $emphasis={item.emphasis}
+                              $palette={attendancePalette}
+                            >
+                              <dt>{item.label}</dt>
+                              <dd>{formatCurrency(summary[item.key])}</dd>
+                            </CompactSummaryRow>
+                          ))}
+                        </CompactSummaryList>
+                      </CompactSummaryGroup>
+                    ))}
+                  </CompactSummaryGrid>
+                  <CompactSummaryList>
+                    <CompactSummaryRow
+                      data-summary-field="periodResult"
+                      $emphasis
+                      $palette={attendancePalette}
+                    >
+                      <dt>Saldo das contas</dt>
+                      <dd>{formatCurrency(summary.periodResult)}</dd>
+                    </CompactSummaryRow>
+                  </CompactSummaryList>
+                </AttendanceCard>
+                {isAnnual ? (
+                  <AttendanceCard>
+                    <EvolutionHeader>
+                      <AttendanceCardTitle>Contas por mês</AttendanceCardTitle>
+                      <EvolutionSubtitle $color={attendancePalette.textSecondary}>
+                        Saldo das contas: receitas menos despesas de cada mês.
+                      </EvolutionSubtitle>
+                    </EvolutionHeader>
+                    {overview.hasMonthlyBreakdown ? (
+                      <>
+                        <EvolutionChartBlock>
+                          <AnnualFinancialResultChart
+                            months={monthPresentations}
+                            valuesVisible={financialValuesVisible}
+                            formatCurrency={formatCurrency}
+                            palette={attendancePalette}
+                          />
+                        </EvolutionChartBlock>
+                        <AttendanceTableCard>
+                          <AttendanceTableScroll>
+                            <AnnualOverviewTable aria-label="Contas por mês">
+                              <thead>
+                                <tr>
+                                  <th>Mês</th>
+                                  <th>Receitas</th>
+                                  <th>Despesas</th>
+                                  <th data-primary-metric="true">Saldo das contas</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {monthPresentations.map((item, index) => (
+                                  <tr
+                                    key={item.month}
+                                    data-month={item.month}
+                                    data-current-month={item.isCurrent ? "true" : undefined}
+                                  >
+                                    <td>
+                                      <MonthCellContent>
+                                        <span>{MONTH_NAMES[index]}</span>
+                                        {item.isCurrent ? (
+                                          <CurrentMonthBadge $palette={attendancePalette}>
+                                            Atual
+                                          </CurrentMonthBadge>
+                                        ) : null}
+                                      </MonthCellContent>
+                                    </td>
+                                    <td data-field="incomeTotal">
+                                      <AttendanceMoneyText>
+                                        {formatCurrency(item.incomeTotal)}
+                                      </AttendanceMoneyText>
+                                    </td>
+                                    <td data-field="expenseTotal">
+                                      <AttendanceMoneyText>
+                                        {formatCurrency(item.expenseTotal)}
+                                      </AttendanceMoneyText>
+                                    </td>
+                                    <td data-field="periodResult" data-primary-metric="true">
+                                      <AttendanceMoneyText>
+                                        {formatCurrency(item.periodResult)}
+                                      </AttendanceMoneyText>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                <tr data-annual-total="true">
+                                  <td>Total do ano</td>
+                                  <td data-field="incomeTotal">
+                                    {formatCurrency(summary.incomeTotal)}
+                                  </td>
+                                  <td data-field="expenseTotal">
+                                    {formatCurrency(summary.expenseTotal)}
+                                  </td>
+                                  <td data-field="periodResult" data-primary-metric="true">
+                                    {formatCurrency(summary.periodResult)}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </AnnualOverviewTable>
+                          </AttendanceTableScroll>
+                        </AttendanceTableCard>
+                      </>
+                    ) : (
+                      <div role="alert">Não foi possível carregar as contas por mês deste ano.</div>
+                    )}
+                  </AttendanceCard>
+                ) : null}
+                {summary.hasAccounts === false ? (
                   <AttendanceEmptyState>
-                    Não foi possível carregar a evolução mensal deste ano.
+                    {isAnnual
+                      ? "Nenhuma conta encontrada para este ano."
+                      : "Nenhuma conta encontrada para este mês."}
                   </AttendanceEmptyState>
-                )}
-              </AttendanceCard>
-            ) : null}
-
-            {!overview.hasMovement ? (
-              <AttendanceEmptyState>
-                <p>
-                  {isAnnual
-                    ? "Nenhuma movimentação encontrada para este ano."
-                    : "Nenhuma movimentação encontrada para este mês."}
-                </p>
-              </AttendanceEmptyState>
-            ) : null}
+                ) : null}
+              </>
+            )}
           </>
         )}
-      </div>}
+      </div>
     </AttendanceSectionSurface>
   );
 }
@@ -521,11 +501,13 @@ const CompactSummaryRow = styled.div`
     white-space: nowrap;
   }
 
-  ${(props) => props.$emphasis && `
+  ${(props) =>
+    props.$emphasis &&
+    `
     border-top-color: ${props.$palette.borderStrong};
     box-shadow: inset 3px 0 0 ${
-  props.$variant === "pending" ? props.$palette.borderStrong : props.$palette.actionBorder
-};
+      props.$variant === "pending" ? props.$palette.borderStrong : props.$palette.actionBorder
+    };
   `}
 
   @media (max-width: 420px) {
@@ -565,11 +547,6 @@ const CurrentMonthBadge = styled.span`
   text-transform: uppercase;
 `;
 
-const FutureMonthPlaceholder = styled.span`
-  color: ${(props) => props.$color};
-  font-weight: 600;
-`;
-
 const EvolutionSubtitle = styled.p`
   margin: 5px 0 0;
   color: ${(props) => props.$color};
@@ -579,4 +556,15 @@ const EvolutionSubtitle = styled.p`
 
 const EvolutionChartBlock = styled.div`
   margin-bottom: 16px;
+`;
+
+const SummaryPeriodNavigation = styled.div`
+  margin-bottom: 12px;
+`;
+
+const SummaryExplanation = styled.p`
+  margin: 0 0 16px;
+  color: ${(props) => props.$color};
+  font-size: 13px;
+  line-height: 18px;
 `;

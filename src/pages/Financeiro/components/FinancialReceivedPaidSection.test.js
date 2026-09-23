@@ -11,7 +11,6 @@ import {
 import { Provider } from "react-redux";
 import { createStore } from "redux";
 import FinancialReceivedPaidSection from "./FinancialReceivedPaidSection";
-import FinancialOverviewSection from "./FinancialOverviewSection";
 import {
   getReceivedPaid,
   getDistributionConfiguration,
@@ -193,6 +192,10 @@ const renderPanel = (overrides = {}) => {
   const view = render(draw());
   return { ...view, store, update: (changes) => view.rerender(draw(changes)) };
 };
+const renderDistributionPanel = (overrides = {}) =>
+  renderPanel({ view: "distribution", ...overrides });
+const distributionReady = () =>
+  screen.findByRole("table", { name: "Distribuição do resultado por mês" });
 const ready = () =>
   screen.findByRole("table", { name: "Recebido e pago por mês" });
 const openConfiguration = async () => {
@@ -217,52 +220,19 @@ beforeEach(() => {
   saveDistributionConfiguration.mockResolvedValue({ data: configured() });
 });
 
-test("não Administrador não monta dados nem consulta endpoints, mesmo com permissões financeiras", () => {
-  mockAuthorization.isAdministrator = false;
-  mockAuthorization.canAccessModule = () => true;
-  renderPanel();
-  expect(getReceivedPaid).not.toHaveBeenCalled();
-  expect(getDistributionConfiguration).not.toHaveBeenCalled();
-  expect(
-    screen.queryByText("Distribuição do resultado"),
-  ).not.toBeInTheDocument();
-});
-
-test("Administrador vê a terceira aba e não Administrador mantém as duas atuais", () => {
-  const defaults = {
-    ...props,
-    overview: {},
-    overviewMonth: "2026-09",
-    overviewYear: "2026",
-    overviewYearOptions: ["2026"],
-    overviewPeriodLabel: "Setembro de 2026",
-    overviewPeriodMode: "month",
-    loading: true,
-    handleOverviewPeriodModeChange: jest.fn(),
-  };
-  const view = render(<FinancialOverviewSection {...defaults} />);
-  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-    "Resumo mensal",
-    "Evolução anual",
-    "Recebido e pago",
-  ]);
-  fireEvent.click(screen.getByRole("tab", { name: "Recebido e pago" }));
-  expect(defaults.handleOverviewPeriodModeChange).toHaveBeenCalledWith(
-    "realized",
-  );
-  fireEvent.keyDown(screen.getByRole("tab", { name: "Evolução anual" }), {
-    key: "ArrowRight",
-  });
-  expect(screen.getByRole("tab", { name: "Recebido e pago" })).toHaveFocus();
-  fireEvent.keyDown(screen.getByRole("tab", { name: "Resumo mensal" }), {
-    key: "Home",
-  });
-  expect(defaults.handleOverviewPeriodModeChange).toHaveBeenCalledTimes(2);
-  mockAuthorization = { ...mockAuthorization, isAdministrator: false };
-  view.rerender(<FinancialOverviewSection {...defaults} />);
-  expect(screen.getAllByRole("tab")).toHaveLength(2);
-  expect(getReceivedPaid).not.toHaveBeenCalled();
-});
+test.each(["received-paid", "distribution"])(
+  "não Administrador não consulta dados de %s, mesmo com permissões financeiras",
+  (section) => {
+    mockAuthorization.isAdministrator = false;
+    mockAuthorization.canAccessModule = () => true;
+    renderPanel({ view: section });
+    expect(getReceivedPaid).not.toHaveBeenCalled();
+    expect(getDistributionConfiguration).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText("Distribuição do resultado"),
+    ).not.toBeInTheDocument();
+  },
+);
 
 test("12 meses e totais vêm do backend, com resultado negativo e sem gráfico", async () => {
   renderPanel();
@@ -282,6 +252,90 @@ test("12 meses e totais vêm do backend, com resultado negativo e sem gráfico",
   expect(table.querySelector("tfoot")).toHaveTextContent(currency(-7655));
   expect(screen.queryByTestId("existing-chart")).not.toBeInTheDocument();
   expect(screen.getByText(/Recebido é o que entrou/)).toBeInTheDocument();
+  expect(getDistributionConfiguration).not.toHaveBeenCalled();
+  expect(
+    screen.queryByText("Distribuição do resultado"),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Configurar distribuição" }),
+  ).not.toBeInTheDocument();
+});
+
+test("Distribuição usa o mesmo relatório anual de caixa, sem exibir a tabela Recebido e pago", async () => {
+  getDistributionConfiguration.mockResolvedValue({ data: configured() });
+  getReceivedPaid.mockResolvedValue({ data: report("2026", true) });
+  renderDistributionPanel();
+  await distributionReady();
+  expect(getReceivedPaid).toHaveBeenCalledWith("2026", expect.any(AbortSignal));
+  expect(getDistributionConfiguration).toHaveBeenCalledTimes(1);
+  expect(
+    screen.getByRole("heading", { name: "Distribuição do resultado" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("table", { name: "Recebido e pago por mês" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByText(/recebimentos e pagamentos efetivos de cada mês/),
+  ).toHaveTextContent("Demonstrativo, sem gerar repasses ou pagamentos.");
+  fireEvent.change(
+    screen.getByRole("combobox", { name: "Selecionar ano de Distribuição" }),
+    { target: { value: "2025" } },
+  );
+  expect(props.onYearChange).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: /Ano anterior/ }));
+  expect(props.onPreviousYear).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: /Próximo ano/ }));
+  expect(props.onNextYear).toHaveBeenCalledTimes(1);
+});
+
+test("alternar abas descarta configuração atrasada e recarrega dados privados para cada seção", async () => {
+  const configuration = deferred();
+  getDistributionConfiguration.mockReturnValue(configuration.promise);
+  const view = renderDistributionPanel();
+  expect(screen.getByText("Carregando distribuição...")).toBeInTheDocument();
+  const signal = getDistributionConfiguration.mock.calls[0][0];
+  view.update({ view: "received-paid" });
+  expect(signal.aborted).toBe(true);
+  await ready();
+  await act(async () => configuration.resolve({ data: configured() }));
+  expect(
+    screen.queryByText("Distribuição do resultado"),
+  ).not.toBeInTheDocument();
+  expect(getDistributionConfiguration).toHaveBeenCalledTimes(1);
+  getDistributionConfiguration.mockResolvedValue({ data: configured() });
+  getReceivedPaid.mockResolvedValue({ data: report("2026", true) });
+  view.update({ view: "distribution" });
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  await distributionReady();
+  expect(getReceivedPaid).toHaveBeenCalledTimes(3);
+  expect(getDistributionConfiguration).toHaveBeenCalledTimes(2);
+});
+
+test("falha nos valores da Distribuição oferece nova tentativa na própria aba", async () => {
+  getReceivedPaid.mockRejectedValueOnce(new Error("Unavailable"));
+  getDistributionConfiguration.mockResolvedValue({ data: configured() });
+  renderDistributionPanel();
+  await screen.findByText(
+    "Não foi possível carregar os valores da distribuição.",
+  );
+  getReceivedPaid.mockResolvedValue({ data: report("2026", true) });
+  fireEvent.click(screen.getByRole("button", { name: "Recarregar valores" }));
+  await distributionReady();
+  expect(getReceivedPaid).toHaveBeenCalledTimes(2);
+});
+
+test("falha de configuração fica na Distribuição e oferece recarga", async () => {
+  getDistributionConfiguration.mockRejectedValueOnce(new Error("Unavailable"));
+  renderDistributionPanel();
+  await screen.findByText(
+    "Não foi possível carregar a configuração da distribuição.",
+  );
+  getDistributionConfiguration.mockResolvedValue({ data: configured() });
+  getReceivedPaid.mockResolvedValue({ data: report("2026", true) });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Recarregar distribuição" }),
+  );
+  await distributionReady();
 });
 
 test("meses futuros seguem apresentação anual, sem esconder movimentos registrados", async () => {
@@ -302,24 +356,26 @@ test("meses futuros seguem apresentação anual, sem esconder movimentos registr
   ).toHaveTextContent(currency(98765));
 });
 
-test("privacidade oculta todos os valores, totais, atributos e sinais auxiliares", async () => {
-  getDistributionConfiguration.mockResolvedValue({ data: configured() });
-  getReceivedPaid.mockResolvedValue({ data: report("2026", true) });
-  const view = renderPanel();
-  await ready();
-  await screen.findByRole("table", {
-    name: "Distribuição do resultado por mês",
-  });
-  view.update({ valuesVisible: false });
-  expect(view.container).not.toHaveTextContent("R$");
-  expect(view.container.innerHTML).not.toContain("12345");
-  expect(view.container.innerHTML).not.toContain("20000");
-  expect(
-    screen.queryByText(/Sem resultado disponível/),
-  ).not.toBeInTheDocument();
-  expect(screen.getAllByText("••••").length).toBeGreaterThan(30);
-  expect(getReceivedPaid).toHaveBeenCalledTimes(1);
-});
+test.each(["received-paid", "distribution"])(
+  "privacidade oculta valores e sinais auxiliares em %s",
+  async (section) => {
+    getDistributionConfiguration.mockResolvedValue({ data: configured() });
+    getReceivedPaid.mockResolvedValue({ data: report("2026", true) });
+    const view = renderPanel({ view: section });
+    await (section === "distribution" ? distributionReady() : ready());
+    view.update({ valuesVisible: false });
+    expect(view.container).not.toHaveTextContent("R$");
+    expect(view.container.innerHTML).not.toContain("12345");
+    expect(view.container.innerHTML).not.toContain("20000");
+    expect(
+      screen.queryByText(/Sem resultado disponível/),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByText("••••")).toHaveLength(
+      section === "distribution" ? 27 : 39,
+    );
+    expect(getReceivedPaid).toHaveBeenCalledTimes(1);
+  },
+);
 
 test("troca de ano limpa dados anteriores imediatamente e descarta respostas atrasadas", async () => {
   const previous = deferred();
@@ -349,8 +405,7 @@ test("troca de ano limpa dados anteriores imediatamente e descarta respostas atr
 test("mudança de clínica descarta respostas e dados anteriores inclusive modal", async () => {
   const next = deferred();
   getDistributionConfiguration.mockResolvedValue({ data: configured() });
-  const view = renderPanel();
-  await ready();
+  const view = renderDistributionPanel();
   await openConfiguration();
   getReceivedPaid.mockReturnValue(next.promise);
   getDistributionConfiguration.mockReturnValue(next.promise);
@@ -390,29 +445,26 @@ test("troca de token limpa valores sem persistir dados da sessão anterior", asy
   expect(getReceivedPaid).toHaveBeenCalledTimes(2);
 });
 
-test("erro de carregamento oferece nova tentativa; falha de configuração não remove a tabela principal", async () => {
+test("erro de carregamento de Recebido e pago oferece nova tentativa sem consultar configuração", async () => {
   getReceivedPaid.mockRejectedValueOnce(new Error("Unavailable"));
   getDistributionConfiguration.mockRejectedValue(new Error("Unavailable"));
   renderPanel();
   await screen.findByText("Não foi possível carregar Recebido e pago.");
   fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
   await ready();
-  expect(
-    screen.getByText(/Não foi possível carregar a configuração/),
-  ).toBeInTheDocument();
+  expect(getDistributionConfiguration).not.toHaveBeenCalled();
 });
 
 test("403 em consulta limpa valores e solicita atualização da autorização", async () => {
   getDistributionConfiguration.mockRejectedValue({ response: { status: 403 } });
-  renderPanel();
+  renderDistributionPanel();
   await screen.findByRole("alert");
   expect(screen.queryByRole("table")).not.toBeInTheDocument();
   expect(mockAuthorization.reload).toHaveBeenCalledTimes(1);
 });
 
 test("sem configuração oferece ação simples, mantém visão e primeira regra não tem vigência", async () => {
-  renderPanel();
-  await ready();
+  renderDistributionPanel();
   const dialog = await openConfiguration();
   expect(dialog).toHaveTextContent(/meses anteriores disponíveis/);
   expect(within(dialog).queryByRole("radio")).not.toBeInTheDocument();
@@ -431,7 +483,6 @@ test("sem configuração oferece ação simples, mantém visão e primeira regra
   await waitFor(() =>
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
   );
-  await ready();
   expect(
     screen.queryByText("Distribuição atualizada."),
   ).not.toBeInTheDocument();
@@ -441,7 +492,7 @@ test("resposta de gravação da clínica anterior não recarrega nem altera o no
   const oldSave = deferred();
   getDistributionConfiguration.mockResolvedValue({ data: configured() });
   saveDistributionConfiguration.mockReturnValue(oldSave.promise);
-  const view = renderPanel();
+  const view = renderDistributionPanel();
   const dialog = await openConfiguration();
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Salvar distribuição" }),
@@ -464,7 +515,7 @@ test("resposta de gravação da clínica anterior não recarrega nem altera o no
 });
 
 test("primeira configuração aceita três percentuais com soma exata e envia apenas dados editáveis", async () => {
-  renderPanel();
+  renderDistributionPanel();
   const dialog = await openConfiguration();
   fireEvent.change(within(dialog).getByLabelText("Participante 1"), {
     target: { value: "Empresa" },
@@ -508,7 +559,7 @@ test("primeira configuração aceita três percentuais com soma exata e envia ap
 
 test("validação impede salvar soma inválida, nomes duplicados, zero e excesso de precisão", async () => {
   getDistributionConfiguration.mockResolvedValue({ data: configured() });
-  renderPanel();
+  renderDistributionPanel();
   const dialog = await openConfiguration();
   const save = within(dialog).getByRole("button", {
     name: "Salvar distribuição",
@@ -543,7 +594,7 @@ test.each([
   ["Aplicar no próximo mês", "next_month"],
 ])("alteração envia identidade e revisão, opção %s", async (label, apply) => {
   getDistributionConfiguration.mockResolvedValue({ data: configured() });
-  renderPanel();
+  renderDistributionPanel();
   const dialog = await openConfiguration();
   fireEvent.change(within(dialog).getByLabelText("Participante 1"), {
     target: { value: "Empresa corrigida" },
@@ -577,7 +628,7 @@ test("regra pendente é visível, avisa substituição e abre com seus participa
       },
     }),
   });
-  renderPanel();
+  renderDistributionPanel();
   const dialog = await openConfiguration();
   expect(dialog).toHaveTextContent("Alteração programada para 10/2026");
   expect(dialog).toHaveTextContent(
@@ -589,7 +640,7 @@ test("regra pendente é visível, avisa substituição e abre com seus participa
 
 test("remover e adicionar omite identidade antiga, sem criar vínculo operacional", async () => {
   getDistributionConfiguration.mockResolvedValue({ data: configured() });
-  renderPanel();
+  renderDistributionPanel();
   const dialog = await openConfiguration();
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Remover participante 2" }),
@@ -615,7 +666,7 @@ test("remover e adicionar omite identidade antiga, sem criar vínculo operaciona
 test("tabela reúne participantes do ano, usa headers curtos e traços sem percentuais nos meses sem resultado", async () => {
   getDistributionConfiguration.mockResolvedValue({ data: configured() });
   getReceivedPaid.mockResolvedValue({ data: report("2026", true) });
-  renderPanel();
+  renderDistributionPanel();
   const table = await screen.findByRole("table", {
     name: "Distribuição do resultado por mês",
   });
@@ -663,7 +714,7 @@ test("valor explícito zero de participante em mês com resultado continua numé
   });
   getDistributionConfiguration.mockResolvedValue({ data: configured() });
   getReceivedPaid.mockResolvedValue({ data });
-  renderPanel();
+  renderDistributionPanel();
   const table = await screen.findByRole("table", {
     name: "Distribuição do resultado por mês",
   });
@@ -677,7 +728,7 @@ test("conflito de revisão recarrega configuração sem reaplicar comando automa
   saveDistributionConfiguration.mockRejectedValue({
     response: { status: 409 },
   });
-  renderPanel();
+  renderDistributionPanel();
   const dialog = await openConfiguration();
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Salvar distribuição" }),
@@ -693,7 +744,7 @@ test("conflito de revisão recarrega configuração sem reaplicar comando automa
 test("falha ao salvar preserva formulário e 403 posterior limpa tudo", async () => {
   getDistributionConfiguration.mockResolvedValue({ data: configured() });
   saveDistributionConfiguration.mockRejectedValueOnce(new Error("Unavailable"));
-  renderPanel();
+  renderDistributionPanel();
   let dialog = await openConfiguration();
   fireEvent.change(within(dialog).getByLabelText("Participante 1"), {
     target: { value: "Nome editado" },
@@ -713,7 +764,7 @@ test("falha ao salvar preserva formulário e 403 posterior limpa tudo", async ()
     within(dialog).getByRole("button", { name: "Salvar distribuição" }),
   );
   await screen.findByText(
-    "Você não tem autorização para acessar Recebido e pago.",
+    "Você não tem autorização para acessar Distribuição.",
   );
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   expect(screen.queryByRole("table")).not.toBeInTheDocument();

@@ -50,11 +50,13 @@ export default function FinancialReceivedPaidSection(props) {
     valuesVisible,
     formatCurrency,
     currentDate,
+    view = "received-paid",
   } = props;
   if (authorization.isAdministrator !== true || scopeKey === null) return null;
   return (
     <ReceivedPaidContent
-      key={`${scopeKey}-${year}`}
+      key={`${scopeKey}-${year}-${view}`}
+      view={view}
       ui={ui}
       year={year}
       yearOptions={yearOptions}
@@ -80,7 +82,10 @@ function ReceivedPaidContent({
   formatCurrency,
   currentDate,
   onAccessDenied,
+  view,
 }) {
+  const isDistribution = view === "distribution";
+  const sectionLabel = isDistribution ? "Distribuição" : "Recebido e pago";
   const {
     AttendancePeriodBlock,
     AttendancePeriodBlockLeft,
@@ -155,25 +160,29 @@ function ReceivedPaidContent({
         fail(
           error,
           setReportError,
-          "Não foi possível carregar Recebido e pago.",
+          isDistribution
+            ? "Não foi possível carregar os valores da distribuição."
+            : "Não foi possível carregar Recebido e pago.",
         ),
       );
-    getDistributionConfiguration(controller.signal)
-      .then((response) => {
-        if (current()) setConfiguration(response.data);
-      })
-      .catch((error) =>
-        fail(
-          error,
-          setConfigurationError,
-          "Não foi possível carregar a configuração da distribuição.",
-        ),
-      );
+    if (isDistribution) {
+      getDistributionConfiguration(controller.signal)
+        .then((response) => {
+          if (current()) setConfiguration(response.data);
+        })
+        .catch((error) =>
+          fail(
+            error,
+            setConfigurationError,
+            "Não foi possível carregar a configuração da distribuição.",
+          ),
+        );
+    }
     return () => {
       active = false;
       controller.abort();
     };
-  }, [year, refresh]);
+  }, [year, refresh, isDistribution]);
   const save = async (command) => {
     setSaving(true);
     setSaveError("");
@@ -360,10 +369,7 @@ function ReceivedPaidContent({
         );
       return (
         <div>
-          <p>
-            Recarregue Recebido e pago para visualizar os valores da
-            distribuição.
-          </p>
+          <p>{reportError || "Recarregue os valores da distribuição."}</p>
           <SecondaryButton type="button" onClick={retry}>
             Recarregar valores
           </SecondaryButton>
@@ -444,7 +450,7 @@ function ReceivedPaidContent({
   };
   if (denied)
     return (
-      <p role="alert">Você não tem autorização para acessar Recebido e pago.</p>
+      <p role="alert">Você não tem autorização para acessar {sectionLabel}.</p>
     );
   return (
     <>
@@ -463,7 +469,7 @@ function ReceivedPaidContent({
             <AttendancePeriodChip>
               {year}
               <AttendancePeriodYearSelect
-                aria-label="Selecionar ano de Recebido e pago"
+                aria-label={`Selecionar ano de ${sectionLabel}`}
                 value={year}
                 onChange={onYearChange}
               >
@@ -480,36 +486,45 @@ function ReceivedPaidContent({
           </AttendancePeriodControls>
         </AttendancePeriodBlockRight>
       </AttendancePeriodBlock>
-      <AttendanceCard>
-        <AttendanceCardHeader>
-          <AttendanceCardTitle>Recebido e pago</AttendanceCardTitle>
-        </AttendanceCardHeader>
-        <Description>
-          Recebido é o que entrou; Pago é o que saiu. Resultado realizado é a
-          diferença entre os dois.
-        </Description>
-        {renderReport()}
-      </AttendanceCard>
-      <AttendanceCard>
-        <AttendanceCardHeader>
-          <AttendanceCardTitle>Distribuição do resultado</AttendanceCardTitle>
-          {configuration?.configured ? (
-            <IconButton
-              type="button"
-              aria-label="Configurar distribuição"
-              onClick={() => {
-                setSaveError("");
-                setModalOpen(true);
-              }}
-            >
-              <FaCog />
-            </IconButton>
-          ) : null}
-        </AttendanceCardHeader>
-        {notice ? <p role="status">{notice}</p> : null}
-        {renderDistribution()}
-      </AttendanceCard>
-      {modalOpen && configuration ? (
+      {!isDistribution ? (
+        <AttendanceCard>
+          <AttendanceCardHeader>
+            <AttendanceCardTitle>Recebido e pago</AttendanceCardTitle>
+          </AttendanceCardHeader>
+          <Description>
+            Recebido é o que entrou; Pago é o que saiu. Resultado realizado é a
+            diferença entre os dois.
+          </Description>
+          {renderReport()}
+        </AttendanceCard>
+      ) : (
+        <AttendanceCard>
+          <AttendanceCardHeader>
+            <AttendanceCardTitle>Distribuição do resultado</AttendanceCardTitle>
+            {configuration?.configured ? (
+              <IconButton
+                type="button"
+                aria-label="Configurar distribuição"
+                onClick={() => {
+                  setSaveError("");
+                  setModalOpen(true);
+                }}
+              >
+                <FaCog />
+              </IconButton>
+            ) : null}
+          </AttendanceCardHeader>
+          <Description>
+            Usa os recebimentos e pagamentos efetivos de cada mês, como em
+            Recebido e pago. Apenas resultados positivos são distribuídos
+            conforme os participantes e percentuais configurados. Demonstrativo,
+            sem gerar repasses ou pagamentos.
+          </Description>
+          {notice ? <p role="status">{notice}</p> : null}
+          {renderDistribution()}
+        </AttendanceCard>
+      )}
+      {isDistribution && modalOpen && configuration ? (
         <FinancialDistributionModal
           ui={ui}
           configuration={configuration}

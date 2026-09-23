@@ -1,12 +1,15 @@
 /* eslint-env jest */
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
+import { Provider } from "react-redux";
+import { createStore } from "redux";
 import { toast } from "react-toastify";
 
 import Financeiro from "./index";
 import axios from "../../services/axios";
+import { getReceivedPaid, getDistributionConfiguration } from "../../services/financialReceivedPaid";
 import {
   applyScopedFinancialCredit,
   getClinicExpenseAlerts,
@@ -18,6 +21,16 @@ import {
   listFinancialPayments,
   listPatientCredits,
 } from "../../services/financial";
+
+let mockAuthorization;
+jest.mock("../../contexts/AuthorizationContext", () => ({
+  useAuthorization: () => mockAuthorization,
+}));
+jest.mock("../../services/financialReceivedPaid", () => ({
+  getReceivedPaid: jest.fn(),
+  getDistributionConfiguration: jest.fn(),
+  saveDistributionConfiguration: jest.fn(),
+}));
 
 jest.mock("react-toastify", () => ({
   toast: {
@@ -80,27 +93,49 @@ jest.mock("../../services/financial", () => ({
 }));
 
 const renderFinanceiro = (pathname = "/financeiro/receitas") => render(
-  <MemoryRouter initialEntries={[pathname]}>
-    <Financeiro />
-  </MemoryRouter>,
+  <Provider store={createStore(() => ({ auth: { token: "local-test-session" } }))}>
+    <MemoryRouter initialEntries={[pathname]}>
+      <Financeiro />
+    </MemoryRouter>
+  </Provider>,
 );
 
 const revealFinancialValues = async () => {
   await userEvent.click(screen.getByRole("button", { name: "Mostrar valores financeiros" }));
 };
 
+const emptyOverview = {
+  incomeTotal: 0,
+  expenseTotal: 0,
+  periodResult: 0,
+  hasAccounts: false,
+  received: 0,
+  receivable: 0,
+  paidExpenses: 0,
+  pendingExpenses: 0,
+  currentResult: 0,
+  pendingBalance: 0,
+};
 const buildOverviewMonths = (year = "2026", overrides = {}) => (
   Array.from({ length: 12 }, (_, index) => ({
     month: `${year}-${String(index + 1).padStart(2, "0")}`,
-    received: 0,
-    receivable: 0,
-    paidExpenses: 0,
-    pendingExpenses: 0,
-    currentResult: 0,
-    pendingBalance: 0,
+    ...emptyOverview,
     ...(overrides[index + 1] || {}),
   }))
 );
+const cashReport = (year = "2026") => ({
+  year: Number(year),
+  months: Array.from({ length: 12 }, (_, index) => ({
+    month: `${year}-${String(index + 1).padStart(2, "0")}`,
+    received_cents: index === 10 ? 20000 : 0,
+    paid_cents: 0,
+    realized_result_cents: index === 10 ? 20000 : 0,
+    distribution: null,
+  })),
+  totals: { received_cents: 20000, paid_cents: 0, realized_result_cents: 20000 },
+  distribution: null,
+});
+const summaryField = (container, field) => container.querySelector(`[data-summary-field="${field}"]`);
 
 const expectChargeTableStructure = (serviceName, expectedCells) => {
   const row = screen.getByText(serviceName).closest("tr");
@@ -150,6 +185,17 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       value: FixedFinanceiroTestDate,
     });
     jest.clearAllMocks();
+    mockAuthorization = {
+      isAdministrator: false,
+      context: { clinic_id: 1 },
+      reload: jest.fn(),
+      canAccessModule: () => false,
+      hasCapability: () => false,
+    };
+    getReceivedPaid.mockImplementation((year) => Promise.resolve({ data: cashReport(year) }));
+    getDistributionConfiguration.mockResolvedValue({
+      data: { configured: false, revision: 0, current_rule: null, pending_rule: null },
+    });
     Object.defineProperty(window, "matchMedia", {
       writable: true,
       value: jest.fn().mockImplementation((query) => ({
@@ -165,16 +211,12 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     });
     axios.get.mockResolvedValue({ data: [] });
     getClinicExpenseAlerts.mockResolvedValue({ data: { dueSoonCount: 0 } });
-    getFinancialOverview.mockResolvedValue({
+    getFinancialOverview.mockImplementation((period, mode) => Promise.resolve({
       data: {
-        received: 0,
-        receivable: 0,
-        paidExpenses: 0,
-        pendingExpenses: 0,
-        currentResult: 0,
-        pendingBalance: 0,
+        ...emptyOverview,
+        ...(mode === "year" ? { year: period, months: buildOverviewMonths(period) } : { month: period }),
       },
-    });
+    }));
     getFinancialRevenuesSummary.mockResolvedValue({
       data: {
         month: "2026-06",
@@ -269,220 +311,225 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     applyScopedFinancialCredit.mockResolvedValue({ data: {} });
   });
 
-  it("consulta visão geral mensal e anual com parâmetros exclusivos", async () => {
+  it("consulta contas mensais e anuais com parâmetros exclusivos e a mesma base no gráfico", async () => {
     getFinancialOverview.mockImplementation((period, mode) => Promise.resolve({
       data: mode === "year"
         ? {
-          year: period,
-          received: 160000,
-          receivable: 140000,
-          paidExpenses: 50000,
-          pendingExpenses: 25000,
-          currentResult: 110000,
-          pendingBalance: 115000,
+          year: period, incomeTotal: 300000, expenseTotal: 75000, periodResult: 225000,
+          hasAccounts: true, received: 160000, receivable: 140000,
+          paidExpenses: 50000, pendingExpenses: 25000, currentResult: 110000, pendingBalance: 115000,
           months: buildOverviewMonths(period, {
-            1: { received: 100000, paidExpenses: 25000, currentResult: 75000 },
-            2: {
-              received: 10000,
-              receivable: 140000,
-              paidExpenses: 25000,
-              pendingExpenses: 25000,
-              currentResult: -15000,
-              pendingBalance: 115000,
-            },
-            3: { received: 50000, currentResult: 50000 },
+            1: { incomeTotal: 100000, expenseTotal: 25000, periodResult: 75000, hasAccounts: true,
+              received: 100000, paidExpenses: 25000, currentResult: 75000 },
+            2: { incomeTotal: 150000, expenseTotal: 50000, periodResult: 100000, hasAccounts: true,
+              received: 10000, receivable: 140000, paidExpenses: 25000, pendingExpenses: 25000,
+              currentResult: -15000, pendingBalance: 115000 },
+            3: { incomeTotal: 50000, periodResult: 50000, hasAccounts: true, received: 50000, currentResult: 50000 },
           }),
         }
-        : {
-          month: period,
-          received: 10000,
-          receivable: 20000,
-          paidExpenses: 3000,
-          pendingExpenses: 4000,
-          currentResult: 7000,
-          pendingBalance: 16000,
-        },
+        : { month: period, incomeTotal: 30000, expenseTotal: 7000, periodResult: 23000,
+          hasAccounts: true, received: 10000, receivable: 20000, paidExpenses: 3000,
+          pendingExpenses: 4000, currentResult: 7000, pendingBalance: 16000 },
     }));
     const { container } = renderFinanceiro("/financeiro/visao-geral");
     await revealFinancialValues();
+    expect(await screen.findByText("Contas do mês")).toBeInTheDocument();
+    expect(getFinancialOverview).toHaveBeenCalledWith("2026-06", "month");
+    expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 300,00");
+    expect(summaryField(container, "periodResult")).toHaveTextContent("R$ 230,00");
 
-    await waitFor(() => {
-      expect(getFinancialOverview).toHaveBeenCalledWith("2026-06", "month");
-    });
-    expect(await screen.findByText("R$ 100,00")).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("tab", { name: "Evolução anual" }));
-
-    expect(await screen.findByText("Carregando financeiro...")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(getFinancialOverview).toHaveBeenCalledWith("2026", "year");
-    });
-    expect(await screen.findByText("Resumo do ano")).toBeInTheDocument();
-    expect(screen.getByText("Resultado do ano atual")).toBeInTheDocument();
-    expect(screen.getAllByText("R$ 1.600,00")).toHaveLength(2);
-    expect(screen.getByText("R$ 1.400,00")).toBeInTheDocument();
-    expect(screen.getAllByText("R$ 500,00").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("R$ 1.100,00")).toHaveLength(2);
-    expect(screen.getByText("R$ 1.150,00")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Resultado financeiro por mês" }))
-      .toBeInTheDocument();
-    expect(within(screen.getByRole("table", { name: "Evolução financeira mensal" }))
-      .getAllByRole("row")).toHaveLength(14);
-
-    const annualTable = screen.getByRole("table", { name: "Evolução financeira mensal" });
-    const februaryRow = annualTable.querySelector('[data-month="2026-02"]');
-    const februaryReceived = februaryRow.querySelector('[data-field="received"]');
-    const februaryPaidExpenses = februaryRow.querySelector('[data-field="paidExpenses"]');
-    const februaryResult = februaryRow.querySelector('[data-field="currentResult"]');
-    const februaryBar = container.querySelector('rect[data-month="2026-02"]');
-    const februaryLabel = container.querySelector('text[data-month="2026-02"]');
-    expect(februaryReceived).toHaveTextContent("R$ 100,00");
-    expect(februaryPaidExpenses).toHaveTextContent("R$ 250,00");
-    expect(februaryResult).toHaveTextContent("-R$ 150,00");
-    expect(februaryBar).toHaveAttribute("data-value-cents", "-15000");
-    expect(februaryLabel).toHaveAttribute("data-value-cents", "-15000");
-    expect(februaryLabel.textContent).toBe(februaryResult.textContent);
-
-    await userEvent.click(screen.getByRole("tab", { name: "Resumo mensal" }));
-    await waitFor(() => {
-      expect(getFinancialOverview).toHaveBeenLastCalledWith("2026-06", "month");
-    });
-    expect(await screen.findByText("Resumo do mês")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Anual" }));
+    expect(await screen.findByText("Contas do ano")).toBeInTheDocument();
+    expect(getFinancialOverview).toHaveBeenCalledWith("2026", "year");
+    expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 3.000,00");
+    expect(summaryField(container, "received")).toHaveTextContent("R$ 1.600,00");
+    expect(summaryField(container, "receivable")).toHaveTextContent("R$ 1.400,00");
+    expect(summaryField(container, "periodResult")).toHaveTextContent("R$ 2.250,00");
+    expect(screen.getByRole("img", { name: "Saldo das contas por mês" })).toBeInTheDocument();
+    const table = screen.getByRole("table", { name: "Contas por mês" });
+    expect(within(table).getAllByRole("row")).toHaveLength(14);
+    const february = table.querySelector('[data-month="2026-02"]');
+    expect(february.querySelector('[data-field="incomeTotal"]')).toHaveTextContent("R$ 1.500,00");
+    expect(february.querySelector('[data-field="expenseTotal"]')).toHaveTextContent("R$ 500,00");
+    expect(february.querySelector('[data-field="periodResult"]')).toHaveTextContent("R$ 1.000,00");
+    expect(container.querySelector('rect[data-month="2026-02"]')).toHaveAttribute("data-value-cents", "100000");
+    expect(container.querySelector('text[data-month="2026-02"]')).toHaveAttribute("data-value-cents", "100000");
+    await userEvent.click(screen.getByRole("button", { name: "Mensal" }));
+    expect(await screen.findByText("Contas do mês")).toBeInTheDocument();
+    expect(getFinancialOverview).toHaveBeenLastCalledWith("2026-06", "month");
   });
 
-  it("navega um mês no mensal e um ano no anual", async () => {
+  it("preserva os períodos mensal e anual ao navegar entre anos", async () => {
     renderFinanceiro("/financeiro/visao-geral");
-
-    await waitFor(() => {
-      expect(getFinancialOverview).toHaveBeenCalledWith("2026-06", "month");
-    });
+    await screen.findByText("Contas do mês");
     await userEvent.click(screen.getByRole("button", { name: "Próximo >" }));
-    await waitFor(() => {
-      expect(getFinancialOverview).toHaveBeenCalledWith("2026-07", "month");
-    });
-
-    await userEvent.click(screen.getByRole("tab", { name: "Evolução anual" }));
-    await waitFor(() => {
-      expect(getFinancialOverview).toHaveBeenCalledWith("2026", "year");
-    });
+    await waitFor(() => expect(getFinancialOverview).toHaveBeenLastCalledWith("2026-07", "month"));
+    await userEvent.click(screen.getByRole("button", { name: "Anual" }));
+    await screen.findByText("Contas do ano");
     await userEvent.click(screen.getByRole("button", { name: "Próximo ano >" }));
-    await waitFor(() => {
-      expect(getFinancialOverview).toHaveBeenCalledWith("2027", "year");
-    });
-
-    await userEvent.click(screen.getByRole("tab", { name: "Resumo mensal" }));
-    await waitFor(() => {
-      expect(getFinancialOverview).toHaveBeenLastCalledWith("2026-07", "month");
-    });
-    expect(screen.getByLabelText("Selecionar mês e ano do resumo mensal"))
-      .toHaveValue("2026-07");
-    expect(screen.queryByLabelText("Selecionar ano da evolução anual"))
-      .not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("tab", { name: "Evolução anual" }));
-    await waitFor(() => {
-      expect(getFinancialOverview).toHaveBeenLastCalledWith("2027", "year");
-    });
-    expect(screen.getByLabelText("Selecionar ano da evolução anual")).toHaveValue("2027");
-    expect(screen.queryByLabelText("Selecionar mês e ano do resumo mensal"))
-      .not.toBeInTheDocument();
+    await waitFor(() => expect(getFinancialOverview).toHaveBeenLastCalledWith("2027", "year"));
+    await userEvent.click(screen.getByRole("button", { name: "Mensal" }));
+    await screen.findByText("Contas do mês");
+    expect(getFinancialOverview).toHaveBeenLastCalledWith("2026-07", "month");
+    expect(screen.getByLabelText("Selecionar mês e ano do Resumo")).toHaveValue("2026-07");
+    expect(screen.queryByLabelText("Selecionar ano do Resumo")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Anual" }));
+    await screen.findByText("Contas do ano");
+    expect(getFinancialOverview).toHaveBeenLastCalledWith("2027", "year");
+    expect(screen.getByLabelText("Selecionar ano do Resumo")).toHaveValue("2027");
   });
 
-  it("ignora resposta atrasada de um modo anterior", async () => {
+  it("clicar novamente na aba ou no período ativo mantém os dados sem prender carregamento", async () => {
+    renderFinanceiro("/financeiro/visao-geral");
+    await screen.findByText("Contas do mês");
+    await userEvent.click(screen.getByRole("tab", { name: "Resumo" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mensal" }));
+    expect(screen.getByText("Contas do mês")).toBeInTheDocument();
+    expect(screen.queryByText("Carregando contas do período...")).not.toBeInTheDocument();
+    expect(getFinancialOverview).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Anual" }));
+    await screen.findByText("Contas do ano");
+    await userEvent.click(screen.getByRole("button", { name: "Anual" }));
+    expect(screen.getByText("Contas do ano")).toBeInTheDocument();
+    expect(screen.queryByText("Carregando contas do período...")).not.toBeInTheDocument();
+    expect(getFinancialOverview).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignora resposta atrasada de um modo anterior sem apresentar zero durante carregamento", async () => {
     let resolveAnnual;
-    const annualRequest = new Promise((resolve) => {
-      resolveAnnual = resolve;
-    });
-    getFinancialOverview.mockImplementation((period, mode) => {
-      if (mode === "year") return annualRequest;
-      return Promise.resolve({
-        data: {
-          month: period,
-          received: 11000,
-          receivable: 0,
-          paidExpenses: 0,
-          pendingExpenses: 0,
-          currentResult: 11000,
-          pendingBalance: 0,
-        },
-      });
-    });
-    renderFinanceiro("/financeiro/visao-geral");
+    const annualRequest = new Promise((resolve) => { resolveAnnual = resolve; });
+    getFinancialOverview.mockImplementation((period, mode) => mode === "year" ? annualRequest : Promise.resolve({
+      data: { ...emptyOverview, month: period, hasAccounts: true, incomeTotal: 11000, periodResult: 11000, received: 11000, currentResult: 11000 },
+    }));
+    const { container } = renderFinanceiro("/financeiro/visao-geral");
     await revealFinancialValues();
-    expect(await screen.findAllByText("R$ 110,00")).toHaveLength(2);
-
-    await userEvent.click(screen.getByRole("tab", { name: "Evolução anual" }));
-    await waitFor(() => {
-      expect(getFinancialOverview).toHaveBeenCalledWith("2026", "year");
-    });
-    await userEvent.click(screen.getByRole("tab", { name: "Resumo mensal" }));
-    await waitFor(() => {
-      expect(getFinancialOverview).toHaveBeenLastCalledWith("2026-06", "month");
-    });
-
-    resolveAnnual({
-      data: {
-        year: "2026",
-        received: 999000,
-        receivable: 0,
-        paidExpenses: 0,
-        pendingExpenses: 0,
-        currentResult: 999000,
-        pendingBalance: 0,
-      },
-    });
-    await waitFor(() => {
-      expect(screen.getAllByText("R$ 110,00")).toHaveLength(2);
-      expect(screen.queryByText("R$ 9.990,00")).not.toBeInTheDocument();
-    });
+    await screen.findByText("Contas do mês");
+    expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 110,00");
+    await userEvent.click(screen.getByRole("button", { name: "Anual" }));
+    expect(screen.getByText("Carregando contas do período...")).toBeInTheDocument();
+    expect(summaryField(container, "incomeTotal")).toBeNull();
+    expect(screen.queryByText("Nenhuma conta encontrada para este ano.")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Mensal" }));
+    await screen.findByText("Contas do mês");
+    await act(async () => resolveAnnual({ data: { ...emptyOverview, year: "2026", incomeTotal: 999000, periodResult: 999000, hasAccounts: true, received: 999000, currentResult: 999000, months: buildOverviewMonths() } }));
+    expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 110,00");
+    expect(screen.queryByText("R$ 9.990,00")).not.toBeInTheDocument();
   });
 
-  it("mantém tratamento amigável quando a consulta anual falha", async () => {
-    getFinancialOverview.mockImplementation((period, mode) => (
-      mode === "year"
-        ? Promise.reject(new Error("annual failure"))
-        : Promise.resolve({ data: { month: period } })
-    ));
-    renderFinanceiro("/financeiro/visao-geral");
-    await waitFor(() => {
-      expect(getFinancialOverview).toHaveBeenCalledWith("2026-06", "month");
-    });
-
-    await userEvent.click(screen.getByRole("tab", { name: "Evolução anual" }));
-
-    await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith(
-        "Não foi possível carregar a visão geral financeira.",
-      );
-    });
-    expect(screen.getByText("Nenhuma movimentação encontrada para este ano."))
-      .toBeInTheDocument();
+  it("apresenta erro de consulta anual sem transformá-lo em ausência ou zero", async () => {
+    getFinancialOverview.mockImplementation((period, mode) => mode === "year"
+      ? Promise.reject(new Error("annual failure"))
+      : Promise.resolve({ data: { ...emptyOverview, month: period } }));
+    const { container } = renderFinanceiro("/financeiro/visao-geral");
+    await revealFinancialValues();
+    await screen.findByText("Contas do mês");
+    await userEvent.click(screen.getByRole("button", { name: "Anual" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível carregar");
+    expect(toast.error).toHaveBeenCalledWith("Não foi possível carregar a visão geral financeira.");
+    expect(screen.queryByText("Nenhuma conta encontrada para este ano.")).not.toBeInTheDocument();
+    expect(summaryField(container, "incomeTotal")).toBeNull();
   });
 
-  it("preserva o resumo anual e controla contrato months inesperado", async () => {
+  it.each(["incomeTotal", "expenseTotal", "periodResult", "hasAccounts", "received", "receivable", "paidExpenses", "pendingExpenses"])("rejeita contrato sem %s, sem inferir valor zero", async (field) => {
+    const payload = { ...emptyOverview, month: "2026-06" };
+    delete payload[field];
+    getFinancialOverview.mockResolvedValue({ data: payload });
+    const { container } = renderFinanceiro("/financeiro/visao-geral");
+    await revealFinancialValues();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível carregar");
+    expect(summaryField(container, "incomeTotal")).toBeNull();
+    expect(screen.queryByText("Nenhuma conta encontrada para este mês.")).not.toBeInTheDocument();
+  });
+
+  it("distingue zero explícito de nenhuma conta e preserva o resumo anual se months for inválido", async () => {
     getFinancialOverview.mockImplementation((period, mode) => Promise.resolve({
       data: mode === "year"
-        ? {
-          year: period,
-          received: 50000,
-          receivable: 0,
-          paidExpenses: 20000,
-          pendingExpenses: 0,
-          currentResult: 30000,
-          pendingBalance: 0,
-          months: [{ month: `${period}-01`, currentResult: 30000 }],
-        }
-        : { month: period },
+        ? { ...emptyOverview, year: period, incomeTotal: 50000, expenseTotal: 20000, periodResult: 30000, hasAccounts: true,
+          received: 50000, paidExpenses: 20000, currentResult: 30000, months: [{ month: `${period}-01`, periodResult: 30000 }] }
+        : { ...emptyOverview, month: period },
     }));
+    const { container } = renderFinanceiro("/financeiro/visao-geral");
+    await revealFinancialValues();
+    expect(await screen.findByText("Nenhuma conta encontrada para este mês.")).toBeInTheDocument();
+    expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 0,00");
+    await userEvent.click(screen.getByRole("button", { name: "Anual" }));
+    expect(await screen.findByText("Contas do ano")).toBeInTheDocument();
+    expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 500,00");
+    expect(screen.getByRole("alert")).toHaveTextContent("Não foi possível carregar as contas por mês deste ano.");
+    expect(screen.queryByRole("table", { name: "Contas por mês" })).not.toBeInTheDocument();
+  });
+
+  it("mostra pacote futuro de R$400 em outubro e zero em novembro no mensal, anual e gráfico", async () => {
+    const packageAccounts = { ...emptyOverview, incomeTotal: 40000, periodResult: 40000, receivable: 40000, pendingBalance: 40000, hasAccounts: true };
+    getFinancialOverview.mockImplementation((period, mode) => Promise.resolve({ data: mode === "year"
+      ? { ...(period === "2026" ? packageAccounts : emptyOverview), year: period,
+        months: buildOverviewMonths(period, period === "2026" ? { 10: packageAccounts } : {}) }
+      : { ...(period === "2026-10" ? packageAccounts : emptyOverview), month: period },
+    }));
+    const { container } = renderFinanceiro("/financeiro/visao-geral");
+    await revealFinancialValues();
+    fireEvent.change(screen.getByLabelText("Selecionar mês e ano do Resumo"), { target: { value: "2026-10" } });
+    await waitFor(() => expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 400,00"));
+    expect(summaryField(container, "received")).toHaveTextContent("R$ 0,00");
+    fireEvent.change(screen.getByLabelText("Selecionar mês e ano do Resumo"), { target: { value: "2026-11" } });
+    await waitFor(() => expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 0,00"));
+    await userEvent.click(screen.getByRole("button", { name: "Anual" }));
+    const table = await screen.findByRole("table", { name: "Contas por mês" });
+    expect(table.querySelector('[data-month="2026-10"] [data-field="incomeTotal"]')).toHaveTextContent("R$ 400,00");
+    expect(table.querySelector('[data-month="2026-11"] [data-field="incomeTotal"]')).toHaveTextContent("R$ 0,00");
+    expect(container.querySelector('rect[data-month="2026-10"]')).toHaveAttribute("data-value-cents", "40000");
+    expect(table.querySelector('[data-annual-total="true"] [data-field="incomeTotal"]')).toHaveTextContent("R$ 400,00");
+    await userEvent.click(screen.getByRole("button", { name: "Próximo ano >" }));
+    await waitFor(() => expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 0,00"));
+    expect(getFinancialOverview).toHaveBeenLastCalledWith("2027", "year");
+  });
+
+  it("alterna três abas preservando períodos e separa conta de outubro do recebimento em novembro", async () => {
+    mockAuthorization = { ...mockAuthorization, isAdministrator: true };
+    const october = { ...emptyOverview, incomeTotal: 20000, periodResult: 20000, received: 20000, currentResult: 20000, hasAccounts: true };
+    getFinancialOverview.mockImplementation((period, mode) => Promise.resolve({ data: mode === "year"
+      ? { ...october, year: period, months: buildOverviewMonths(period, { 10: october }) }
+      : { ...(period === "2026-10" ? october : emptyOverview), month: period },
+    }));
+    const { container } = renderFinanceiro("/financeiro/visao-geral");
+    await revealFinancialValues();
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Resumo", "Recebido e pago", "Distribuição"]);
+    fireEvent.change(screen.getByLabelText("Selecionar mês e ano do Resumo"), { target: { value: "2026-10" } });
+    await waitFor(() => expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 200,00"));
+    expect(summaryField(container, "received")).toHaveTextContent("LiquidadoR$ 200,00");
+    expect(summaryField(container, "receivable")).toHaveTextContent("R$ 0,00");
+    await userEvent.click(screen.getByRole("tab", { name: "Recebido e pago" }));
+    const cash = await screen.findByRole("table", { name: "Recebido e pago por mês" });
+    expect(within(cash).getByRole("row", { name: /Novembro/ })).toHaveTextContent("R$ 200,00");
+    expect(within(cash).getByRole("row", { name: /Outubro/ })).not.toHaveTextContent("R$ 200,00");
+    expect(getDistributionConfiguration).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Distribuição do resultado" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Distribuição" }));
+    expect(await screen.findByRole("button", { name: "Configurar distribuição" })).toBeInTheDocument();
+    expect(getDistributionConfiguration).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("table", { name: "Recebido e pago por mês" })).not.toBeInTheDocument();
+    expect(getReceivedPaid.mock.calls.map(([year]) => year)).toEqual(["2026", "2026"]);
+    await userEvent.click(screen.getByRole("button", { name: "Próximo ano >" }));
+    await waitFor(() => expect(getReceivedPaid).toHaveBeenLastCalledWith("2027", expect.any(AbortSignal)));
+    await userEvent.click(screen.getByRole("tab", { name: "Recebido e pago" }));
+    await screen.findByRole("table", { name: "Recebido e pago por mês" });
+    expect(screen.getByLabelText("Selecionar ano de Recebido e pago")).toHaveValue("2027");
+    await userEvent.click(screen.getByRole("tab", { name: "Resumo" }));
+    await screen.findByText("Contas do mês");
+    expect(screen.getByLabelText("Selecionar mês e ano do Resumo")).toHaveValue("2026-10");
+    expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 200,00");
+    await userEvent.click(screen.getByRole("button", { name: "Anual" }));
+    await screen.findByText("Contas do ano");
+    expect(screen.getByLabelText("Selecionar ano do Resumo")).toHaveValue("2027");
+  });
+
+  it("usuário financeiro sem Administrador não vê nem consulta caixa e distribuição", async () => {
+    mockAuthorization = { ...mockAuthorization, canAccessModule: () => true, hasCapability: () => true };
     renderFinanceiro("/financeiro/visao-geral");
-
-    await userEvent.click(screen.getByRole("tab", { name: "Evolução anual" }));
-
-    expect(await screen.findByText("Resumo do ano")).toBeInTheDocument();
-    expect(screen.getByText("Não foi possível carregar a evolução mensal deste ano."))
-      .toBeInTheDocument();
-    expect(screen.queryByRole("table", { name: "Evolução financeira mensal" }))
-      .not.toBeInTheDocument();
+    await screen.findByText("Contas do mês");
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Resumo"]);
+    expect(getReceivedPaid).not.toHaveBeenCalled();
+    expect(getDistributionConfiguration).not.toHaveBeenCalled();
   });
 
   it("abre Configurações em Formas de pagamento e preserva links diretos das abas", async () => {
