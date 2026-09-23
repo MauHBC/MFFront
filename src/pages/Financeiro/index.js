@@ -76,6 +76,7 @@ import FinancialOverviewSection from "./components/FinancialOverviewSection";
 import useFinancialPaymentFlow from "./hooks/useFinancialPaymentFlow";
 import {
   emptyFinancialRevenuesSummary,
+  filterFinancialRevenuesSummary,
   mapRevenuesSummaryPatientsToAttendanceRows,
   mapRevenuesSummaryToAttendanceSummary,
   normalizeFinancialRevenuesSummary,
@@ -1380,14 +1381,12 @@ export default function Financeiro() {
     && attendanceFilters.financial === "all"
     && !attendanceFilters.patient_id
     && !attendanceFilters.professional_id
-    && !String(attendanceFilters.search || "").trim()
     && !attendanceDrilldownPatientId
   ), [
     attendanceDrilldownPatientId,
     attendanceFilters.financial,
     attendanceFilters.patient_id,
     attendanceFilters.professional_id,
-    attendanceFilters.search,
     receitasView,
   ]);
 
@@ -2711,7 +2710,8 @@ export default function Financeiro() {
     const detailPatient = detail?.patient?.id
       ? {
         id: Number(detail.patient.id),
-        full_name: detail.patient.name || "Paciente",
+        full_name: detail.patient.full_name || detail.patient.name || "Paciente",
+        display_name: detail.patient.name || "Paciente",
       }
       : null;
 
@@ -2792,7 +2792,8 @@ export default function Financeiro() {
         map.set(patientIdNumber, {
           ...(map.get(patientIdNumber) || {}),
           id: patientIdNumber,
-          full_name: summaryPatient.patient_name || "Paciente",
+          full_name: summaryPatient.patient_full_name || summaryPatient.patient_name || "Paciente",
+          display_name: summaryPatient.patient_name || "Paciente",
         });
         return Array.from(map.values());
       });
@@ -2834,7 +2835,8 @@ export default function Financeiro() {
       const detailPatient = detail.patient?.id
         ? {
           id: Number(detail.patient.id),
-          full_name: detail.patient.name || "Paciente",
+          full_name: detail.patient.full_name || detail.patient.name || "Paciente",
+          display_name: detail.patient.name || "Paciente",
         }
         : null;
 
@@ -4338,8 +4340,13 @@ export default function Financeiro() {
     return data;
   }, [attendanceByPatient, creditBalanceByPatient]);
 
+  const filteredRevenuesSummary = useMemo(
+    () => filterFinancialRevenuesSummary(revenuesSummary, attendanceFilters.search),
+    [attendanceFilters.search, revenuesSummary],
+  );
+
   const aggregatedAttendanceByPatient = useMemo(
-    () => mapRevenuesSummaryPatientsToAttendanceRows(revenuesSummary).map((row) => {
+    () => mapRevenuesSummaryPatientsToAttendanceRows(filteredRevenuesSummary).map((row) => {
       const presentation = attendanceListPresentationByPatient.get(row.patientId) || {};
       return {
         ...row,
@@ -4352,12 +4359,12 @@ export default function Financeiro() {
         ),
       };
     }),
-    [attendanceListPresentationByPatient, revenuesSummary],
+    [attendanceListPresentationByPatient, filteredRevenuesSummary],
   );
 
   const aggregatedAttendanceSummary = useMemo(
-    () => mapRevenuesSummaryToAttendanceSummary(revenuesSummary),
-    [revenuesSummary],
+    () => mapRevenuesSummaryToAttendanceSummary(filteredRevenuesSummary),
+    [filteredRevenuesSummary],
   );
 
   const resolveBillingCycleFinancial = useCallback((cycle) => {
@@ -5786,7 +5793,10 @@ export default function Financeiro() {
                 <PatientSearchField
                   mode="filter"
                   inputId="attendance-search"
-                  value={attendanceFilters.search}
+                  value={attendanceDrilldownPatientId
+                    ? selectedAttendancePatient?.full_name || ""
+                    : attendanceFilters.search}
+                  disabled={Boolean(attendanceDrilldownPatientId)}
                   onChange={(nextValue) => setAttendanceFilters((prev) => ({
                     ...prev,
                     search: nextValue,

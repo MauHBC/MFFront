@@ -1,5 +1,6 @@
 import {
   emptyFinancialRevenuesSummary,
+  filterFinancialRevenuesSummary,
   mapRevenuesSummaryPatientsToAttendanceRows,
   mapRevenuesSummaryToAttendanceSummary,
   normalizeFinancialRevenuesSummary,
@@ -35,6 +36,7 @@ describe("financialRevenuesSummary helper", () => {
       {
         patient_id: 1,
         patient_name: "Ana Lima",
+        patient_full_name: "Ana Lima",
         total: 150000,
         received: 100000,
         pending: 50000,
@@ -108,5 +110,37 @@ describe("financialRevenuesSummary helper", () => {
       expectedAmount: 0,
       creditsAvailable: 0,
     });
+  });
+
+  it("restringe pacientes pelo nome completo ou apelido sem recalcular sua competência", () => {
+    const payload = normalizeFinancialRevenuesSummary({
+      month: "2026-10",
+      summary: { total: 47000, received: 20000, pending: 27000 },
+      patients: [
+        {
+          patient_id: 1,
+          patient_name: "João",
+          patient_full_name: "João da Silva",
+          total: 40000,
+          received: 20000,
+          pending: 20000,
+          entries_count: 4,
+        },
+        { patient_id: 2, patient_name: "Ana", total: 7000, pending: 7000, entries_count: 1 },
+      ],
+    });
+
+    ["JOAO", "joao da silva"].forEach((query) => {
+      const filtered = filterFinancialRevenuesSummary(payload, query);
+      expect(filtered.month).toBe("2026-10");
+      expect(filtered.patients).toEqual([payload.patients[0]]);
+      expect(filtered.summary).toEqual({ total: 40000, received: 20000, pending: 20000 });
+    });
+    expect(filterFinancialRevenuesSummary(payload, "inexistente")).toMatchObject({
+      patients: [],
+      summary: { total: 0, received: 0, pending: 0 },
+    });
+    expect(filterFinancialRevenuesSummary(payload, "   ")).toBe(payload);
+    expect(payload.patients).toHaveLength(2);
   });
 });

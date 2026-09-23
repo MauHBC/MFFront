@@ -439,6 +439,19 @@ renderização de Mensalidades permanecem no fluxo de Mensalidades. A visão
 dedicada de Recebimentos continua desabilitada intencionalmente e fora dessa
 capacidade compartilhada ativa.
 
+### Pesquisa e identificação do paciente em Receitas
+
+Em Receitas, pesquisar restringe os pacientes apresentados e preserva a
+interpretação financeira dos pacotes nos valores da lista, dos totais e do
+detalhe. Pesquisa vazia, parcial, completa ou limpa mantém a competência
+definida pela [FIN-001 do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#fin-001),
+sem mudar a semântica dos demais filtros.
+
+Ao abrir o detalhe, o campo **Pesquisar paciente** mostra o nome completo do
+paciente e permanece desabilitado. Esse texto identifica o detalhe e é separado
+do estado da pesquisa: não dispara uma busca nem recalcula valores. Voltar à
+lista restaura a pesquisa anterior e permite sua edição.
+
 ### Evolução anual da Visão geral financeira
 
 A Visão geral separa `Resumo mensal` e `Evolução anual` como modos principais,

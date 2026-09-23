@@ -1,6 +1,6 @@
 /* eslint-env jest */
 import "@testing-library/jest-dom";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -1135,6 +1135,124 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await userEvent.type(screen.getByLabelText("Pesquisar paciente"), "Maria Silva");
 
     expect(screen.getByText("Avaliação Coluna")).toBeInTheDocument();
+  });
+
+  it.each(["month", "year"])("preserva pacote entre meses na pesquisa e no detalhe (%s)", async (mode) => {
+    const fullName = "TESTE Pacote Outubro-Novembro";
+    const patient = {
+      patient_id: 30,
+      patient_name: "Apelido do pacote",
+      patient_full_name: fullName,
+      total: 40000,
+      received: 0,
+      pending: 40000,
+      entries_count: 4,
+    };
+    const otherPatient = {
+      patient_id: 31, patient_name: "Outro paciente", total: 7000,
+      received: 0, pending: 7000, entries_count: 1,
+    };
+    const sessions = ["2026-10-28", "2026-11-04", "2026-11-11", "2026-11-18"].map((date, index) => ({
+      id: 701 + index, patient_id: 30, series_id: 901, service_id: 10,
+      starts_at: `${date}T13:00:00.000Z`, status: "scheduled", billing_mode: "per_session",
+    }));
+    const entries = sessions.map((session, index) => ({
+      id: 501 + index, patient_id: 30, session_id: session.id, service_id: 10,
+      type: "income", amount_cents: 10000, reference_date: session.starts_at.slice(0, 10), status: "pending",
+    }));
+    getFinancialRevenuesSummary.mockImplementation((period, periodMode) => Promise.resolve({
+      data: {
+        month: period,
+        summary: periodMode === "month" && period === "2026-11"
+          ? { total: 0, received: 0, pending: 0 }
+          : { total: 47000, received: 0, pending: 47000 },
+        patients: periodMode === "month" && period === "2026-11" ? [] : [patient, otherPatient],
+      },
+    }));
+    getFinancialRevenuePatientDetail.mockImplementation((id) => Promise.resolve({
+      data: {
+        patient: { id: Number(id), name: id === "30" ? patient.patient_name : "Outro paciente", full_name: id === "30" ? fullName : "Outro paciente" },
+        summary: { total: id === "30" ? 40000 : 7000, received: 0, pending: id === "30" ? 40000 : 7000, creditAvailable: 0 },
+        entries: id === "30" ? entries : [],
+        sessions: id === "30" ? sessions : [],
+        payments: [], credits: [],
+        series: id === "30" ? [{
+          id: 901, patient_id: 30, service_id: 10, starts_at: sessions[0].starts_at,
+          occurrence_count: 4,
+        }] : [],
+        packages: id === "30" ? [{
+          id: "series-901", sourceId: 901, series_id: 901, service_id: 10,
+          service_name: "Fisioterapia pacote", reference_date: "2026-10-28T13:00:00.000Z",
+          total_sessions: 4, used_sessions: 0, amount_cents: 40000, paid_cents: 0,
+          open_cents: 40000,
+          entries: entries.map((entry) => ({ entryId: entry.id, openCents: 10000 })),
+          sessions,
+        }] : [],
+      },
+    }));
+
+    renderFinanceiro();
+    await revealFinancialValues();
+    if (mode === "month") {
+      fireEvent.change(screen.getByLabelText("Selecionar mes e ano"), { target: { value: "2026-10" } });
+    } else {
+      await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+    }
+    await screen.findByText(patient.patient_name);
+    await waitFor(() => expect(getFinancialRevenuesSummary).toHaveBeenLastCalledWith(
+      mode === "month" ? "2026-10" : "2026", mode,
+    ));
+    const summary = () => within(screen.getByText("Resumo de cobrança").parentElement.parentElement);
+    const expectTotals = (total, sessionCount) => {
+      expect(summary().getByText("Valor").nextSibling).toHaveTextContent(total);
+      expect(summary().getByText("Pendente").nextSibling).toHaveTextContent(total);
+      expect(summary().getByText("Recebido").nextSibling).toHaveTextContent("R$ 0,00");
+      expect(summary().getByText("Sessões contratadas").nextSibling).toHaveTextContent(sessionCount);
+    };
+    expectTotals("R$ 470,00", "5");
+    const search = screen.getByLabelText("Pesquisar paciente");
+    const expectSearch = async (query) => {
+      await userEvent.clear(search);
+      await userEvent.type(search, query);
+      expect(screen.getByText(patient.patient_name)).toBeInTheDocument();
+      expect(screen.queryByText("Outro paciente")).not.toBeInTheDocument();
+      expectTotals("R$ 400,00", "4");
+      expect(within(screen.getByText(patient.patient_name).closest("tr")).getByText("R$ 400,00")).toBeInTheDocument();
+    };
+    await expectSearch("TESTE");
+    await expectSearch(fullName);
+    await expectSearch("Apelido");
+    await userEvent.clear(search);
+    await userEvent.type(search, "inexistente");
+    expect(screen.queryByText(patient.patient_name)).not.toBeInTheDocument();
+    expectTotals("R$ 0,00", "0");
+    await userEvent.clear(search);
+    expectTotals("R$ 470,00", "5");
+    await userEvent.type(search, "TESTE");
+    const callsBeforeDetail = getFinancialRevenuesSummary.mock.calls.length;
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    expect(await screen.findByText("Fisioterapia pacote")).toBeInTheDocument();
+    expect(search).toBeDisabled();
+    expect(search).toHaveValue(fullName);
+    expectTotals("R$ 400,00", "4");
+    expect(getFinancialRevenuesSummary).toHaveBeenCalledTimes(callsBeforeDetail);
+    await userEvent.click(screen.getByRole("button", { name: "Voltar" }));
+    expect(search).toBeEnabled();
+    expect(search).toHaveValue("TESTE");
+    await screen.findByText(patient.patient_name);
+    expectTotals("R$ 400,00", "4");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    expect(await screen.findByText("Fisioterapia pacote")).toBeInTheDocument();
+    expect(search).toBeDisabled();
+    expect(search).toHaveValue(fullName);
+    await userEvent.click(screen.getByRole("button", { name: "Voltar" }));
+    await screen.findByText(patient.patient_name);
+    expect(search).toBeEnabled();
+    expect(search).toHaveValue("TESTE");
+    await userEvent.clear(search);
+    expectTotals("R$ 470,00", "5");
+    expect(listFinancialEntries).not.toHaveBeenCalled();
+    expect(axios.get).not.toHaveBeenCalledWith("/sessions", expect.anything());
   });
 
   it("usa resumo agregado no modo anual", async () => {
