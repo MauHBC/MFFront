@@ -492,8 +492,7 @@ function ReceivedPaidContent({
             <AttendanceCardTitle>Recebido e pago</AttendanceCardTitle>
           </AttendanceCardHeader>
           <Description>
-            Recebido é o que entrou; Pago é o que saiu. Resultado realizado é a
-            diferença entre os dois.
+            Contas que pertencem ao período, considerando data do pagamento
           </Description>
           {renderReport()}
         </AttendanceCard>
@@ -515,10 +514,8 @@ function ReceivedPaidContent({
             ) : null}
           </AttendanceCardHeader>
           <Description>
-            Usa os recebimentos e pagamentos efetivos de cada mês, como em
-            Recebido e pago. Apenas resultados positivos são distribuídos
-            conforme os participantes e percentuais configurados. Demonstrativo,
-            sem gerar repasses ou pagamentos.
+            Divisão dos valores da aba &quot;Recebido e pago&quot; considerando a
+            data de pagamento das contas
           </Description>
           {notice ? <p role="status">{notice}</p> : null}
           {renderDistribution()}

@@ -251,7 +251,7 @@ test("12 meses e totais vêm do backend, com resultado negativo e sem gráfico",
   );
   expect(table.querySelector("tfoot")).toHaveTextContent(currency(-7655));
   expect(screen.queryByTestId("existing-chart")).not.toBeInTheDocument();
-  expect(screen.getByText(/Recebido é o que entrou/)).toBeInTheDocument();
+  expect(screen.getByText("Contas que pertencem ao período, considerando data do pagamento")).toBeInTheDocument();
   expect(getDistributionConfiguration).not.toHaveBeenCalled();
   expect(
     screen.queryByText("Distribuição do resultado"),
@@ -275,8 +275,8 @@ test("Distribuição usa o mesmo relatório anual de caixa, sem exibir a tabela 
     screen.queryByRole("table", { name: "Recebido e pago por mês" }),
   ).not.toBeInTheDocument();
   expect(
-    screen.getByText(/recebimentos e pagamentos efetivos de cada mês/),
-  ).toHaveTextContent("Demonstrativo, sem gerar repasses ou pagamentos.");
+    screen.getByText('Divisão dos valores da aba "Recebido e pago" considerando a data de pagamento das contas'),
+  ).toBeInTheDocument();
   fireEvent.change(
     screen.getByRole("combobox", { name: "Selecionar ano de Distribuição" }),
     { target: { value: "2025" } },

@@ -441,7 +441,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(screen.queryByText("Nenhuma conta encontrada para este mês.")).not.toBeInTheDocument();
   });
 
-  it("distingue zero explícito de nenhuma conta e preserva o resumo anual se months for inválido", async () => {
+  it("mantém indicadores zerados sem aviso mensal e preserva o resumo anual se months for inválido", async () => {
     getFinancialOverview.mockImplementation((period, mode) => Promise.resolve({
       data: mode === "year"
         ? { ...emptyOverview, year: period, incomeTotal: 50000, expenseTotal: 20000, periodResult: 30000, hasAccounts: true,
@@ -450,8 +450,11 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     }));
     const { container } = renderFinanceiro("/financeiro/visao-geral");
     await revealFinancialValues();
-    expect(await screen.findByText("Nenhuma conta encontrada para este mês.")).toBeInTheDocument();
-    expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 0,00");
+    await screen.findByText("Contas do mês");
+    expect(screen.queryByText("Nenhuma conta encontrada para este mês.")).not.toBeInTheDocument();
+    ["incomeTotal", "expenseTotal", "periodResult", "received", "receivable", "paidExpenses", "pendingExpenses"].forEach((field) => {
+      expect(summaryField(container, field)).toHaveTextContent("R$ 0,00");
+    });
     await userEvent.click(screen.getByRole("button", { name: "Anual" }));
     expect(await screen.findByText("Contas do ano")).toBeInTheDocument();
     expect(summaryField(container, "incomeTotal")).toHaveTextContent("R$ 500,00");
@@ -893,6 +896,112 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       "Parcial",
       "Sessões",
     ]);
+  });
+
+  it.each([
+    ["intacto", "month", 4, 40000, 0, 40000],
+    ["retirada posterior", "month", 3, 40000, 10000, 30000],
+    ["primeira retirada parcialmente paga", "month", 3, 40000, 5000, 35000],
+    ["primeira retirada paga", "month", 3, 40000, 10000, 30000],
+    ["primeira retirada paga", "year", 3, 40000, 10000, 30000],
+    ["todas retiradas", "month", 0, 40000, 10000, 30000],
+    ["todas retiradas", "year", 0, 40000, 10000, 30000],
+    ["cancelamento aberto", "month", 3, 30000, 0, 30000],
+    ["obrigação ajustada com crédito aplicado", "month", 3, 37000, 7000, 30000],
+  ])("preserva os três cards e a pesquisa com pacote %s (%s)", async (scenario, mode, visibleCount, amount, applied, open) => {
+    const patientName = "TESTE Pacote Preservado";
+    const serviceName = "Fisioterapia preservada";
+    const dates = ["2026-10-28", "2026-11-04", "2026-11-11", "2026-11-18"];
+    const allSessions = dates.map((date, index) => ({
+      id: 701 + index, patient_id: 30, series_id: 901, service_id: 10,
+      starts_at: `${date}T13:00:00.000Z`, status: "scheduled", billing_mode: "per_session",
+    }));
+    const visibleSessions = scenario === "retirada posterior"
+      ? allSessions.slice(0, visibleCount)
+      : allSessions.slice(allSessions.length - visibleCount);
+    const patient = { patient_id: 30, patient_name: patientName, patient_full_name: patientName,
+      total: amount, received: applied, pending: open, entries_count: 4 };
+    getFinancialRevenuesSummary.mockImplementation((period, periodMode) => Promise.resolve({
+      data: { month: period,
+        summary: periodMode === "month" && period === "2026-11"
+          ? { total: 0, received: 0, pending: 0 } : { total: amount, received: applied, pending: open },
+        patients: periodMode === "month" && period === "2026-11" ? [] : [patient] },
+    }));
+    getFinancialRevenuePatientDetail.mockResolvedValue({ data: {
+      patient: { id: 30, name: patientName, full_name: patientName },
+      summary: { total: amount, received: applied, pending: open, creditAvailable: 15000 },
+      entries: [], sessions: visibleSessions, credits: [],
+      payments: [{ id: 801, patient_id: 30, amount_cents: 25000, paid_at: "2026-11-05T13:00:00.000Z" }],
+      series: [{ id: 901, patient_id: 30, service_id: 10, starts_at: allSessions[0].starts_at, occurrence_count: 4 }],
+      packages: [{ id: "series-901", sourceId: 901, series_id: 901, service_id: 10,
+        service_name: serviceName, reference_date: allSessions[0].starts_at,
+        total_sessions: 4, used_sessions: 0, contracted_amount_cents: 40000,
+        amount_cents: amount, paid_cents: applied, open_cents: open,
+        usage_summary: { scheduled: visibleCount, done: 0, noShow: 0, canceledWithoutCharge: scenario === "cancelamento aberto" ? 1 : 0 },
+        entries: [{ entryId: 501, openCents: open }], sessions: visibleSessions }],
+    } });
+    axios.get.mockImplementation((url) => Promise.resolve({ data: url === "/sessions" ? visibleSessions : [] }));
+    const money = (cents) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100).replace(/\u00a0/g, " ");
+    renderFinanceiro();
+    await revealFinancialValues();
+    if (mode === "month") {
+      fireEvent.change(screen.getByLabelText("Selecionar mes e ano"), { target: { value: "2026-10" } });
+    } else {
+      await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
+    }
+    await screen.findByText(patientName);
+    const assertSummary = () => {
+      const summary = within(screen.getByText("Resumo de cobrança").parentElement.parentElement);
+      expect(summary.getByText("Valor").nextSibling).toHaveTextContent(money(amount));
+      expect(summary.getByText("Recebido").nextSibling).toHaveTextContent(money(applied));
+      expect(summary.getByText("Pendente").nextSibling).toHaveTextContent(money(open));
+    };
+    assertSummary();
+    const search = screen.getByLabelText("Pesquisar paciente");
+    await userEvent.type(search, "TESTE");
+    assertSummary();
+    await userEvent.clear(search);
+    assertSummary();
+    await userEvent.type(search, patientName);
+    assertSummary();
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await screen.findByText(serviceName);
+    assertSummary();
+    const packageRow = screen.getByText(serviceName).closest("tr");
+    expect(packageRow).toHaveTextContent("28/10/2026");
+    expect(within(packageRow).getAllByRole("cell").slice(3, 6).map((cell) => cell.textContent.replace(/\u00a0/g, " ")))
+      .toEqual([money(amount), money(applied), money(open)]);
+    await userEvent.click(within(packageRow).getByRole("button", { name: "Sessões" }));
+    await screen.findByText("Financeiro do pacote");
+    const grid = screen.getByText("Financeiro do pacote").nextElementSibling;
+    expect([...grid.children].map((card) => card.querySelector("span").textContent))
+      .toEqual(["Valor do pacote", "Pago", "A receber"]);
+    expect([...grid.children].map((card) => card.querySelector("strong").textContent.replace(/\u00a0/g, " ")))
+      .toEqual([money(amount), money(applied), money(open)]);
+    expect(grid).not.toHaveTextContent("Contratado");
+    expect(grid).not.toHaveTextContent("Cobrável");
+    expect(grid).not.toHaveTextContent("R$ 250,00");
+    expect(grid).not.toHaveTextContent("R$ 150,00");
+    expect(axios.get).toHaveBeenCalledWith("/sessions", { params: { patient_id: 30, series_id: 901 } });
+    if (!visibleCount) expect(screen.getByText("Nenhuma sessão vinculada a este pacote.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Ocultar valores financeiros" }));
+    expect([...grid.children].map((card) => card.querySelector("strong").textContent))
+      .toEqual(["R$ ••••", "R$ ••••", "R$ ••••"]);
+    await userEvent.click(screen.getByRole("button", { name: "Fechar" }));
+    await revealFinancialValues();
+    await userEvent.click(screen.getByRole("button", { name: "Voltar" }));
+    await screen.findByText(patientName);
+    expect(search).toBeEnabled();
+    expect(search).toHaveValue(patientName);
+    assertSummary();
+    expect(listFinancialEntries).not.toHaveBeenCalled();
+    expect(listFinancialPayments).not.toHaveBeenCalled();
+    if (mode === "month") {
+      fireEvent.change(screen.getByLabelText("Selecionar mes e ano"), { target: { value: "2026-11" } });
+      await waitFor(() => expect(screen.queryByText(patientName)).not.toBeInTheDocument());
+      const summary = within(screen.getByText("Resumo de cobrança").parentElement.parentElement);
+      expect((await summary.findByText("Valor")).nextSibling).toHaveTextContent("R$ 0,00");
+    }
   });
 
   it("mantem pacote totalmente pago visivel no detalhe", async () => {

@@ -269,7 +269,7 @@ export default function FinancialOverviewSection({
               </AttendancePeriodBlockRight>
             </AttendancePeriodBlock>
             <SummaryExplanation $color={attendancePalette.textSecondary}>
-              Contas que pertencem ao período, independentemente da data do pagamento.
+              Contas que pertencem ao período, considerando a data em que foram lançadas
             </SummaryExplanation>
             {loading && (
               <BlockLoader>
@@ -415,11 +415,9 @@ export default function FinancialOverviewSection({
                     )}
                   </AttendanceCard>
                 ) : null}
-                {summary.hasAccounts === false ? (
+                {isAnnual && summary.hasAccounts === false ? (
                   <AttendanceEmptyState>
-                    {isAnnual
-                      ? "Nenhuma conta encontrada para este ano."
-                      : "Nenhuma conta encontrada para este mês."}
+                    Nenhuma conta encontrada para este ano.
                   </AttendanceEmptyState>
                 ) : null}
               </>
