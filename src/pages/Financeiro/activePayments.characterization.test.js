@@ -306,6 +306,11 @@ describe("Financeiro - caracterização dos recebimentos publicados", () => {
     expect((await screen.findAllByText("Fisioterapia")).length).toBeGreaterThanOrEqual(2);
     await userEvent.click(screen.getByRole("button", { name: "Registrar recebimento" }));
 
+    const choices = await screen.findAllByRole("checkbox");
+    expect(choices).toHaveLength(2);
+    choices.forEach((choice) => fireEvent.click(choice));
+    fireEvent.click(screen.getByRole("button", { name: "Avançar" }));
+    expect(createFinancialPayment).not.toHaveBeenCalled();
     fireEvent.change(await screen.findByLabelText("Forma de pagamento"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Valor recebido"), { target: { value: "720,00" } });
     fireEvent.change(screen.getByLabelText("Desconto"), { target: { value: "80,00" } });

@@ -62,6 +62,12 @@ function PaymentFlowHarness({ onPaymentSaved, payment = scopedPayment }) {
             value={flow.form.paid_at}
             onChange={flow.handleChange}
           />
+          <input
+            aria-label="Desconto"
+            name="discount"
+            value={flow.form.discount}
+            onChange={flow.handleChange}
+          />
           <button type="button" onClick={flow.save}>Confirmar</button>
         </>
       )}
@@ -118,6 +124,36 @@ describe("useFinancialPaymentFlow - idempotência da confirmação", () => {
     expect(createFinancialPayment.mock.calls[1][0].entry_id).toBe(990);
     expect(createFinancialPayment.mock.calls[1][1]).toBe(firstKey);
     expect(firstKey).toEqual(expect.any(String));
+  });
+
+  it("envia as 25 cobranças do desconto mesmo quando só 13 recebem dinheiro", async () => {
+    const entries = [11100, ...Array(24).fill(16666)]
+      .map((openCents, index) => ({ entryId: 501 + index, openCents }));
+    createFinancialPayment.mockRejectedValue(new Error("resposta indisponível"));
+    render(<PaymentFlowHarness onPaymentSaved={jest.fn()} payment={{
+      ...scopedPayment, totalOpenCents: 411084, entries,
+    }} />);
+    await prepareValidAttempt();
+    fireEvent.change(screen.getByLabelText("Valor"), { target: { value: "2000,00" } });
+    fireEvent.change(screen.getByLabelText("Desconto"), { target: { value: "110,84" } });
+    fireEvent.change(screen.getByLabelText("Data"), { target: { value: "2026-09-10" } });
+    await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledTimes(1));
+    const [payload, key] = createFinancialPayment.mock.calls[0];
+    expect(payload.amount_cents).toBe(200000);
+    expect(payload.discount_cents).toBe(11084);
+    expect(payload.note).toBeNull();
+    expect(payload.paid_at).toBe(new Date("2026-09-10T09:00:00").toISOString());
+    expect(payload.adjustment_targets).toEqual(entries.map((item) => ({
+      entry_id: item.entryId, open_amount_cents: item.openCents,
+    })));
+    expect(payload.allocations.map((item) => item.amount_cents))
+      .toEqual([10801, ...Array(11).fill(16217), 10812]);
+    await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledTimes(2));
+    expect(createFinancialPayment.mock.calls[1]).toEqual([payload, key]);
+    expect(createFinancialEntry).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Valor").value).toBe("2000,00");
   });
 
   it("bloqueia duplo clique antes do React desabilitar o botão", async () => {

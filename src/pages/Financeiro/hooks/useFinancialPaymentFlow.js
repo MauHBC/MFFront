@@ -14,7 +14,7 @@ const emptyPayment = {
   patient_id: "",
   payment_method_id: "",
   amount: "",
-  discount: "",
+  discount: "0,00",
   paid_at: "",
   note: "",
 };
@@ -128,6 +128,10 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState(emptyPayment);
   const [context, setContext] = useState(null);
+  const [step, setStep] = useState(1);
+  const [selectedKeys, setSelectedKeys] = useState([]);
+  const [selectionStale, setSelectionStale] = useState(false);
+  const amountEditedRef = useRef(false);
   const paymentAttemptRef = useRef(null);
   const savingRef = useRef(false);
 
@@ -137,11 +141,17 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
       ? getPatientDisplayName(patient) || scopedPayment?.patientName || "Paciente"
       : scopedPayment?.patientName || "Paciente";
     const totalOpenCents = Math.max(0, Number(scopedPayment?.totalOpenCents || 0));
+    const groups = scopedPayment?.groups || [];
+    setStep(Array.isArray(scopedPayment?.groups) ? 1 : 2);
+    setSelectedKeys(groups.length === 1 ? [groups[0].key] : []);
+    setSelectionStale(false);
+    amountEditedRef.current = false;
 
     setForm({
       ...emptyPayment,
       patient_id: patientId,
-      amount: totalOpenCents > 0 ? formatCurrencyInputFromCents(totalOpenCents) : "",
+      amount: !Array.isArray(scopedPayment?.groups) && totalOpenCents > 0
+        ? formatCurrencyInputFromCents(totalOpenCents) : "",
       paid_at: toDateInputValue(new Date()),
     });
     setContext({
@@ -183,6 +193,7 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
 
   const handleChange = useCallback((event) => {
     const { name, value } = event.target;
+    if (name === "amount") amountEditedRef.current = true;
     if (name === "amount" || name === "discount") {
       setForm((previous) => ({
         ...previous,
@@ -202,10 +213,34 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
     }));
   }, []);
 
-  const preview = useMemo(() => {
-    const entries = Array.isArray(context?.scopedPayment?.entries)
-      ? context.scopedPayment.entries
-      : [];
+  const groups = useMemo(() => context?.scopedPayment?.groups || [], [context]);
+  const selectionFlow = Array.isArray(context?.scopedPayment?.groups);
+  const selectionReady = context?.scopedPayment?.selectionReady !== false;
+  const selectedGroups = useMemo(() => groups.filter((group) => selectedKeys.includes(group.key)), [groups, selectedKeys]);
+  const creditOnly = selectionFlow && selectedKeys.length === 0;
+  const selectedEntries = useMemo(() => (selectionFlow ? selectedGroups.flatMap((group) => group.entries)
+    : context?.scopedPayment?.entries || []), [selectionFlow, selectedGroups, context]);
+  const toggleSelection = (key) => {
+    if (savingRef.current || !groups.some((group) => group.key === key)) return;
+    setSelectedKeys((previous) => previous.includes(key)
+      ? previous.filter((item) => item !== key) : [...previous, key]);
+    if (selectedKeys.length === 1 && selectedKeys[0] === key) {
+      setForm((previous) => ({ ...previous, discount: "0,00" }));
+    }
+  };
+  const advance = () => {
+    if (!selectionReady || selectionStale || savingRef.current) return;
+    if (!amountEditedRef.current) {
+      const total = selectedEntries.reduce((sum, item) => sum + Number(item.openCents), 0);
+      setForm((previous) => ({ ...previous, amount: creditOnly ? "" : formatCurrencyInputFromCents(total) }));
+    }
+    if (creditOnly) setForm((previous) => ({ ...previous, discount: "0,00" }));
+    setStep(2);
+  };
+  const back = () => { if (!savingRef.current) setStep(1); };
+
+  const preview = (() => {
+    const entries = selectedEntries;
     const baseCents = entries.reduce(
       (sum, item) => sum + Math.max(0, Number(item.openCents || item.open_cents || 0)),
       0,
@@ -226,7 +261,25 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
       openAfterCents: Math.max(0, finalChargedCents - receivedCents),
       creditAfterCents: Math.max(0, receivedCents - finalChargedCents),
     };
-  }, [context, form.amount, form.discount]);
+  })();
+  const review = (() => {
+    const discounts = splitCentsByBase(preview.discountCents,
+      selectedEntries.map((item) => Number(item.openCents || 0)));
+    const allocations = buildScopedAllocationItems(selectedEntries,
+      preview.receivedCents, preview.discountCents);
+    let offset = 0;
+    return selectedGroups.map((group) => {
+      const discountCents = discounts.slice(offset, offset + group.entries.length)
+        .reduce((sum, cents) => sum + cents, 0);
+      offset += group.entries.length;
+      const ids = new Set(group.entries.map((entry) => entry.entryId));
+      const paidCents = allocations.filter((item) => ids.has(item.entry_id))
+        .reduce((sum, item) => sum + item.amount_cents, 0);
+      const baseCents = group.entries.reduce((sum, item) => sum + item.openCents, 0);
+      return { ...group, baseCents, discountCents, paidCents,
+        pendingCents: Math.max(0, baseCents - discountCents - paidCents) };
+    });
+  })();
 
   const hasInput = Boolean(
     String(form.patient_id || "").trim()
@@ -258,6 +311,8 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
 
   const save = useCallback(async () => {
     if (savingRef.current || isSaving) return;
+    if (selectionFlow && (step !== 2 || !selectionReady || selectionStale
+      || (!creditOnly && (!selectedGroups.length || !selectedEntries.length)))) return;
 
     const amountValue = parseCurrencyInputToNumber(form.amount);
     const discountValue = parseCurrencyInputToNumber(form.discount);
@@ -265,9 +320,7 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
     const discountCents = Number.isFinite(discountValue) && discountValue > 0
       ? Math.round(discountValue * 100)
       : 0;
-    const scopedEntries = Array.isArray(context?.scopedPayment?.entries)
-      ? context.scopedPayment.entries
-      : [];
+    const scopedEntries = selectedEntries;
     const originalTotalCents = scopedEntries.reduce(
       (sum, item) => sum + Math.max(0, Number(item.openCents || item.open_cents || 0)),
       0,
@@ -300,7 +353,11 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
       return;
     }
     const allocations = buildScopedAllocationItems(scopedEntries, amountCents, discountCents);
-    if (!allocations.length) {
+    const fullyDiscountedSelection = selectionFlow && selectedGroups.length > 0
+      && scopedEntries.length > 0 && Number.isSafeInteger(originalTotalCents)
+      && originalTotalCents > 0 && discountCents === originalTotalCents
+      && Number.isSafeInteger(amountCents) && amountCents > 0;
+    if (!allocations.length && !creditOnly && !fullyDiscountedSelection) {
       toast.error("Informe as cobranças para alocar.");
       return;
     }
@@ -317,17 +374,27 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
     const note = form.note.trim();
     const adjustmentReason = note || "Ajuste aplicado no recebimento";
     const hasAdjustment = discountCents > 0;
+    const adjustmentTargets = !creditOnly && (hasAdjustment || selectionFlow) ? scopedEntries.map((item) => ({
+      entry_id: Number(item.entryId || item.entry_id || 0),
+      open_amount_cents: Math.max(0, Number(item.openCents || item.open_cents || 0)),
+    })).filter((item) => item.entry_id > 0 && item.open_amount_cents > 0) : undefined;
+    const receiptGroups = selectionFlow && !creditOnly ? selectedGroups.map((group) => ({
+      kind: group.kind, id: group.sourceId,
+    })) : undefined;
     const logicalCommand = {
       patient_id: patientId,
       payment_method_id: paymentMethodId,
       amount_cents: amountCents,
       paid_at: referenceDate,
       note: note || null,
-      allocation_mode: "manual",
+      allocation_mode: creditOnly ? "none" : "manual",
+      receipt_intent: creditOnly ? "credit_only" : undefined,
       allocations,
       discount_cents: hasAdjustment ? discountCents : null,
       surcharge_cents: hasAdjustment ? 0 : null,
       adjustment_reason: hasAdjustment ? adjustmentReason : null,
+      adjustment_targets: adjustmentTargets,
+      receipt_groups: receiptGroups,
     };
     const commandSignature = JSON.stringify(logicalCommand);
     if (paymentAttemptRef.current?.commandSignature !== commandSignature) {
@@ -342,7 +409,7 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
     setIsSaving(true);
     try {
       const attempt = paymentAttemptRef.current;
-      if (!attempt.anchorId) {
+      if (!creditOnly && !attempt.anchorId) {
         attempt.anchorId = await createStandalonePaymentAnchor({
           patientId,
           referenceDate,
@@ -356,11 +423,14 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
         amount_cents: amountCents,
         paid_at: new Date(`${referenceDate}T09:00:00`).toISOString(),
         note: note || null,
-        allocation_mode: "manual",
+        allocation_mode: creditOnly ? "none" : "manual",
+        receipt_intent: creditOnly ? "credit_only" : undefined,
         allocations,
         discount_cents: hasAdjustment ? discountCents : undefined,
         surcharge_cents: hasAdjustment ? 0 : undefined,
         adjustment_reason: hasAdjustment ? adjustmentReason : undefined,
+        adjustment_targets: adjustmentTargets,
+        receipt_groups: receiptGroups,
         adjustment: hasAdjustment
           ? { discount_cents: discountCents, surcharge_cents: 0, reason: adjustmentReason }
           : undefined,
@@ -371,6 +441,7 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
       close();
       await onPaymentSaved({ patientId });
     } catch (error) {
+      if (selectionFlow && error.response?.status === 409) setSelectionStale(true);
       toast.error(getUserFacingApiError(
         error,
         "Não foi possível registrar o recebimento. Tente novamente em instantes.",
@@ -379,7 +450,8 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
       savingRef.current = false;
       setIsSaving(false);
     }
-  }, [close, context, createStandalonePaymentAnchor, form, isSaving, onPaymentSaved]);
+  }, [close, createStandalonePaymentAnchor, form, isSaving, onPaymentSaved,
+    selectedEntries, selectedGroups, selectionFlow, selectionReady, selectionStale, creditOnly, step]);
 
   return {
     close,
@@ -393,5 +465,16 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
     openScopedPatientPaymentModal,
     preview,
     save,
+    groups,
+    selectedKeys,
+    selectionFlow,
+    selectionReady,
+    creditOnly,
+    selectionStale,
+    step,
+    review,
+    toggleSelection,
+    advance,
+    back,
   };
 }
