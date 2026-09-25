@@ -428,6 +428,61 @@ O preview permite recebimento parcial com desconto: o saldo pendente é calculad
 sobre o total ajustado, enquanto o backend permanece a autoridade da alocação e
 da persistência final.
 
+Por sessão, o modal tem duas etapas. A primeira lista uma linha por pacote ou
+avulsa elegível, com paciente, período, data e saldo; várias cobranças começam
+sem seleção, enquanto uma pode vir selecionada. Avançar não chama escrita HTTP.
+A segunda mantém os campos existentes e mostra a revisão por grupo (saldo,
+desconto, aplicação e pendente), com crédito somente se houver excedente.
+Voltar preserva seleção e formulário; valor recebido editado não é recalculado.
+Mensalidades conserva o fluxo anterior, sem mudança em Agenda ou Planos.
+
+Sem seleção (inclusive período carregado sem cobranças), Avançar é permitido
+com o aviso “Avançar sem selecionar cobranças, o valor ficará como crédito do
+paciente.” O valor inicial fica vazio; valor conscientemente editado é
+preservado ao voltar. Desconto é ocultado e zerado. A confirmação envia
+`receipt_intent=credit_only` e `allocation_mode=none`, sem âncora ou alocações;
+não recorre à distribuição automática legada. Falha de consulta, cache de outro
+período/paciente ou revisão inválida bloqueia o fluxo, não significa mês vazio.
+
+O campo se chama **Desconto**, inicia em `0,00` e seleciona o zero ao receber
+foco por clique/teclado; não seleciona nem apaga valor não zero. Edição, colagem
+e formatação são mantidas. Desconto acima do saldo selecionado bloqueia com
+“O desconto não pode ultrapassar R$X.”, sem limitar pelo valor recebido.
+No limite exato, seleção válida totalmente descontada admite confirmar dinheiro
+positivo sem aplicações. O hook preserva seleção, `adjustment_targets`, grupos,
+desconto e modo manual; não converte em recebimento sem seleção. Os detalhes
+compactos preservam a linha do desconto e o crédito original informado pela API.
+
+O hook envia `receipt_groups` e os snapshots completos em `adjustment_targets`,
+separados das aplicações positivas em `allocations`. A revisão soma o rateio
+das obrigações internas; não recalcula o desconto por pacote. O servidor valida
+composição, ordem e valores sob as regras FIN-004/FIN-006 do Backend; conflito
+bloqueia nova confirmação até atualizar os dados e reabrir a revisão. O detalhe
+usa a projeção das parcelas elegíveis para a coluna Valor da avulsa, preservando
+o original separadamente, assim como já faz com os totais do pacote.
+
+Na aba Recebimentos do detalhe do paciente, a linha existente ganha “Ver
+detalhes” como ação discreta, com teclado, foco e estado de expansão, sem modal.
+A linha principal mantém Data, Valor recebido, Forma de pagamento, Observações
+e Detalhes. Ao entrar na aba, carrega o catálogo de formas pela API existente;
+o nome é resolvido pelo `payment_method_id` persistido, sem depender de abrir
+o modal de recebimento. Informação ausente permanece “—”, sem nome presumido.
+`FinancialReceiptDetails` consulta sob demanda
+`GET /financial-payments/:id?include_receipt_details=true` e mostra cobrança
+agrupada em linhas compactas de avulsa/pacote, data, serviço e pago naquela
+operação. Desconto aparece somente quando positivo, inclusive sem aplicação
+de dinheiro. Não há tabela interna, cabeçalho, linha Total, Total após desconto,
+Ficou a receber ou espaços reservados para esses totais. Linhas quebram
+naturalmente em telas menores. Fontes históricas e agrupamento permanecem
+inalterados. Crédito mostra somente o valor originalmente deixado como crédito,
+nunca o saldo disponível atual. Sem prova da distribuição histórica,
+a expansão informa a limitação, sem inferir a partir das alocações atuais ou
+da prévia do navegador. A visão dedicada desabilitada não é alterada.
+
+Regressões: `FinancialPaymentModal.test.js`, `useFinancialPaymentFlow.test.js`,
+`FinancialReceiptDetails.test.js`, `currentObligation.test.js`, `index.test.js` e o gate do Backend
+`test:financial-partial-discount:database` com o hook real desta worktree.
+
 Cada confirmação lógica mantém uma única `Idempotency-Key` e o mesmo payment
 anchor enquanto a requisição está pendente ou um erro ambíguo pode exigir retry.
 Duplo clique não abre outra tentativa material. Alterar o comando ou abrir uma
@@ -537,6 +592,29 @@ e oferece somente **Cancelar** e **Revisar agenda**, sem alerta visual destrutiv
 ou ação de confirmação.
 
 ---
+
+## Atualização de versão em abas abertas
+
+`AppVersionReloader`, montado em `src/App.js`, utiliza
+`src/hooks/useAppVersionUpdate.js` e `src/services/appVersion.js`. A consulta
+ocorre na montagem, navegação, foco da janela, retorno à aba visível e reconexão,
+com intervalo mínimo de 15 minutos entre consultas posteriores. Não há polling
+periódico. `app-version.json` recebe query temporal, `cache: no-store` e headers
+de não-cache; a identidade prioriza os assets principais JS/CSS, com fallback
+para build/commit/data. A comparação inicial usa os assets do documento aberto.
+
+Uma versão diferente fica pendente enquanto houver campo em edição, modal ou
+rota sensível protegida. A recarga exige nova oportunidade segura nesses eventos
+ou após perda de foco do campo; remover um modal, sozinho, não garante recarga
+imediata. Falha de consulta não força recarga. Não remover essas proteções, criar
+logout global ou reenviar comandos financeiros após atualizar a página.
+
+O servidor permanece responsável pela compatibilidade de comandos das abas
+antigas. Recusa definitiva anterior à gravação usa o envelope de erro já
+consumido pelo formatador Axios publicado. Timeout ou resultado incerto não são
+essa recusa: manter a chave idempotente e esclarecer a operação antes de tentar
+novamente. Gates: `useAppVersionUpdate.test.js`, `appVersion.test.js` e o teste
+HTTP/MariaDB do Backend com hook e formatador reais da versão publicada.
 
 ## App Shell autenticado
 

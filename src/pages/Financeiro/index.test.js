@@ -15,11 +15,13 @@ import {
   getClinicExpenseAlerts,
   getFinancialOverview,
   getFinancialRevenuePatientDetail,
+  getFinancialReceiptDetails,
   getFinancialRevenuesSummary,
   listBillingCycles,
   listFinancialEntries,
   listFinancialPayments,
   listPatientCredits,
+  listPaymentMethods,
 } from "../../services/financial";
 
 let mockAuthorization;
@@ -59,6 +61,7 @@ jest.mock("../../services/financial", () => ({
   getFinancialOverview: jest.fn(),
   getFinancialRevenuesSummary: jest.fn(),
   getFinancialRevenuePatientDetail: jest.fn(),
+  getFinancialReceiptDetails: jest.fn(),
   createFinancialEntry: jest.fn(),
   listFinancialEntries: jest.fn(),
   listFinancialPayments: jest.fn(),
@@ -210,6 +213,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       })),
     });
     axios.get.mockResolvedValue({ data: [] });
+    listPaymentMethods.mockResolvedValue({ data: [{ id: 4, name: "Pix" }] });
     getClinicExpenseAlerts.mockResolvedValue({ data: { dueSoonCount: 0 } });
     getFinancialOverview.mockImplementation((period, mode) => Promise.resolve({
       data: {
@@ -283,6 +287,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
             amount_cents: 40000,
             paid_at: "2026-06-11T09:00:00.000Z",
             note: "Pagamento parcial",
+            payment_method_id: 4,
             FinancialPaymentAllocations: [
               {
                 id: 1,
@@ -309,6 +314,96 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     });
     listBillingCycles.mockResolvedValue({ data: [] });
     applyScopedFinancialCredit.mockResolvedValue({ data: {} });
+  });
+
+  it.each([
+    ["quitada", 10801, 0, "paid", false],
+    ["parcial", 5000, 5801, "partial", false],
+    ["parcelada", 5000, 5801, "partial", true],
+    ["acréscimo", 12100, 0, "paid", false],
+    ["cancelada", 0, 0, "canceled", false],
+  ])("mostra obrigação atual da avulsa %s, sem confundir Valor com recebido", async (label, paid, open, status, parcelada) => {
+    const installments = [{ id: 801, installment_number: 1, amount_cents: 11100,
+      paid_amount_cents: paid, open_amount_cents: parcelada ? 0 : open, status }];
+    if (parcelada) installments.push({ id: 802, installment_number: 2, amount_cents: 6100,
+      paid_amount_cents: 0, open_amount_cents: open, status: "pending" });
+    getFinancialRevenuePatientDetail.mockResolvedValue({ data: {
+      patient: { id: 30, name: "Maria Silva" }, month: "2026-06",
+      summary: { total: paid + open, received: paid, pending: open, creditAvailable: 0 },
+      entries: [{ id: 501, clinic_id: 1, patient_id: 30, session_id: 701, service_id: 10,
+        type: "income", amount_cents: 11100, status, reference_date: "2026-06-10",
+        installments_count: installments.length, installments }],
+      sessions: [{ id: 701, clinic_id: 1, patient_id: 30, service_id: 10, series_id: null,
+        starts_at: "2026-06-10T12:00:00.000Z", status: status === "canceled" ? "canceled" : "done",
+        billing_mode: "per_session", Service: { id: 10, name: "Avulsa sintética" } }],
+      series: [], packages: [], payments: [], credits: [],
+    } });
+    renderFinanceiro();
+    await revealFinancialValues();
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    const row = (await screen.findByText("Avulsa sintética")).closest("tr");
+    const cells = within(row).getAllByRole("cell");
+    const money = (value) => (value / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/\s+/g, " ");
+    expect(cells.slice(3, 6).map((cell) => cell.textContent.replace(/\s+/g, " ").trim()))
+      .toEqual([paid + open, paid, open].map(money));
+  });
+
+  it("expande Ver detalhes inline, mantendo a linha do recebimento", async () => {
+    getFinancialReceiptDetails.mockResolvedValue({ data: { receipt_details: {
+      credit_only: true, original_credit_cents: 40000, groups: [],
+    } } });
+    renderFinanceiro();
+    await revealFinancialValues();
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Recebimentos" }));
+    const button = await screen.findByRole("button", { name: "Ver detalhes" });
+    const table = button.closest("table");
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent))
+      .toEqual(["Data", "Valor recebido", "Forma de pagamento", "Observações", "Detalhes"]);
+    expect(await within(table).findByText("Pix")).toBeInTheDocument();
+    expect(listPaymentMethods).toHaveBeenCalledTimes(1);
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    button.focus();
+    expect(button).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByText(/Recebido originalmente como crédito/)).toBeTruthy();
+    expect(getFinancialReceiptDetails).toHaveBeenCalledWith(801);
+    expect(screen.getByText("Pagamento parcial")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.getElementById(button.getAttribute("aria-controls"))).toBeInTheDocument();
+    await userEvent.keyboard(" ");
+    expect(screen.queryByText(/Recebido originalmente como crédito/)).toBeNull();
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(button);
+    expect(await screen.findByText(/Recebido originalmente como crédito/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Ocultar detalhes" }));
+    expect(screen.queryByText(/Recebido originalmente como crédito/)).toBeNull();
+  });
+
+  it("forma ausente no catálogo permanece desconhecida, sem presumir Pix", async () => {
+    listPaymentMethods.mockResolvedValue({ data: [] });
+    renderFinanceiro();
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Recebimentos" }));
+    const row = (await screen.findByText("Pagamento parcial")).closest("tr");
+    await waitFor(() => expect(listPaymentMethods).toHaveBeenCalledTimes(1));
+    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent("—");
+    expect(within(row).queryByText("Pix")).toBeNull();
+  });
+
+  it("falha na consulta de formas não preenche Pix por suposição", async () => {
+    listPaymentMethods.mockRejectedValueOnce(new Error("indisponível"));
+    renderFinanceiro();
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Recebimentos" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Nao foi possivel carregar as formas de pagamento."));
+    const row = screen.getByText("Pagamento parcial").closest("tr");
+    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent("—");
   });
 
   it("consulta contas mensais e anuais com parâmetros exclusivos e a mesma base no gráfico", async () => {
@@ -1968,5 +2063,11 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     });
     expect(await screen.findByText(/detalhes deste paciente/i)).toBeInTheDocument();
     expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(2);
+    await userEvent.click(screen.getByRole("button", { name: "Registrar recebimento" }));
+    expect(toast.error).toHaveBeenCalledWith(
+      "Não foi possível carregar as cobranças. Atualize os dados antes de continuar.",
+    );
+    expect(screen.queryByText("Avançar sem selecionar cobranças, o valor ficará como crédito do paciente.")).toBeNull();
+    expect(screen.queryByText("Confirmar recebimento")).toBeNull();
   });
 });

@@ -14,20 +14,43 @@ export default function FinancialPaymentModal({
   if (!flow.isOpen) return null;
 
   const { context, form, preview } = flow;
+  const selecting = flow.selectionFlow && flow.step === 1;
+  const balanceLabel = preview.creditAfterCents > 0 ? "Saldo em credito" : "Valor pendente";
+  const dateLabel = (value) => String(value || "").slice(0, 10).split("-").reverse().join("/");
 
   return (
     <>
       <ModalOverlay>
-        <ModalCard>
+        <ModalCard role="dialog" aria-modal="true" aria-label={selecting ? "Selecionar cobranças" : "Registrar recebimento"}>
           <ModalHeader>
             <div>
-              <ModalTitle>Registrar recebimento</ModalTitle>
+              <ModalTitle>{selecting ? "Selecionar cobranças" : "Registrar recebimento"}</ModalTitle>
             </div>
             <IconButton type="button" onClick={flow.close}>
               <FaTimes />
             </IconButton>
           </ModalHeader>
           <ModalBody>
+            {selecting ? (
+              <>
+                <FixedPatientDisplay>{context?.patientName}</FixedPatientDisplay>
+                <p>Período: {context?.scopedPayment?.periodLabel || "Selecionado"}</p>
+                <SelectionList>
+                  {flow.groups.map((group) => (
+                    <SelectionRow key={group.key}>
+                      <input type="checkbox" checked={flow.selectedKeys.includes(group.key)}
+                        onChange={() => flow.toggleSelection(group.key)} />
+                      <span>{group.label}<small>{dateLabel(group.referenceDate)}</small></span>
+                      <strong>{formatCurrency(group.entries.reduce((sum, entry) => sum + entry.openCents, 0))}</strong>
+                    </SelectionRow>
+                  ))}
+                  {!flow.groups.length && <p>Nenhuma cobrança com saldo neste período.</p>}
+                </SelectionList>
+                <PaymentPreviewRow><span>Total selecionado</span><strong>{formatCurrency(preview.baseCents)}</strong></PaymentPreviewRow>
+                {flow.creditOnly && flow.selectionReady && <p>Avançar sem selecionar cobranças, o valor ficará como crédito do paciente.</p>}
+                {!flow.selectionReady && <p role="alert">Não foi possível carregar as cobranças. Atualize os dados antes de continuar.</p>}
+              </>
+            ) : <>
             <FormGrid>
               <Field>
                 <Label>Paciente</Label>
@@ -76,7 +99,7 @@ export default function FinancialPaymentModal({
                   ))}
                 </Select>
               </Field>
-              <Field>
+              {!flow.creditOnly && <Field>
                 <Label htmlFor="payment-discount">Desconto</Label>
                 <CurrencyInputGroup>
                   <CurrencyPrefix>R$</CurrencyPrefix>
@@ -86,14 +109,31 @@ export default function FinancialPaymentModal({
                     value={form.discount}
                     onChange={flow.handleChange}
                     onBlur={flow.handleCurrencyBlur}
+                    onFocus={(event) => {
+                      if (/^0*(?:,0*)?$/.test(event.target.value.replace(/\./g, ""))) event.target.select();
+                    }}
                     inputMode="decimal"
                     placeholder="0,00"
                   />
                 </CurrencyInputGroup>
-              </Field>
+              </Field>}
             </FormGrid>
+            {flow.selectionFlow && !flow.creditOnly && <ReviewScroll>
+              <ReviewTable>
+                <caption>Revisão das cobranças selecionadas</caption>
+                <thead><tr><th>Cobrança</th><th>Saldo antes</th><th>Desconto</th><th>Pago agora</th><th>Pendente</th></tr></thead>
+                <tbody>{flow.review.map((item) => <tr key={item.key}>
+                  <td>{item.label}<small>{dateLabel(item.referenceDate)}</small></td>
+                  <td>{formatCurrency(item.baseCents)}</td><td>{formatCurrency(item.discountCents)}</td>
+                  <td>{formatCurrency(item.paidCents)}</td><td>{formatCurrency(item.pendingCents)}</td>
+                </tr>)}</tbody>
+              </ReviewTable>
+            </ReviewScroll>}
+            {preview.discountCents > preview.baseCents && <p role="alert">O desconto não pode ultrapassar {formatCurrency(preview.baseCents)}.</p>}
+            {flow.selectionStale && <p role="alert">As cobranças mudaram. Atualize os dados da página e reabra o recebimento para revisar os saldos atuais.</p>}
             <PaymentPreviewBox>
               <PaymentPreviewTitle>Resumo da operacao</PaymentPreviewTitle>
+              {!flow.creditOnly && <>
               <PaymentPreviewRow>
                 <span>Valor original</span>
                 <strong>{formatCurrency(preview.baseCents || 0)}</strong>
@@ -109,12 +149,13 @@ export default function FinancialPaymentModal({
                 <span>Total final</span>
                 <strong>{formatCurrency(preview.finalChargedCents || 0)}</strong>
               </PaymentPreviewRow>
+              </>}
               <PaymentPreviewRow>
                 <span>Valor recebido</span>
                 <strong>{formatCurrency(preview.receivedCents)}</strong>
               </PaymentPreviewRow>
               <PaymentPreviewRow $balance={preview.openAfterCents > 0 || preview.creditAfterCents > 0}>
-                <span>{preview.creditAfterCents > 0 ? "Saldo em credito" : "Valor pendente"}</span>
+                <span>{flow.creditOnly ? "Ficará como crédito" : balanceLabel}</span>
                 <strong>
                   {formatCurrency(
                     preview.creditAfterCents > 0
@@ -134,14 +175,17 @@ export default function FinancialPaymentModal({
                 onChange={flow.handleChange}
               />
             </Field>
+            </>}
           </ModalBody>
           <ModalActions>
             <SecondaryButton type="button" onClick={flow.close} disabled={flow.isSaving}>
               Cancelar
             </SecondaryButton>
-            <PrimaryButton type="button" onClick={flow.save} disabled={flow.isSaving}>
+            {flow.selectionFlow && !selecting && <SecondaryButton type="button" onClick={flow.back} disabled={flow.isSaving}>Voltar</SecondaryButton>}
+            {selecting ? <PrimaryButton type="button" onClick={flow.advance} disabled={!flow.selectionReady || flow.selectionStale}>Avançar</PrimaryButton> :
+            <PrimaryButton type="button" onClick={flow.save} disabled={flow.isSaving || flow.selectionStale || preview.discountCents > preview.baseCents}>
               {flow.isSaving ? <ButtonSpinner /> : "Confirmar recebimento"}
-            </PrimaryButton>
+            </PrimaryButton>}
           </ModalActions>
         </ModalCard>
       </ModalOverlay>
@@ -152,8 +196,27 @@ export default function FinancialPaymentModal({
 
 FinancialPaymentModal.propTypes = {
   flow: PropTypes.shape({
+    selectionFlow: PropTypes.bool,
+    selectionReady: PropTypes.bool,
+    creditOnly: PropTypes.bool,
+    selectionStale: PropTypes.bool,
+    step: PropTypes.number,
+    groups: PropTypes.arrayOf(PropTypes.shape({
+      key: PropTypes.string, label: PropTypes.string, referenceDate: PropTypes.string,
+      entries: PropTypes.arrayOf(PropTypes.shape({ openCents: PropTypes.number })),
+    })),
+    review: PropTypes.arrayOf(PropTypes.shape({
+      key: PropTypes.string, label: PropTypes.string, referenceDate: PropTypes.string,
+      baseCents: PropTypes.number, discountCents: PropTypes.number, paidCents: PropTypes.number,
+      pendingCents: PropTypes.number,
+    })),
+    selectedKeys: PropTypes.arrayOf(PropTypes.string),
+    toggleSelection: PropTypes.func,
+    advance: PropTypes.func,
+    back: PropTypes.func,
     close: PropTypes.func.isRequired,
-    context: PropTypes.shape({ patientName: PropTypes.string }),
+    context: PropTypes.shape({ patientName: PropTypes.string,
+      scopedPayment: PropTypes.shape({ periodLabel: PropTypes.string }) }),
     form: PropTypes.shape({
       amount: PropTypes.string,
       discount: PropTypes.string,
@@ -183,6 +246,19 @@ FinancialPaymentModal.propTypes = {
     name: PropTypes.string.isRequired,
   })).isRequired,
 };
+
+const SelectionList = styled.div`display: grid; gap: 10px; margin: 16px 0;`;
+const SelectionRow = styled.label`
+  display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #d9dedb; border-radius: 8px;
+  span { flex: 1; } small { display: block; color: #59665e; margin-top: 4px; }
+`;
+const ReviewScroll = styled.div`overflow-x: auto;`;
+const ReviewTable = styled.table`
+  width: 100%; border-collapse: collapse; font-size: 13px;
+  caption { text-align: left; font-weight: 600; padding: 12px 0; }
+  th, td { text-align: right; padding: 8px; border-bottom: 1px solid #d9dedb; }
+  th:first-child, td:first-child { text-align: left; } small { display: block; }
+`;
 
 const ModalOverlay = styled.div`
   position: fixed;

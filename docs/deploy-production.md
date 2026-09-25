@@ -87,6 +87,13 @@ como pendente uma alteração que já está presente no artefato.
 
 ## Invariantes do deploy
 
+- Confira a [atualização de abas abertas](frontend-module-architecture.md#atualização-de-versão-em-abas-abertas):
+  modal/edição podem adiar a recarga. Publique primeiro o Backend compatível e
+  comprove a recusa segura pelo formatador de erros do Frontend ainda publicado;
+  não dependa exclusivamente do bundle novo ou da recarga automática.
+- No hotfix de recebimentos com seleção explícita, não retorne ao Backend
+  anterior incompatível. A contenção e recuperação por correção adiante estão no
+  [runbook do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/deploy-production.md#recebimentos-com-seleção-explícita--recuperação-sem-retorno-ao-backend-antigo).
 - O alvo deve ser um commit exato alcançável por `origin/main`.
 - O build deve ocorrer em worktree descartável, nunca no checkout publicado.
 - Dependências devem ser instaladas pelo `package-lock.json` com `npm ci`.
