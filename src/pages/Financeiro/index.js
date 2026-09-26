@@ -8944,31 +8944,6 @@ const BillingCyclesDetailContent = styled.div`
   padding: ${ATTENDANCE_UI.spacing[3]};
 `;
 
-const ReceiptTable = styled(BillingCyclesTable)`
-  && { min-width: 0; width: 100%; }
-  && th, && td { white-space: normal; overflow-wrap: anywhere; }
-  && th { text-transform: none; }
-  && th:nth-child(1), && td:nth-child(1) { width: 15%; }
-  && th:nth-child(2), && td:nth-child(2) { width: 18%; }
-  && th:nth-child(3), && td:nth-child(3) { width: 20%; }
-  && th:nth-child(4), && td:nth-child(4) { width: 30%; }
-  && th:nth-child(5), && td:nth-child(5) { width: 17%; }
-  && td[data-receipt-details] { width: auto; padding: 4px 7px 6px; text-align: left; }
-`;
-
-const ReceiptDetailsAction = styled.button`
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 2px 0;
-  color: ${ATTENDANCE_UI.colors.action};
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  &:hover { text-decoration: underline; }
-  &:focus-visible { outline: 2px solid ${ATTENDANCE_UI.colors.action}; outline-offset: 3px; }
-`;
-
 const BillingCyclesInnerTableCard = styled(AttendanceTableCard)`
   box-shadow: none;
 `;

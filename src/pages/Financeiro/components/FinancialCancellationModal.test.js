@@ -186,12 +186,12 @@ test("resultado ambíguo conserva a chave e o comando para retry", async () => {
   await screen.findByRole("alert");
   await waitFor(() =>
     expect(
-      screen.getByRole("button", { name: "Confirmar cancelamento" }),
+      screen.getByRole("button", { name: "Verificar resultado" }),
     ).toBeEnabled(),
   );
   await act(async () => {
     fireEvent.click(
-      screen.getByRole("button", { name: "Confirmar cancelamento" }),
+      screen.getByRole("button", { name: "Verificar resultado" }),
     );
   });
   expect(confirmFinancialCancellation).toHaveBeenCalledTimes(2);
@@ -200,55 +200,52 @@ test("resultado ambíguo conserva a chave e o comando para retry", async () => {
   );
 });
 
-test("caracterização: editar após resposta incerta abandona a chave anterior e permite outro comando", async () => {
+test("resultado incerto bloqueia edição e saída até repetir a tentativa original", async () => {
   confirmFinancialCancellation.mockRejectedValueOnce(new Error("timeout"));
-  renderModal();
+  const completed = jest.fn();
+  const closed = jest.fn();
+  renderModal({ onCompleted: completed, onClose: closed });
   await confer();
   fireEvent.click(screen.getByRole("button", { name: "Confirmar cancelamento" }));
   await screen.findByRole("alert");
   const firstAttempt = confirmFinancialCancellation.mock.calls[0];
   const reason = screen.getByLabelText("Motivo do cancelamento");
-  expect(reason).toBeEnabled();
+  expect(reason).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Voltar" })).toBeDisabled();
   fireEvent.change(reason, { target: { value: "Motivo revisado após timeout" } });
-  expect(screen.queryByRole("button", { name: "Confirmar cancelamento" })).not.toBeInTheDocument();
-
-  previewFinancialCancellation.mockResolvedValueOnce({
-    data: preview({ preview_fingerprint: "preview-after-timeout" }),
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Conferir cancelamento" }));
-  await screen.findByRole("button", { name: "Confirmar cancelamento" });
-  fireEvent.click(screen.getByRole("button", { name: "Confirmar cancelamento" }));
+  expect(reason).toHaveValue("Pedido definitivo do paciente");
+  fireEvent.click(screen.getByRole("button", { name: "Verificar resultado" }));
   await waitFor(() => expect(confirmFinancialCancellation).toHaveBeenCalledTimes(2));
   const nextAttempt = confirmFinancialCancellation.mock.calls[1];
-  expect(nextAttempt[1]).toEqual({
-    reason: "Motivo revisado após timeout",
-    preview_fingerprint: "preview-after-timeout",
-  });
-  expect(nextAttempt[2]).not.toBe(firstAttempt[2]);
+  expect(nextAttempt).toEqual(firstAttempt);
+  expect(previewFinancialCancellation).toHaveBeenCalledTimes(1);
+  expect(closed).not.toHaveBeenCalled();
+  await waitFor(() => expect(completed).toHaveBeenCalledTimes(1));
 });
 
-test("caracterização: edição após resultado incerto perde o replay quando a nova prévia informa operação já resolvida", async () => {
+test("operação já resolvida ao verificar tentativa incerta atualiza a tela", async () => {
   confirmFinancialCancellation.mockRejectedValueOnce(new Error("timeout after commit"));
-  const completed = jest.fn();
-  renderModal({ onCompleted: completed });
-  await confer();
-  fireEvent.click(screen.getByRole("button", { name: "Confirmar cancelamento" }));
-  await screen.findByRole("alert");
-  fireEvent.change(screen.getByLabelText("Motivo do cancelamento"), {
-    target: { value: "Pedido definitivo do paciente revisado" },
-  });
-  previewFinancialCancellation.mockRejectedValueOnce({
+  confirmFinancialCancellation.mockRejectedValueOnce({
     response: {
       status: 409,
       data: { code: "FINANCIAL_CANCELLATION_ALREADY_RESOLVED" },
     },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Conferir cancelamento" }));
-  await screen.findByText("Não foi possível conferir o cancelamento. Tente novamente.");
-  expect(screen.getByRole("button", { name: "Conferir cancelamento" })).toBeEnabled();
-  expect(screen.queryByRole("button", { name: "Confirmar cancelamento" })).not.toBeInTheDocument();
-  expect(confirmFinancialCancellation).toHaveBeenCalledTimes(1);
-  expect(completed).not.toHaveBeenCalled();
+  const completed = jest.fn();
+  renderModal({ onCompleted: completed });
+  await confer();
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar cancelamento" }));
+  await screen.findByRole("alert");
+  fireEvent.click(screen.getByRole("button", { name: "Verificar resultado" }));
+  await waitFor(() => expect(completed).toHaveBeenCalledWith({
+    entry_id: 501,
+    patient_id: 30,
+    already_resolved: true,
+  }));
+  expect(confirmFinancialCancellation.mock.calls[1]).toEqual(
+    confirmFinancialCancellation.mock.calls[0],
+  );
+  expect(previewFinancialCancellation).toHaveBeenCalledTimes(1);
 });
 
 test("bloqueio do servidor não permite confirmação nem interpreta used como atendimento concluído", async () => {

@@ -23,6 +23,7 @@ export default function FinancialCancellationModal({
   const [policy, setPolicy] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [uncertain, setUncertain] = useState(false);
   const inFlight = useRef(false);
   const attempt = useRef(null);
   const mounted = useRef(true);
@@ -37,6 +38,7 @@ export default function FinancialCancellationModal({
   }, []);
 
   const invalidate = () => {
+    if (uncertain) return;
     setPreview(null);
     setError("");
     attempt.current = null;
@@ -66,6 +68,7 @@ export default function FinancialCancellationModal({
     setError("");
     setPreview(null);
     attempt.current = null;
+    setUncertain(false);
     try {
       const { data } = await previewFinancialCancellation(
         target.entry_id,
@@ -125,25 +128,33 @@ export default function FinancialCancellationModal({
       ) {
         setPreview(null);
         attempt.current = null;
-        setError(
-          code === "CANCELLATION_PREVIEW_STALE"
-            ? "Os dados mudaram. Confira novamente os valores e impactos antes de confirmar."
-            : "Esta cobrança já foi resolvida. Confira novamente o estado atual.",
-        );
+        setUncertain(false);
+        if (code === "FINANCIAL_CANCELLATION_ALREADY_RESOLVED") {
+          onCompleted({
+            entry_id: target.entry_id,
+            patient_id: target.patient_id,
+            already_resolved: true,
+          });
+        } else {
+          setError("Os dados mudaram. Confira novamente os valores e impactos antes de confirmar.");
+        }
       } else {
         // An ambiguous result must reuse the same key and exact command.
-        setError(
-          getUserFacingApiError(
-            failure,
-            "Não foi possível confirmar o cancelamento. Tente novamente para conferir o resultado da mesma operação.",
-          ),
-        );
+        setUncertain(true);
+        setError(getUserFacingApiError(
+          failure,
+          "O resultado da tentativa ainda não foi confirmado. Verifique o resultado da mesma operação antes de editar ou sair.",
+        ));
       }
     } finally {
       inFlight.current = false;
       if (mounted.current) setBusy("");
     }
   };
+
+  let confirmLabel = "Confirmar cancelamento";
+  if (uncertain) confirmLabel = "Verificar resultado";
+  if (busy === "confirm") confirmLabel = "Confirmando...";
 
   return (
     <Overlay>
@@ -161,8 +172,9 @@ export default function FinancialCancellationModal({
             id="financial-cancellation-reason"
             rows={3}
             value={reason}
-            disabled={Boolean(busy)}
+            disabled={Boolean(busy) || uncertain}
             onChange={(event) => {
+              if (uncertain) return;
               setReason(event.target.value);
               invalidate();
             }}
@@ -175,8 +187,9 @@ export default function FinancialCancellationModal({
                 id="financial-cancellation-authorized-exception"
                 type="checkbox"
                 checked={exception}
-                disabled={Boolean(busy)}
+                disabled={Boolean(busy) || uncertain}
                 onChange={(event) => {
+                  if (uncertain) return;
                   setException(event.target.checked);
                   invalidate();
                 }}
@@ -190,8 +203,9 @@ export default function FinancialCancellationModal({
                   id="financial-cancellation-exception"
                   rows={2}
                   value={exceptionReason}
-                  disabled={Boolean(busy)}
+                  disabled={Boolean(busy) || uncertain}
                   onChange={(event) => {
+                    if (uncertain) return;
                     setExceptionReason(event.target.value);
                     invalidate();
                   }}
@@ -208,7 +222,7 @@ export default function FinancialCancellationModal({
           <SessionCancellationSummary preview={preview} formatCurrency={formatCurrency} />
         )}
         <Actions>
-          <GhostButton type="button" disabled={Boolean(busy)} onClick={onClose}>
+          <GhostButton type="button" disabled={Boolean(busy) || uncertain} onClick={onClose}>
             Voltar
           </GhostButton>
           {!preview?.eligible ? (
@@ -225,7 +239,7 @@ export default function FinancialCancellationModal({
               disabled={Boolean(busy)}
               onClick={confirm}
             >
-              {busy === "confirm" ? "Confirmando..." : "Confirmar cancelamento"}
+              {confirmLabel}
             </PrimaryButton>
           )}
         </Actions>
