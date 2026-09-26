@@ -1,7 +1,7 @@
 /* eslint-env jest */
 import React from "react";
 import userEvent from "@testing-library/user-event";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import FinancialPaymentModal from "./FinancialPaymentModal";
 import useFinancialPaymentFlow from "../hooks/useFinancialPaymentFlow";
 import { createFinancialEntry, createFinancialPayment } from "../../../services/financial";
@@ -38,7 +38,7 @@ beforeEach(() => {
   createFinancialEntry.mockResolvedValue({ data: { id: 90 } });
   createFinancialPayment.mockResolvedValue({ data: { id: 91 } });
 });
-test("duas opções agrupadas, escolha explícita, avanço sem escrita e revisão exata", async () => {
+test("duas opções agrupadas, escolha explícita, avanço sem escrita e resumo sem tabela", async () => {
   harness();
   expect(screen.getAllByRole("checkbox")).toHaveLength(2);
   expect(screen.getAllByRole("checkbox").every((input) => !input.checked)).toBe(true);
@@ -48,9 +48,11 @@ test("duas opções agrupadas, escolha explícita, avanço sem escrita e revisã
   expect(createFinancialEntry).not.toHaveBeenCalled();
   expect(createFinancialPayment).not.toHaveBeenCalled();
   enterPayment();
-  const rows = within(screen.getByRole("table")).getAllByRole("row");
-  expect(within(rows[1]).getAllByRole("cell").slice(1).map((cell) => cell.textContent)).toEqual([11100, 299, 10801, 0].map(currency));
-  expect(within(rows[2]).getAllByRole("cell").slice(1).map((cell) => cell.textContent)).toEqual([399984, 10785, 189199, 200000].map(currency));
+  expect(screen.queryByRole("table")).toBeNull();
+  expect(screen.queryByText("Revisão das cobranças selecionadas")).toBeNull();
+  expect(screen.getByText("Valor original").parentElement.textContent).toContain(currency(411084));
+  expect(screen.getByText("Total final").parentElement.textContent).toContain(currency(400000));
+  expect(screen.getByText("Valor pendente").parentElement.textContent).toContain(currency(200000));
   expect(screen.queryByText("Saldo em credito")).toBeNull();
   fireEvent.click(screen.getByText("Voltar"));
   expect(screen.getAllByRole("checkbox").every((input) => input.checked)).toBe(true);
@@ -97,7 +99,7 @@ test("alterar seleção não sobrescreve dinheiro editado; excesso é mostrado",
   fireEvent.click(screen.getByText("Avançar"));
   expect(screen.getByLabelText("Valor recebido").value).toBe("2000,00");
   expect(screen.getByText("Saldo em credito")).toBeTruthy();
-  expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2);
+  expect(screen.queryByRole("table")).toBeNull();
 });
 test("uma cobrança pré-selecionada e conflito impede confirmação sem nova revisão", async () => {
   createFinancialPayment.mockRejectedValue({ response: { status: 409 } });
