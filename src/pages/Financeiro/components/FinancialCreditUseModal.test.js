@@ -94,14 +94,14 @@ test("permite centavos e valor parcial; voltar conserva escolhas e nova edição
   await waitFor(() => expect(screen.getByRole("button", { name: "Avançar" })).toBeEnabled());
   fireEvent.change(screen.getByLabelText("Valor a usar"), { target: { value: "12,34" } });
   await advance();
-  expect(screen.getByRole("button", { name: "Aplicar R$ 12,34 de crédito" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Confirmar" })).toBeEnabled();
   await userEvent.click(screen.getByRole("button", { name: "Voltar" }));
   expect(screen.getByLabelText("Valor a usar")).toHaveValue("12,34");
   expect(screen.getByRole("checkbox", { name: /Pacote de/ })).toBeChecked();
   await userEvent.click(screen.getByRole("button", { name: "Escolher sessões" }));
   await userEvent.click(screen.getByRole("checkbox", { name: /18\/11\/2026/ }));
   expect(screen.getByLabelText("Valor a usar")).toHaveValue("12,34");
-  expect(screen.queryByRole("button", { name: /Aplicar R/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Confirmar" })).not.toBeInTheDocument();
   await advance();
   expect(previewFinancialCreditApplication).toHaveBeenLastCalledWith(expect.objectContaining({ selected_entry_ids: [101, 102], amount_cents: 1234 }));
 });
@@ -151,7 +151,7 @@ test("um clique confirma exatamente a prévia e bloqueia duplo envio", async () 
   const pending = deferred();
   confirmFinancialCreditApplication.mockReturnValue(pending.promise);
   const { onCompleted } = setup(); await advance();
-  const apply = screen.getByRole("button", { name: "Aplicar R$ 50,00 de crédito" });
+  const apply = screen.getByRole("button", { name: "Confirmar" });
   fireEvent.click(apply); fireEvent.click(apply);
   expect(confirmFinancialCreditApplication).toHaveBeenCalledTimes(1);
   expect(confirmFinancialCreditApplication).toHaveBeenCalledWith({ patient_id: 30, period_start: "2026-10-01", period_end: "2026-10-31", selected_entry_ids: [101, 102, 103], amount_cents: 5000, preview_fingerprint: "review-1" }, expect.any(String));
@@ -163,12 +163,12 @@ test("um clique confirma exatamente a prévia e bloqueia duplo envio", async () 
 test.each([undefined, 500])("resposta incerta %s conserva comando/chave e bloqueia edição e fechamento até retry", async (status) => {
   confirmFinancialCreditApplication.mockRejectedValueOnce(status ? { response: { status } } : new Error("Rede"));
   const { onClose, onCompleted } = setup(); await advance();
-  await userEvent.click(screen.getByRole("button", { name: "Aplicar R$ 50,00 de crédito" }));
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
   await screen.findByRole("alert");
   expect(screen.getByRole("button", { name: "Voltar" })).toBeDisabled();
   fireEvent.keyDown(document, { key: "Escape" });
   expect(onClose).not.toHaveBeenCalled();
-  await userEvent.click(screen.getByRole("button", { name: "Aplicar R$ 50,00 de crédito" }));
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
   expect(confirmFinancialCreditApplication.mock.calls[1]).toEqual(confirmFinancialCreditApplication.mock.calls[0]);
   expect(onCompleted).toHaveBeenCalledTimes(1);
 });
@@ -178,11 +178,11 @@ test("mudança concorrente recarrega revisão e exige outro clique com outra cha
   previewFinancialCreditApplication.mockImplementationOnce(async (body) => ({ data: makePreview(body) }))
     .mockImplementationOnce(async (body) => ({ data: { ...makePreview(body), preview_fingerprint: "review-2" } }));
   setup(); await advance();
-  await userEvent.click(screen.getByRole("button", { name: "Aplicar R$ 50,00 de crédito" }));
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Os dados mudaram. Confira os valores atualizados antes de aplicar o crédito.");
   expect(confirmFinancialCreditApplication).toHaveBeenCalledTimes(1);
   expect(previewFinancialCreditApplication).toHaveBeenCalledTimes(2);
-  await userEvent.click(screen.getByRole("button", { name: "Aplicar R$ 50,00 de crédito" }));
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
   const { calls } = confirmFinancialCreditApplication.mock;
   expect(calls[1][0].preview_fingerprint).toBe("review-2");
   expect(calls[1][1]).not.toBe(calls[0][1]);
@@ -193,7 +193,7 @@ test("prévia obsoleta sem seleção válida retorna à escolha sem selecionar n
   previewFinancialCreditApplication.mockImplementationOnce(async (body) => ({ data: makePreview(body) })).mockRejectedValueOnce({ response: { status: 400 } });
   getFinancialCreditDestinations.mockResolvedValueOnce({ data: destinations() }).mockResolvedValueOnce({ data: destinations([single]) });
   setup(); await advance();
-  await userEvent.click(screen.getByRole("button", { name: "Aplicar R$ 50,00 de crédito" }));
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
   const checkbox = await screen.findByRole("checkbox", { name: /Sessão avulsa de Pilates/ });
   expect(checkbox).not.toBeChecked();
   expect(screen.getByRole("button", { name: "Avançar" })).toBeDisabled();
@@ -205,7 +205,7 @@ test("se limite mudou, retorna à escolha preservando interseção e ajusta some
   previewFinancialCreditApplication.mockImplementationOnce(async (body) => ({ data: makePreview(body) })).mockRejectedValueOnce({ response: { status: 400 } });
   getFinancialCreditDestinations.mockResolvedValueOnce({ data: destinations() }).mockResolvedValueOnce({ data: destinations([{ ...group, entries: [group.entries[1]] }], 2500) });
   setup(); await advance();
-  await userEvent.click(screen.getByRole("button", { name: "Aplicar R$ 50,00 de crédito" }));
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
   await screen.findByRole("checkbox", { name: /Pacote de/ });
   await waitFor(() => expect(screen.getByLabelText("Valor a usar")).toHaveValue("25,00"));
   expect(screen.getByRole("checkbox", { name: /Pacote de/ })).toBeChecked();
@@ -239,7 +239,7 @@ test("prévia de outro paciente ou seleção é rejeitada sem confirmação", as
   await waitFor(() => expect(screen.getByRole("button", { name: "Avançar" })).toBeEnabled());
   await userEvent.click(screen.getByRole("button", { name: "Avançar" }));
   await screen.findByRole("alert");
-  expect(screen.queryByRole("button", { name: /Aplicar R/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Confirmar" })).not.toBeInTheDocument();
   expect(confirmFinancialCreditApplication).not.toHaveBeenCalled();
 });
 
@@ -274,7 +274,7 @@ test("retry da consulta após prévia obsoleta não seleciona novo grupo sozinho
   getFinancialCreditDestinations.mockResolvedValueOnce({ data: destinations() }).mockRejectedValueOnce(new Error("Consulta indisponível"))
     .mockResolvedValueOnce({ data: destinations([single]) });
   setup(); await advance();
-  await userEvent.click(screen.getByRole("button", { name: "Aplicar R$ 50,00 de crédito" }));
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
   await userEvent.click(await screen.findByRole("button", { name: "Tentar novamente" }));
   expect(await screen.findByRole("checkbox", { name: /Sessão avulsa de Pilates/ })).not.toBeChecked();
   expect(screen.getByRole("button", { name: "Avançar" })).toBeDisabled();
@@ -303,7 +303,7 @@ test("falha temporária ao recarregar destinos conserva valor editado válido no
   await waitFor(() => expect(screen.getByRole("button", { name: "Avançar" })).toBeEnabled());
   fireEvent.change(screen.getByLabelText("Valor a usar"), { target: { value: "12,34" } });
   await advance();
-  await userEvent.click(screen.getByRole("button", { name: "Aplicar R$ 12,34 de crédito" }));
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
   await userEvent.click(await screen.findByRole("button", { name: "Tentar novamente" }));
   await waitFor(() => expect(screen.getByLabelText("Valor a usar")).toHaveValue("12,34"));
   expect(confirmFinancialCreditApplication).toHaveBeenCalledTimes(1);
@@ -317,7 +317,7 @@ test("Voltar após stale consulta saldos atuais sem mostrar catálogo antigo dur
   previewFinancialCreditApplication.mockImplementationOnce(async (body) => ({ data: makePreview(body) }))
     .mockImplementationOnce(async (body) => ({ data: { ...makePreview(body, [group], 15000), preview_fingerprint: "review-2" } }));
   setup(); await advance();
-  await userEvent.click(screen.getByRole("button", { name: "Aplicar R$ 50,00 de crédito" }));
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
   await screen.findByRole("alert");
   expect(screen.getByText("Crédito disponível").parentElement).toHaveTextContent("R$ 150,00");
   await userEvent.click(screen.getByRole("button", { name: "Voltar" }));
@@ -345,7 +345,7 @@ test("falha do catálogo ao Voltar preserva nova revisão; retry conserva valor 
   await waitFor(() => expect(screen.getByRole("button", { name: "Avançar" })).toBeEnabled());
   fireEvent.change(screen.getByLabelText("Valor a usar"), { target: { value: "12,34" } });
   await advance();
-  await userEvent.click(screen.getByRole("button", { name: "Aplicar R$ 12,34 de crédito" }));
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
   await screen.findByRole("alert");
   await userEvent.click(screen.getByRole("button", { name: "Voltar" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("A revisão foi preservada. Tente voltar novamente.");

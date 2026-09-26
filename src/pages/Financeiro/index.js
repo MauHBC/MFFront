@@ -4736,15 +4736,19 @@ export default function Financeiro() {
   const handleCreditUseCompleted = useCallback(async () => {
     if (!creditUseModalContext) return;
     const { patientId } = creditUseModalContext;
+    const keepPatientDetail = attendanceDrilldownPatientId
+      && Number(attendanceDrilldownPatientId) === Number(patientId);
     toast.success("Crédito aplicado nas cobranças pendentes.");
     invalidateAttendanceDetailCacheForPatient(patientId);
     setCreditUseModalContext(null);
+    if (keepPatientDetail) {
+      await handleViewPatientSessions(patientId, { keepTab: true });
+      await loadRevenuesSummary();
+      return;
+    }
     await loadRevenuesData();
     await loadRevenuesSummary();
     await loadAttendance();
-    if (attendanceDrilldownPatientId && Number(attendanceDrilldownPatientId) === Number(patientId)) {
-      await handleViewPatientSessions(patientId, { keepTab: true });
-    }
   }, [
     attendanceDrilldownPatientId,
     creditUseModalContext,

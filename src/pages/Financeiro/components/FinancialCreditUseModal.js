@@ -326,7 +326,7 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
           {preview ? <>
             <GhostButton type="button" disabled={Boolean(busy) || uncertain} onClick={back}>Voltar</GhostButton>
             <PrimaryButton type="button" disabled={Boolean(busy)} onClick={confirm}>
-              {busy === "confirm" ? "Aplicando..." : `Aplicar ${formatCurrency(preview.amount_cents)} de crédito`}
+              {busy === "confirm" ? "Aplicando..." : "Confirmar"}
             </PrimaryButton>
           </> : <>
             <GhostButton type="button" disabled={Boolean(busy)} onClick={onClose}>Cancelar</GhostButton>

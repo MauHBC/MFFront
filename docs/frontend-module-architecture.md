@@ -515,12 +515,15 @@ O estado conserva seleção e valor válido ao voltar; alterações invalidam a 
 
 **Conferir uso do crédito** apresenta exclusivamente a prévia do servidor, com
 destinos, valores por sessão e saldos da sessão, do pacote e da seleção claramente
-distintos. **Avançar** não grava; apenas **Aplicar R$X de crédito** confirma. Uma
+distintos. **Avançar** não grava; apenas **Confirmar** conclui a aplicação. Uma
 tentativa com resposta incerta conserva comando e chave idempotente para retry;
 mudança relevante exige revisão atualizada e outra confirmação. Carregamento,
 erros, foco e bloqueio de envio duplicado pertencem ao modal. As regras e a
 competência são as de [FIN-005](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#fin-005);
 o Frontend não recalcula o plano de aplicação nem usa o período como destino.
+Após sucesso no detalhe do paciente, a recarga permanece nesse escopo e atualiza
+a cobrança e o resumo autoritativos sem substituir temporariamente o detalhe por
+listas globais; carregamento ou erro continuam explícitos e não viram lista vazia.
 
 ### Pesquisa e identificação do paciente em Receitas
 

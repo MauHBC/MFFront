@@ -2022,7 +2022,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await waitFor(() => expect(next).toBeEnabled());
     await userEvent.click(next);
     expect(confirmFinancialCreditApplication).not.toHaveBeenCalled();
-    await userEvent.click(await screen.findByRole("button", { name: /Aplicar R\$.*1\.200,00 de crédito/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirmar" }));
 
     await waitFor(() => {
       expect(confirmFinancialCreditApplication).toHaveBeenCalledWith({
@@ -2037,6 +2037,92 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(2);
     });
     expect(screen.queryByRole("button", { name: /Usar cr.dito/ })).not.toBeInTheDocument();
+  });
+
+  it("mantem avulsa parcialmente paga na lista apos confirmar uso de credito sem reload", async () => {
+    mockAuthorization.canAccessModule = (module, level) => module === "finance" && level === "manage";
+    mockAuthorization.hasCapability = (capability) => capability === "finance.settle";
+    const session = {
+      id: 701, clinic_id: 1, patient_id: 30, service_id: 10, series_id: null,
+      starts_at: "2026-06-10T12:00:00.000Z", status: "scheduled", billing_mode: "per_session",
+      Patient: { id: 30, full_name: "Paciente credito parcial" },
+      Service: { id: 10, name: "Avulsa credito parcial" },
+    };
+    const entryBefore = {
+      id: 501, clinic_id: 1, patient_id: 30, session_id: 701, service_id: 10,
+      type: "income", amount_cents: 10000, status: "pending", reference_date: "2026-06-10",
+      installments: [{ id: 801, installment_number: 1, amount_cents: 10000,
+        paid_amount_cents: 0, open_amount_cents: 10000, status: "pending" }],
+    };
+    const entryAfter = {
+      ...entryBefore, status: "partial",
+      installments: [{ id: 801, installment_number: 1, amount_cents: 10000,
+        paid_amount_cents: 3000, open_amount_cents: 7000, status: "partial" }],
+    };
+    const detail = (entry, received, pending, creditAvailable) => ({
+      patient: { id: 30, name: "Paciente credito parcial" }, month: "2026-06",
+      summary: { total: 10000, received, pending, creditAvailable },
+      entries: [entry], sessions: [session], payments: [], credits: [], series: [], packages: [],
+    });
+    const summary = (received, pending) => ({
+      month: "2026-06", summary: { total: 10000, received, pending },
+      patients: [{ patient_id: 30, patient_name: "Paciente credito parcial",
+        total: 10000, received, pending, entries_count: 1 }],
+    });
+    getFinancialRevenuesSummary.mockResolvedValueOnce({ data: summary(0, 10000) })
+      .mockResolvedValue({ data: summary(3000, 7000) });
+    getFinancialRevenuePatientDetail.mockResolvedValueOnce({ data: detail(entryBefore, 0, 10000, 6000) })
+      .mockResolvedValue({ data: detail(entryAfter, 3000, 7000, 3000) });
+    listFinancialEntries.mockResolvedValue({ data: [entryAfter] });
+    listFinancialPayments.mockResolvedValue({ data: [] });
+    listPatientCredits.mockResolvedValue({ data: [] });
+    axios.get.mockImplementation((url) => {
+      if (url === "/sessions") return Promise.resolve({ data: [session] });
+      if (url === "/patients") return Promise.resolve({ data: [session.Patient] });
+      if (url === "/services") return Promise.resolve({ data: [session.Service] });
+      return Promise.resolve({ data: [] });
+    });
+    const group = {
+      key: "entry:501", kind: "standalone", service_name: "Avulsa credito parcial",
+      reference_date: "2026-06-10", amount_cents: 10000, paid_cents: 0, open_cents: 10000,
+      entries: [{ entry_id: 501, session_id: 701, session_starts_at: session.starts_at,
+        service_name: "Avulsa credito parcial", amount_cents: 10000, paid_cents: 0, open_cents: 10000 }],
+    };
+    const preview = {
+      patient: { id: 30, full_name: "Paciente credito parcial" }, credit_available_cents: 6000,
+      credit_remaining_cents: 3000, amount_cents: 3000, selected_open_before_cents: 10000,
+      selected_open_after_cents: 7000, preview_fingerprint: "partial-credit-review",
+      groups: [{ ...group, allocated_cents: 3000, open_after_cents: 7000,
+        entries: [{ ...group.entries[0], allocated_cents: 3000, open_after_cents: 7000 }] }],
+    };
+    getFinancialCreditDestinations.mockResolvedValue({ data: {
+      patient: preview.patient, credit_available_cents: 6000, groups: [group],
+    } });
+    previewFinancialCreditApplication.mockResolvedValue({ data: preview });
+    confirmFinancialCreditApplication.mockResolvedValue({ data: { ...preview, command_id: 91, replayed: false } });
+
+    renderFinanceiro();
+    await revealFinancialValues();
+    await screen.findByText("Paciente credito parcial");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    expect(await screen.findByText("Avulsa credito parcial")).toBeInTheDocument();
+    expect(screen.getByLabelText("Status financeiro")).toHaveValue("all");
+    await userEvent.click(screen.getByRole("button", { name: /Usar cr.dito/ }));
+    const amountInput = await screen.findByLabelText("Valor a usar");
+    fireEvent.change(amountInput, { target: { value: "30,00" } });
+    await waitFor(() => expect(amountInput).toHaveValue("30,00"));
+    await userEvent.click(screen.getByRole("button", { name: "Avançar" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirmar" }));
+
+    const row = (await screen.findByText("Avulsa credito parcial")).closest("tr");
+    await waitFor(() => {
+      expect(within(row).getAllByRole("cell").slice(3, 7).map((cell) => cell.textContent.replace(/\s+/g, " ").trim()))
+        .toEqual(["R$ 100,00", "R$ 30,00", "R$ 70,00", "Parcial"]);
+    });
+    expect(screen.queryByText("Nenhum pacote de sessões encontrado para este paciente.")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Status financeiro")).toHaveValue("all");
+    expect(listFinancialEntries).not.toHaveBeenCalled();
+    expect(axios.get.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(0);
   });
 
   it("mantem todas as mensalidades do paciente no detalhe mesmo com busca preenchida", async () => {
