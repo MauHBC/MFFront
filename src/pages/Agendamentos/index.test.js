@@ -7,7 +7,7 @@ import { MemoryRouter } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import Agendamentos from "./index";
-import axios, { sanitizeUserFacingErrorMessage } from "../../services/axios";
+import axios, { getUserFacingApiError, sanitizeUserFacingErrorMessage } from "../../services/axios";
 import {
   checkSchedulingAvailability,
   listSpecialSchedulingEvents,
@@ -193,6 +193,7 @@ describe("Agendamentos - editar agendamento", () => {
   beforeEach(() => {
     jest.useFakeTimers().setSystemTime(new Date("2026-06-29T06:00:00"));
     jest.clearAllMocks();
+    getUserFacingApiError.mockImplementation((error, fallback) => fallback);
     sanitizeUserFacingErrorMessage.mockImplementation((message, fallback) => message || fallback);
     sessionsMockData = [baseSession, canceledSession, noShowSession];
     mockProfessionalAssigned = true;
@@ -871,7 +872,7 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(screen.getByPlaceholderText("Descreva o motivo"), {
       target: { value: "Paciente avisou" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar cancelamento" }));
 
     await waitFor(() => expect(axios.put).toHaveBeenCalledWith(
       "/sessions/10",
@@ -917,12 +918,369 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(screen.getByPlaceholderText("Descreva o motivo"), {
       target: { value: "Paciente avisou" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar cancelamento" }));
 
     await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(
-      "Financeiro preservado; nenhuma devolução, crédito ou estorno foi realizado.",
+      "Sessão cancelada. Acerto financeiro pendente.",
     ));
+    expect(toast.warning).toHaveBeenCalledTimes(1);
+    expect(toast.success).not.toHaveBeenCalled();
     expect(toast.warning.mock.calls.flat().join(" ")).not.toMatch(/crédito gerado|estorno automático concluído/i);
+  });
+
+  const financialPreview = (release = 10000, extra = {}) => ({
+    eligible: true, preview_fingerprint: "server-preview", blockers: [],
+    patient: { id: 20, name: "Paciente Teste" },
+    session: { id: 10, starts_at: baseSession.starts_at },
+    entry: { id: 90, amount_cents: 10000, paid_cents: release, open_cents: 10000 - release },
+    package: { series_id: 1, amount_before_cents: 40000, amount_after_cents: 30000 },
+    release_amount_cents: release, credit_after_cents: release,
+    consequences: { replacement_created: false, money_refunded: false },
+    affected_sessions: [{ id: 10, starts_at: baseSession.starts_at }],
+    requires_late_policy_exception: false,
+    ...extra,
+  });
+  const openFinancialAbsence = async ({ finance = true, fillReason = true, justify = true } = {}) => {
+    mockAuthorization.canAccessModule = jest.fn((module) => module !== "finance" || finance);
+    const rendered = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Dia" }));
+    const card = await waitFor(() => {
+      const element = rendered.container.querySelector('[data-id="10"]');
+      expect(element).toBeTruthy();
+      return element;
+    });
+    fireEvent.click(Array.from(card.querySelectorAll("button")).find((button) => button.textContent.includes("Agendado")));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelamento/falta" }));
+    await screen.findByRole("heading", { name: "Cancelamento/falta" });
+    if (justify) fireEvent.click(screen.getByText("Tem justificativa"));
+    if (fillReason) fireEvent.change(screen.getByPlaceholderText("Descreva o motivo"), { target: { value: "Pedido definitivo" } });
+    return rendered;
+  };
+  const confirmCancellationButton = () => screen.getByRole("button", { name: "Confirmar cancelamento" });
+  const readyToConfirmCancellation = async () => {
+    await waitFor(() => expect(confirmCancellationButton()).toBeEnabled());
+    return confirmCancellationButton();
+  };
+  const cancellationCalls = (suffix) => axios.post.mock.calls.filter(([url]) => url.endsWith(suffix));
+  const apiFailure = (status, code) => Object.assign(new Error(code), { response: { status, data: { code } } });
+
+  it.each([5000, 10000])("prepara pagamento de %s centavos automaticamente e um clique confirma só a operação conjunta", async (paid) => {
+    axios.post.mockImplementation((url) => Promise.resolve({ data: url.endsWith("cancellation-preview")
+      ? financialPreview(paid) : { id: 2, entry_id: 90, patient_id: 20 } }));
+    await openFinancialAbsence();
+    expect(screen.getAllByRole("button", { name: "Confirmar cancelamento" })).toHaveLength(1);
+    expect(confirmCancellationButton()).toBeDisabled();
+    expect(screen.getByText("O que aconteceu?")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Descreva o motivo")).toHaveValue("Pedido definitivo");
+    expect(screen.getByText("Tem justificativa")).toBeInTheDocument();
+    expect(screen.getByText("Gerar reposição")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Conferir cancelamento" })).not.toBeInTheDocument();
+    await readyToConfirmCancellation();
+    expect(cancellationCalls("cancellation-preview")).toHaveLength(1);
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+    expect(screen.queryByLabelText("Prévia do cancelamento")).not.toBeInTheDocument();
+    expect(screen.queryByText(/O pacote passará|ficarão como crédito|Cobrança #/)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Cancelamento/falta" }).parentElement.parentElement).not.toHaveTextContent(/R\$/);
+    expect(screen.getByText("O que aconteceu?")).toBeInTheDocument();
+    expect(axios.put).not.toHaveBeenCalled();
+    fireEvent.click(confirmCancellationButton());
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sessão cancelada."));
+    expect(toast.success).toHaveBeenCalledTimes(1);
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(axios.post).toHaveBeenCalledWith("/sessions/10/cancel-with-credit", {
+      reason: "Pedido definitivo", preview_fingerprint: "server-preview",
+      late_policy_exception_justified: true, late_policy_exception_reason: "Pedido definitivo",
+    }, { headers: { "Idempotency-Key": expect.any(String) } });
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(1);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it("aguarda motivo válido e agrupa digitação antes da prévia automática", async () => {
+    axios.post.mockResolvedValue({ data: financialPreview() });
+    await openFinancialAbsence({ fillReason: false });
+    await act(async () => { jest.advanceTimersByTime(300); });
+    expect(cancellationCalls("cancellation-preview")).toHaveLength(0);
+    fireEvent.click(confirmCancellationButton());
+    expect(toast.error).toHaveBeenCalledWith("Informe o motivo.");
+    expect(axios.put).not.toHaveBeenCalled();
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+    fireEvent.change(screen.getByPlaceholderText("Descreva o motivo"), { target: { value: "Primeiro motivo" } });
+    await act(async () => { jest.advanceTimersByTime(200); });
+    fireEvent.change(screen.getByPlaceholderText("Descreva o motivo"), { target: { value: "Motivo atualizado" } });
+    await act(async () => { jest.advanceTimersByTime(249); });
+    expect(cancellationCalls("cancellation-preview")).toHaveLength(0);
+    await act(async () => { jest.advanceTimersByTime(1); });
+    await readyToConfirmCancellation();
+    expect(cancellationCalls("cancellation-preview")).toHaveLength(1);
+    expect(cancellationCalls("cancellation-preview")[0][1]).toEqual({
+      reason: "Motivo atualizado", late_policy_exception_justified: true, late_policy_exception_reason: "Motivo atualizado",
+    });
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it("mantém reposição no formulário e no fluxo operacional mesmo com autorização financeira", async () => {
+    axios.put.mockResolvedValue({ data: { ...baseSession, status: "canceled" } });
+    await openFinancialAbsence();
+    fireEvent.click(screen.getByText("Gerar reposição"));
+    fireEvent.click(confirmCancellationButton());
+    await waitFor(() => expect(axios.put).toHaveBeenCalledWith("/sessions/10", expect.objectContaining({
+      generate_replacement_credit: true, replacement_credit_reason: "Pedido definitivo",
+    })));
+    await act(async () => { jest.advanceTimersByTime(300); });
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+    expect(cancellationCalls("cancellation-preview")).toHaveLength(0);
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sessão cancelada."));
+  });
+
+  it.each(["manage", "settle"])("sem autorização financeira %s conserva cancelamento operacional sem chamar liberação", async (missing) => {
+    if (missing === "settle") mockAuthorization.hasCapability = jest.fn((capability) => capability !== "finance.settle");
+    axios.put.mockResolvedValue({ data: { ...baseSession, status: "canceled" } });
+    await openFinancialAbsence({ finance: missing !== "manage" });
+    fireEvent.click(confirmCancellationButton());
+    await waitFor(() => expect(axios.put).toHaveBeenCalledWith("/sessions/10", expect.objectContaining({ status: "canceled", absence_reason: "Pedido definitivo" })));
+    expect(cancellationCalls("cancellation-preview")).toHaveLength(0);
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sessão cancelada."));
+  });
+
+  it("cancelamento tardio sem justificativa preserva penalidade operacional e não consulta prévia financeira", async () => {
+    axios.put.mockResolvedValue({ data: { ...baseSession, status: "no_show" } });
+    await openFinancialAbsence({ justify: false });
+    fireEvent.click(confirmCancellationButton());
+    await waitFor(() => expect(axios.put).toHaveBeenCalledWith("/sessions/10", expect.objectContaining({ status: "canceled", absence_reason: "Pedido definitivo" })));
+    expect(cancellationCalls("cancellation-preview")).toHaveLength(0);
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Agendamento atualizado."));
+    expect(toast.success).not.toHaveBeenCalledWith("Sessão cancelada.");
+  });
+
+  it("mostra outro agendamento afetado inline com paciente e data/hora do servidor", async () => {
+    axios.post.mockResolvedValue({ data: financialPreview(10000, {
+      patient: { id: 20, name: "Paciente retornado" },
+      affected_sessions: [{ id: 10, starts_at: baseSession.starts_at }, { id: 12, starts_at: "2026-11-06T13:00:00Z" }],
+    }) });
+    await openFinancialAbsence();
+    await readyToConfirmCancellation();
+    expect(screen.getByLabelText("Outros agendamentos afetados")).toHaveTextContent(/Paciente retornado.*06\/11\/2026.*10:00/);
+    expect(screen.getByText("O que aconteceu?")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Descreva o motivo")).toHaveValue("Pedido definitivo");
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it("prévia desatualizada recarrega escopo inline e exige novo clique sem cancelar separadamente", async () => {
+    let previewCount = 0;
+    let confirmCount = 0;
+    axios.post.mockImplementation((url) => {
+      if (url.endsWith("cancellation-preview")) {
+        previewCount += 1;
+        return Promise.resolve({ data: financialPreview(10000, previewCount === 1 ? {} : {
+          preview_fingerprint: "updated-preview", patient: { id: 20, name: "Paciente atualizado" },
+          affected_sessions: [{ id: 10, starts_at: baseSession.starts_at }, { id: 12, starts_at: "2026-11-06T13:00:00Z" }],
+        }) });
+      }
+      confirmCount += 1;
+      return confirmCount === 1 ? Promise.reject(apiFailure(409, "CANCELLATION_PREVIEW_STALE"))
+        : Promise.resolve({ data: { id: 2, entry_id: 90, patient_id: 20 } });
+    });
+    await openFinancialAbsence();
+    await readyToConfirmCancellation();
+    fireEvent.click(confirmCancellationButton());
+    await screen.findByText("O agendamento mudou. Confira as informações atualizadas e confirme novamente.");
+    await waitFor(() => expect(cancellationCalls("cancellation-preview")).toHaveLength(2));
+    await readyToConfirmCancellation();
+    expect(screen.getByLabelText("Outros agendamentos afetados")).toHaveTextContent(/Paciente atualizado.*06\/11\/2026.*10:00/);
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(1);
+    expect(screen.getByText("O que aconteceu?")).toBeInTheDocument();
+    fireEvent.click(confirmCancellationButton());
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sessão cancelada."));
+    expect(cancellationCalls("cancel-with-credit")[1][1].preview_fingerprint).toBe("updated-preview");
+    expect(cancellationCalls("cancel-with-credit")[1][2]).not.toEqual(cancellationCalls("cancel-with-credit")[0][2]);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it("reutiliza chave e comando após resultado ambíguo, mantendo formulário bloqueado até retry", async () => {
+    let confirmCount = 0;
+    axios.post.mockImplementation((url) => {
+      if (url.endsWith("cancellation-preview")) return Promise.resolve({ data: financialPreview() });
+      confirmCount += 1;
+      return confirmCount === 1 ? Promise.reject(new Error("timeout"))
+        : Promise.resolve({ data: { id: 2, entry_id: 90, patient_id: 20 } });
+    });
+    await openFinancialAbsence();
+    await readyToConfirmCancellation();
+    fireEvent.click(confirmCancellationButton());
+    await screen.findByRole("alert");
+    expect(screen.getByPlaceholderText("Descreva o motivo")).toHaveValue("Pedido definitivo");
+    expect(screen.getByPlaceholderText("Descreva o motivo")).toBeDisabled();
+    fireEvent.click(confirmCancellationButton());
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sessão cancelada."));
+    const calls = cancellationCalls("cancel-with-credit");
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toEqual(calls[1]);
+    expect(cancellationCalls("cancellation-preview")).toHaveLength(1);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 500])("falha %s da prévia permite retry técnico mas nunca cancela automaticamente", async (status) => {
+    axios.post.mockRejectedValue(apiFailure(status, "BLOCKED"));
+    await openFinancialAbsence();
+    await screen.findByRole("alert");
+    expect(axios.put).not.toHaveBeenCalled();
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+    expect(screen.getByText("O que aconteceu?")).toBeInTheDocument();
+    axios.post.mockImplementation((url) => Promise.resolve({ data: url.endsWith("cancellation-preview")
+      ? financialPreview() : { id: 2, entry_id: 90, patient_id: 20 } }));
+    fireEvent.click(confirmCancellationButton());
+    await waitFor(() => expect(cancellationCalls("cancellation-preview")).toHaveLength(2));
+    await readyToConfirmCancellation();
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+    expect(axios.put).not.toHaveBeenCalled();
+    fireEvent.click(confirmCancellationButton());
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sessão cancelada."));
+  });
+
+  it("origem sem obrigação financeira reconhecida em background aguarda clique para cancelar operacionalmente", async () => {
+    axios.post.mockRejectedValue(apiFailure(409, "FINANCIAL_CANCELLATION_NOT_APPLICABLE"));
+    await openFinancialAbsence();
+    await waitFor(() => expect(cancellationCalls("cancellation-preview")).toHaveLength(1));
+    await readyToConfirmCancellation();
+    expect(axios.put).not.toHaveBeenCalled();
+    fireEvent.click(confirmCancellationButton());
+    await waitFor(() => expect(axios.put).toHaveBeenCalledWith("/sessions/10", expect.objectContaining({ status: "canceled" })));
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+  });
+
+  it("bloqueador clínico deixa formulário aberto sem autorizar confirmação nem cancelamento separado", async () => {
+    axios.post.mockResolvedValue({ data: financialPreview(10000, {
+      eligible: false, blockers: [{ code: "CLINICAL_RECORD", message: "Sessão com registro clínico." }],
+    }) });
+    await openFinancialAbsence();
+    await screen.findByText("Sessão com registro clínico.");
+    expect(confirmCancellationButton()).toBeDisabled();
+    expect(screen.getByText("O que aconteceu?")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Descreva o motivo")).toHaveValue("Pedido definitivo");
+    expect(axios.put).not.toHaveBeenCalled();
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+  });
+
+  it("duplo clique durante confirmação envia um único comando conjunto", async () => {
+    let resolveConfirmation;
+    axios.post.mockImplementation((url) => url.endsWith("cancellation-preview")
+      ? Promise.resolve({ data: financialPreview() })
+      : new Promise((resolve) => { resolveConfirmation = resolve; }));
+    await openFinancialAbsence();
+    await readyToConfirmCancellation();
+    const button = confirmCancellationButton();
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(1);
+    expect(screen.getByText("O que aconteceu?")).toBeInTheDocument();
+    await act(async () => { resolveConfirmation({ data: { id: 2, entry_id: 90, patient_id: 20 } }); });
+    expect(toast.success).toHaveBeenCalledTimes(1);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it("trocar para falta invalida confirmação financeira imediatamente enquanto consulta mensal está pendente", async () => {
+    axios.post.mockResolvedValue({ data: financialPreview() });
+    axios.put.mockResolvedValue({ data: { ...baseSession, status: "no_show" } });
+    await openFinancialAbsence();
+    await readyToConfirmCancellation();
+    const previousConfirmation = confirmCancellationButton();
+    const regularGet = axios.get.getMockImplementation();
+    let resolveMonthly;
+    axios.get.mockImplementation((url, config) => url === "/sessions" && !config?.params?.status
+      ? new Promise((resolve) => { resolveMonthly = resolve; }) : regularGet(url, config));
+    fireEvent.click(screen.getByRole("button", { name: /^Falta/i }));
+    expect(resolveMonthly).toBeDefined();
+    expect(previousConfirmation).toBeDisabled();
+    fireEvent.click(previousConfirmation);
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+    expect(axios.put).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText("Descreva o motivo")).toHaveValue("Pedido definitivo");
+    axios.get.mockImplementation(regularGet);
+    await act(async () => { resolveMonthly({ data: [] }); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Salvar" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(axios.put).toHaveBeenCalledWith("/sessions/10", expect.objectContaining({ status: "no_show" })));
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+  });
+
+  it("resposta de motivo anterior não substitui a prévia do motivo atual", async () => {
+    const pending = [];
+    axios.post.mockImplementation((url) => url.endsWith("cancellation-preview")
+      ? new Promise((resolve) => { pending.push(resolve); }) : Promise.resolve({ data: { id: 2, entry_id: 90, patient_id: 20 } }));
+    await openFinancialAbsence();
+    await act(async () => { jest.advanceTimersByTime(250); });
+    expect(pending).toHaveLength(1);
+    fireEvent.change(screen.getByPlaceholderText("Descreva o motivo"), { target: { value: "Pedido atualizado" } });
+    await act(async () => { jest.advanceTimersByTime(250); });
+    expect(pending).toHaveLength(2);
+    await act(async () => { pending[1]({ data: financialPreview(5000, { preview_fingerprint: "current-preview" }) }); });
+    await readyToConfirmCancellation();
+    await act(async () => { pending[0]({ data: financialPreview(10000, {
+      preview_fingerprint: "obsolete-preview", patient: { id: 20, name: "Paciente antigo" },
+      affected_sessions: [{ id: 10, starts_at: baseSession.starts_at }, { id: 99, starts_at: "2026-12-25T13:00:00Z" }],
+    }) }); });
+    expect(screen.queryByText(/Paciente antigo|25\/12\/2026/)).not.toBeInTheDocument();
+    fireEvent.click(confirmCancellationButton());
+    await waitFor(() => expect(cancellationCalls("cancel-with-credit")).toHaveLength(1));
+    expect(cancellationCalls("cancel-with-credit")[0][1]).toEqual({
+      reason: "Pedido atualizado", preview_fingerprint: "current-preview",
+      late_policy_exception_justified: true, late_policy_exception_reason: "Pedido atualizado",
+    });
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it("ignora prévia automática que chega após mudança do contexto autorizado", async () => {
+    let resolvePreview;
+    axios.post.mockImplementation(() => new Promise((resolve) => { resolvePreview = resolve; }));
+    const rendered = await openFinancialAbsence();
+    await act(async () => { jest.advanceTimersByTime(250); });
+    expect(confirmCancellationButton()).toBeDisabled();
+    expect(cancellationCalls("cancellation-preview")).toHaveLength(1);
+    mockAuthorization = { ...mockAuthorization, context: { ...mockAuthorization.context, clinic_id: 2 } };
+    rendered.rerender(<MemoryRouter><Agendamentos /></MemoryRouter>);
+    await act(async () => { resolvePreview({ data: financialPreview() }); });
+    expect(screen.queryByRole("button", { name: "Confirmar cancelamento" })).not.toBeInTheDocument();
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it("ignora prévia automática recebida após desmontagem da Agenda", async () => {
+    let resolvePreview;
+    axios.post.mockImplementation(() => new Promise((resolve) => { resolvePreview = resolve; }));
+    const rendered = await openFinancialAbsence();
+    await act(async () => { jest.advanceTimersByTime(250); });
+    expect(resolvePreview).toBeDefined();
+    rendered.unmount();
+    const getCount = axios.get.mock.calls.length;
+    await act(async () => { resolvePreview({ data: financialPreview() }); });
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(axios.get).toHaveBeenCalledTimes(getCount);
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it("não publica confirmação nem atualiza dados após desmontagem da Agenda", async () => {
+    let resolveConfirmation;
+    axios.post.mockImplementation((url) => url.endsWith("cancellation-preview")
+      ? Promise.resolve({ data: financialPreview() })
+      : new Promise((resolve) => { resolveConfirmation = resolve; }));
+    const rendered = await openFinancialAbsence();
+    await readyToConfirmCancellation();
+    fireEvent.click(confirmCancellationButton());
+    expect(resolveConfirmation).toBeDefined();
+    rendered.unmount();
+    const getCount = axios.get.mock.calls.length;
+    await act(async () => { resolveConfirmation({ data: { id: 2, entry_id: 90, patient_id: 20 } }); });
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(axios.get).toHaveBeenCalledTimes(getCount);
+    expect(axios.put).not.toHaveBeenCalled();
   });
 
   it("registra falta pelo fluxo unificado sem mostrar reposicao", async () => {

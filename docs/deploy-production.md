@@ -191,6 +191,14 @@ controlada e não deve ser usado como padrão em operação manual.
 
 ## Rollback manual
 
+Entregas de cancelamento/crédito FIN-016 exigem também a
+[matriz de compatibilidade financeira do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/operacoes/financeiro-regularizacao-e-credito-shadow.md#combinações-de-código-e-recuperação).
+Após novos movimentos, voltar o Frontend não autoriza voltar o Backend nem o
+schema. O bundle anterior conserva comandos legados, mas não oferece a revisão
+de destinos, histórico e pendências do fluxo novo. O atualizador de versão adia
+reload durante edição/modal e não bloqueia comandos de abas antigas; a janela
+deve definir como conter essas escritas antes de liberar o uso.
+
 O rollback preferencial usa o symlink `previous`:
 
 ```bash

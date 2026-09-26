@@ -10,6 +10,8 @@ import { toast } from "react-toastify";
 import Financeiro from "./index";
 import axios from "../../services/axios";
 import { getReceivedPaid, getDistributionConfiguration } from "../../services/financialReceivedPaid";
+import { previewFinancialCancellation, confirmFinancialCancellation } from "../../services/financialCancellation";
+import { getFinancialCreditDestinations, previewFinancialCreditApplication, confirmFinancialCreditApplication } from "../../services/financialCredit";
 import {
   applyScopedFinancialCredit,
   getClinicExpenseAlerts,
@@ -32,6 +34,15 @@ jest.mock("../../services/financialReceivedPaid", () => ({
   getReceivedPaid: jest.fn(),
   getDistributionConfiguration: jest.fn(),
   saveDistributionConfiguration: jest.fn(),
+}));
+jest.mock("../../services/financialCancellation", () => ({
+  previewFinancialCancellation: jest.fn(),
+  confirmFinancialCancellation: jest.fn(),
+}));
+jest.mock("../../services/financialCredit", () => ({
+  getFinancialCreditDestinations: jest.fn(),
+  previewFinancialCreditApplication: jest.fn(),
+  confirmFinancialCreditApplication: jest.fn(),
 }));
 
 jest.mock("react-toastify", () => ({
@@ -357,18 +368,18 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await revealFinancialValues();
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Recebimentos" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Histórico" }));
     const button = await screen.findByRole("button", { name: "Ver detalhes" });
     const table = button.closest("table");
     expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent))
-      .toEqual(["Data", "Valor recebido", "Forma de pagamento", "Observações", "Detalhes"]);
+      .toEqual(["Data", "Movimento", "Valor", "Detalhes"]);
     expect(await within(table).findByText("Pix")).toBeInTheDocument();
     expect(listPaymentMethods).toHaveBeenCalledTimes(1);
     expect(button).toHaveAttribute("aria-expanded", "false");
     button.focus();
     expect(button).toHaveFocus();
     await userEvent.keyboard("{Enter}");
-    expect(button).toHaveAttribute("aria-expanded", "true");
+    await waitFor(() => expect(button).toHaveAttribute("aria-expanded", "true"));
     expect(await screen.findByText(/Recebido originalmente como crédito/)).toBeTruthy();
     expect(getFinancialReceiptDetails).toHaveBeenCalledWith(801);
     expect(screen.getByText("Pagamento parcial")).toBeTruthy();
@@ -376,7 +387,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(document.getElementById(button.getAttribute("aria-controls"))).toBeInTheDocument();
     await userEvent.keyboard(" ");
     expect(screen.queryByText(/Recebido originalmente como crédito/)).toBeNull();
-    expect(button).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() => expect(button).toHaveAttribute("aria-expanded", "false"));
     await userEvent.click(button);
     expect(await screen.findByText(/Recebido originalmente como crédito/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Ocultar detalhes" }));
@@ -388,10 +399,10 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     renderFinanceiro();
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Recebimentos" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Histórico" }));
     const row = (await screen.findByText("Pagamento parcial")).closest("tr");
     await waitFor(() => expect(listPaymentMethods).toHaveBeenCalledTimes(1));
-    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent("—");
+    expect(within(row).getByText("Forma de pagamento").nextSibling).toHaveTextContent("—");
     expect(within(row).queryByText("Pix")).toBeNull();
   });
 
@@ -400,10 +411,10 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     renderFinanceiro();
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Recebimentos" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Histórico" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Nao foi possivel carregar as formas de pagamento."));
     const row = screen.getByText("Pagamento parcial").closest("tr");
-    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent("—");
+    expect(within(row).getByText("Forma de pagamento").nextSibling).toHaveTextContent("—");
   });
 
   it("consulta contas mensais e anuais com parâmetros exclusivos e a mesma base no gráfico", async () => {
@@ -693,11 +704,159 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(await screen.findByText("Fisioterapia")).toBeInTheDocument();
     expect(screen.getAllByText("R$ 600,00").length).toBeGreaterThan(0);
 
-    await userEvent.click(screen.getByRole("button", { name: "Recebimentos" }));
+    await userEvent.click(screen.getByRole("button", { name: "Histórico" }));
 
     expect(screen.getByText("Pagamento parcial")).toBeInTheDocument();
-    expect(within(screen.getByText("Pagamento parcial").closest("tr")).getByText("R$ 400,00"))
-      .toBeInTheDocument();
+    expect(within(screen.getByText("Pagamento parcial").closest("tr")).getAllByRole("cell")[2])
+      .toHaveTextContent("R$ 400,00");
+  });
+
+  it("resolve somente pendência contextual e recarrega cards, crédito e histórico sem criar recebimento", async () => {
+    mockAuthorization = { ...mockAuthorization, canAccessModule: () => true, hasCapability: () => true };
+    const original = (await getFinancialRevenuePatientDetail()).data;
+    getFinancialRevenuePatientDetail.mockClear();
+    const base = {
+      ...original,
+      pending_resolutions: [{ entry_id: 501, session_id: 701, series_id: 901, description: "Sessão cancelada", can_resolve: true }],
+      packages: [{ id: "series-901", series_id: 901, reference_date: "2026-06-10", total_sessions: 4,
+        amount_cents: 40000, paid_cents: 40000, open_cents: 0, sessions: original.sessions,
+        service_name: "Fisioterapia", entries: [] }],
+      summary: { total: 40000, received: 40000, pending: 0, creditAvailable: 0 },
+      financial_history: [], cancellation_resolutions: [],
+    };
+    getFinancialRevenuePatientDetail.mockResolvedValueOnce({ data: base }).mockResolvedValue({ data: {
+      ...base, pending_resolutions: [],
+      packages: [{ ...base.packages[0], amount_cents: 30000, paid_cents: 30000 }],
+      summary: { total: 30000, received: 30000, pending: 0, creditAvailable: 10000 },
+      cancellation_resolutions: [{ id: 91, entry_id: 501, source_session_id: 701, series_id: 901, release_amount_cents: 10000 }],
+      financial_history: [
+        { id: "receipt:801", type: "RECEIPT", amount_cents: 40000, occurred_at: "2026-07-05T13:00:00Z",
+          source: { payment_id: 801 }, reason: "Recebimento original preservado", actor: null, context: "linked_obligation", historical_details_available: false },
+        { id: "cancellation:91", type: "CANCELLATION", amount_cents: 10000, occurred_at: "2026-07-10T13:00:00Z",
+          cancellation_resolution_id: 91, session_id: 701, session_starts_at: "2026-06-10T13:00:00Z", source: { entry_id: 501 },
+          actor: { name: "Responsável local" }, reason: "Cancelamento confirmado" },
+        { id: "release:91", type: "CREDIT_RELEASE", amount_cents: 10000, occurred_at: "2026-07-10T13:00:00Z",
+          cancellation_resolution_id: 91, session_starts_at: "2026-06-10T13:00:00Z", source: { payment_id: 801 }, reason: "Crédito liberado" },
+      ],
+    } });
+    previewFinancialCancellation.mockResolvedValue({ data: {
+      eligible: true, preview_fingerprint: "approved-preview", blockers: [], patient: { id: 30, name: "Maria Silva" },
+      entry: { id: 501, session_id: 701, amount_cents: 10000, paid_cents: 10000, open_cents: 0 },
+      release_amount_cents: 10000, credit_before_cents: 0, credit_after_cents: 10000,
+      allocations: [{ id: 1, payment_id: 801, amount_cents: 10000, paid_at: "2026-07-05T13:00:00Z" }],
+      affected_sessions: [], replacements: [],
+      session: { id: 701, starts_at: "2026-06-10T13:00:00Z" },
+      package: { amount_before_cents: 40000, amount_after_cents: 30000 },
+      consequences: { replacement_created: false, money_refunded: false },
+    } });
+    confirmFinancialCancellation.mockResolvedValue({ data: { id: 91, entry_id: 501, patient_id: 30 } });
+    renderFinanceiro();
+    await revealFinancialValues();
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Resolver pendência" }));
+    expect(screen.getByRole("dialog", { name: "Resolver pendência" })).toHaveTextContent("Maria Silva");
+    fireEvent.change(screen.getByLabelText("Motivo do cancelamento"), { target: { value: "Cancelamento definitivo autorizado" } });
+    await userEvent.click(screen.getByRole("button", { name: "Conferir cancelamento" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirmar cancelamento" }));
+    await waitFor(() => expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText("Crédito disponível").nextSibling).toHaveTextContent("R$ 100,00"));
+    expect(screen.queryByText(/Há alterações financeiras registradas/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ver histórico financeiro" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Situação do acerto financeiro")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resolver pendência" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Filtrar histórico" })).not.toBeInTheDocument();
+    expect(screen.getByText("Crédito disponível").nextSibling).toHaveTextContent("R$ 100,00");
+    await userEvent.click(screen.getByRole("button", { name: "Sessões" }));
+    await screen.findByText("Financeiro do pacote");
+    const grid = screen.getByText("Financeiro do pacote").nextElementSibling;
+    expect([...grid.children].map((card) => card.querySelector("span").textContent)).toEqual(["Valor do pacote", "Pago", "A receber"]);
+    expect([...grid.children].map((card) => card.querySelector("strong").textContent.replace(/\u00a0/g, " "))).toEqual(["R$ 300,00", "R$ 300,00", "R$ 0,00"]);
+    expect(screen.queryByText(/Há alterações financeiras registradas/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ver histórico financeiro" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Situação do acerto financeiro")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Fechar" }));
+    await userEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    const historyTab = screen.getByRole("button", { name: "Histórico" });
+    const historyToolbar = historyTab.parentElement.parentElement;
+    const historyFilter = within(historyToolbar).getByRole("combobox", { name: "Filtrar histórico" });
+    expect(within(historyToolbar).getByRole("button", { name: "Cobranças" })).toBeInTheDocument();
+    expect(historyToolbar).toHaveStyle({ display: "flex", justifyContent: "space-between" });
+    expect(historyFilter).toHaveStyle({ marginLeft: "auto" });
+    expect(screen.queryByText("Filtrar histórico")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Contas consultadas:/)).not.toBeInTheDocument();
+    const historySection = screen.getByLabelText("Histórico financeiro do paciente");
+    expect(within(historySection).getAllByRole("row")).toHaveLength(3);
+    const canceledHistoryRow = within(historySection).getByText(/liberados como crédito/).closest("tr");
+    await userEvent.click(within(canceledHistoryRow).getByText("Ver detalhes"));
+    expect(canceledHistoryRow.querySelectorAll("dl")).toHaveLength(1);
+    expect(within(canceledHistoryRow).getByText("Sessão").nextSibling).toHaveTextContent(/Fisioterapia.*10\/06\/2026.*10:00/);
+    expect(within(canceledHistoryRow).getByText("Cancelado em").nextSibling).toHaveTextContent(/10\/07\/2026.*10:00/);
+    expect(within(canceledHistoryRow).getByText("Responsável").nextSibling).toHaveTextContent("Responsável local");
+    expect(within(canceledHistoryRow).getByText("Motivo").nextSibling).toHaveTextContent("Cancelamento confirmado");
+    expect(canceledHistoryRow).not.toHaveTextContent(/Valor registrado|Origem|Destino|Operação|#501|#801|Crédito liberado$/);
+    await userEvent.selectOptions(historyFilter, "receipts");
+    expect(historyFilter).toHaveValue("receipts");
+    expect(within(historySection).getAllByRole("row")).toHaveLength(2);
+    expect(screen.queryByText(/liberados como crédito/)).not.toBeInTheDocument();
+    expect(screen.getByText("Recebimento original preservado").closest("tr")).toHaveTextContent("R$ 400,00");
+    expect(screen.queryByText(/Vinculado à cobrança consultada/)).not.toBeInTheDocument();
+    await userEvent.selectOptions(historyFilter, "all");
+    expect(within(historySection).getAllByRole("row")).toHaveLength(3);
+    await userEvent.click(screen.getByRole("button", { name: "Cobranças" }));
+    expect(screen.queryByRole("combobox", { name: "Filtrar histórico" })).not.toBeInTheDocument();
+    expect(confirmFinancialCancellation).toHaveBeenCalledTimes(1);
+    expect(listFinancialPayments).not.toHaveBeenCalled();
+  });
+
+  it("consulta histórico sem oferecer resolução para quem não possui finance.settle", async () => {
+    const original = (await getFinancialRevenuePatientDetail()).data;
+    getFinancialRevenuePatientDetail.mockClear();
+    getFinancialRevenuePatientDetail.mockResolvedValue({ data: { ...original,
+      pending_resolutions: [{ entry_id: 501, session_id: 701, series_id: 901, can_resolve: true }],
+    } });
+    mockAuthorization = { ...mockAuthorization, canAccessModule: () => true, hasCapability: () => false };
+    renderFinanceiro();
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await screen.findByText("Fisioterapia");
+    expect(screen.queryByRole("button", { name: "Resolver pendência" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    expect(screen.getByLabelText("Filtrar histórico")).toBeInTheDocument();
+    expect(previewFinancialCancellation).not.toHaveBeenCalled();
+  });
+
+
+  it("modal e detalhe mantêm layout compacto sem ações para candidatos gerais", async () => {
+    mockAuthorization = { ...mockAuthorization, canAccessModule: () => true, hasCapability: () => true };
+    const original = (await getFinancialRevenuePatientDetail()).data;
+    getFinancialRevenuePatientDetail.mockClear();
+    getFinancialRevenuePatientDetail.mockResolvedValue({ data: { ...original,
+      cancellation_candidates: [{ entry_id: 501, session_id: 701, series_id: 901 }],
+      pending_resolutions: [],
+      cancellation_resolutions: [{ id: 91, entry_id: 501, source_session_id: 701, series_id: 901, release_amount_cents: 10000 }],
+    } });
+    renderFinanceiro();
+    await revealFinancialValues();
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await screen.findByText("Fisioterapia");
+    expect(screen.queryByLabelText("Situação do acerto financeiro")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Há alterações financeiras registradas/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ver histórico financeiro" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Cancelar cobrança|Resolver pendência/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Sessões" }));
+    await screen.findByText("Sessões do pacote");
+    expect(await screen.findByText(/Distribuição das/)).toBeInTheDocument();
+    const grid = screen.getByText("Financeiro do pacote").nextElementSibling;
+    expect([...grid.children].map((card) => card.querySelector("span").textContent)).toEqual(["Valor do pacote", "Pago", "A receber"]);
+    const table = screen.getByRole("columnheader", { name: "Profissional" }).closest("table");
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Data", "Profissional", "Status"]);
+    expect(screen.queryByText("Cancelamento de cobrança")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Há alterações financeiras registradas/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ver histórico financeiro" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Situação do acerto financeiro")).not.toBeInTheDocument();
+    expect(previewFinancialCancellation).not.toHaveBeenCalled();
   });
 
   it("simplifica a lista por sessão e mantém data, pagamento, crédito e valores do período", async () => {
@@ -846,6 +1005,8 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
   });
 
   it("usa credito disponivel do backend no detalhe do paciente", async () => {
+    mockAuthorization.canAccessModule = (module, level) => module === "finance" && level === "manage";
+    mockAuthorization.hasCapability = (capability) => capability === "finance.settle";
     getFinancialRevenuePatientDetail.mockResolvedValueOnce({
       data: {
         patient: { id: 30, name: "Maria Silva" },
@@ -1721,7 +1882,49 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(2);
   });
 
+  it("protege Usar crédito sem autorização financeira", async () => {
+    renderFinanceiro();
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    expect(await screen.findByText("Crédito disponível")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Usar crédito" })).not.toBeInTheDocument();
+    expect(getFinancialCreditDestinations).not.toHaveBeenCalled();
+  });
+
+  it("fecha Usar crédito quando o contexto de autorização muda e ignora consulta anterior", async () => {
+    mockAuthorization.canAccessModule = () => true;
+    mockAuthorization.hasCapability = () => true;
+    let resolveDestinations;
+    getFinancialCreditDestinations.mockReturnValueOnce(new Promise((resolve) => { resolveDestinations = resolve; }));
+    const { rerender } = renderFinanceiro();
+    await screen.findByText("Maria Silva");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Usar crédito" }));
+    expect(await screen.findByRole("dialog", { name: "Onde usar o crédito?" })).toBeInTheDocument();
+    mockAuthorization.context = { clinic_id: 2 };
+    rerender(<Provider store={createStore(() => ({ auth: { token: "local-test-session" } }))}><MemoryRouter initialEntries={["/financeiro/receitas"]}><Financeiro /></MemoryRouter></Provider>);
+    expect(screen.queryByRole("dialog", { name: "Onde usar o crédito?" })).not.toBeInTheDocument();
+    await act(async () => resolveDestinations({ data: { patient: { id: 30, full_name: "Maria Silva" }, credit_available_cents: 15000, groups: [] } }));
+    expect(previewFinancialCreditApplication).not.toHaveBeenCalled();
+    expect(confirmFinancialCreditApplication).not.toHaveBeenCalled();
+  });
+
   it("invalida cache do detalhe apos usar credito financeiro", async () => {
+    mockAuthorization.canAccessModule = (module, level) => module === "finance" && level === "manage";
+    mockAuthorization.hasCapability = (capability) => capability === "finance.settle";
+    const creditGroup = {
+      key: "package-160", kind: "package", series_id: 160, service_name: "Fisioterapia", reference_date: "2026-06-10T14:00:00.000Z",
+      amount_cents: 120000, paid_cents: 0, open_cents: 120000,
+      entries: [{ entry_id: 1346, session_id: 701, service_name: "Fisioterapia", session_starts_at: "2026-06-10T14:00:00.000Z", open_cents: 120000 }],
+    };
+    getFinancialCreditDestinations.mockResolvedValue({ data: { patient: { id: 30, full_name: "Maria Silva" }, credit_available_cents: 144000, groups: [creditGroup] } });
+    const creditPreview = {
+      patient: { id: 30, full_name: "Maria Silva" }, credit_available_cents: 144000, credit_remaining_cents: 24000,
+      amount_cents: 120000, selected_open_before_cents: 120000, selected_open_after_cents: 0, preview_fingerprint: "reviewed-plan",
+      groups: [{ ...creditGroup, allocated_cents: 120000, open_after_cents: 0, entries: [{ ...creditGroup.entries[0], allocated_cents: 120000, open_after_cents: 0 }] }],
+    };
+    previewFinancialCreditApplication.mockResolvedValue({ data: creditPreview });
+    confirmFinancialCreditApplication.mockResolvedValue({ data: { ...creditPreview, command_id: 90, replayed: false } });
     getFinancialRevenuePatientDetail.mockReset();
     getFinancialRevenuePatientDetail
       .mockResolvedValueOnce({
@@ -1815,18 +2018,111 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(screen.getByRole("button", { name: /Usar cr.dito/ })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /Usar cr.dito/ }));
-    await userEvent.click(await screen.findByRole("button", { name: /Confirmar uso do cr.dito/ }));
+    const next = await screen.findByRole("button", { name: "Avançar" });
+    await waitFor(() => expect(next).toBeEnabled());
+    await userEvent.click(next);
+    expect(confirmFinancialCreditApplication).not.toHaveBeenCalled();
+    await userEvent.click(await screen.findByRole("button", { name: "Confirmar" }));
 
     await waitFor(() => {
-      expect(applyScopedFinancialCredit).toHaveBeenCalledWith({
+      expect(confirmFinancialCreditApplication).toHaveBeenCalledWith({
         patient_id: 30,
-        allocation_scope: "per_session_current_period",
         period_start: "2026-06-01",
         period_end: "2026-06-30",
-      });
+        selected_entry_ids: [1346],
+        amount_cents: 120000,
+        preview_fingerprint: "reviewed-plan",
+      }, expect.any(String));
+      expect(applyScopedFinancialCredit).not.toHaveBeenCalled();
       expect(getFinancialRevenuePatientDetail).toHaveBeenCalledTimes(2);
     });
     expect(screen.queryByRole("button", { name: /Usar cr.dito/ })).not.toBeInTheDocument();
+  });
+
+  it("mantem avulsa parcialmente paga na lista apos confirmar uso de credito sem reload", async () => {
+    mockAuthorization.canAccessModule = (module, level) => module === "finance" && level === "manage";
+    mockAuthorization.hasCapability = (capability) => capability === "finance.settle";
+    const session = {
+      id: 701, clinic_id: 1, patient_id: 30, service_id: 10, series_id: null,
+      starts_at: "2026-06-10T12:00:00.000Z", status: "scheduled", billing_mode: "per_session",
+      Patient: { id: 30, full_name: "Paciente credito parcial" },
+      Service: { id: 10, name: "Avulsa credito parcial" },
+    };
+    const entryBefore = {
+      id: 501, clinic_id: 1, patient_id: 30, session_id: 701, service_id: 10,
+      type: "income", amount_cents: 10000, status: "pending", reference_date: "2026-06-10",
+      installments: [{ id: 801, installment_number: 1, amount_cents: 10000,
+        paid_amount_cents: 0, open_amount_cents: 10000, status: "pending" }],
+    };
+    const entryAfter = {
+      ...entryBefore, status: "partial",
+      installments: [{ id: 801, installment_number: 1, amount_cents: 10000,
+        paid_amount_cents: 3000, open_amount_cents: 7000, status: "partial" }],
+    };
+    const detail = (entry, received, pending, creditAvailable) => ({
+      patient: { id: 30, name: "Paciente credito parcial" }, month: "2026-06",
+      summary: { total: 10000, received, pending, creditAvailable },
+      entries: [entry], sessions: [session], payments: [], credits: [], series: [], packages: [],
+    });
+    const summary = (received, pending) => ({
+      month: "2026-06", summary: { total: 10000, received, pending },
+      patients: [{ patient_id: 30, patient_name: "Paciente credito parcial",
+        total: 10000, received, pending, entries_count: 1 }],
+    });
+    getFinancialRevenuesSummary.mockResolvedValueOnce({ data: summary(0, 10000) })
+      .mockResolvedValue({ data: summary(3000, 7000) });
+    getFinancialRevenuePatientDetail.mockResolvedValueOnce({ data: detail(entryBefore, 0, 10000, 6000) })
+      .mockResolvedValue({ data: detail(entryAfter, 3000, 7000, 3000) });
+    listFinancialEntries.mockResolvedValue({ data: [entryAfter] });
+    listFinancialPayments.mockResolvedValue({ data: [] });
+    listPatientCredits.mockResolvedValue({ data: [] });
+    axios.get.mockImplementation((url) => {
+      if (url === "/sessions") return Promise.resolve({ data: [session] });
+      if (url === "/patients") return Promise.resolve({ data: [session.Patient] });
+      if (url === "/services") return Promise.resolve({ data: [session.Service] });
+      return Promise.resolve({ data: [] });
+    });
+    const group = {
+      key: "entry:501", kind: "standalone", service_name: "Avulsa credito parcial",
+      reference_date: "2026-06-10", amount_cents: 10000, paid_cents: 0, open_cents: 10000,
+      entries: [{ entry_id: 501, session_id: 701, session_starts_at: session.starts_at,
+        service_name: "Avulsa credito parcial", amount_cents: 10000, paid_cents: 0, open_cents: 10000 }],
+    };
+    const preview = {
+      patient: { id: 30, full_name: "Paciente credito parcial" }, credit_available_cents: 6000,
+      credit_remaining_cents: 3000, amount_cents: 3000, selected_open_before_cents: 10000,
+      selected_open_after_cents: 7000, preview_fingerprint: "partial-credit-review",
+      groups: [{ ...group, allocated_cents: 3000, open_after_cents: 7000,
+        entries: [{ ...group.entries[0], allocated_cents: 3000, open_after_cents: 7000 }] }],
+    };
+    getFinancialCreditDestinations.mockResolvedValue({ data: {
+      patient: preview.patient, credit_available_cents: 6000, groups: [group],
+    } });
+    previewFinancialCreditApplication.mockResolvedValue({ data: preview });
+    confirmFinancialCreditApplication.mockResolvedValue({ data: { ...preview, command_id: 91, replayed: false } });
+
+    renderFinanceiro();
+    await revealFinancialValues();
+    await screen.findByText("Paciente credito parcial");
+    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    expect(await screen.findByText("Avulsa credito parcial")).toBeInTheDocument();
+    expect(screen.getByLabelText("Status financeiro")).toHaveValue("all");
+    await userEvent.click(screen.getByRole("button", { name: /Usar cr.dito/ }));
+    const amountInput = await screen.findByLabelText("Valor a usar");
+    fireEvent.change(amountInput, { target: { value: "30,00" } });
+    await waitFor(() => expect(amountInput).toHaveValue("30,00"));
+    await userEvent.click(screen.getByRole("button", { name: "Avançar" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirmar" }));
+
+    const row = (await screen.findByText("Avulsa credito parcial")).closest("tr");
+    await waitFor(() => {
+      expect(within(row).getAllByRole("cell").slice(3, 7).map((cell) => cell.textContent.replace(/\s+/g, " ").trim()))
+        .toEqual(["R$ 100,00", "R$ 30,00", "R$ 70,00", "Parcial"]);
+    });
+    expect(screen.queryByText("Nenhum pacote de sessões encontrado para este paciente.")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Status financeiro")).toHaveValue("all");
+    expect(listFinancialEntries).not.toHaveBeenCalled();
+    expect(axios.get.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(0);
   });
 
   it("mantem todas as mensalidades do paciente no detalhe mesmo com busca preenchida", async () => {
