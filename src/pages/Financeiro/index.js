@@ -77,6 +77,7 @@ import FinancialCancellationDetails from "./components/FinancialCancellationDeta
 import FinancialCancellationModal from "./components/FinancialCancellationModal";
 import FinancialCreditUseModal from "./components/FinancialCreditUseModal";
 import useFinancialPaymentFlow from "./hooks/useFinancialPaymentFlow";
+import currentObligationCents, { currentObligationFinancial } from "./helpers/currentObligation";
 import {
   emptyFinancialRevenuesSummary,
   filterFinancialRevenuesSummary,
@@ -1613,6 +1614,13 @@ export default function Financeiro() {
   useEffect(() => {
     if (activeSection === "methods") loadPaymentMethodsData();
   }, [activeSection, loadPaymentMethodsData]);
+
+  useEffect(() => {
+    if (activeSection === "receitas" && receitasView === "atendimentos"
+      && selectedAttendancePatientId && attendanceDetailTab === "payments") {
+      loadPaymentMethodsData();
+    }
+  }, [activeSection, receitasView, selectedAttendancePatientId, attendanceDetailTab, loadPaymentMethodsData]);
 
   const loadBillingCycles = useCallback(async () => {
     try {
@@ -3466,9 +3474,10 @@ export default function Financeiro() {
         const sessionStatus = String(session?.status || "").toLowerCase();
         const isCanceledWithoutEntry = !entry && sessionStatus === "canceled";
         const originalAmountCents = entry?.amount_cents ?? price?.price_cents ?? 0;
+        const entryFinancial = currentObligationFinancial(entry ? entryFinancialMap.get(entry.id) : null);
         const amountCents = isCanceledWithoutEntry
           ? 0
-          : originalAmountCents;
+          : currentObligationCents(entryFinancial, originalAmountCents, entry?.status);
         const paymentList = entry ? paymentsByEntryId.get(entry.id) || [] : [];
         const latestPayment = paymentList[0] || null;
         const paymentCount = paymentList.length;
@@ -3479,7 +3488,6 @@ export default function Financeiro() {
         const method = latestPayment?.payment_method_id
           ? paymentMethodMap.get(latestPayment.payment_method_id)
           : null;
-        const entryFinancial = entry ? entryFinancialMap.get(entry.id) : null;
         const adjustment = entry ? adjustmentByEntryId.get(entry.id) : null;
         const discountCents = Math.max(0, Number(adjustment?.discountCents || 0));
         const surchargeCents = Math.max(0, Number(adjustment?.surchargeCents || 0));
@@ -4045,8 +4053,11 @@ export default function Financeiro() {
         .map((entry) => ({
           entryId: Number(entry?.entryId || entry?.entry_id || entry?.id || 0),
           openCents: Number(entry?.openCents ?? entry?.open_cents ?? entry?.open ?? 0),
+          referenceDate: entry.reference_date || "",
         }))
-        .filter((entry) => entry.entryId > 0 && entry.openCents > 0);
+        .filter((entry) => entry.entryId > 0 && entry.openCents > 0)
+        .sort((a, b) => String(a.referenceDate).localeCompare(String(b.referenceDate))
+          || a.entryId - b.entryId);
     };
 
     const mergeUsageSummary = (localUsage, backendPackage) => {
@@ -4212,6 +4223,8 @@ export default function Financeiro() {
       })
       .map((row) => {
         const sessionId = Number(row.id || 0);
+        const financial = currentObligationFinancial(entryFinancialMap.get(row.entry.id));
+        const fullOpenCents = Number(financial?.open ?? row.openCents ?? 0);
         const linkedSession = detailSessionsById.get(sessionId) || sessionById.get(sessionId) || {
           id: sessionId,
           starts_at: row.starts_at,
@@ -4224,7 +4237,7 @@ export default function Financeiro() {
         const financialStatus = resolveGroupedFinancialStatus(
           row.amountCents,
           row.paidCents,
-          row.openCents,
+          fullOpenCents,
         );
 
         return {
@@ -4232,7 +4245,7 @@ export default function Financeiro() {
           sourceId: sessionId,
           kind: "single",
           serviceName: row.serviceName || "Sessão individual",
-          referenceDate: linkedSession.starts_at || row.starts_at || null,
+          referenceDate: row.entry.reference_date || linkedSession.starts_at || row.starts_at || null,
           totalSessions: 1,
           usedSessions: isDone ? 1 : 0,
           balance: isDone ? 0 : 1,
@@ -4240,10 +4253,10 @@ export default function Financeiro() {
           contractedAmountCents: Number(row.originalAmountCents || row.amountCents || 0),
           amountCents: Number(row.amountCents || 0),
           paidCents: Number(row.paidCents || 0),
-          openCents: Number(row.openCents || 0),
+          openCents: fullOpenCents,
           datePresentation: getTemporalDateStatus({
             date: linkedSession.starts_at || row.starts_at || null,
-            openCents: Number(row.openCents || 0),
+            openCents: fullOpenCents,
           }),
           financialStatus,
           usageSummary: {
@@ -4252,8 +4265,8 @@ export default function Financeiro() {
             noShow: linkedSessionStatus === "no_show" ? 1 : 0,
             canceledWithoutCharge: row.isCanceledWithoutEntry ? 1 : 0,
           },
-          entries: row.entry?.id && Number(row.openCents || 0) > 0
-            ? [{ entryId: Number(row.entry.id), openCents: Number(row.openCents || 0) }]
+          entries: row.entry?.id && fullOpenCents > 0
+            ? [{ entryId: Number(row.entry.id), openCents: fullOpenCents }]
             : [],
           sessions: [linkedSession],
         };
@@ -4281,6 +4294,7 @@ export default function Financeiro() {
     });
   }, [
     attendanceDetailPackages,
+    entryFinancialMap,
     attendanceDetailSessions.sessions,
     attendanceSelectedPatientRows,
     attendanceSeries,
@@ -4327,7 +4341,7 @@ export default function Financeiro() {
         return {
           payment,
           amountCents,
-          paymentMethodName: paymentMethod?.name || "-",
+          paymentMethodName: paymentMethod?.name || "—",
         };
       })
       .filter(Boolean)
@@ -4592,6 +4606,16 @@ export default function Financeiro() {
 
   const openAttendanceScopedPaymentModal = useCallback(async () => {
     if (!attendanceSelectedPatientSummary) return;
+    const expectedCacheKey = buildAttendanceDetailCacheKey({
+      patientId: String(attendanceSelectedPatientSummary.patientId),
+      periodMode: attendancePeriodMode,
+      period: attendancePeriodMode === "year" ? attendancePeriodYear : attendancePeriodMonth,
+    });
+    if (attendanceDetailSessions.isLoading || attendanceDetailSessions.error
+      || !attendanceDetailSummary || attendanceDetailSummary.cacheKey !== expectedCacheKey) {
+      toast.error("Não foi possível carregar as cobranças. Atualize os dados antes de continuar.");
+      return;
+    }
     await ensureRevenueOperationalData();
 
     const entryMapById = new Map();
@@ -4636,7 +4660,19 @@ export default function Financeiro() {
       },
       {
         type: "per_session",
+        selectionReady: true,
         label: "Por sessao",
+        periodLabel: attendancePeriodMode === "year" ? attendancePeriodYear
+          : String(attendancePeriodMonth || "").split("-").reverse().join("/"),
+        groups: sourcePackages.filter((item) => item.openCents > 0 && item.entries.length)
+          .map((item) => ({
+            key: item.id,
+            kind: item.kind === "series" ? "series" : "entry",
+            sourceId: item.kind === "series" ? item.sourceId : item.entries[0].entryId,
+            label: `${item.kind === "series" ? "Pacote" : "Avulsa"} · ${item.serviceName}`,
+            referenceDate: String(item.referenceDate || "").slice(0, 10),
+            entries: item.entries,
+          })),
         patientId: attendanceSelectedPatientSummary.patientId,
         patientName: attendanceSelectedPatientSummary.patientName,
         totalOpenCents,
@@ -4645,9 +4681,15 @@ export default function Financeiro() {
     );
   }, [
     attendanceSelectedPatientPackages,
+    attendanceDetailSessions.isLoading,
+    attendanceDetailSessions.error,
+    attendanceDetailSummary,
     attendanceSelectedPatientRows,
     attendanceSelectedPatientSummary,
     ensureRevenueOperationalData,
+    attendancePeriodMode,
+    attendancePeriodMonth,
+    attendancePeriodYear,
     openScopedPatientPaymentModal,
 	    selectedAttendancePatient,
 	  ]);
@@ -5515,7 +5557,7 @@ export default function Financeiro() {
                       </td>
                       <td>
                         <AttendanceMoneyText>
-                          {item.amountCents ? formatCurrency(item.amountCents) : "Sem cobrança gerada"}
+                          {item.amountCents || item.kind === "single" ? formatCurrency(item.amountCents) : "Sem cobrança gerada"}
                         </AttendanceMoneyText>
                       </td>
                       <td>
@@ -8900,6 +8942,31 @@ const BillingCyclesTable = styled(AttendanceOverviewTable)`
 
 const BillingCyclesDetailContent = styled.div`
   padding: ${ATTENDANCE_UI.spacing[3]};
+`;
+
+const ReceiptTable = styled(BillingCyclesTable)`
+  && { min-width: 0; width: 100%; }
+  && th, && td { white-space: normal; overflow-wrap: anywhere; }
+  && th { text-transform: none; }
+  && th:nth-child(1), && td:nth-child(1) { width: 15%; }
+  && th:nth-child(2), && td:nth-child(2) { width: 18%; }
+  && th:nth-child(3), && td:nth-child(3) { width: 20%; }
+  && th:nth-child(4), && td:nth-child(4) { width: 30%; }
+  && th:nth-child(5), && td:nth-child(5) { width: 17%; }
+  && td[data-receipt-details] { width: auto; padding: 4px 7px 6px; text-align: left; }
+`;
+
+const ReceiptDetailsAction = styled.button`
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 2px 0;
+  color: ${ATTENDANCE_UI.colors.action};
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  &:hover { text-decoration: underline; }
+  &:focus-visible { outline: 2px solid ${ATTENDANCE_UI.colors.action}; outline-offset: 3px; }
 `;
 
 const BillingCyclesInnerTableCard = styled(AttendanceTableCard)`

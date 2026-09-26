@@ -2,6 +2,13 @@ import React from "react";
 import "@testing-library/jest-dom";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import FinancialHistory from "./FinancialHistory";
+import { getFinancialReceiptDetails } from "../../../services/financial";
+
+jest.mock("../../../services/financial", () => ({ getFinancialReceiptDetails: jest.fn() }));
+
+beforeEach(() => {
+  getFinancialReceiptDetails.mockResolvedValue({ data: { receipt_details: { groups: [] } } });
+});
 
 const money = (amount) => `R$ ${(amount / 100).toFixed(2)}`;
 const receipt = {
@@ -117,8 +124,8 @@ test("preserva recebimentos originais separados, anulação e observação sem d
     amountCents: 40000, paymentMethodName: "Dinheiro",
   }] });
   expect(mainValues()).toEqual(["R$ 400.00", "R$ 400.00"]);
-  expect(screen.queryByText("Pix")).not.toBeInTheDocument();
-  expect(screen.queryByText("Dinheiro")).not.toBeInTheDocument();
+  expect(screen.getByText("Pix")).toBeInTheDocument();
+  expect(screen.getByText("Dinheiro")).toBeInTheDocument();
   expect(screen.getByText("Recebimento anulado")).toBeInTheDocument();
   expect(screen.getByText("Pagamento antigo")).toBeInTheDocument();
   expect(screen.getByText("Outro recebimento")).toBeInTheDocument();
@@ -126,6 +133,20 @@ test("preserva recebimentos originais separados, anulação e observação sem d
   expect(screen.queryByText("Sessão")).not.toBeInTheDocument();
   expect(screen.queryByText("Uso de crédito")).not.toBeInTheDocument();
   expect(rows()).toHaveLength(2);
+});
+
+test("recebimento mantém forma e consulta compacta de pagamento e desconto dentro da mesma linha", async () => {
+  getFinancialReceiptDetails.mockResolvedValue({ data: { receipt_details: { groups: [{
+    key: "entry-51", kind: "entry", reference_date: "2026-11-05",
+    service_name: "Fisioterapia", paid_cents: 3000, discount_cents: 1000,
+  }] } } });
+  renderHistory({ events: [{ ...receipt, payment_method_name: "Pix", amount_cents: 3000 }] });
+  const row = rows()[0];
+  fireEvent.click(within(row).getByText("Ver detalhes"));
+  expect(within(row).getByText("Forma de pagamento").nextSibling).toHaveTextContent("Pix");
+  expect(await within(row).findByText(/R\$ 30.00 pagos.*desconto de R\$ 10.00/)).toBeInTheDocument();
+  expect(getFinancialReceiptDetails).toHaveBeenCalledWith(81);
+  expect(rows()).toHaveLength(1);
 });
 
 test.each([

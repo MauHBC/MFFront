@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
+import FinancialReceiptDetails from "./FinancialReceiptDetails";
 
 const labels = {
   RECEIPT: "Recebimento",
@@ -162,6 +163,7 @@ function EventDetails({ event, serviceName, formatCurrency }) {
         {!isCreditUse && hasSession && <><dt>Sessão</dt><dd>{sessionDescription}</dd></>}
         <dt>{detailDateLabels[event.type] || "Alterado em"}</dt><dd>{formatDetailDate(event.occurred_at)}</dd>
         <dt>Responsável</dt><dd>{event.actor?.name?.trim() || "Não registrado"}</dd>
+        {event.type === "RECEIPT" && <><dt>Forma de pagamento</dt><dd>{event.payment_method_name?.trim() || "—"}</dd></>}
         {!hideGenericObservation && <><dt>{reasonLabel}</dt><dd>{event.reason?.trim() || "Não registrado"}</dd></>}
       </dl>
     </EventDetail>
@@ -169,6 +171,31 @@ function EventDetails({ event, serviceName, formatCurrency }) {
 }
 EventDetails.propTypes = { event: eventType.isRequired, serviceName: PropTypes.string, formatCurrency: PropTypes.func.isRequired };
 EventDetails.defaultProps = { serviceName: "" };
+
+function HistoryDetails({ row, serviceName, formatCurrency }) {
+  const [open, setOpen] = useState(false);
+  const paymentId = Number(row.source?.payment_id);
+  const hasReceiptDetails = row.type === "RECEIPT" && Number.isSafeInteger(paymentId) && paymentId > 0;
+  const detailId = `financial-history-details-${String(row.id).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  return <div>
+    <HistoryDetailButton type="button" onClick={() => setOpen((current) => !current)}
+      aria-expanded={open} aria-controls={detailId}>
+      {open ? "Ocultar detalhes" : "Ver detalhes"}
+    </HistoryDetailButton>
+    <div id={detailId} hidden={!open}>
+      <EventDetails event={row} serviceName={serviceName} formatCurrency={formatCurrency} />
+      {open && hasReceiptDetails && <ReceiptDetailBlock>
+        <FinancialReceiptDetails paymentId={paymentId} formatCurrency={formatCurrency} />
+      </ReceiptDetailBlock>}
+    </div>
+  </div>;
+}
+HistoryDetails.propTypes = {
+  row: eventType.isRequired,
+  serviceName: PropTypes.string,
+  formatCurrency: PropTypes.func.isRequired,
+};
+HistoryDetails.defaultProps = { serviceName: "" };
 
 export default function FinancialHistory({ events, receipts, sessions, filter, formatCurrency }) {
   const sessionById = new Map(sessions.map((session) => [Number(session.id), session]));
@@ -203,9 +230,9 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
                 <td>{formatFinancialEventDate(row.occurred_at, { dateOnly: true })}</td>
                 <td>{movementLabel(row)}</td>
                 <td>{Number.isSafeInteger(row.amount_cents) ? formatCurrency(row.amount_cents) : "Valor não registrado"}</td>
-                <td><details><summary>Ver detalhes</summary>
-                  <EventDetails event={row} serviceName={sessionById.get(Number(row.session_id))?.Service?.name} formatCurrency={formatCurrency} />
-                </details></td>
+                <td><HistoryDetails row={row}
+                  serviceName={sessionById.get(Number(row.session_id))?.Service?.name}
+                  formatCurrency={formatCurrency} /></td>
               </tr>
             ))}</tbody>
           </HistoryTable>
@@ -244,7 +271,15 @@ const HistoryTable = styled.table`
   th, td { padding: 10px 12px; border-bottom: 1px solid #e2e7e1; vertical-align: top; }
   th { color: #59645d; font-weight: 600; }
   td:first-child, td:nth-child(3) { white-space: nowrap; }
-  summary { cursor: pointer; color: #315b42; white-space: nowrap; }
+`;
+const HistoryDetailButton = styled.button`
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #315b42;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
 `;
 const EventDetail = styled.div`
   min-width: 230px;
@@ -255,6 +290,14 @@ const EventDetail = styled.div`
   dl { display: grid; grid-template-columns: minmax(75px, auto) minmax(0, 1fr); gap: 6px 12px; margin: 10px 0; }
   dt { font-weight: 600; }
   dd { margin: 0; }
+`;
+
+const ReceiptDetailBlock = styled.div`
+  min-width: 230px;
+  max-width: 420px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e7e1;
 `;
 
 const AppliedSessionsList = styled.ul`

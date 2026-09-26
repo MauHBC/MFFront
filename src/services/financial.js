@@ -107,6 +107,9 @@ export const unpayClinicExpense = (id, payload) =>
 export const listFinancialPayments = (params) =>
   api.get('/financial-payments', { params });
 
+export const getFinancialReceiptDetails = (id) =>
+  api.get(`/financial-payments/${id}`, { params: { include_receipt_details: true } });
+
 export const createFinancialPayment = (payload, idempotencyKey) =>
   api.post('/financial-payments', payload, {
     headers: { 'Idempotency-Key': idempotencyKey },

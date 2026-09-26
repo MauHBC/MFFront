@@ -57,6 +57,11 @@ usa `main`.
 
 ## Documentos canônicos
 
+- Antes de propor mecanismo novo, localizar o existente na documentação,
+  confirmar sua implementação e identificar a limitação comprovada.
+  Não tratar ausência de investigação como ausência de funcionalidade.
+- Para abas abertas durante publicações, consulte a
+  [atualização de versão existente](docs/frontend-module-architecture.md#atualização-de-versão-em-abas-abertas).
 - Consulte a [governança documental local](docs/governanca-documentacao.md)
   somente ao criar ou alterar documentação, quando
   `DOCUMENTATION_IMPACT = UPDATE_REQUIRED` ou diante de conflito ou dúvida
