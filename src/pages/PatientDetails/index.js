@@ -484,7 +484,7 @@ function formatTime(value) {
   });
 }
 
-function formatSessionStatus(status) {
+function formatSessionStatus(status, fallback = valueOrDash(status)) {
   const map = {
     scheduled: "Agendada",
     done: "Realizada",
@@ -492,7 +492,34 @@ function formatSessionStatus(status) {
     canceled: "Cancelada",
     suspended: "Suspensa",
   };
-  return map[status] || valueOrDash(status);
+  return map[status] || fallback;
+}
+
+function linkedReplacementSession(credit, kind) {
+  const session = credit[`${kind}Session`];
+  if (!session || !credit[`${kind}_session_id`]
+    || Number(session.id) !== Number(credit[`${kind}_session_id`])
+    || (session.patient_id && Number(session.patient_id) !== Number(credit.patient_id))) {
+    return null;
+  }
+  return session;
+}
+
+function formatReplacementSessionDateTime(value) {
+  if (typeof value !== "string" || !value.trim() || Number.isNaN(new Date(value).getTime())) {
+    return "Data e horário não informados";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return `${formatDate(value)} (horário não informado)`;
+  }
+  return `${formatDate(value)} às ${formatTime(value)}`;
+}
+
+function formatReplacementSource(credit) {
+  const session = linkedReplacementSession(credit, "source");
+  if (!session) return "Informações indisponíveis";
+  const service = session.Service?.name?.trim() || "Serviço não informado";
+  return `${service} — ${formatReplacementSessionDateTime(session.starts_at)}`;
 }
 
 function startOfMonth(date) {
@@ -2597,15 +2624,14 @@ export default function PatientDetails() {
                   {replacementCredits.map((credit) => (
                     <ReplacementCreditItem key={credit.id} $status={credit.status}>
                       <div>
-                        <strong>{formatReplacementCreditStatus(credit.status)}</strong>
-                        <span>Validade: {formatDate(credit.expires_at)}</span>
-                        <p>{credit.reason}</p>
+                        <ReplacementCreditSummary>
+                          <strong>{formatReplacementCreditStatus(credit.status)}</strong>
+                          <span>Validade: {formatDate(credit.expires_at)}</span>
+                        </ReplacementCreditSummary>
                         {credit.source_session_id && (
-                          <small>Origem: sessão #{credit.source_session_id}</small>
+                          <small>Sessão original: {formatReplacementSource(credit)}</small>
                         )}
-                        {credit.used_session_id && (
-                          <small>Usada na sessão #{credit.used_session_id}</small>
-                        )}
+                        {credit.reason?.trim() && <p>Observação: {credit.reason}</p>}
                       </div>
                       {credit.status === "pending" && (
                         <CardButton
@@ -5226,19 +5252,27 @@ const AttendanceRatePill = styled.span`
 
 const ReplacementCreditList = styled.div`
   display: grid;
-  gap: 10px;
-  margin-top: 14px;
+  gap: 6px;
+  margin-top: 10px;
 `;
 
 const ReplacementCreditItem = styled.div`
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   border-radius: 12px;
   border: 1px solid rgba(106, 121, 92, 0.16);
   background: ${(props) => (props.$status === "pending" ? "#fcfdf8" : "#f6f6f3")};
-  padding: 12px;
+  padding: 8px 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+
+  > div {
+    flex: 1;
+    min-width: 0;
+    max-width: 100%;
+  }
 
   strong,
   span,
@@ -5253,17 +5287,27 @@ const ReplacementCreditItem = styled.div`
   span,
   small {
     color: #6a795c;
+  }
+
+  small {
     margin-top: 3px;
   }
 
   p {
     color: #2d3629;
-    margin: 6px 0 0;
+    margin: 3px 0 0;
   }
 
   @media (max-width: 640px) {
     flex-direction: column;
   }
+`;
+
+const ReplacementCreditSummary = styled.div`
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 12px;
 `;
 
 const ExternalProfessionalList = styled.div`

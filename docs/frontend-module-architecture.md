@@ -305,6 +305,16 @@ permanece visível apenas na área correspondente, sem derrubar o perfil ou outr
 regras de negócio devem ser consultados nas fontes indicadas em
 [regras-negocio.md](regras-negocio.md), sem serem reproduzidos no Frontend.
 
+O cartão **Reposições de sessão** apresenta estado atual e validade na mesma
+linha quando há espaço, seguidos pela sessão original (serviço, data e horário)
+do vínculo `sourceSession`. O campo `reason` aparece abaixo como **Observação**
+somente quando preenchido, sem ser tratado como motivo de cancelamento posterior.
+O cartão não apresenta data ou estado do agendamento que usou a reposição.
+Espaçamentos são compactos e as linhas quebram naturalmente em telas menores,
+sem redução de fonte ou corte de informações. Ações operacionais, estado e
+validade permanecem preservados. Dados ausentes não são substituídos por IDs
+técnicos ou informações de outro agendamento.
+
 Os controles do Prontuário seguem a autorização oficial também dentro da
 página: leitura exige o nível e a capacidade de leitura; rascunhos e demais
 mutations exigem nível de edição e capacidade de escrita; assinatura e adendo
@@ -440,6 +450,22 @@ renderização de Mensalidades permanecem no fluxo de Mensalidades. A visão
 dedicada de Recebimentos continua desabilitada intencionalmente e fora dessa
 capacidade compartilhada ativa.
 
+**Usar crédito** mantém um único modal em duas etapas. **Onde usar o crédito?**
+consulta destinos elegíveis no Backend, permite selecionar pacotes/avulsas ou
+expandir **Escolher sessões** na própria lista e editar **Valor a usar**. Somente
+um grupo elegível pode vir selecionado; vários exigem escolha explícita. Paciente
+e crédito disponível permanecem visíveis, com identificação por serviço/data.
+O estado conserva seleção e valor válido ao voltar; alterações invalidam a revisão.
+
+**Conferir uso do crédito** apresenta exclusivamente a prévia do servidor, com
+destinos, valores por sessão e saldos da sessão, do pacote e da seleção claramente
+distintos. **Avançar** não grava; apenas **Aplicar R$X de crédito** confirma. Uma
+tentativa com resposta incerta conserva comando e chave idempotente para retry;
+mudança relevante exige revisão atualizada e outra confirmação. Carregamento,
+erros, foco e bloqueio de envio duplicado pertencem ao modal. As regras e a
+competência são as de [FIN-005](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#fin-005);
+o Frontend não recalcula o plano de aplicação nem usa o período como destino.
+
 ### Pesquisa e identificação do paciente em Receitas
 
 Em Receitas, pesquisar restringe os pacientes apresentados e preserva a
@@ -470,6 +496,74 @@ cards. O modal mantém a ocultação de valores existente.
 As regressões em `Financeiro/index.test.js` cobrem os cards, a privacidade,
 pesquisa e a independência dos valores agregados em relação às sessões ainda
 visíveis; persistência e lifecycle são validados por HTTP/MariaDB no Backend.
+
+### Cancelamento financeiro e histórico do paciente
+
+O cancelamento usa o formulário existente **Cancelamento/falta** da **Agenda**:
+tipo, motivo obrigatório, reposição e justificativa de exceção quando aplicável.
+Há uma única ação **Confirmar cancelamento**, sem etapa visual de prévia ou
+resumo financeiro. A prévia técnica é consultada em segundo plano e não grava
+alterações. A confirmação aguarda a resposta correspondente aos campos atuais;
+outro agendamento afetado é identificado no formulário por paciente, data e hora.
+Mudança de estado recarrega a prévia, explica a alteração no próprio formulário e
+exige novo clique; nunca confirma automaticamente o escopo atualizado. O envio
+fica bloqueado enquanto a confirmação estiver em andamento, e retry ambíguo
+preserva comando e chave idempotente.
+
+Quem possui as autorizações necessárias confirma a operação conjunta. Sucesso
+mostra **Sessão cancelada.** O fluxo operacional permitido sem autorização
+financeira preserva os valores protegidos e mostra **Sessão cancelada. Acerto
+financeiro pendente.** quando houver pendência. Reposição e penalidade continuam
+nos comandos operacionais. Falha da operação conjunta não executa cancelamento
+operacional separado nem liberação de crédito independente.
+
+Em **Receitas > Por sessão > Detalhes > Cobranças**, **Resolver pendência** aparece
+somente para pendências reais de `pending_resolutions`, com `can_resolve: true`,
+`finance/manage` e `finance.settle`. A lista genérica `cancellation_candidates`
+não habilita botões. Detalhe e modal **Sessões do pacote** mantêm o resumo, os
+três cards e a tabela **Data | Profissional | Status**, com aviso discreto apenas
+quando houver pendência financeira. Alterações concluídas são consultadas pela
+aba **Histórico**, sem aviso ou botão adicional no detalhe ou modal.
+Sem pendência aplicável, nenhum bloco ou espaço é reservado.
+
+`FinancialCancellationModal` consome `cancellation-preview` e
+`cancel-with-credit` de `financial-entries/:id` para resolver a pendência. A
+confirmação usa exclusivamente os valores e consequências da prévia. Motivo,
+exceção de antecedência, elegibilidade e permissões são revalidados pelo Backend.
+Alterações no comando invalidam a prévia; estado conflitante exige nova
+conferência. Retry ambíguo conserva comando e `Idempotency-Key`. Após confirmação,
+o cache do paciente é invalidado e os agregados são relidos. As regras
+financeiras permanecem no [Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md).
+
+A aba **Histórico**, com filtro **Recebimentos**, consome
+`financial_history` em tabela compacta **Data | Movimento | Valor | Detalhes**.
+O seletor **Todos os eventos / Recebimentos** fica à direita na linha das abas
+**Cobranças / Histórico**, sem texto introdutório ou rótulo visível.
+Cancelamento e liberação aparecem na mesma linha somente quando vinculados por
+`cancellation_resolution_id` ou `operation_id` explícito; o valor da linha é o
+crédito liberado, sem somar novamente o cancelamento. **Ver detalhes** apresenta
+um resumo por operação: sessão, data/hora do movimento, responsável e motivo ou
+observação. Em **Uso de crédito**, `applied_sessions` identifica os destinos
+efetivamente confirmados, com serviço, data/horário histórico e valor por sessão;
+parcelas/fontes são consolidadas pelo Backend somente com vínculo inequívoco ao
+comprovante persistido da operação. Prévia, saldo ou agendamento atual não
+substituem esse registro. Na ausência de vínculo confiável, exibe **Destino
+histórico indisponível** e preserva os eventos sem associação presumida. Apenas
+a observação automática `Aplicação de crédito em cobrança` é ocultada; observações
+reais, responsável e instante do uso permanecem. Nos demais movimentos, o serviço
+vem da sessão já retornada, pelo `session_id` confirmado;
+a data/hora da sessão vem do evento, sem substituição pela sessão atual ou pela
+origem financeira. Recebimentos identificam sua própria data, sem tratá-la como
+data de alteração. IDs, referências internas e textos técnicos não são exibidos;
+os eventos e vínculos internos permanecem integrais. Data ou valor iguais nunca
+comprovam vínculo. Cada recebimento permanece separado e liberação/uso de crédito
+não são entradas de dinheiro.
+
+O contexto das contas consultadas e recebimentos posteriores vinculados é
+preservado, com as datas reais dos eventos. Dados legados ausentes são marcados
+como não registrados. Na compatibilidade sem `financial_history`, apresenta
+somente os recebimentos reais retornados, sem reconstruir aplicações,
+cancelamentos ou autoria.
 
 ### Abas da Visão geral financeira
 

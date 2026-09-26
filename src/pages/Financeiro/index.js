@@ -50,7 +50,6 @@ import {
   deactivateClinicExpenseCategory,
   createFinancialPayment,
   applyCreditToFinancialEntry,
-  applyScopedFinancialCredit,
   createPaymentMethod,
   listServicePrices,
   updatePaymentMethod,
@@ -73,6 +72,10 @@ import {
 } from "./helpers/clinicExpensePayment";
 import FinancialPaymentModal from "./components/FinancialPaymentModal";
 import FinancialOverviewSection from "./components/FinancialOverviewSection";
+import FinancialHistory from "./components/FinancialHistory";
+import FinancialCancellationDetails from "./components/FinancialCancellationDetails";
+import FinancialCancellationModal from "./components/FinancialCancellationModal";
+import FinancialCreditUseModal from "./components/FinancialCreditUseModal";
 import useFinancialPaymentFlow from "./hooks/useFinancialPaymentFlow";
 import {
   emptyFinancialRevenuesSummary,
@@ -736,6 +739,8 @@ export default function Financeiro() {
   const canManageClinicExpenses = authorization.canAccessModule("finance", "manage");
   const canSettleClinicExpenses = canManageClinicExpenses
     && authorization.hasCapability("finance.settle");
+  const canResolveFinancialCancellation = authorization.canAccessModule("finance", "manage")
+    && authorization.hasCapability("finance.settle");
   const [activeSection, setActiveSection] = useState(() =>
     getFinancialSectionFromPath(routeLocation.pathname)
   );
@@ -829,9 +834,12 @@ export default function Financeiro() {
     error: "",
   });
   const [attendanceDetailPackages, setAttendanceDetailPackages] = useState([]);
+  const [attendanceFinancialContext, setAttendanceFinancialContext] = useState(null);
+  const [cancellationTarget, setCancellationTarget] = useState(null);
   const [attendanceDetailSummary, setAttendanceDetailSummary] = useState(null);
   const [attendanceBackendCreditByPatient, setAttendanceBackendCreditByPatient] = useState(() => new Map());
   const [attendanceDetailTab, setAttendanceDetailTab] = useState("charges");
+  const [attendanceHistoryFilter, setAttendanceHistoryFilter] = useState("all");
   const [selectedAttendancePackageId, setSelectedAttendancePackageId] = useState(null);
   const [attendancePeriodMode, setAttendancePeriodMode] = useState("month");
   const [attendancePeriodMonth, setAttendancePeriodMonth] = useState(() =>
@@ -945,7 +953,6 @@ export default function Financeiro() {
   const [paymentPatientQuery, setPaymentPatientQuery] = useState("");
   const [isPaymentPatientSearchFocused, setIsPaymentPatientSearchFocused] = useState(false);
   const [creditUseModalContext, setCreditUseModalContext] = useState(null);
-  const [isCreditUseSaving, setIsCreditUseSaving] = useState(false);
   const [isMethodOpen, setIsMethodOpen] = useState(false);
   const [methodForm, setMethodForm] = useState({ name: "" });
   const [editingMethodId, setEditingMethodId] = useState(null);
@@ -1034,6 +1041,10 @@ export default function Financeiro() {
     () => normalizeId(attendanceDrilldownPatientId || attendanceFilters.patient_id),
     [attendanceDrilldownPatientId, attendanceFilters.patient_id],
   );
+
+  useEffect(() => {
+    setAttendanceHistoryFilter("all");
+  }, [selectedAttendancePatientId, attendanceDetailTab]);
 
   const selectedAttendancePatient = useMemo(() => {
     if (!selectedAttendancePatientId) return null;
@@ -1756,9 +1767,8 @@ export default function Financeiro() {
   }, []);
 
   const closeCreditUseModal = useCallback(() => {
-    if (isCreditUseSaving) return;
     setCreditUseModalContext(null);
-  }, [isCreditUseSaving]);
+  }, []);
 
   const requestModalDiscard = useCallback((closeFn, hasInput) => {
     if (typeof closeFn !== "function") return;
@@ -1801,7 +1811,6 @@ export default function Financeiro() {
     editingClinicExpenseCategoryId
     || hasFilledText(clinicExpenseCategoryForm.name),
   );
-  const creditUseModalHasInput = Boolean(creditUseModalContext);
   const paymentModalHasInput = Boolean(
     hasFilledText(paymentForm.entry_id)
     || hasFilledText(paymentForm.patient_id)
@@ -1837,27 +1846,26 @@ export default function Financeiro() {
   }, []);
 
   useEffect(() => {
-    if ((!isPaymentOpen && !creditUseModalContext) || typeof document === "undefined") return () => { };
+    if (!isPaymentOpen || typeof document === "undefined") return () => { };
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [creditUseModalContext, isPaymentOpen]);
+  }, [isPaymentOpen]);
 
   useEffect(() => {
-    if ((!isPaymentOpen && !creditUseModalContext) || typeof document === "undefined") return () => { };
+    if (!isPaymentOpen || typeof document === "undefined") return () => { };
     const handleEscape = (event) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
       if (isPaymentOpen) closePaymentModal();
-      if (creditUseModalContext) closeCreditUseModal();
     };
     document.addEventListener("keydown", handleEscape);
     return () => {
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [creditUseModalContext, isPaymentOpen, closeCreditUseModal, closePaymentModal]);
+  }, [isPaymentOpen, closePaymentModal]);
 
   const openClinicExpenseModal = useCallback((expense = null) => {
     if (expense?.id) {
@@ -2737,6 +2745,11 @@ export default function Financeiro() {
     setAttendanceSeries(Array.isArray(detail?.series) ? detail.series : []);
     setAttendanceSessions(Array.isArray(detail?.sessions) ? detail.sessions : []);
     setAttendanceDetailPackages(Array.isArray(detail?.packages) ? detail.packages : []);
+    setAttendanceFinancialContext({
+      history: Array.isArray(detail?.financial_history) ? detail.financial_history : null,
+      pendingResolutions: Array.isArray(detail?.pending_resolutions) ? detail.pending_resolutions : [],
+      resolutions: Array.isArray(detail?.cancellation_resolutions) ? detail.cancellation_resolutions : [],
+    });
     setAttendanceDetailSummary({
       patientId: patientIdNumber,
       cacheKey,
@@ -2824,6 +2837,8 @@ export default function Financeiro() {
     setAttendanceSeries([]);
     setAttendanceSessions([]);
     setAttendanceDetailPackages([]);
+    setAttendanceFinancialContext(null);
+    setCancellationTarget(null);
     setAttendanceDetailSummary(null);
 
     try {
@@ -2862,6 +2877,11 @@ export default function Financeiro() {
       setAttendanceSeries(Array.isArray(detail.series) ? detail.series : []);
       setAttendanceSessions(Array.isArray(detail.sessions) ? detail.sessions : []);
       setAttendanceDetailPackages(Array.isArray(detail.packages) ? detail.packages : []);
+      setAttendanceFinancialContext({
+        history: Array.isArray(detail.financial_history) ? detail.financial_history : null,
+        pendingResolutions: Array.isArray(detail.pending_resolutions) ? detail.pending_resolutions : [],
+        resolutions: Array.isArray(detail.cancellation_resolutions) ? detail.cancellation_resolutions : [],
+      });
       setAttendanceDetailSummary({
         patientId: Number(normalizedPatientId),
         cacheKey: detailCacheKey,
@@ -4633,7 +4653,7 @@ export default function Financeiro() {
 	  ]);
 
   const openAttendanceCreditUseModal = useCallback(() => {
-    if (!attendanceSelectedPatientSummary) return;
+    if (!canSettleClinicExpenses || !attendanceSelectedPatientSummary) return;
 
     const creditAvailableCents = Math.max(
       0,
@@ -4651,6 +4671,7 @@ export default function Financeiro() {
     }
 
     setCreditUseModalContext({
+      authorizationContext: authorization.context,
       patientId: attendanceSelectedPatientSummary.patientId,
       patientName: attendanceSelectedPatientSummary.patientName,
       creditAvailableCents,
@@ -4660,6 +4681,8 @@ export default function Financeiro() {
       periodLabel,
     });
   }, [
+    authorization.context,
+    canSettleClinicExpenses,
     attendanceFilters.end,
     attendanceFilters.start,
     attendancePeriodMode,
@@ -4668,59 +4691,23 @@ export default function Financeiro() {
     attendanceSelectedPatientSummary,
   ]);
 
-  const creditUsePreview = useMemo(() => {
-    if (!creditUseModalContext) return null;
-    const creditAvailableCents = Math.max(
-      0,
-      Number(creditUseModalContext.creditAvailableCents || 0),
-    );
-    const openCents = Math.max(0, Number(creditUseModalContext.openCents || 0));
-    const creditToUseCents = Math.min(creditAvailableCents, openCents);
-
-    return {
-      creditAvailableCents,
-      openCents,
-      creditToUseCents,
-      openAfterCents: Math.max(0, openCents - creditToUseCents),
-      creditRemainingCents: Math.max(0, creditAvailableCents - creditToUseCents),
-    };
-  }, [creditUseModalContext]);
-
-  const handleConfirmCreditUse = useCallback(async () => {
-    if (!creditUseModalContext || !creditUsePreview || isCreditUseSaving) return;
-
-    setIsCreditUseSaving(true);
-    try {
-      await applyScopedFinancialCredit({
-        patient_id: creditUseModalContext.patientId,
-        allocation_scope: "per_session_current_period",
-        period_start: creditUseModalContext.periodStart,
-        period_end: creditUseModalContext.periodEnd,
-      });
-      toast.success("Crédito aplicado nas cobranças pendentes.");
-      invalidateAttendanceDetailCacheForPatient(creditUseModalContext.patientId);
-      setCreditUseModalContext(null);
-      await loadRevenuesData();
-      await loadRevenuesSummary();
-      await loadAttendance();
-      if (
-        attendanceDrilldownPatientId
-        && Number(attendanceDrilldownPatientId) === Number(creditUseModalContext.patientId)
-      ) {
-        await handleViewPatientSessions(creditUseModalContext.patientId, { keepTab: true });
-      }
-    } catch (error) {
-      toast.error(getUserFacingApiError(error, "Não foi possível usar o crédito."));
-    } finally {
-      setIsCreditUseSaving(false);
+  const handleCreditUseCompleted = useCallback(async () => {
+    if (!creditUseModalContext) return;
+    const { patientId } = creditUseModalContext;
+    toast.success("Crédito aplicado nas cobranças pendentes.");
+    invalidateAttendanceDetailCacheForPatient(patientId);
+    setCreditUseModalContext(null);
+    await loadRevenuesData();
+    await loadRevenuesSummary();
+    await loadAttendance();
+    if (attendanceDrilldownPatientId && Number(attendanceDrilldownPatientId) === Number(patientId)) {
+      await handleViewPatientSessions(patientId, { keepTab: true });
     }
   }, [
     attendanceDrilldownPatientId,
     creditUseModalContext,
-    creditUsePreview,
     handleViewPatientSessions,
     invalidateAttendanceDetailCacheForPatient,
-    isCreditUseSaving,
     loadAttendance,
     loadRevenuesData,
     loadRevenuesSummary,
@@ -4786,6 +4773,28 @@ export default function Financeiro() {
     data.activePlans = activePlanIds.size;
     return data;
   }, [billingCyclesFilteredRows, resolveBillingCycleFinancial]);
+
+  const openFinancialCancellation = (candidate) => {
+    if (!canResolveFinancialCancellation || !selectedAttendancePatientId
+      || candidate.can_resolve !== true
+      || !attendanceFinancialContext?.pendingResolutions?.some((item) => Number(item.entry_id) === Number(candidate.entry_id))) return;
+    setSelectedAttendancePackageId(null);
+    setCancellationTarget({
+      entry_id: Number(candidate.entry_id),
+      patient_id: Number(selectedAttendancePatientId),
+      patient_name: attendanceSelectedPatientSummary?.patientName || "Paciente",
+      authorizationContext: authorization.context,
+    });
+  };
+
+  const completeFinancialCancellation = async (result) => {
+    setCancellationTarget(null);
+    const patientId = Number(result.patient_id);
+    invalidateAttendanceDetailCacheForPatient(patientId);
+    toast.success("Pendência financeira resolvida. O recebimento original foi preservado.");
+    await loadRevenuesSummary();
+    await handleViewPatientSessions(patientId, { keepTab: true });
+  };
 
   const attendancePeriodLabel = useMemo(() => {
     if (attendancePeriodMode === "year") {
@@ -5551,43 +5560,18 @@ export default function Financeiro() {
         );
       }
 
-      const receiptsContent = attendanceSelectedPatientReceipts.length === 0 ? (
-        <AttendanceEmptyState>Nenhum recebimento registrado para este paciente.</AttendanceEmptyState>
-      ) : (
-        <BillingCyclesInnerTableCard>
-          <AttendanceTableScroll>
-            <BillingCyclesTable $detail>
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Valor recebido</th>
-                  <th>Forma</th>
-                  <th>Observações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {attendanceSelectedPatientReceipts.map((item) => (
-                  <PatientSummaryRow key={item.payment.id}>
-                    <td>
-                      <AttendancePrimaryText>
-                        {formatDateOnlyBR(item.payment.paid_at)}
-                      </AttendancePrimaryText>
-                    </td>
-                    <td>
-                      <AttendanceMoneyText>{formatCurrency(item.amountCents)}</AttendanceMoneyText>
-                    </td>
-                    <td>
-                      <AttendancePrimaryText>{item.paymentMethodName}</AttendancePrimaryText>
-                    </td>
-                    <td>
-                      <AttendanceSecondaryText>{item.payment.note || "-"}</AttendanceSecondaryText>
-                    </td>
-                  </PatientSummaryRow>
-                ))}
-              </tbody>
-            </BillingCyclesTable>
-          </AttendanceTableScroll>
-        </BillingCyclesInnerTableCard>
+      const receiptsContent = (
+        <FinancialHistory
+          key={selectedAttendancePatientId}
+          events={attendanceFinancialContext?.history}
+          receipts={attendanceSelectedPatientReceipts}
+          sessions={[
+            ...attendanceDetailPackages.flatMap((item) => item.sessions || []),
+            ...attendanceDetailSessions.sessions,
+          ]}
+          filter={attendanceHistoryFilter}
+          formatCurrency={formatCurrency}
+        />
       );
 
       attendanceContent = (
@@ -5620,7 +5604,7 @@ export default function Financeiro() {
               <span>Crédito disponível</span>
               <strong>{formatCurrency(attendanceDetailPatientSummary.creditsAvailable)}</strong>
             </AttendancePatientStat>
-            {attendanceDetailPatientSummary.creditsAvailable > 0
+            {canSettleClinicExpenses && attendanceDetailPatientSummary.creditsAvailable > 0
               && attendanceDetailPatientSummary.openCents > 0 && (
                 <AttendanceCreditUseAction
                   type="button"
@@ -5630,23 +5614,42 @@ export default function Financeiro() {
                 </AttendanceCreditUseAction>
               )}
           </AttendancePatientStats>
-          <PatientDetailTabsRow>
-            <PatientDetailTabButton
-              type="button"
-              $active={attendanceDetailTab === "charges"}
-              onClick={() => setAttendanceDetailTab("charges")}
-            >
-              Cobranças
-            </PatientDetailTabButton>
-            <PatientDetailTabButton
-              type="button"
-              $active={attendanceDetailTab === "payments"}
-              onClick={() => setAttendanceDetailTab("payments")}
-            >
-              Recebimentos
-            </PatientDetailTabButton>
-          </PatientDetailTabsRow>
+          <PatientDetailToolbar>
+            <PatientDetailTabsRow>
+              <PatientDetailTabButton
+                type="button"
+                $active={attendanceDetailTab === "charges"}
+                onClick={() => setAttendanceDetailTab("charges")}
+              >
+                Cobranças
+              </PatientDetailTabButton>
+              <PatientDetailTabButton
+                type="button"
+                $active={attendanceDetailTab === "payments"}
+                onClick={() => setAttendanceDetailTab("payments")}
+              >
+                Histórico
+              </PatientDetailTabButton>
+            </PatientDetailTabsRow>
+            {attendanceDetailTab === "payments" && (
+              <HistoryEventFilter
+                aria-label="Filtrar histórico"
+                value={attendanceHistoryFilter}
+                onChange={(event) => setAttendanceHistoryFilter(event.target.value)}
+              >
+                <option value="all">Todos os eventos</option>
+                <option value="receipts">Recebimentos</option>
+              </HistoryEventFilter>
+            )}
+          </PatientDetailToolbar>
           {attendanceDetailTab === "payments" ? receiptsContent : packageContent}
+          {attendanceDetailTab === "charges" && (
+            <FinancialCancellationDetails
+              pendingResolutions={attendanceFinancialContext?.pendingResolutions}
+              canResolve={canResolveFinancialCancellation}
+              onResolve={openFinancialCancellation}
+            />
+          )}
         </AttendancePatientDetailBlock>
       );
     }
@@ -6678,6 +6681,12 @@ export default function Financeiro() {
 		                                <strong>{formatCurrency(item.openCents || 0)}</strong>
 		                              </AttendancePackageFinanceItem>
 		                            </AttendancePackageFinanceGrid>
+                                <FinancialCancellationDetails
+                                  pendingResolutions={attendanceFinancialContext?.pendingResolutions}
+                                  packageItem={item}
+                                  canResolve={canResolveFinancialCancellation}
+                                  onResolve={openFinancialCancellation}
+                                />
 		                          </AttendancePackageSummarySection>
 		                        </AttendancePackageSummary>
 	                        {item.sessions.length === 0 ? (
@@ -6727,6 +6736,17 @@ export default function Financeiro() {
           <ProtectedBackdrop onClick={handleClosePackageSessions} />
         </>
       )}
+
+      {cancellationTarget && canResolveFinancialCancellation
+        && cancellationTarget.authorizationContext === authorization.context && (
+          <FinancialCancellationModal
+            key={`${cancellationTarget.patient_id}:${cancellationTarget.entry_id}`}
+            target={cancellationTarget}
+            formatCurrency={formatCurrency}
+            onClose={() => setCancellationTarget(null)}
+            onCompleted={completeFinancialCancellation}
+          />
+        )}
 
       {billingCycleSessionsPreview.open && (
         <>
@@ -7089,74 +7109,16 @@ export default function Financeiro() {
         </>
       )}
 
-      {creditUseModalContext && creditUsePreview && (
-        <>
-          <ModalOverlay>
-            <ModalCard>
-              <ModalHeader>
-                <ModalHeaderText>
-                  <ModalTitle>Usar crédito</ModalTitle>
-                  <ModalSubtitle>
-                    Aplicar crédito financeiro nas cobranças pendentes da competência atual.
-                  </ModalSubtitle>
-                </ModalHeaderText>
-                <IconButton type="button" onClick={closeCreditUseModal} disabled={isCreditUseSaving}>
-                  <FaTimes />
-                </IconButton>
-              </ModalHeader>
-              <ModalBody>
-                <PaymentPreviewBox>
-                  <PaymentPreviewRow>
-                    <span>Paciente</span>
-                    <strong>{creditUseModalContext.patientName}</strong>
-                  </PaymentPreviewRow>
-                  <PaymentPreviewRow>
-                    <span>Competência</span>
-                    <strong>{creditUseModalContext.periodLabel || "-"}</strong>
-                  </PaymentPreviewRow>
-                  <PaymentPreviewRow>
-                    <span>Crédito disponível</span>
-                    <strong>{formatCurrency(creditUsePreview.creditAvailableCents)}</strong>
-                  </PaymentPreviewRow>
-                  <PaymentPreviewRow>
-                    <span>Pendente atual</span>
-                    <strong>{formatCurrency(creditUsePreview.openCents)}</strong>
-                  </PaymentPreviewRow>
-                  <PaymentPreviewRow $emphasis>
-                    <span>Crédito a usar</span>
-                    <strong>{formatCurrency(creditUsePreview.creditToUseCents)}</strong>
-                  </PaymentPreviewRow>
-                  <PaymentPreviewRow $balance={creditUsePreview.openAfterCents > 0}>
-                    <span>Pendente após uso</span>
-                    <strong>{formatCurrency(creditUsePreview.openAfterCents)}</strong>
-                  </PaymentPreviewRow>
-                  <PaymentPreviewRow $balance={creditUsePreview.creditRemainingCents > 0}>
-                    <span>Crédito restante</span>
-                    <strong>{formatCurrency(creditUsePreview.creditRemainingCents)}</strong>
-                  </PaymentPreviewRow>
-                </PaymentPreviewBox>
-              </ModalBody>
-              <ModalActions>
-                <SecondaryButton
-                  type="button"
-                  onClick={closeCreditUseModal}
-                  disabled={isCreditUseSaving}
-                >
-                  Cancelar
-                </SecondaryButton>
-                <PrimaryButton
-                  type="button"
-                  onClick={handleConfirmCreditUse}
-                  disabled={isCreditUseSaving || creditUsePreview.creditToUseCents <= 0}
-                >
-                  {isCreditUseSaving ? <ButtonSpinner /> : "Confirmar uso do crédito"}
-                </PrimaryButton>
-              </ModalActions>
-            </ModalCard>
-          </ModalOverlay>
-          <ProtectedBackdrop onClick={closeCreditUseModal} $hasInput={creditUseModalHasInput} />
-        </>
-      )}
+      {creditUseModalContext && canSettleClinicExpenses
+        && creditUseModalContext.authorizationContext === authorization.context && (
+          <FinancialCreditUseModal
+            key={`${creditUseModalContext.patientId}:${creditUseModalContext.periodStart}:${creditUseModalContext.periodEnd}`}
+            context={creditUseModalContext}
+            formatCurrency={formatCurrency}
+            onClose={closeCreditUseModal}
+            onCompleted={handleCreditUseCompleted}
+          />
+        )}
 
       <FinancialPaymentModal
         flow={financialPaymentFlow}
@@ -7680,6 +7642,25 @@ const TabButton = styled.button`
 
 const PatientDetailTabsRow = styled(TabsRow)`
   justify-self: start;
+`;
+
+const PatientDetailToolbar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+`;
+
+const HistoryEventFilter = styled.select`
+  margin-left: auto;
+  padding: 9px 12px;
+  border: 1px solid #ccd2ce;
+  border-radius: 8px;
+  background: white;
+  color: #4a4a4a;
+  font-size: 14px;
 `;
 
 const PatientDetailTabButton = styled(TabButton)``;
