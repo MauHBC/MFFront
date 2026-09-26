@@ -118,17 +118,6 @@ export default function FinancialPaymentModal({
                 </CurrencyInputGroup>
               </Field>}
             </FormGrid>
-            {flow.selectionFlow && !flow.creditOnly && <ReviewScroll>
-              <ReviewTable>
-                <caption>Revisão das cobranças selecionadas</caption>
-                <thead><tr><th>Cobrança</th><th>Saldo antes</th><th>Desconto</th><th>Pago agora</th><th>Pendente</th></tr></thead>
-                <tbody>{flow.review.map((item) => <tr key={item.key}>
-                  <td>{item.label}<small>{dateLabel(item.referenceDate)}</small></td>
-                  <td>{formatCurrency(item.baseCents)}</td><td>{formatCurrency(item.discountCents)}</td>
-                  <td>{formatCurrency(item.paidCents)}</td><td>{formatCurrency(item.pendingCents)}</td>
-                </tr>)}</tbody>
-              </ReviewTable>
-            </ReviewScroll>}
             {preview.discountCents > preview.baseCents && <p role="alert">O desconto não pode ultrapassar {formatCurrency(preview.baseCents)}.</p>}
             {flow.selectionStale && <p role="alert">As cobranças mudaram. Atualize os dados da página e reabra o recebimento para revisar os saldos atuais.</p>}
             <PaymentPreviewBox>
@@ -205,11 +194,6 @@ FinancialPaymentModal.propTypes = {
       key: PropTypes.string, label: PropTypes.string, referenceDate: PropTypes.string,
       entries: PropTypes.arrayOf(PropTypes.shape({ openCents: PropTypes.number })),
     })),
-    review: PropTypes.arrayOf(PropTypes.shape({
-      key: PropTypes.string, label: PropTypes.string, referenceDate: PropTypes.string,
-      baseCents: PropTypes.number, discountCents: PropTypes.number, paidCents: PropTypes.number,
-      pendingCents: PropTypes.number,
-    })),
     selectedKeys: PropTypes.arrayOf(PropTypes.string),
     toggleSelection: PropTypes.func,
     advance: PropTypes.func,
@@ -251,13 +235,6 @@ const SelectionList = styled.div`display: grid; gap: 10px; margin: 16px 0;`;
 const SelectionRow = styled.label`
   display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #d9dedb; border-radius: 8px;
   span { flex: 1; } small { display: block; color: #59665e; margin-top: 4px; }
-`;
-const ReviewScroll = styled.div`overflow-x: auto;`;
-const ReviewTable = styled.table`
-  width: 100%; border-collapse: collapse; font-size: 13px;
-  caption { text-align: left; font-weight: 600; padding: 12px 0; }
-  th, td { text-align: right; padding: 8px; border-bottom: 1px solid #d9dedb; }
-  th:first-child, td:first-child { text-align: left; } small { display: block; }
 `;
 
 const ModalOverlay = styled.div`

@@ -431,8 +431,9 @@ da persistência final.
 Por sessão, o modal tem duas etapas. A primeira lista uma linha por pacote ou
 avulsa elegível, com paciente, período, data e saldo; várias cobranças começam
 sem seleção, enquanto uma pode vir selecionada. Avançar não chama escrita HTTP.
-A segunda mantém os campos existentes e mostra a revisão por grupo (saldo,
-desconto, aplicação e pendente), com crédito somente se houver excedente.
+A segunda mantém os campos existentes e o Resumo da operação, sem tabela/lista
+intermediária de revisão, contêiner ou rolagem exclusivos desse bloco. O resumo
+preserva valores, desconto, pendente e crédito, sem alterar a lógica financeira.
 Voltar preserva seleção e formulário; valor recebido editado não é recalculado.
 Mensalidades conserva o fluxo anterior, sem mudança em Agenda ou Planos.
 
@@ -454,7 +455,7 @@ desconto e modo manual; não converte em recebimento sem seleção. Os detalhes
 compactos preservam a linha do desconto e o crédito original informado pela API.
 
 O hook envia `receipt_groups` e os snapshots completos em `adjustment_targets`,
-separados das aplicações positivas em `allocations`. A revisão soma o rateio
+separados das aplicações positivas em `allocations`. O cálculo interno soma o rateio
 das obrigações internas; não recalcula o desconto por pacote. O servidor valida
 composição, ordem e valores sob as regras FIN-004/FIN-006 do Backend; conflito
 bloqueia nova confirmação até atualizar os dados e reabrir a revisão. O detalhe
