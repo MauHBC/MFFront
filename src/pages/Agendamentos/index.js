@@ -3,6 +3,7 @@ import PropTypes from "prop-types";
 import styled, { keyframes } from "styled-components";
 import { Link, useHistory, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
+import { v4 as uuidv4 } from "uuid";
 import {
   FaChevronLeft,
   FaChevronRight,
@@ -16,6 +17,8 @@ import axios, {
   sanitizeUserFacingErrorMessage,
 } from "../../services/axios";
 import Loading from "../../components/Loading";
+import { validCancellationPreview } from "../../components/SessionCancellationSummary";
+import { previewSessionCancellation, confirmSessionCancellation } from "../../services/financialCancellation";
 import {
   checkSchedulingAvailability,
   listSpecialSchedulingEvents,
@@ -610,6 +613,15 @@ const emptyAbsenceModal = {
   monthlyAbsenceReachedLimit: false,
   monthlyAbsenceExceededLimit: false,
   hasFixedSchedule: false,
+  financialPreview: null,
+  financialPreviewKey: "",
+  financialPreviewLoading: false,
+  financialPreviewRevision: 0,
+  financialNotice: "",
+  financialConfirmationUncertain: false,
+  financialError: "",
+  financialNotApplicable: false,
+  isChangingStatus: false,
   isSaving: false,
 };
 
@@ -724,11 +736,9 @@ const showAbsenceMonthlyPolicyNotice = (payload) => {
 
 const showFinancialRegularizationPendingNotice = (payload) => {
   const pending = payload?.financial_regularization_pending;
-  if (!pending?.required) return;
-  toast.warning(
-    pending.message
-      || "Financeiro preservado; nenhuma devolução, crédito ou estorno foi realizado.",
-  );
+  if (!pending?.required) return false;
+  toast.warning("Sessão cancelada. Acerto financeiro pendente.");
+  return true;
 };
 
 const resolveSchedulingErrorMessage = (error) => {
@@ -1150,6 +1160,12 @@ export default function Agendamentos() {
   const routeLocation = useLocation();
   const routeHistory = useHistory();
   const authorization = useAuthorization();
+  const canResolveSessionFinancial = authorization.canAccessModule?.("finance", "manage") === true
+    && authorization.canAccessModule?.("schedule", "manage") === true
+    && authorization.hasCapability("finance.settle");
+  const financialAbsenceAttempt = useRef(null);
+  const financialAbsenceInFlight = useRef(false);
+  const absenceRequestVersion = useRef(0);
   const usesMembershipSessionContract =
     authorization.context?.authorization_source === "membership";
   const inFlightAgendaRequests = useRef(new Map());
@@ -1200,6 +1216,15 @@ export default function Agendamentos() {
   const [filterPatientQuery, setFilterPatientQuery] = useState("");
   const [formPatientQuery, setFormPatientQuery] = useState("");
   const [absenceModal, setAbsenceModal] = useState(emptyAbsenceModal);
+  useEffect(() => {
+    absenceRequestVersion.current += 1;
+    financialAbsenceAttempt.current = null;
+    setAbsenceModal(emptyAbsenceModal);
+    return () => {
+      absenceRequestVersion.current += 1;
+      financialAbsenceAttempt.current = null;
+    };
+  }, [authorization.context, authorization.status]);
   const [attendanceModal, setAttendanceModal] = useState({
     open: false,
     timeLabel: "",
@@ -3439,8 +3464,11 @@ export default function Agendamentos() {
           updatedSession: response?.data,
         });
         showAbsenceMonthlyPolicyNotice(response?.data);
-        showFinancialRegularizationPendingNotice(response?.data);
-	        toast.success("Agendamento atualizado.");
+        if ((response?.data?.status || status) === "canceled") {
+          if (!showFinancialRegularizationPendingNotice(response?.data)) toast.success("Sessão cancelada.");
+        } else {
+          toast.success("Agendamento atualizado.");
+        }
 	        await reloadVisibleSessions();
 	        await loadPendingSessions();
 	        await loadOperationalAlerts(selectedMonthKey);
@@ -3543,6 +3571,8 @@ export default function Agendamentos() {
       pendingSessionsSource.find((item) => String(item.id) === String(id)) ||
       sessions.find((item) => String(item.id) === String(id));
     const modalState = await buildAbsenceModalState({ id, status, sourceSession });
+    absenceRequestVersion.current += 1;
+    financialAbsenceAttempt.current = null;
     setAbsenceModal({
       ...emptyAbsenceModal,
       open: true,
@@ -3556,43 +3586,180 @@ export default function Agendamentos() {
   ]);
 
   const handleAbsenceStatusChoice = useCallback(async (status) => {
-    if (!absenceModal.id || absenceModal.status === status || absenceModal.isSaving) return;
+    if (!absenceModal.id || absenceModal.status === status || absenceModal.isSaving
+      || absenceModal.isChangingStatus || absenceModal.financialConfirmationUncertain) return;
+    absenceRequestVersion.current += 1;
+    const requestVersion = absenceRequestVersion.current;
+    financialAbsenceAttempt.current = null;
+    setAbsenceModal((prev) => ({
+      ...prev, status, isChangingStatus: true,
+      financialPreview: null, financialPreviewKey: "", financialError: "", financialNotice: "",
+      latePolicyExceptionJustified: false, latePolicyExceptionReason: "",
+      generateReplacementCredit: status === "canceled" ? prev.generateReplacementCredit : false,
+    }));
     const modalState = await buildAbsenceModalState({
       id: absenceModal.id,
       status,
       sourceSession: absenceModal.session,
     });
-    setAbsenceModal((prev) => ({
+    if (requestVersion !== absenceRequestVersion.current) return;
+    setAbsenceModal((prev) => (prev.open && Number(prev.id) === Number(absenceModal.id) ? {
       ...prev,
       ...modalState,
+      isChangingStatus: false,
+      financialPreview: null,
+      financialError: "",
       latePolicyExceptionJustified: false,
       latePolicyExceptionReason: "",
       generateReplacementCredit: status === "canceled" ? prev.generateReplacementCredit : false,
-    }));
+    } : prev));
   }, [absenceModal, buildAbsenceModalState]);
 
+  const requiresTechnicalCancellationPreview = canResolveSessionFinancial && absenceModal.open && !absenceModal.isChangingStatus
+    && absenceModal.status === "canceled"
+    && !absenceModal.generateReplacementCredit
+    && (!absenceModal.latePolicyApplies || absenceModal.latePolicyExceptionJustified
+      || Boolean(absenceModal.financialPreview));
+  const absenceCommand = useMemo(() => ({
+    reason: absenceModal.reason.trim(),
+    ...(absenceModal.latePolicyExceptionJustified ? {
+      late_policy_exception_justified: true,
+      late_policy_exception_reason: absenceModal.reason.trim(),
+    } : {}),
+  }), [absenceModal.reason, absenceModal.latePolicyExceptionJustified]);
+  const absencePatientId = getSessionPatientId(absenceModal.session);
+  const financialCommandKey = JSON.stringify([absenceModal.id, absencePatientId, absenceCommand]);
+  const matchingFinancialPreview = absenceModal.financialPreviewKey === financialCommandKey;
+  const useJointCancellation = requiresTechnicalCancellationPreview
+    && !(matchingFinancialPreview && absenceModal.financialNotApplicable);
+  const financialPreviewReady = matchingFinancialPreview
+    && (absenceModal.financialPreview?.eligible || absenceModal.financialNotApplicable);
+  const canRetryFinancialPreview = matchingFinancialPreview
+    && !absenceModal.financialPreview && Boolean(absenceModal.financialError);
+  const absenceSubmitLabel = absenceModal.status === "canceled" ? "Confirmar cancelamento" : "Salvar";
+  const absenceFormLocked = absenceModal.isSaving || absenceModal.isChangingStatus || absenceModal.financialConfirmationUncertain;
+  const absenceSubmitDisabled = absenceModal.isSaving || absenceModal.isChangingStatus
+    || (requiresTechnicalCancellationPreview && Boolean(absenceCommand.reason)
+      && (absenceModal.financialPreviewLoading || (!financialPreviewReady && !canRetryFinancialPreview)));
+
+  useEffect(() => {
+    if (!requiresTechnicalCancellationPreview || !absenceCommand.reason) {
+      setAbsenceModal((prev) => ({
+        ...prev, financialPreview: null, financialPreviewKey: "",
+        financialPreviewLoading: false, financialNotApplicable: false, financialError: "",
+      }));
+      return undefined;
+    }
+    let active = true;
+    const requestVersion = absenceRequestVersion.current;
+    financialAbsenceAttempt.current = null;
+    setAbsenceModal((prev) => ({
+      ...prev, financialPreview: null, financialPreviewKey: "",
+      financialPreviewLoading: true, financialNotApplicable: false, financialError: "",
+    }));
+    const timer = setTimeout(async () => {
+      try {
+        const { data } = await previewSessionCancellation(absenceModal.id, absenceCommand);
+        if (!active || requestVersion !== absenceRequestVersion.current) return;
+        const additionalSessions = (data?.affected_sessions || []).filter((session) => Number(session.id) !== Number(absenceModal.id));
+        if (!validCancellationPreview(data, { session_id: absenceModal.id, patient_id: absencePatientId })
+          || (additionalSessions.length > 0 && !data.patient?.name?.trim())) {
+          throw new Error("Invalid session cancellation preview");
+        }
+        setAbsenceModal((prev) => ({
+          ...prev, financialPreview: data, financialPreviewKey: financialCommandKey,
+          financialPreviewLoading: false,
+          latePolicyApplies: data.requires_late_policy_exception || prev.latePolicyApplies,
+        }));
+      } catch (error) {
+        if (!active || requestVersion !== absenceRequestVersion.current) return;
+        const notApplicable = error?.response?.data?.code === "FINANCIAL_CANCELLATION_NOT_APPLICABLE";
+        setAbsenceModal((prev) => ({
+          ...prev, financialPreviewKey: financialCommandKey, financialPreviewLoading: false,
+          financialNotApplicable: notApplicable,
+          financialError: notApplicable ? "" : getUserFacingApiError(error,
+            "Não foi possível verificar o cancelamento. Clique em Confirmar cancelamento para tentar novamente."),
+        }));
+      }
+    }, 250);
+    return () => { active = false; clearTimeout(timer); };
+  }, [requiresTechnicalCancellationPreview, absenceCommand, financialCommandKey, absenceModal.id,
+    absencePatientId, absenceModal.financialPreviewRevision, authorization.context]);
+
   const handleConfirmAbsence = useCallback(async () => {
-    if (!absenceModal.id || !absenceModal.status || absenceModal.isSaving) return;
+    if (!absenceModal.id || !absenceModal.status || absenceModal.isSaving || absenceModal.isChangingStatus || financialAbsenceInFlight.current) return;
     if (!absenceModal.reason.trim()) {
       toast.error("Informe o motivo.");
       return;
     }
-    const canGenerateReplacementCredit =
-      absenceModal.status === "canceled" &&
-      (!absenceModal.latePolicyApplies || absenceModal.latePolicyExceptionJustified);
-    setAbsenceModal((prev) => ({ ...prev, isSaving: true }));
-    await updateSessionStatus({
+    if (requiresTechnicalCancellationPreview && !financialPreviewReady) {
+      if (canRetryFinancialPreview && !absenceModal.financialPreviewLoading) {
+        setAbsenceModal((prev) => ({ ...prev, financialPreviewRevision: prev.financialPreviewRevision + 1 }));
+      }
+      return;
+    }
+    const canGenerateReplacementCredit = absenceModal.status === "canceled"
+      && (!absenceModal.latePolicyApplies || absenceModal.latePolicyExceptionJustified);
+    const operationalCancellation = async () => updateSessionStatus({
       id: absenceModal.id,
       status: absenceModal.status,
       reason: absenceModal.reason.trim(),
       latePolicyExceptionJustified: absenceModal.latePolicyExceptionJustified,
       latePolicyExceptionReason: absenceModal.reason.trim(),
-      generateReplacementCredit:
-        canGenerateReplacementCredit && absenceModal.generateReplacementCredit,
+      generateReplacementCredit: canGenerateReplacementCredit && absenceModal.generateReplacementCredit,
       onSuccess: () => setAbsenceModal(emptyAbsenceModal),
       onError: () => setAbsenceModal((prev) => ({ ...prev, isSaving: false })),
     });
-  }, [absenceModal, updateSessionStatus]);
+    financialAbsenceInFlight.current = true;
+    setAbsenceModal((prev) => ({ ...prev, isSaving: true, financialError: "" }));
+    if (!useJointCancellation) {
+      try { await operationalCancellation(); } finally { financialAbsenceInFlight.current = false; }
+      return;
+    }
+    const requestVersion = absenceRequestVersion.current;
+    try {
+      const body = { ...absenceCommand, preview_fingerprint: absenceModal.financialPreview.preview_fingerprint };
+      const identity = JSON.stringify([absenceModal.id, body]);
+      if (financialAbsenceAttempt.current?.identity !== identity) {
+        financialAbsenceAttempt.current = { identity, body, key: uuidv4() };
+      }
+      const attempt = financialAbsenceAttempt.current;
+      const { data } = await confirmSessionCancellation(absenceModal.id, attempt.body, attempt.key);
+      if (requestVersion !== absenceRequestVersion.current) return;
+      if (Number(data?.entry_id) !== Number(absenceModal.financialPreview.entry.id)
+        || Number(data?.patient_id) !== Number(getSessionPatientId(absenceModal.session))) {
+        throw new Error("Invalid session cancellation confirmation");
+      }
+      setAbsenceModal(emptyAbsenceModal);
+      financialAbsenceAttempt.current = null;
+      toast.success("Sessão cancelada.");
+      await Promise.allSettled([reloadVisibleSessions(), loadPendingSessions(), loadOperationalAlerts(selectedMonthKey)]);
+    } catch (error) {
+      if (requestVersion !== absenceRequestVersion.current) return;
+      const code = error?.response?.data?.code;
+      const stale = ["CANCELLATION_PREVIEW_STALE", "FINANCIAL_CANCELLATION_ALREADY_RESOLVED", "FINANCIAL_CANCELLATION_NOT_APPLICABLE"].includes(code);
+      const uncertain = !error?.response || error.response.status >= 500;
+      if (stale) financialAbsenceAttempt.current = null;
+      setAbsenceModal((prev) => ({
+        ...prev,
+        financialPreview: stale ? null : prev.financialPreview,
+        financialPreviewKey: stale ? "" : prev.financialPreviewKey,
+        financialPreviewRevision: prev.financialPreviewRevision + (stale ? 1 : 0),
+        financialConfirmationUncertain: !stale && uncertain,
+        financialNotice: stale ? "O agendamento mudou. Confira as informações atualizadas e confirme novamente." : prev.financialNotice,
+        financialError: stale ? "" : getUserFacingApiError(error, uncertain
+          ? "Não foi possível confirmar o resultado. Clique em Confirmar cancelamento para tentar novamente."
+          : "Não foi possível cancelar. Tente novamente."),
+      }));
+    } finally {
+      financialAbsenceInFlight.current = false;
+      if (requestVersion === absenceRequestVersion.current) {
+        setAbsenceModal((prev) => ({ ...prev, isSaving: false }));
+      }
+    }
+  }, [absenceModal, absenceCommand, requiresTechnicalCancellationPreview, financialPreviewReady,
+    canRetryFinancialPreview, useJointCancellation, updateSessionStatus, reloadVisibleSessions,
+    loadPendingSessions, loadOperationalAlerts, selectedMonthKey]);
 
   const handleOpenAttendanceCall = useCallback(({ timeGroup }) => {
     const allEligible = (timeGroup?.serviceGroups || []).flatMap((sg) =>
@@ -6696,7 +6863,7 @@ export default function Agendamentos() {
                     $active={absenceModal.status === "canceled"}
                     $tone="canceled"
                     aria-pressed={absenceModal.status === "canceled"}
-                    disabled={absenceModal.isSaving}
+                    disabled={absenceFormLocked}
                     onClick={() => handleAbsenceStatusChoice("canceled")}
                   >
                     <strong>Cancelamento</strong>
@@ -6707,7 +6874,7 @@ export default function Agendamentos() {
                     $active={absenceModal.status === "no_show"}
                     $tone="no_show"
                     aria-pressed={absenceModal.status === "no_show"}
-                    disabled={absenceModal.isSaving}
+                    disabled={absenceFormLocked}
                     onClick={() => handleAbsenceStatusChoice("no_show")}
                   >
                     <strong>Falta</strong>
@@ -6730,11 +6897,12 @@ export default function Agendamentos() {
                       <input
                         type="checkbox"
                         checked={absenceModal.latePolicyExceptionJustified}
-                        disabled={absenceModal.isSaving}
+                        disabled={absenceFormLocked}
                         onChange={(event) =>
                           setAbsenceModal((prev) => ({
 	                            ...prev,
 	                            latePolicyExceptionJustified: event.target.checked,
+                            financialPreview: null, financialError: "",
 	                            generateReplacementCredit: event.target.checked
 	                              ? prev.generateReplacementCredit
 	                              : false,
@@ -6751,11 +6919,12 @@ export default function Agendamentos() {
 	                      <input
 	                        type="checkbox"
 	                        checked={absenceModal.generateReplacementCredit}
-	                        disabled={absenceModal.isSaving}
+	                        disabled={absenceFormLocked}
 	                        onChange={(event) =>
 	                          setAbsenceModal((prev) => ({
 	                            ...prev,
 	                            generateReplacementCredit: event.target.checked,
+                            financialPreview: null, financialError: "",
 	                          }))
 		                        }
 		                      />
@@ -6769,11 +6938,32 @@ export default function Agendamentos() {
                   rows={4}
                   placeholder="Descreva o motivo"
                   value={absenceModal.reason}
-                  disabled={absenceModal.isSaving}
+                  disabled={absenceFormLocked}
                   onChange={(event) =>
-                    setAbsenceModal((prev) => ({ ...prev, reason: event.target.value }))
+                    setAbsenceModal((prev) => ({ ...prev, reason: event.target.value, financialPreview: null, financialError: "" }))
                   }
                 />
+                {!canResolveSessionFinancial && absenceModal.status === "canceled" && !absenceModal.generateReplacementCredit && (
+                  <p>Se houver acerto financeiro, ele ficará pendente para o responsável.</p>
+                )}
+                {absenceModal.financialPreviewLoading && <p role="status">Verificando cancelamento...</p>}
+                {absenceModal.isChangingStatus && <p role="status">Verificando a política da sessão...</p>}
+                {absenceModal.financialNotice && <p role="alert">{absenceModal.financialNotice}</p>}
+                {absenceModal.financialError && <p role="alert">{absenceModal.financialError}</p>}
+                {absenceModal.financialPreview?.blockers.map((blocker) => (
+                  <p role="alert" key={blocker.code}>{blocker.message}</p>
+                ))}
+                {matchingFinancialPreview && absenceModal.financialPreview?.affected_sessions?.some((session) => Number(session.id) !== Number(absenceModal.id)) && (
+                  <div aria-label="Outros agendamentos afetados">
+                    {absenceModal.financialPreview.affected_sessions.filter((session) => Number(session.id) !== Number(absenceModal.id)).map((session) => (
+                      <p key={session.id}>
+                        Também será cancelado: {absenceModal.financialPreview.patient.name} — {new Date(session.starts_at).toLocaleString("pt-BR", {
+                          timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short",
+                        })}.
+                      </p>
+                    ))}
+                  </div>
+                )}
               </ModalBody>
               <ModalActions>
                 <SecondaryButton
@@ -6786,11 +6976,11 @@ export default function Agendamentos() {
                 <ModalSaveButton
 	                  type="button"
 	                  onClick={handleConfirmAbsence}
-	                  disabled={absenceModal.isSaving}
-	                  aria-label={absenceModal.isSaving ? "Salvando" : "Salvar"}
+	                  disabled={absenceSubmitDisabled}
+	                  aria-label={absenceModal.isSaving ? "Salvando" : absenceSubmitLabel}
 	                >
 	                  {absenceModal.isSaving && <ButtonSpinner aria-hidden="true" />}
-	                  {!absenceModal.isSaving && "Salvar"}
+	                  {!absenceModal.isSaving && absenceSubmitLabel}
 	                </ModalSaveButton>
               </ModalActions>
             </ModalCard>
