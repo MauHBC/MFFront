@@ -30,6 +30,7 @@ import AppShell from "../../components/AppShell";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import { SessionStatusButton } from "../../components/AppSessionStatus";
 import PatientSearchField from "../../components/PatientSearchField";
+import { disabledFieldStyles } from "../../components/AppForm";
 import {
   formatCurrencyInput,
   parseCurrencyInputToCents as parseMoneyInputToCents,
@@ -1147,8 +1148,9 @@ const getVisibleDateRange = (view, baseDate, includeWeekend = false) => {
   };
 };
 
-const recurrenceConfirmationLabel = (preview) => {
+const recurrenceConfirmationLabel = (preview, isPackageReplacement) => {
   if (preview.is_submitting) return "Salvando...";
+  if (isPackageReplacement && preview.single_payload?.session_replacement_credit_id) return "Confirmar";
   if (preview.single_payload?.assign_patient_care) return "Atribuir e agendar";
   if (preview.series_payload?.assign_patient_care) return "Atribuir e agendar";
   return "Confirmar agendamento";
@@ -3881,6 +3883,23 @@ export default function Agendamentos() {
 	    [form.session_replacement_credit_id, replacementCreditsForPatient],
 	  );
 		  const isSchedulingReplacement = !editingId && !!selectedReplacementCredit;
+  const isPackageReplacement = isSchedulingReplacement
+    && !!selectedReplacementCredit.package_unit_id;
+  const replacementServiceId = selectedReplacementCredit?.sourceSession?.service_id
+    ?? selectedReplacementCredit?.source_service_id;
+  const replacementServiceType = selectedReplacementCredit?.sourceSession?.service_type
+    ?? selectedReplacementCredit?.source_service_type
+    ?? servicesById.get(String(replacementServiceId))?.code;
+
+  useEffect(() => {
+    if (!isPackageReplacement || !replacementServiceId) return;
+    setForm((prev) => {
+      const serviceId = String(replacementServiceId);
+      const serviceType = replacementServiceType || "";
+      if (prev.service_id === serviceId && prev.service_type === serviceType) return prev;
+      return { ...prev, service_id: serviceId, service_type: serviceType };
+    });
+  }, [isPackageReplacement, replacementServiceId, replacementServiceType]);
 		  const selectedReplacementBillingMode = selectedReplacementCredit?.source_billing_mode;
 		  const showReplacementCycleWarning = useMemo(() => {
 		    if (!isSchedulingReplacement || selectedReplacementBillingMode !== "covered_by_plan") {
@@ -5941,7 +5960,7 @@ export default function Agendamentos() {
                       onSelect={handleSelectPatient}
                     />
                   )}
-	                  <Field>
+	                  <Field className="span-2">
 	                    Tipo de atendimento
 			                    {editingId ? (
 		                      <ReadonlyText>
@@ -5953,7 +5972,9 @@ export default function Agendamentos() {
 	                          name="service_id"
 	                          value={form.service_id}
 	                          $selected={!!form.service_id}
+	                          disabled={isPackageReplacement}
 		                          onChange={(event) => {
+                                if (isPackageReplacement) return;
 		                            const selectedId = event.target.value;
 		                            const service = serviceOptions.find(
 		                              (item) => String(item.id) === selectedId,
@@ -6729,7 +6750,7 @@ export default function Agendamentos() {
 		                    recurrenceSelectedOccurrences.length === 0
 		                  }
 	                >
-	                  {recurrenceConfirmationLabel(recurrencePreview)}
+	                  {recurrenceConfirmationLabel(recurrencePreview, isPackageReplacement)}
 	                </PrimaryButton>
               </ModalActions>
             </RecurrencePreviewCard>
@@ -10323,9 +10344,18 @@ const FormGrid = styled.div`
   .span-2 {
     grid-column: span 2;
   }
+
+  @media (max-width: 480px) {
+    grid-template-columns: minmax(0, 1fr);
+
+    .span-2 {
+      grid-column: 1 / -1;
+    }
+  }
 `;
 
 const Field = styled.label`
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -10817,6 +10847,14 @@ const SelectionNativeField = styled.select`
   background: ${(props) => (props.$selected ? "#fbfcf9" : "#fff")};
   box-shadow: ${(props) =>
     props.$selected ? "0 0 0 3px rgba(106, 121, 92, 0.08)" : "none"};
+
+  &:disabled {
+    ${disabledFieldStyles}
+    appearance: none;
+    background-image: none;
+    box-shadow: none;
+    padding-right: 12px;
+  }
 `;
 
 const ReadonlyText = styled.div`
