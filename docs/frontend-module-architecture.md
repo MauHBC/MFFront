@@ -576,6 +576,25 @@ cancelar. Na confirmação, envia `PATCH /clinic-expenses/:id/unpay` com
 novamente como pendente. O Backend permanece responsável por validar e auditar
 o desfazimento.
 
+### Reposição de pacote em Novo agendamento
+
+Ao selecionar uma reposição vinculada a `PackageUnit`, a Agenda preenche o
+serviço da sessão de origem e mantém Tipo de atendimento visível e desabilitado.
+O campo usa o estilo disabled compartilhado com a pesquisa de paciente do
+Financeiro, sem seta de select, e ocupa a mesma largura de Paciente/Profissional,
+com uma coluna em telas estreitas.
+Profissional, data, horário e observações continuam editáveis; essas alterações
+não limpam a reposição. Selecionar ou remover a reposição também preserva esses
+campos. Removê-la explicitamente libera o seletor de serviço, conservando o
+serviço atual até uma nova escolha. Dependências reais, como trocar o paciente
+ou recalcular o término ao mudar o início, mantêm o comportamento existente.
+
+A revisão recebe o serviço já fixado e usa **Confirmar** nesse fluxo, inclusive
+quando há atribuição de cuidado ao profissional. Agendamentos comuns e séries
+conservam seus rótulos de confirmação/atribuição. Não há validação visual
+adicional na revisão: o Backend continua responsável por rejeitar serviço
+incompatível com o pacote, mesmo em payload adulterado.
+
 ### Confirmação de bloqueio manual por feriado
 
 Em Configurações da Agenda, criação de feriado bloqueante e a ação **Bloquear

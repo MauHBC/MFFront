@@ -969,6 +969,132 @@ describe("Agendamentos - editar agendamento", () => {
     expect(payload).not.toHaveProperty("late_policy_exception_justified");
   });
 
+  it.each([true, false])("fixa o serviço da reposição de pacote e preserva campos independentes (profissional atribuído: %s)", async (assigned) => {
+    mockProfessionalAssigned = assigned;
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/session-replacement-credits") {
+        return Promise.resolve({ data: [{
+          id: 901,
+          package_unit_id: 501,
+          patient_id: 20,
+          status: "pending",
+          sourceSession: {
+            service_id: 41,
+            service_type: "physio",
+            starts_at: "2026-06-13T10:00:00",
+            status: "canceled",
+          },
+        }] });
+      }
+      return originalGet(url, config);
+    });
+    const { container } = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const suggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(suggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
+    const service = container.querySelector('select[name="service_id"]');
+    const professional = container.querySelector('select[name="professional_user_id"]');
+    const date = container.querySelector('input[type="date"]');
+    const hour = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    const notes = container.querySelector('[name="notes"]');
+    const replacement = container.querySelector('select[name="session_replacement_credit_id"]');
+    fireEvent.change(service, { target: { value: "40" } });
+    fireEvent.change(date, { target: { value: "2026-06-30" } });
+    fireEvent.change(hour, { target: { value: "10" } });
+    fireEvent.change(notes, { target: { value: "Observação preservada" } });
+    fireEvent.change(replacement, { target: { value: "901" } });
+    await waitFor(() => expect(service).toHaveValue("41"));
+    expect(service).toBeDisabled();
+    expect(service.closest("label")).toHaveClass("span-2");
+    expect(professional.closest("label")).toHaveClass("span-2");
+    expect(service).toHaveStyle({
+      background: "#f4f5f2", color: "#888", appearance: "none",
+      backgroundImage: "none", boxShadow: "none",
+    });
+    expect(professional).toHaveValue("30");
+    expect(date).toHaveValue("2026-06-30");
+    expect(hour).toHaveValue("10");
+    expect(notes).toHaveValue("Observação preservada");
+
+    // Mesmo um evento artificial não deve executar o reset do serviço bloqueado.
+    fireEvent.change(service, { target: { value: "40" } });
+    fireEvent.change(professional, { target: { value: "31" } });
+    fireEvent.change(date, { target: { value: "2026-07-01" } });
+    fireEvent.change(hour, { target: { value: "11" } });
+    fireEvent.change(notes, { target: { value: "Outra observação" } });
+    expect(replacement).toHaveValue("901");
+    expect(service).toHaveValue("41");
+    expect(professional).toHaveValue("31");
+    expect(date).toHaveValue("2026-07-01");
+    expect(hour).toHaveValue("11");
+    expect(notes).toHaveValue("Outra observação");
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+    await screen.findByRole("heading", { name: "Revisar agendamento" });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar", exact: true }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith("/sessions", expect.objectContaining({
+      patient_id: 20,
+      professional_user_id: 31,
+      clinic_professional_id: 301,
+      service_id: 41,
+      service_type: "physio",
+      session_replacement_credit_id: 901,
+      starts_at: "2026-07-01T11:00",
+      ends_at: "2026-07-01T12:00",
+      notes: "Outra observação",
+      assign_patient_care: !assigned,
+    })));
+  });
+
+  it("remover explicitamente a reposição de pacote libera o serviço sem limpar os demais campos", async () => {
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => url === "/session-replacement-credits"
+      ? Promise.resolve({ data: [{
+        id: 901, package_unit_id: 501, source_service_id: 41, source_service_type: "physio",
+      }] })
+      : originalGet(url, config));
+    const { container } = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const suggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(suggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
+    const replacement = container.querySelector('select[name="session_replacement_credit_id"]');
+    const service = container.querySelector('select[name="service_id"]');
+    const date = container.querySelector('input[type="date"]');
+    const hour = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    const notes = container.querySelector('[name="notes"]');
+    fireEvent.change(date, { target: { value: "2026-06-30" } });
+    fireEvent.change(hour, { target: { value: "10" } });
+    fireEvent.change(notes, { target: { value: "Manter observação" } });
+    fireEvent.change(replacement, { target: { value: "901" } });
+    await waitFor(() => expect(service).toBeDisabled());
+    fireEvent.change(replacement, { target: { value: "" } });
+    expect(service).not.toBeDisabled();
+    expect(window.getComputedStyle(service).appearance).not.toBe("none");
+    fireEvent.change(service, { target: { value: "40" } });
+    expect(replacement).toHaveValue("");
+    expect(container.querySelector('select[name="professional_user_id"]')).toHaveValue("30");
+    expect(date).toHaveValue("2026-06-30");
+    expect(hour).toHaveValue("10");
+    expect(notes).toHaveValue("Manter observação");
+    await submitAndConfirmReview();
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith("/sessions", expect.objectContaining({
+      service_id: 40, service_type: "spine_eval", session_replacement_credit_id: null,
+      professional_user_id: 30, notes: "Manter observação",
+    })));
+  });
+
   it("cria Novo agendamento como avulso mesmo para paciente com plano ativo", async () => {
     const { container } = renderAgendamentos();
 

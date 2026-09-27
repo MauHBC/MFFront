@@ -1,9 +1,14 @@
-import styled from "styled-components";
+import styled, { css } from "styled-components";
 import { alpha, colors, fontSizes, radii } from "../../styles/tokens";
 
 /**
  * Componentes estruturais de formulário para módulos administrativos.
  */
+
+export const disabledFieldStyles = css`
+  background: ${colors.fieldDisabledBackground};
+  color: ${colors.mutedText};
+`;
 
 export const Field = styled.label`
   display: flex;
@@ -24,8 +29,7 @@ export const Field = styled.label`
     background: ${colors.white};
 
     &:disabled {
-      background: ${colors.fieldDisabledBackground};
-      color: ${colors.mutedText};
+      ${disabledFieldStyles}
     }
   }
 

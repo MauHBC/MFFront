@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
+import { disabledFieldStyles } from "../AppForm";
 
 import {
   filterPatients,
@@ -153,8 +154,7 @@ const Input = styled.input`
   box-sizing: border-box;
 
   &:disabled {
-    background: #f4f5f2;
-    color: #888;
+    ${disabledFieldStyles}
   }
 `;
 
