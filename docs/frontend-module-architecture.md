@@ -444,10 +444,53 @@ permanecem. Profissional é pertinente quando apenas Pacote e/ou Avulsa estão
 ativos; a troca de tipos conserva a limpeza existente desse filtro.
 Os tipos não alteram a seleção financeira dos modais. Os links antigos com
 `view=mensalidades` conservam paciente e período e abrem apenas Mensalidade.
-Para três tipos, o resumo usa `charge_type=all`; para subconjuntos, reúne os
-resumos dos tipos selecionados pelo endpoint existente, agrupando pacientes e
-somando apenas valores retornados pelo Backend. Nenhum tipo evita a consulta
-do resumo e apresenta valores zerados. Não muda contratos nem regras financeiras.
+O hook `useRevenuePatientPages` solicita os tipos selecionados juntos em
+`charge_types`, com `financial_status`, `patient_query`, `page` e `page_size=20`.
+Pesquisa e situação são resolvidas pelo Backend no conjunto inteiro. A pesquisa
+conserva o debounce de 250 ms; tipos, situação e revalidação financeira têm
+consulta imediata. Nenhum tipo
+ativo envia a seleção vazia e retorna zero pacientes/cobranças, sem reativar a
+busca de pacientes para crédito. Contratos completos permanecem no detalhe e
+nos comandos financeiros.
+
+O seletor é **Todos | A vencer | Vencidos | Pagos**. `revenue_status` vem da
+classificação canônica por cobrança; filtro e resumo por paciente não usam
+mais a mistura de saldos do paciente para decidir Parcial. Parcialidade continua
+nos valores Pago/A receber. A data de hoje no calendário de São Paulo é A vencer;
+parcela futura não entra no saldo atrasado de cobrança que também tem atraso.
+Saldo aberto sem vencimento aparece em Todos como **Vencimento não registrado**.
+Cards, linhas e detalhe filtram o mesmo conjunto de cobranças comerciais.
+
+Em Todos, o campo de status permanece neutro. Situação específica usa o fundo
+e a borda do padrão existente (verde para Pagos, vermelho para Vencidos, azul
+para A vencer), junto de **Filtro ativo** e **Limpar**, sem depender apenas de
+cor. Limpar muda exclusivamente o status para Todos, preservando pesquisa,
+paciente, competência e tipos; o fluxo de consulta reinicia a primeira página
+e descarta respostas antigas. Voltar do detalhe conserva as restrições.
+Consulta concluída e vazia sob status específico informa **Nenhuma cobrança
+encontrada com o status ‘Pagos’ para esta pesquisa.**, adaptando a situação.
+Nenhum tipo selecionado, carregamento e erro têm mensagens próprias.
+
+A lista começa com 20 pacientes. **Carregar mais 20** anexa o bloco seguinte,
+sem desmontar as linhas anteriores, mover rolagem ou alterar os cards globais.
+**Exibindo X de Y pacientes** usa a quantidade global do servidor; o botão some
+no último bloco. Os cards usam `summary`/`charges_count`, nunca a soma das páginas.
+A página é selecionada por SQL no Backend, com ordenação por nome e desempate ID.
+Consulta alterada reinicia a paginação; geração/contexto recusam respostas antigas,
+inclusive anexação atrasada. Mudança de `result_version` entre páginas recarrega
+o primeiro bloco para evitar combinar retratos financeiros diferentes.
+Erro de próxima página mantém linhas e oferece nova tentativa; movimentações
+financeiras revalidam cards/lista, e detalhes/modais conservam todos os destinos.
+
+O Backend compatível deve preceder este bundle: o hook exige os metadados da
+paginação e trata sua ausência como erro de consulta. Abas anteriores continuam
+consumindo o contrato completo sem `page_size`; recebimentos, descontos, crédito
+e Histórico mantêm seus comandos. A publicação e a recarga seguem os
+[runbooks existentes](deploy-production.md) e a
+[ordem canônica da consulta](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#compatibilidade-e-ordem-de-publicação-da-consulta-paginada).
+O resumo anual evita conversões repetidas das sessões; a
+[medição local e os limites](https://github.com/MauHBC/MFBackend/blob/main/docs/arquitetura/matriz-testes.md#status-e-paginação-de-receitas)
+permanecem na matriz do Backend, sem promessa de tempo equivalente em produção.
 
 A seção Filtros segue a ordem **Pesquisar paciente | Status financeiro | Tipo
 de cobrança**: pesquisa flexível, status compacto e chips com largura natural.
@@ -460,7 +503,7 @@ Durante a consulta, resumo e lista do mesmo período/contexto permanecem visíve
 como **Atualizando receitas — resultados anteriores**, com `aria-busy` nas duas
 áreas. Não há limpeza prévia das datas/atrasos, cards zerados ou estado vazio
 confirmado durante atualização. O resultado e sua apresentação são publicados
-juntos após todas as respostas do subconjunto. Falha mantém os dados anteriores
+juntos após a resposta única do conjunto selecionado. Falha mantém os dados anteriores
 explicitamente não atualizados, oferece retry e não confirma a seleção nova.
 A primeira consulta ou troca de período não mostra resultados da competência
 anterior. A guarda existente de geração é complementada pela identidade da
@@ -708,14 +751,16 @@ recalcula os valores financeiros nem altera Histórico ou tabela principal.
 
 Somente este modal usa as variantes locais `RevenueChargeDetail*`: o cartão
 flex limita sua altura à janela e às margens de área segura; título/X e rodapé
-com **Fechar** não encolhem. O corpo, focável por teclado, é a única área de
-rolagem vertical. A tabela tem altura natural, diretamente nesse corpo, sem
-wrapper rolável intermediário. Os três cabeçalhos **Data | Profissional | Status**
-ficam sticky no topo do corpo quando alcançados, com fundo opaco, sem duplicar
-tabela/cabeçalho nem sobrepor título ou rodapé. Em telas estreitas, eventual
-rolagem horizontal também pertence ao corpo, sem transbordar o modal. Não há
-limite próprio de altura ou segunda rolagem vertical. Listas pequenas não
-recebem altura fixa, e o conteúdo não usa fonte reduzida. A página ao fundo fica
+com **Fechar** não encolhem. Período/metadados e o resumo único de sessões ficam
+fora da rolagem. Somente a região focável da tabela pode rolar; seus três
+cabeçalhos **Data | Profissional | Status** permanecem sticky no topo dessa
+região, com fundo opaco. Não há tabela, cabeçalho ou resumo duplicado. O corpo
+flexível limita a região à altura disponível da janela, sem segunda rolagem
+vertical. Colunas têm larguras compartilhadas entre cabeçalho e linhas e textos
+podem quebrar; telas baixas/estreitas compactam espaçamentos. Listas pequenas
+mantêm altura natural, e primeira/última sessões continuam no mesmo conteúdo.
+Mensalidade, pacote e avulsa preservam seus metadados e estados próprios.
+A página ao fundo fica
 travada durante a abertura. Foco inicial no X, Tab contido, Escape e restauração
 do foco/overflow ao fechar são locais ao modal; o teclado só é interceptado se
 este for o diálogo mais alto. Ao trocar para Resolver pendência, o fechamento
@@ -727,6 +772,13 @@ cobrem a simplificação, resumo por tipo, lista longa completa, vínculo/recarg
 sessões de mensalidade, estados e controles de teclado/rolagem, preservando as
 asserções financeiras na tabela. Persistência e lifecycle são validados por
 HTTP/MariaDB no Backend; testes de componente não comprovam a rolagem visual.
+As caracterizações de mensalidades e recebimentos também usam o contrato
+paginado real nos mocks (`page_info`, contagens globais, versão e status por
+paciente), inclusive pesquisa sem cobrança para crédito. O teste de estrutura
+verifica o contexto fora do único wrapper rolável e a tabela sem largura mínima
+que force corte em telas estreitas. O gate completo permanece `CI=true npm test
+-- --watchAll=false --runInBand`; executar somente os testes novos não cobre
+essas caracterizações.
 
 ### Cancelamento financeiro e histórico do paciente
 

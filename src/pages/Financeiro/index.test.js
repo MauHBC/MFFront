@@ -224,18 +224,27 @@ const unifiedDetailFixture = ({ data, ...response }) => {
 };
 const fixtureResponses = (mock, convert) => {
   const setup = {
-    mockResolvedValue: (value) => { mock.mockResolvedValue(convert(value)); return setup; },
-    mockResolvedValueOnce: (value) => { mock.mockResolvedValueOnce(convert(value)); return setup; },
+    mockResolvedValue: (value) => { mock.mockImplementation(async (...args) => convert(value, ...args)); return setup; },
+    mockResolvedValueOnce: (value) => { mock.mockImplementationOnce(async (...args) => convert(value, ...args)); return setup; },
     mockImplementation: (implementation) => {
-      mock.mockImplementation(async (...args) => convert(await implementation(...args)));
+      mock.mockImplementation(async (...args) => convert(await implementation(...args), ...args));
       return setup;
     },
   };
   return setup;
 };
 const detailFixtures = fixtureResponses(getFinancialRevenuePatientDetail, unifiedDetailFixture);
-const summaryFixtures = fixtureResponses(getFinancialRevenuesSummary,
-  ({ data, ...response }) => ({ ...response, data: { ...data, origin: "all" } }));
+const summaryFixtures = fixtureResponses(getFinancialRevenuesSummary, (response, period, mode, filters = {}) => {
+  const { data } = response;
+  const search = String(filters.patient_query || "").toLowerCase();
+  const patients = (data.patients || []).filter((row) => !search || `${row.patient_name} ${row.patient_full_name}`.toLowerCase().includes(search))
+    .map((row) => ({ ...row, revenue_status: row.pending <= 0 ? "paid" : "upcoming" }));
+  const summary = search ? patients.reduce((sum, row) => ({ total: sum.total + row.total,
+    received: sum.received + row.received, pending: sum.pending + row.pending }), { total: 0, received: 0, pending: 0 }) : data.summary;
+  return { ...response, data: { ...data, summary, patients, origin: "all", patients_count: patients.length,
+    charges_count: patients.reduce((sum, row) => sum + row.entries_count, 0), result_version: "fixture",
+    page_info: { page: 1, page_size: 20, total: patients.length, has_more: false, next_page: null } } };
+});
 const mockBillingCycleDetail = ({ data: cycles }) => {
   const charges = cycles.map((cycle) => ({
     kind: "billing_cycle", sourceId: cycle.id, service_name: cycle.ServicePlan.name,
@@ -1019,7 +1028,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(within(patientRow).getAllByRole("cell")[2].textContent).toBe("10/06/2026");
     expect(within(patientRow).getAllByRole("cell")[2].childElementCount).toBe(0);
     expect(within(patientRow).getByText("R$ 600,00")).toBeInTheDocument();
-    expect(within(patientRow).getByText("Parcial")).toBeInTheDocument();
+    expect(within(patientRow).getByText("A vencer")).toBeInTheDocument();
 
     await userEvent.click(within(patientRow).getByRole("button", { name: "Detalhes" }));
     const detailRow = (await screen.findByText("Fisioterapia")).closest("tr");
@@ -1028,7 +1037,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(within(detailRow).getByText("R$ 1.000,00")).toBeInTheDocument();
     expect(within(detailRow).getByText("R$ 400,00")).toBeInTheDocument();
     expect(within(detailRow).getByText("R$ 600,00")).toBeInTheDocument();
-    expect(within(detailRow).getByText("Parcial")).toBeInTheDocument();
+    expect(within(detailRow).getByText("A vencer")).toBeInTheDocument();
     expect(within(detailRow.closest("table")).getByRole("columnheader", { name: "Situação" }))
       .toBeInTheDocument();
   });
@@ -1076,7 +1085,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(within(patientRow).getAllByRole("cell")[2].textContent).toBe("10/06/2026");
     expect(within(patientRow).getAllByRole("cell")[2].childElementCount).toBe(0);
     expect(within(patientRow).getByText("02/06/2026")).toBeInTheDocument();
-    expect(within(patientRow).getByText("Parcial")).toBeInTheDocument();
+    expect(within(patientRow).getByText("A vencer")).toBeInTheDocument();
   });
 
   it("mantém o recorte anual ao escolher a menor data aberta e tolera ausência de data", async () => {
@@ -1148,7 +1157,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(within(mariaRow).getAllByRole("cell")[2].textContent).toBe("15/02/2026");
     expect(within(mariaRow).getAllByRole("cell")[2].childElementCount).toBe(0);
     expect(within(brunoRow).getAllByText("-")).toHaveLength(2);
-    expect(getFinancialRevenuesSummary).toHaveBeenCalledWith("2026", "year", { origin: "all", charge_type: "all" });
+    expect(getFinancialRevenuesSummary).toHaveBeenCalledWith("2026", "year", expect.objectContaining({ origin: "all", charge_types: "billing_cycle,entry,series" }));
     expect(getFinancialRevenuePatientDetail).not.toHaveBeenCalled();
   });
 
@@ -1300,7 +1309,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       "R$ 1.050,00",
       "R$ 150,00",
       "R$ 900,00",
-      "Parcial",
+      "A vencer",
       "Detalhes",
     ]);
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
@@ -1615,7 +1624,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expectFinancialValuesAlwaysVisible();
     await userEvent.click(screen.getByRole("button", { name: "< Anterior" }));
     await waitFor(() => {
-      expect(getFinancialRevenuesSummary).toHaveBeenCalledWith("2026-05", "month", { origin: "all", charge_type: "all" });
+      expect(getFinancialRevenuesSummary).toHaveBeenCalledWith("2026-05", "month", expect.objectContaining({ origin: "all", charge_types: "billing_cycle,entry,series" }));
     });
     await screen.findByText("Marcos Vinicius Forecchi Accioly");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
@@ -1692,7 +1701,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       "R$ 300,00",
       "R$ 0,00",
       "R$ 300,00",
-      "Pendente",
+      "A vencer",
       "Detalhes",
     ]);
 
@@ -1764,7 +1773,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     }
     await screen.findByText(patient.patient_name);
     await waitFor(() => expect(getFinancialRevenuesSummary).toHaveBeenLastCalledWith(
-      mode === "month" ? "2026-10" : "2026", mode, { origin: "all", charge_type: "all" },
+      mode === "month" ? "2026-10" : "2026", mode, expect.objectContaining({ origin: "all", charge_types: "billing_cycle,entry,series" }),
     ));
     const summary = () => within(screen.getByText("Resumo de cobrança").parentElement.parentElement);
     const expectTotals = (total, chargeCount) => {
@@ -1779,7 +1788,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       await userEvent.clear(search);
       await userEvent.type(search, query);
       expect(screen.getByText(patient.patient_name)).toBeInTheDocument();
-      expect(screen.queryByText("Outro paciente")).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText("Outro paciente")).not.toBeInTheDocument());
       expectTotals("R$ 400,00", "1");
       expect(within(screen.getByText(patient.patient_name).closest("tr")).getByText("R$ 400,00")).toBeInTheDocument();
     };
@@ -1788,11 +1797,12 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await expectSearch("Apelido");
     await userEvent.clear(search);
     await userEvent.type(search, "inexistente");
-    expect(screen.queryByText(patient.patient_name)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(patient.patient_name)).not.toBeInTheDocument());
     expectTotals("R$ 0,00", "0");
     await userEvent.clear(search);
-    expectTotals("R$ 470,00", "2");
+    await waitFor(() => expectTotals("R$ 470,00", "2"));
     await userEvent.type(search, "TESTE");
+    await waitFor(() => expect(screen.queryByText("Outro paciente")).not.toBeInTheDocument());
     const callsBeforeDetail = getFinancialRevenuesSummary.mock.calls.length;
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
     expect(await screen.findByText("Fisioterapia pacote")).toBeInTheDocument();
@@ -1814,7 +1824,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(search).toBeEnabled();
     expect(search).toHaveValue("TESTE");
     await userEvent.clear(search);
-    expectTotals("R$ 470,00", "2");
+    await waitFor(() => expectTotals("R$ 470,00", "2"));
     expect(listFinancialEntries).not.toHaveBeenCalled();
     expect(axios.get).not.toHaveBeenCalledWith("/sessions", expect.anything());
   });
@@ -1825,7 +1835,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
 
     await waitFor(() => {
-      expect(getFinancialRevenuesSummary).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}$/), "year", { origin: "all", charge_type: "all" });
+      expect(getFinancialRevenuesSummary).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}$/), "year", expect.objectContaining({ origin: "all", charge_types: "billing_cycle,entry,series" }));
     });
     expect(listFinancialEntries).not.toHaveBeenCalled();
   });
@@ -2270,7 +2280,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     const row = (await screen.findByText("Avulsa credito parcial")).closest("tr");
     await waitFor(() => {
       expect(within(row).getAllByRole("cell").slice(3, 7).map((cell) => cell.textContent.replace(/\s+/g, " ").trim()))
-        .toEqual(["R$ 100,00", "R$ 30,00", "R$ 70,00", "Parcial"]);
+        .toEqual(["R$ 100,00", "R$ 30,00", "R$ 70,00", "A vencer"]);
     });
     expect(screen.queryByText("Nenhum pacote de sessões encontrado para este paciente.")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Status financeiro")).toHaveValue("all");

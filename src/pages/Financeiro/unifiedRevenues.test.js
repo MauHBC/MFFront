@@ -69,10 +69,25 @@ const expectActiveTypes = (activeLabels) => {
       .toHaveAttribute("aria-pressed", String(activeLabels.includes(label)));
   });
 };
+const fixtureRevenueStatus = (charge) => {
+  if (charge.open_cents <= 0) return "paid";
+  if (charge.overdue_cents > 0) return "overdue";
+  return "upcoming";
+};
+
+const pageFixture = (response) => {
+  const { data } = response;
+  if (data?.page_info) return response;
+  if (data?.origin !== "all" || !data.summary || !data.patients) return response;
+  return { ...response, data: { ...data, patients_count: data.patients.length,
+    charges_count: data.patients.reduce((sum, row) => sum + row.entries_count, 0), result_version: "fixture",
+    page_info: { page: 1, page_size: 20, total: data.patients.length, has_more: false, next_page: null },
+    patients: data.patients.map((row) => ({ ...row, revenue_status: fixtureRevenueStatus({ open_cents: row.pending, overdue_cents: row.overdue_cents }) })) } };
+};
 const deferredResponse = () => {
   let resolve;
   const promise = new Promise((complete) => { resolve = complete; });
-  return { promise, resolve };
+  return { promise, resolve: (response) => resolve(response?.data ? pageFixture(response) : response) };
 };
 const cycleSession = (id, extra = {}) => ({
   id, clinic_id: 77, patient_id: patient.id, billing_cycle_id: monthly.sourceId,
@@ -110,12 +125,21 @@ const expectSingleSessionHeader = (dialog) => {
   const tables = within(dialog).getAllByRole("table");
   expect(tables).toHaveLength(1);
   expect(tables[0].parentElement).toBe(body);
+  expect(body).toHaveStyle("overflow: auto; min-height: 0;");
+  expect(body.parentElement).toHaveStyle("overflow: hidden; display: flex;");
+  expect(within(body).queryByText("Período:")).not.toBeInTheDocument();
+  expect(within(body).queryByText("Sessões", { exact: true })).not.toBeInTheDocument();
   expect(tables[0].querySelectorAll("thead")).toHaveLength(1);
   expect(within(dialog).getAllByRole("columnheader").map((header) => header.textContent))
     .toEqual(["Data", "Profissional", "Status"]);
   within(dialog).getAllByRole("columnheader").forEach((header) => {
     expect(header).toHaveAttribute("scope", "col");
   });
+};
+
+const summaryMock = {
+  mockImplementation: (implementation) => financial.getFinancialRevenuesSummary.mockImplementation(async (...args) => pageFixture(await implementation(...args))),
+  mockResolvedValue: (response) => financial.getFinancialRevenuesSummary.mockResolvedValue(pageFixture(response)),
 };
 
 beforeEach(() => {
@@ -125,12 +149,12 @@ beforeEach(() => {
   });
   detail = makeDetail();
   Object.values(financial).forEach((fn) => { if (jest.isMockFunction(fn)) fn.mockResolvedValue({ data: [] }); });
-  financial.getFinancialRevenuesSummary.mockImplementation(async (period, mode, filters) => {
-    const filtered = makeDetail(detail.charges.filter((charge) => filters.charge_type === "all" || charge.kind === filters.charge_type));
+  summaryMock.mockImplementation(async (period, mode, filters) => {
+    const filtered = makeDetail(detail.charges.filter((charge) => filters.charge_types.split(",").includes(charge.kind) && (filters.financial_status === "all" || filters.financial_status === fixtureRevenueStatus(charge))));
     return { data: {
     origin: "all", month: "2026-09", summary: filtered.summary,
-    patients: [{ patient_id: patient.id, patient_name: patient.full_name, ...filtered.summary,
-      entries_count: filtered.charges.length, reference_date: "2026-09-01", due_date: "2026-09-05", overdue_cents: 58000 }],
+    patients: filtered.charges.length ? [{ patient_id: patient.id, patient_name: patient.full_name, ...filtered.summary,
+      entries_count: filtered.charges.length, reference_date: "2026-09-01", due_date: "2026-09-05", overdue_cents: filtered.charges.reduce((sum, row) => sum + row.overdue_cents, 0) }] : [],
     professionals: [{ id: 8, name: "Profissional teste" }],
   } }; });
   financial.getFinancialRevenuePatientDetail.mockImplementation(async () => ({ data: detail }));
@@ -199,11 +223,8 @@ test("chips em Filtros combinam tipos, mantêm busca/status/período e permitem 
   await userEvent.click(screen.getByRole("button", { name: "Mensalidade", exact: true }));
   expectActiveTypes(["Pacote", "Avulsa"]);
   await waitFor(() => expect(financial.getFinancialRevenuesSummary).toHaveBeenCalledWith(
-    "2026-09", "month", { origin: "all", charge_type: "entry" },
+    "2026-09", "month", expect.objectContaining({ origin: "all", charge_types: "entry,series" }),
   ));
-  expect(financial.getFinancialRevenuesSummary).toHaveBeenCalledWith(
-    "2026-09", "month", { origin: "all", charge_type: "series" },
-  );
   await userEvent.click(screen.getByRole("button", { name: "Pacote", exact: true }));
   expectActiveTypes(["Avulsa"]);
   expect(screen.getByLabelText("Pesquisar paciente")).toHaveValue("TESTE");
@@ -213,12 +234,12 @@ test("chips em Filtros combinam tipos, mantêm busca/status/período e permitem 
   await userEvent.click(screen.getByRole("button", { name: "Avulsa", exact: true }));
   expectActiveTypes([]);
   await waitFor(() => expect(screen.queryByText(patient.full_name)).not.toBeInTheDocument());
-  expect(financial.getFinancialRevenuesSummary).toHaveBeenCalledTimes(calls);
+  expect(financial.getFinancialRevenuesSummary).toHaveBeenCalledTimes(calls + 1);
   await userEvent.click(screen.getByRole("button", { name: "Visão anual" }));
   await userEvent.click(screen.getByRole("button", { name: "Pacote", exact: true }));
   expectActiveTypes(["Pacote"]);
   await waitFor(() => expect(financial.getFinancialRevenuesSummary).toHaveBeenLastCalledWith(
-    "2026", "year", { origin: "all", charge_type: "series" },
+    "2026", "year", expect.objectContaining({ origin: "all", charge_types: "series" }),
   ));
 });
 
@@ -228,24 +249,21 @@ test("profissional filtra combinação de pacote/avulsa e troca de chips limpa o
   await userEvent.click(screen.getByRole("button", { name: "Mensalidade", exact: true }));
   fireEvent.change(screen.getByLabelText("Profissional"), { target: { value: "8" } });
   await waitFor(() => expect(financial.getFinancialRevenuesSummary).toHaveBeenLastCalledWith(
-    "2026-09", "month", { origin: "all", charge_type: "entry", professional_id: "8" },
+    "2026-09", "month", expect.objectContaining({ origin: "all", charge_types: "entry,series", professional_id: "8" }),
   ));
-  expect(financial.getFinancialRevenuesSummary).toHaveBeenCalledWith(
-    "2026-09", "month", { origin: "all", charge_type: "series", professional_id: "8" },
-  );
   await userEvent.click(screen.getByRole("button", { name: "Pacote", exact: true }));
   expect(screen.getByLabelText("Profissional")).toHaveValue("");
   expectActiveTypes(["Avulsa"]);
   await waitFor(() => expect(financial.getFinancialRevenuesSummary).toHaveBeenLastCalledWith(
-    "2026-09", "month", { origin: "all", charge_type: "entry" },
+    "2026-09", "month", expect.objectContaining({ origin: "all", charge_types: "entry" }),
   ));
 });
 
 test.each(Array.from({ length: 8 }, (_, mask) => [mask]))("combinação %i filtra pacientes e cobranças sem limitar o recebimento", async (mask) => {
   const charges = [monthly, pkg, single];
   const included = (index) => Math.floor(mask / (2 ** index)) % 2 === 1;
-  financial.getFinancialRevenuesSummary.mockImplementation(async (period, mode, filters) => {
-    const selected = charges.filter((charge) => filters.charge_type === "all" || charge.kind === filters.charge_type);
+  summaryMock.mockImplementation(async (period, mode, filters) => {
+    const selected = charges.filter((charge) => filters.charge_types.split(",").includes(charge.kind) && (filters.financial_status === "all" || filters.financial_status === fixtureRevenueStatus(charge)));
     const projected = makeDetail(selected);
     return { data: { origin: "all", month: period, summary: projected.summary,
       patients: selected.length ? [{ patient_id: patient.id, patient_name: patient.full_name,
@@ -294,7 +312,7 @@ test.each([monthly, pkg, single].flatMap((charge) => ["pending", "partial", "pai
     expect(due.childElementCount).toBe(0);
     expect(within(row).getAllByRole("cell")[1]).toHaveTextContent(name);
     expect(within(row).getAllByRole("cell")[6])
-      .toHaveTextContent({ pending: "Pendente", partial: "Parcial", paid: "Pago" }[status]);
+      .toHaveTextContent({ pending: "Vencido", partial: "Vencido", paid: "Pago" }[status]);
     expect(row).not.toHaveTextContent("em atraso");
   });
 
@@ -308,7 +326,7 @@ test.each([monthly, pkg, single])("$kind sem vencimento não usa referência, ci
 });
 
 test("lista de pacientes sem vencimento mantém ausência, apesar de referência e atraso calculado", async () => {
-  financial.getFinancialRevenuesSummary.mockResolvedValue({ data: {
+  summaryMock.mockResolvedValue({ data: {
     origin: "all", month: "2026-09", summary: detail.summary,
     patients: [{ patient_id: patient.id, patient_name: patient.full_name, ...detail.summary,
       entries_count: 3, reference_date: "2026-09-01", due_date: null, overdue_cents: 58000 }],
@@ -325,7 +343,7 @@ test("lista de pacientes sem vencimento mantém ausência, apesar de referência
 test.each([["pendente", 0], ["parcial", 20000], ["pago", 78000]])
   ("lista de pacientes com saldo %s preserva vencimento recebido e somente data na célula", async (label, received) => {
     const summary = { total: 78000, received, pending: 78000 - received };
-    financial.getFinancialRevenuesSummary.mockResolvedValue({ data: {
+    summaryMock.mockResolvedValue({ data: {
       origin: "all", month: "2026-09", summary,
       patients: [{ patient_id: patient.id, patient_name: patient.full_name, ...summary,
         entries_count: 3, reference_date: "2026-09-01", due_date: "2026-10-07", overdue_cents: summary.pending }],
@@ -439,7 +457,7 @@ describe("competência somente no título existente dos resultados da consulta",
     await screen.findByText(patient.full_name);
     expectResultsHeading(label);
     expect(financial.getFinancialRevenuesSummary).toHaveBeenLastCalledWith(period, mode,
-      { origin: "all", charge_type: "all" });
+      expect.objectContaining({ origin: "all", charge_types: "billing_cycle,entry,series" }));
     await openPatient();
     expectResultsHeading(label, patient.full_name);
     expect(financial.getFinancialRevenuePatientDetail).toHaveBeenLastCalledWith("30", period, mode, "all");
@@ -460,14 +478,14 @@ describe("competência somente no título existente dos resultados da consulta",
     await screen.findByText(patient.full_name);
     expectResultsHeading("Setembro de 2026");
     const request = deferredResponse();
-    financial.getFinancialRevenuesSummary.mockImplementation(() => request.promise);
+    summaryMock.mockImplementation(() => request.promise);
     fireEvent.change(screen.getByLabelText("Selecionar mes e ano"), { target: { value: "2026-10" } });
     const results = expectResultsHeading("Outubro de 2026");
     expect(within(results).getByText("Carregando resumo...")).toBeVisible();
     expect(within(results).queryByRole("table")).not.toBeInTheDocument();
     expect(within(results).queryByText(patient.full_name)).not.toBeInTheDocument();
     expect(financial.getFinancialRevenuesSummary).toHaveBeenLastCalledWith("2026-10", "month",
-      { origin: "all", charge_type: "all" });
+      expect.objectContaining({ origin: "all", charge_types: "billing_cycle,entry,series" }));
     await act(async () => request.resolve({ data: {
       origin: "all", month: "2026-10", summary: { total: 0, received: 0, pending: 0 }, patients: [],
     } }));
@@ -484,15 +502,15 @@ describe("competência somente no título existente dos resultados da consulta",
     expectResultsHeading("2026");
     expect(screen.getByLabelText("Selecionar ano")).toHaveValue("2026");
     expect(financial.getFinancialRevenuesSummary).toHaveBeenLastCalledWith("2026", "year",
-      { origin: "all", charge_type: "all" });
+      expect.objectContaining({ origin: "all", charge_types: "billing_cycle,entry,series" }));
     const request = deferredResponse();
-    financial.getFinancialRevenuesSummary.mockImplementation(() => request.promise);
+    summaryMock.mockImplementation(() => request.promise);
     fireEvent.change(screen.getByLabelText("Selecionar ano"), { target: { value: "2027" } });
     const results = expectResultsHeading("2027");
     expect(within(results).getByText("Carregando resumo...")).toBeVisible();
     expect(within(results).queryByRole("table")).not.toBeInTheDocument();
     expect(financial.getFinancialRevenuesSummary).toHaveBeenLastCalledWith("2027", "year",
-      { origin: "all", charge_type: "all" });
+      expect.objectContaining({ origin: "all", charge_types: "billing_cycle,entry,series" }));
     await act(async () => request.resolve({ data: {
       origin: "all", year: "2027", summary: { total: 0, received: 0, pending: 0 }, patients: [],
     } }));
@@ -529,7 +547,7 @@ describe("competência somente no título existente dos resultados da consulta",
 });
 
 test("resumo financeiro incompleto mostra erro em vez de valores zerados", async () => {
-  financial.getFinancialRevenuesSummary.mockResolvedValue({ data: { origin: "all", summary: {}, patients: [] } });
+  summaryMock.mockResolvedValue({ data: { origin: "all", summary: {}, patients: [] } });
   open();
   expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível carregar o resumo");
   expect(screen.queryByText(/Nenhuma cobrança no período/)).not.toBeInTheDocument();
@@ -755,20 +773,22 @@ describe("Detalhes da cobrança e sessões canônicas da mensalidade", () => {
     expectCompactChargeDetails(dialog);
   });
 
-  test("lista longa contém todas as 21 sessões retornadas, inclusive primeira e última, sem limite cliente", async () => {
-    const sessions = Array.from({ length: 21 }, (_, index) => cycleSession(900 + index, {
+  test("mensalidade com 20 sessões preserva contexto fora da rolagem e primeira e última linhas", async () => {
+    const sessions = Array.from({ length: 20 }, (_, index) => cycleSession(900 + index, {
       starts_at: `2026-09-${String(index + 1).padStart(2, "0")}T12:30:00.000Z`,
     }));
     mockSessionsRequest(async () => ({ data: [...sessions].reverse() }));
     open("?month=2026-09&patient_id=30");
     const dialog = await openChargeDetails();
-    expect(await within(dialog).findByText(/21 vinculadas ao ciclo.*21 agendadas/)).toBeVisible();
+    expect(await within(dialog).findByText(/20 vinculadas ao ciclo.*20 agendadas/)).toBeVisible();
     const body = within(dialog).getByRole("region", { name: "Conteúdo dos detalhes" });
     const rows = within(body).getAllByRole("row");
-    expect(rows).toHaveLength(22);
+    expect(rows).toHaveLength(21);
     expectSingleSessionHeader(dialog);
     expect(rows[1]).toHaveTextContent("01/09/2026");
-    expect(rows[21]).toHaveTextContent("21/09/2026");
+    expect(rows[20]).toHaveTextContent("20/09/2026");
+    expect(body.contains(within(dialog).getByText(/20 vinculadas ao ciclo/))).toBe(false);
+    expect(body.contains(within(dialog).getByText("Período:", { selector: "dt" }))).toBe(false);
     sessions.forEach((session) => {
       expect(within(body).getByText(session.professional.name)).toBeInTheDocument();
     });
@@ -824,9 +844,9 @@ describe("Detalhes da cobrança e sessões canônicas da mensalidade", () => {
 const projectionForTypes = (types) => {
   const selected = [monthly, pkg, single].filter((charge) => types.includes(charge.kind));
   const projected = makeDetail(selected);
-  return { data: { origin: "all", summary: projected.summary, professionals: [],
+  return pageFixture({ data: { origin: "all", summary: projected.summary, professionals: [],
     patients: selected.length ? [{ patient_id: patient.id, patient_name: patient.full_name,
-      ...projected.summary, entries_count: selected.length, overdue_cents: 58000 }] : [] } };
+      ...projected.summary, entries_count: selected.length, overdue_cents: 58000 }] : [] } });
 };
 
 test("alternar Pacote mantém cards, tabela, filtros, foco e marca atualização até resumo/lista prontos", async () => {
@@ -840,14 +860,12 @@ test("alternar Pacote mantém cards, tabela, filtros, foco e marca atualização
   const results = screen.getByRole("region", { name: "Resultados de receitas" });
   const chip = screen.getByRole("button", { name: "Pacote", exact: true });
   const pendingMonthly = deferredResponse();
-  const pendingSingle = deferredResponse();
   financial.getFinancialRevenuesSummary.mockClear();
-  financial.getFinancialRevenuesSummary.mockImplementation((_, __, filters) => filters.charge_type === "billing_cycle"
-    ? pendingMonthly.promise : pendingSingle.promise);
+  summaryMock.mockImplementation(() => pendingMonthly.promise);
   window.scrollTo = jest.fn();
   await act(async () => { await userEvent.click(chip); });
-  expect(financial.getFinancialRevenuesSummary.mock.calls.map((call) => call[2].charge_type))
-    .toEqual(["billing_cycle", "entry"]);
+  expect(financial.getFinancialRevenuesSummary.mock.calls.map((call) => call[2].charge_types))
+    .toEqual(["billing_cycle,entry"]);
   expect(screen.getByRole("status")).toHaveTextContent("Atualizando receitas — resultados anteriores.");
   expect(summary).toHaveAttribute("aria-busy", "true");
   expect(results).toHaveAttribute("aria-busy", "true");
@@ -860,10 +878,7 @@ test("alternar Pacote mantém cards, tabela, filtros, foco e marca atualização
   expect(screen.getByLabelText("Selecionar mes e ano")).toBe(period);
   expect(screen.getByLabelText("Pesquisar paciente")).toBe(input);
   expect(screen.queryByText(/Carregando resumo|Nenhuma cobrança/)).not.toBeInTheDocument();
-  await act(async () => pendingMonthly.resolve(projectionForTypes(["billing_cycle"])));
-  expect(metrics).toHaveTextContent("R$ 780,00");
-  expect(patientRow).toHaveTextContent("R$ 780,00");
-  await act(async () => pendingSingle.resolve(projectionForTypes(["entry"])));
+  await act(async () => pendingMonthly.resolve(projectionForTypes(["billing_cycle", "entry"])));
   expect(metrics).toHaveTextContent("R$ 580,00");
   expect(patientRow).toHaveTextContent("R$ 580,00");
   expect(summary).toHaveAttribute("aria-busy", "false");
@@ -871,10 +886,10 @@ test("alternar Pacote mantém cards, tabela, filtros, foco e marca atualização
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
   expect(chip).toHaveFocus();
   expect(window.scrollTo).not.toHaveBeenCalled();
-  financial.getFinancialRevenuesSummary.mockResolvedValue(projectionForTypes(["billing_cycle", "series", "entry"]));
+  summaryMock.mockResolvedValue(projectionForTypes(["billing_cycle", "series", "entry"]));
   financial.getFinancialRevenuesSummary.mockClear();
   await act(async () => { await userEvent.click(chip); });
-  expect(financial.getFinancialRevenuesSummary.mock.calls.map((call) => call[2].charge_type)).toEqual(["all"]);
+  expect(financial.getFinancialRevenuesSummary.mock.calls.map((call) => call[2].charge_types)).toEqual(["billing_cycle,entry,series"]);
   expect(metrics).toHaveTextContent("R$ 780,00");
 });
 
@@ -886,7 +901,7 @@ test("respostas de seleção antiga não substituem resumo/lista da seleção ma
   const latestSingle = deferredResponse();
   financial.getFinancialRevenuesSummary.mockReset();
   financial.getFinancialRevenuesSummary.mockReturnValueOnce(monthlyResponse.promise)
-    .mockReturnValueOnce(oldSingle.promise).mockReturnValueOnce(latestSingle.promise);
+    .mockReturnValueOnce(latestSingle.promise);
   await act(async () => { await userEvent.click(screen.getByRole("button", { name: "Pacote", exact: true })); });
   await act(async () => { await userEvent.click(screen.getByRole("button", { name: "Mensalidade", exact: true })); });
   await act(async () => latestSingle.resolve(projectionForTypes(["entry"])));
@@ -916,7 +931,7 @@ test("falha preserva dados anteriores com alerta e retry publica a seleção pen
   expect(metric).toHaveTextContent("R$ 780,00");
   expect(row).toBeInTheDocument();
   expect(summary).toHaveAttribute("aria-busy", "false");
-  financial.getFinancialRevenuesSummary.mockImplementation(async (_, __, filters) => projectionForTypes([filters.charge_type]));
+  summaryMock.mockImplementation(async (_, __, filters) => projectionForTypes(filters.charge_types.split(",")));
   await act(async () => { await userEvent.click(screen.getByRole("button", { name: "Tentar novamente" })); });
   expect(metric).toHaveTextContent("R$ 580,00");
   expect(row).toHaveTextContent("R$ 580,00");
@@ -963,8 +978,8 @@ test("troca de contexto limpa o resultado retido e não aceita respostas da clí
   try {
     rendered.rerender(<MemoryRouter initialEntries={["/financeiro/receitas?month=2026-09"]}><Financeiro /></MemoryRouter>);
     expect(screen.queryByText(patient.full_name)).not.toBeInTheDocument();
-    expect(financial.getFinancialRevenuesSummary.mock.calls.map((call) => call[2].charge_type))
-      .toEqual(["billing_cycle", "entry"]);
+    expect(financial.getFinancialRevenuesSummary.mock.calls.map((call) => call[2].charge_types))
+      .toEqual(["billing_cycle,entry"]);
     await act(async () => old.resolve(projectionForTypes(["billing_cycle", "entry"])));
     expect(screen.queryByText(patient.full_name)).not.toBeInTheDocument();
     await act(async () => next.resolve(projectionForTypes([])));
@@ -994,4 +1009,155 @@ test("recebimento sintético recarrega detalhe e resumo mantendo os tipos seleci
     receipt_groups: [{ kind: "billing_cycle", id: 11 }],
   }), expect.any(String));
   expect(financial.getFinancialRevenuePatientDetail.mock.calls.length).toBeGreaterThan(1);
+});
+
+
+test("pagina 20/40/45 mantém linhas, foco, rolagem e cards globais; último bloco remove o botão", async () => {
+  const people = Array.from({ length: 45 }, (_, index) => ({ patient_id: index + 100,
+    patient_name: `TESTE Página ${index + 1}`, patient_full_name: `TESTE Página ${index + 1}`,
+    total: 10000, received: 0, pending: 10000, entries_count: 1, revenue_status: "upcoming" }));
+  summaryMock.mockImplementation(async (_, __, filters) => ({ data: { origin: "all",
+    summary: { total: 450000, received: 0, pending: 450000 }, charges_count: 45, patients_count: 45,
+    result_version: "pages", professionals: [], patients: people.slice((filters.page - 1) * 20, filters.page * 20),
+    page_info: { page: filters.page, page_size: 20, total: 45, has_more: filters.page < 3,
+      next_page: filters.page < 3 ? filters.page + 1 : null } } }));
+  open();
+  await screen.findByText("TESTE Página 1");
+  const firstRow = screen.getByText("TESTE Página 1").closest("tr");
+  const summary = screen.getByRole("region", { name: "Resumo de receitas" });
+  const card = within(summary).getByText("Valor").parentElement;
+  expect(card).toHaveTextContent("R$ 4.500,00");
+  expect(screen.getByText(/Exibindo 20 de 45 pacientes/)).toBeInTheDocument();
+  const button = screen.getByRole("button", { name: "Carregar mais 20" });
+  window.scrollTo = jest.fn();
+  await userEvent.click(button);
+  await screen.findByText("TESTE Página 40");
+  expect(screen.getByText("TESTE Página 1").closest("tr")).toBe(firstRow);
+  expect(button).toHaveFocus();
+  expect(card).toHaveTextContent("R$ 4.500,00");
+  expect(screen.getByText(/Exibindo 40 de 45 pacientes/)).toBeInTheDocument();
+  await userEvent.click(button);
+  await screen.findByText("TESTE Página 45");
+  expect(screen.getByText(/Exibindo 45 de 45 pacientes/)).toBeInTheDocument();
+  expect(screen.getByText(/Exibindo 45 de 45 pacientes/)).toHaveFocus();
+  expect(screen.queryByRole("button", { name: "Carregar mais 20" })).not.toBeInTheDocument();
+  expect(card).toHaveTextContent("R$ 4.500,00");
+  expect(window.scrollTo).not.toHaveBeenCalled();
+  expect(screen.getAllByRole("row")).toHaveLength(46);
+});
+
+
+test.each([["paid", "Pagos", "#edf7f1"], ["overdue", "Vencidos", "#fff4f0"], ["upcoming", "A vencer", "#eef3ff"]])
+  ("filtro %s evidencia situação sem depender da cor e Limpar preserva pesquisa, competência e tipos", async (status, label, background) => {
+    open();
+    await screen.findByText(patient.full_name);
+    const selector = screen.getByLabelText("Status financeiro");
+    expect(screen.queryByText("Filtro ativo", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Limpar status financeiro" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Pesquisar paciente"), { target: { value: "TESTE" } });
+    await userEvent.click(screen.getByRole("button", { name: "Pacote", exact: true }));
+    fireEvent.change(selector, { target: { value: status } });
+    await waitFor(() => expect(financial.getFinancialRevenuesSummary).toHaveBeenLastCalledWith("2026-09", "month",
+      expect.objectContaining({ financial_status: status, patient_query: "TESTE", charge_types: "billing_cycle,entry", page: 1 })));
+    expect(selector).toHaveValue(status);
+    expect(within(selector).getByRole("option", { name: label }).selected).toBe(true);
+    expect(selector).toHaveAttribute("aria-describedby", "revenue-status-active");
+    expect(screen.getByText("Filtro ativo", { exact: true })).toBeVisible();
+    expect(selector).toHaveStyle(`background: ${background}`);
+    await userEvent.click(screen.getByRole("button", { name: "Limpar status financeiro" }));
+    await waitFor(() => expect(financial.getFinancialRevenuesSummary).toHaveBeenLastCalledWith("2026-09", "month",
+      expect.objectContaining({ financial_status: "all", patient_query: "TESTE", charge_types: "billing_cycle,entry", page: 1 })));
+    expect(selector).toHaveValue("all");
+    expect(selector).toHaveFocus();
+    expect(selector).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByLabelText("Pesquisar paciente")).toHaveValue("TESTE");
+    expect(screen.getByLabelText("Selecionar mes e ano")).toHaveValue("2026-09");
+    expectActiveTypes(["Mensalidade", "Avulsa"]);
+    expect(screen.queryByText("Filtro ativo", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Limpar status financeiro" })).not.toBeInTheDocument();
+  });
+
+test.each([["paid", "Pagos"], ["overdue", "Vencidos"], ["upcoming", "A vencer"]])
+  ("vazio concluído de %s é contextual e nenhum tipo mantém mensagem própria", async (status, label) => {
+    summaryMock.mockResolvedValue({ data: { origin: "all", summary: { total: 0, received: 0, pending: 0 }, patients: [] } });
+    open();
+    fireEvent.change(screen.getByLabelText("Status financeiro"), { target: { value: status } });
+    expect(await screen.findByText(`Nenhuma cobrança encontrada com o status ‘${label}’ para esta pesquisa.`)).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Mensalidade", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Pacote", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Avulsa", exact: true }));
+    expect(await screen.findByText("Selecione pelo menos um tipo de cobrança.")).toBeVisible();
+    expect(screen.queryByText(`Nenhuma cobrança encontrada com o status ‘${label}’ para esta pesquisa.`)).not.toBeInTheDocument();
+  });
+
+test("Limpar reinicia página um e descarta anexação atrasada do status anterior", async () => {
+  const people = Array.from({ length: 21 }, (_, index) => ({ patient_id: index + 100,
+    patient_name: `Filtro Página ${index + 1}`, total: 10000, received: 10000, pending: 0,
+    entries_count: 1, revenue_status: "paid" }));
+  const late = deferredResponse();
+  const payload = (page) => ({ data: { origin: "all", professionals: [],
+    summary: { total: 210000, received: 210000, pending: 0 }, patients_count: 21, charges_count: 21,
+    result_version: "filter-pages", patients: people.slice((page - 1) * 20, page * 20),
+    page_info: { page, page_size: 20, total: 21, has_more: page === 1, next_page: page === 1 ? 2 : null } } });
+  summaryMock.mockImplementation(async (_, __, filters) => filters.page === 2 ? late.promise : payload(1));
+  open();
+  await screen.findByText("Filtro Página 1");
+  fireEvent.change(screen.getByLabelText("Status financeiro"), { target: { value: "paid" } });
+  await waitFor(() => expect(financial.getFinancialRevenuesSummary).toHaveBeenLastCalledWith("2026-09", "month",
+    expect.objectContaining({ financial_status: "paid", page: 1 })));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Carregar mais 20" })).toBeEnabled());
+  await userEvent.click(screen.getByRole("button", { name: "Carregar mais 20" }));
+  await userEvent.click(screen.getByRole("button", { name: "Limpar status financeiro" }));
+  await waitFor(() => expect(financial.getFinancialRevenuesSummary).toHaveBeenLastCalledWith("2026-09", "month",
+    expect.objectContaining({ financial_status: "all", page: 1 })));
+  await act(async () => late.resolve(payload(2)));
+  expect(screen.queryByText("Filtro Página 21")).not.toBeInTheDocument();
+  expect(screen.getByText(/Exibindo 20 de 21 pacientes/)).toBeVisible();
+  expect(within(screen.getByRole("region", { name: "Resumo de receitas" })).getByText("Valor").parentElement)
+    .toHaveTextContent("R$ 2.100,00");
+});
+
+test("status ativo durante carregamento ou erro não afirma ausência de cobranças", async () => {
+  const request = deferredResponse();
+  summaryMock.mockImplementation(() => request.promise);
+  open();
+  fireEvent.change(screen.getByLabelText("Status financeiro"), { target: { value: "paid" } });
+  expect(screen.queryByText(/Nenhuma cobrança encontrada com o status/)).not.toBeInTheDocument();
+  expect(screen.getByText("Carregando resumo...")).toBeVisible();
+  await act(async () => request.resolve({ data: { origin: "all", summary: {}, patients: [] } }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível carregar o resumo");
+  expect(screen.queryByText(/Nenhuma cobrança encontrada com o status/)).not.toBeInTheDocument();
+});
+
+test("status por cobrança mantém cards, paciente e detalhe coerentes sem Parcial", async () => {
+  detail = makeDetail([
+    { ...monthly, paid_cents: 48000, open_cents: 0, overdue_cents: 0, revenue_status: "paid", entries: [] },
+    { ...pkg, paid_cents: 5000, open_cents: 15000, overdue_cents: 0, revenue_status: "upcoming",
+      entries: [{ ...pkg.entries[0], openCents: 5000 }, pkg.entries[1]] },
+    { ...single, overdue_cents: 10000, revenue_status: "overdue" },
+  ]);
+  open();
+  await screen.findByText(patient.full_name);
+  const selector = screen.getByLabelText("Status financeiro");
+  expect(within(selector).getAllByRole("option").map((option) => option.textContent))
+    .toEqual(["Todos", "A vencer", "Vencidos", "Pagos"]);
+  fireEvent.change(selector, { target: { value: "overdue" } });
+  const summary = screen.getByRole("region", { name: "Resumo de receitas" });
+  await waitFor(() => expect(within(summary).getByText("Valor").parentElement).toHaveTextContent("R$ 100,00"));
+  expect(within(summary).getByText("Cobranças").parentElement).toHaveTextContent("1");
+  const row = screen.getByText(patient.full_name).closest("tr");
+  expect(row).toHaveTextContent("R$ 100,00");
+  expect(row).toHaveTextContent("Vencido");
+  expect(row).not.toHaveTextContent("Parcial");
+  await openPatient();
+  expect(screen.getAllByRole("row")).toHaveLength(2);
+  expect(screen.getByText("Avulsa", { selector: "span" })).toBeVisible();
+  expect(screen.queryByText("Mensalidade", { selector: "span" })).not.toBeInTheDocument();
+  expect(within(summary).getByText("Valor").parentElement).toHaveTextContent("R$ 100,00");
+  await userEvent.click(screen.getByRole("button", { name: "Voltar", exact: true }));
+  expect(screen.getByLabelText("Status financeiro")).toHaveValue("overdue");
+  expect(screen.getByText("Filtro ativo", { exact: true })).toBeVisible();
+  await openPatient();
+  await userEvent.click(screen.getByRole("button", { name: "Registrar recebimento" }));
+  expect(screen.getAllByRole("checkbox")).toHaveLength(2);
 });

@@ -18,12 +18,16 @@ export const normalizeFinancialRevenuesSummary = (payload = {}, fallbackMonth = 
 
   return {
     month: payload.month || fallbackMonth,
+    ...(payload.page_info ? { page_info: payload.page_info, patients_count: payload.patients_count,
+      charges_count: payload.charges_count, result_version: payload.result_version } : {}),
     summary: {
       total: toCents(summary.total),
       received: toCents(summary.received),
       pending: toCents(summary.pending),
     },
     patients: patients.map((patient) => ({
+      ...(payload.page_info ? { reference_date: patient.reference_date, due_date: patient.due_date,
+        overdue_cents: patient.overdue_cents, revenue_status: patient.revenue_status } : {}),
       patient_id: Number(patient.patient_id || 0),
       patient_name: patient.patient_name || "Paciente",
       patient_full_name: patient.patient_full_name || patient.patient_name || "Paciente",
@@ -58,6 +62,7 @@ export const filterFinancialRevenuesSummary = (payload = {}, query = "") => {
 export const mapRevenuesSummaryPatientsToAttendanceRows = (payload = {}) => (
   Array.isArray(payload.patients) ? payload.patients : []
 ).map((patient) => ({
+  ...(patient.revenue_status ? { revenueStatus: patient.revenue_status } : {}),
   patientId: Number(patient.patient_id || 0),
   patientName: patient.patient_name || "Paciente",
   sessions: Number(patient.entries_count || 0),
@@ -74,7 +79,7 @@ export const mapRevenuesSummaryToAttendanceSummary = (payload = {}) => {
   const pendingAmount = toCents(summary.pending);
 
   return {
-    total: patients.reduce((sum, patient) => sum + Number(patient.entries_count || 0), 0),
+    total: payload.charges_count ?? patients.reduce((sum, patient) => sum + Number(patient.entries_count || 0), 0),
     openSessions: patients
       .filter((patient) => toCents(patient.pending) > 0)
       .reduce((sum, patient) => sum + Number(patient.entries_count || 0), 0),
