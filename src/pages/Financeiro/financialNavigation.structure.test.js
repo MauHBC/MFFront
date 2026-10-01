@@ -141,7 +141,8 @@ describe("Financeiro - título existente com competência sticky, sem validaçã
     expect(source).toContain("{attendanceDetailPatientSummary.patientName}{periodSuffix}");
     expect(styledBlock("AttendanceDetailHeader")).not.toContain("position: sticky;");
     expect(styledBlock("AttendancePatientDetailTopline")).not.toContain("position: sticky;");
-    const start = source.indexOf("<AttendanceResultsCard>");
+    const start = source.indexOf("<AttendanceResultsCard ");
+    expect(start).toBeGreaterThanOrEqual(0);
     const markup = source.slice(start, source.indexOf("</AttendanceResultsCard>", start));
     expect(markup).toContain("attendanceContent");
     expect(markup).toContain("isAttendanceInitialLoading");

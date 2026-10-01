@@ -260,7 +260,9 @@ test("link mensal preserva período, autorização pelo servidor e valores visí
   await screen.findByText("Maria Silva");
   expect(getFinancialRevenuesSummary).toHaveBeenLastCalledWith("2026-08", "month", { origin: "all", charge_type: "billing_cycle" });
   expect(screen.getByRole("button", { name: "Mensalidade", exact: true })).toHaveAttribute("aria-pressed", "true");
-  expect(screen.getByRole("button", { name: "Todos", exact: true })).toHaveAttribute("aria-pressed", "false");
+  expect(screen.queryByRole("button", { name: "Todos", exact: true })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Pacote", exact: true })).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByRole("button", { name: "Avulsa", exact: true })).toHaveAttribute("aria-pressed", "false");
   expect(listBillingCycles).not.toHaveBeenCalled();
   expect(screen.getByText("Maria Silva").closest("tr")).toHaveTextContent("R$ 700,00");
   expect(screen.queryAllByText(/R\$\s*•/)).toHaveLength(0);

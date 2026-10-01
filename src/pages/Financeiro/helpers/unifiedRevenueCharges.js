@@ -17,6 +17,30 @@ export const validateUnifiedRevenueSummary = (data) => {
   return data;
 };
 
+// Combine disjoint type projections; all financial amounts remain backend values.
+export const mergeUnifiedRevenueSummaries = (payloads, month) => {
+  payloads.forEach(validateUnifiedRevenueSummary);
+  if (payloads.length === 1) return payloads[0];
+  const patients = new Map();
+  const professionals = new Map();
+  const summary = { total: 0, received: 0, pending: 0 };
+  payloads.forEach((payload) => {
+    Object.keys(summary).forEach((key) => { summary[key] += payload.summary[key]; });
+    (payload.professionals || []).forEach((professional) => professionals.set(professional.id, professional));
+    payload.patients.forEach((patient) => {
+      const previous = patients.get(patient.patient_id);
+      if (!previous) { patients.set(patient.patient_id, { ...patient }); return; }
+      ["total", "received", "pending", "entries_count", "overdue_cents"].forEach((key) => {
+        previous[key] = Number(previous[key] || 0) + Number(patient[key] || 0);
+      });
+      ["reference_date", "due_date"].forEach((key) => {
+        if (patient[key] && (!previous[key] || patient[key] < previous[key])) previous[key] = patient[key];
+      });
+    });
+  });
+  return { origin: "all", month, summary, patients: [...patients.values()], professionals: [...professionals.values()] };
+};
+
 export const validateUnifiedRevenueDetail = (detail, patientId) => {
   if (detail?.origin !== "all" || Number(detail?.patient?.id) !== Number(patientId)
     || !Array.isArray(detail.charges) || !Array.isArray(detail.financial_history)

@@ -370,7 +370,8 @@ describe("Financeiro - caracterização dos recebimentos publicados", () => {
         financial_status: "pending", entries: [{ entryId: 901, openCents: 70000 }], sessions: [] }],
     } });
     renderFinanceiro();
-    await userEvent.click(screen.getByRole("button", { name: "Mensalidade", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Pacote", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Avulsa", exact: true }));
     expect(await screen.findByText("Maria Silva")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
     expect(await screen.findByText("Recovery")).toBeInTheDocument();

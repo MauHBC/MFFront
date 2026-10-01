@@ -435,13 +435,42 @@ e não se propaga ao documento ou ao App Shell.
 ### Receitas unificadas e fronteira compartilhada de recebimentos
 
 Receitas apresenta uma lista única por paciente para mensalidades, pacotes e
-avulsas. **Tipo de cobrança** usa botões segmentados no padrão da Agenda:
-**Todos**, **Mensalidade**, **Pacote** e **Avulsa**, com uma única opção ativa e
-**Todos** como padrão. Os tipos filtram a mesma experiência, sem abas
-operacionais separadas, e não alteram a seleção financeira dos modais. Os links
-antigos com `view=mensalidades` conservam paciente e período e abrem o filtro Mensalidade.
-Status financeiro, pesquisa e competência mensal/anual permanecem; Profissional
-é pertinente aos filtros Pacote e Avulsa.
+avulsas. **Tipo de cobrança** fica na seção **Filtros**, com chips arredondados
+no padrão visual dos serviços da Agenda: **Mensalidade**, **Pacote** e **Avulsa**.
+As três opções começam selecionadas; cada clique ativa/desativa somente seu tipo.
+Não há opção Todos. A combinação filtra pacientes e cobranças; sem tipos ativos,
+a listagem fica vazia. Status financeiro, pesquisa e competência mensal/anual
+permanecem. Profissional é pertinente quando apenas Pacote e/ou Avulsa estão
+ativos; a troca de tipos conserva a limpeza existente desse filtro.
+Os tipos não alteram a seleção financeira dos modais. Os links antigos com
+`view=mensalidades` conservam paciente e período e abrem apenas Mensalidade.
+Para três tipos, o resumo usa `charge_type=all`; para subconjuntos, reúne os
+resumos dos tipos selecionados pelo endpoint existente, agrupando pacientes e
+somando apenas valores retornados pelo Backend. Nenhum tipo evita a consulta
+do resumo e apresenta valores zerados. Não muda contratos nem regras financeiras.
+
+A seção Filtros segue a ordem **Pesquisar paciente | Status financeiro | Tipo
+de cobrança**: pesquisa flexível, status compacto e chips com largura natural.
+A linha permite quebra dos tipos quando falta espaço e empilha em telas pequenas,
+com rótulos alinhados e controles de 44px. Profissional, quando pertinente, fica
+na linha seguinte.
+
+Alternar tipos mantém título, competência, filtros, foco e resultados montados.
+Durante a consulta, resumo e lista do mesmo período/contexto permanecem visíveis
+como **Atualizando receitas — resultados anteriores**, com `aria-busy` nas duas
+áreas. Não há limpeza prévia das datas/atrasos, cards zerados ou estado vazio
+confirmado durante atualização. O resultado e sua apresentação são publicados
+juntos após todas as respostas do subconjunto. Falha mantém os dados anteriores
+explicitamente não atualizados, oferece retry e não confirma a seleção nova.
+A primeira consulta ou troca de período não mostra resultados da competência
+anterior. A guarda existente de geração é complementada pela identidade da
+consulta/contexto para recusar respostas antigas, inclusive na troca rápida de
+tipos. Troca de autorização limpa os dados privados retidos.
+
+O detalhe já carregado usa sua projeção completa para filtrar cobranças e o
+resumo correspondente, sem nova consulta por alternância. As opções de destino
+nos modais continuam baseadas no detalhe completo, independentemente desses
+filtros. Recebimentos e uso de crédito conservam a invalidação e recarga existentes.
 
 O resumo e o detalhe consomem os endpoints financeiros existentes com
 `origin=all`. O detalhe recebe `charges`, uma projeção canônica por ciclo, série
