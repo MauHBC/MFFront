@@ -64,33 +64,38 @@ describe("Financeiro - estrutura de rolagem do modal Detalhes, sem validação v
     const baseCard = styledBlock("ModalCard");
     const body = styledBlock("RevenueChargeDetailBody");
     const sessions = styledBlock("RevenueChargeDetailSessionsTable");
+    const scroll = styledBlock("RevenueChargeDetailSessionsScroll");
     expect(overlay).toContain("overflow: hidden;");
     expect(card).toContain("max-width: 100%;");
     expect(card).toContain("max-height: calc(100dvh");
     expect(card).toContain("var(--charge-dialog-top)");
     expect(card).toContain("var(--charge-dialog-bottom)");
-    expect(card).toContain("@media (max-height: 480px)");
+    expect(card).toContain("@media (max-height: 600px), (max-width: 480px)");
     expect(baseCard).toContain("display: flex;");
     expect(baseCard).toContain("flex-direction: column;");
     expect(baseCard).toContain("overflow: hidden;");
     expect(body).toContain("min-height: 0;");
-    expect(body).toContain("display: block;");
-    expect(body).toContain("overflow-x: auto;");
-    expect(body).toContain("overflow-y: auto;");
-    expect(body).toContain("overscroll-behavior-y: contain;");
+    expect(body).toContain("display: flex;");
+    expect(body).toContain("overflow: hidden;");
+    expect(scroll).toContain("min-height: 0;");
+    expect(scroll).toContain("overflow: auto;");
+    expect(scroll).toContain("overscroll-behavior-y: contain;");
     expect(styledBlock("ModalBody")).toContain("flex: 1 1 auto;");
-    expect(source).not.toContain("RevenueChargeDetailSessionsScroll");
-    [card, baseCard, body, sessions].forEach((styles) => {
+    expect(scroll).toContain("flex: 0 1 auto;");
+    [card, baseCard, body, sessions, scroll].forEach((styles) => {
       expect(styles).not.toMatch(/(?:^|\n)\s*height\s*:/);
     });
-    expect(sessions).not.toMatch(/max-height|overflow(?:-[xy])?\s*:|font-size/);
+    expect(sessions).not.toMatch(/(?:^|\n)\s*(?:max-height|overflow(?:-[xy])?|font-size)\s*:/);
     expect(body).not.toContain("font-size");
   });
 
-  it("fixa o único cabeçalho de sessões no corpo rolável, com fundo opaco e sem wrapper intermediário", () => {
+  it("fixa o único cabeçalho de sessões no corpo rolável, com fundo opaco e com contexto fora da região rolável", () => {
+    const scroll = styledBlock("RevenueChargeDetailSessionsScroll");
     const sessions = styledBlock("RevenueChargeDetailSessionsTable");
     expect(sessions).toContain("styled(SimpleTable)");
-    expect(sessions).toContain("min-width: 420px;");
+    expect(sessions).toContain("min-width: 0;");
+    expect(sessions).toContain("table-layout: fixed;");
+    expect(sessions).toContain("overflow-wrap: anywhere;");
     expect(sessions).toContain("border-collapse: separate;");
     expect(sessions).toContain("border-spacing: 0;");
     expect(sessions).toMatch(/thead th\s*\{\s*position: sticky;\s*top: 0;\s*z-index: 1;/);
@@ -98,7 +103,11 @@ describe("Financeiro - estrutura de rolagem do modal Detalhes, sem validação v
     const start = source.indexOf("<RevenueChargeDetailBody");
     const bodyMarkup = source.slice(start, source.indexOf("</RevenueChargeDetailBody>", start));
     expect(bodyMarkup.match(/<RevenueChargeDetailSessionsTable>/g)).toHaveLength(1);
-    expect(bodyMarkup).not.toMatch(/<TableScroll|<AttendanceTableScroll|<RevenueChargeDetailSessionsScroll/);
+    expect(bodyMarkup).not.toMatch(/<TableScroll|<AttendanceTableScroll/);
+    expect(bodyMarkup.match(/<RevenueChargeDetailSessionsScroll /g)).toHaveLength(1);
+    const scrollMarkup = bodyMarkup.slice(bodyMarkup.indexOf("<RevenueChargeDetailSessionsScroll"));
+    expect(scrollMarkup).not.toContain("<RevenueChargeDetailSessionsSummary");
+    expect(scroll).toContain("overflow: auto;");
     expect(bodyMarkup).toContain('<th scope="col">Data</th>');
     expect(bodyMarkup).toContain('<th scope="col">Profissional</th>');
     expect(bodyMarkup).toContain('<th scope="col">Status</th>');

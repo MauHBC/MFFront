@@ -233,18 +233,28 @@ beforeEach(() => {
   availableCredit = 0;
   window.matchMedia = jest.fn().mockReturnValue({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() });
   getFinancialRevenuePatientDetail.mockImplementation(async (id, period, mode) => ({ data: detailFor(id, period, mode) }));
-  getFinancialRevenuesSummary.mockImplementation(async (period, mode) => {
-    const ids = [...new Set(periodCycles(period, mode).map((cycle) => cycle.patient_id))];
+  getFinancialRevenuesSummary.mockImplementation(async (period, mode, filters) => {
+    const matching = filters.patient_query && filters.financial_status === "all"
+      ? patients.filter((patient) => patient.full_name.toLowerCase().includes(filters.patient_query.toLowerCase()))
+      : null;
+    const ids = matching ? matching.map((patient) => patient.id)
+      : [...new Set(periodCycles(period, mode).map((cycle) => cycle.patient_id))];
     const rows = ids.map((id) => {
       const detail = detailFor(id, period, mode);
       const openCharges = detail.charges.filter((charge) => charge.open_cents > 0 && charge.due_date)
         .sort((a, b) => a.due_date.localeCompare(b.due_date));
+      let revenueStatus = detail.summary.pending <= 0 ? "paid" : "upcoming";
+      if (!detail.charges.length) revenueStatus = "missing";
+      else if (detail.charges.some((charge) => charge.overdue_cents > 0)) revenueStatus = "overdue";
       return { patient_id: id, patient_name: detail.patient.full_name, ...detail.summary,
+        revenue_status: revenueStatus,
         entries_count: detail.charges.length, reference_date: detail.charges[0]?.reference_date,
         due_date: openCharges[0]?.due_date || detail.charges[0]?.due_date,
         overdue_cents: detail.charges.reduce((sum, charge) => sum + charge.overdue_cents, 0) };
     });
-    return { data: { origin: "all", patients: rows, summary: rows.reduce((sum, row) => ({
+    return { data: { origin: "all", patients: rows, patients_count: rows.length,
+      charges_count: rows.reduce((sum, row) => sum + row.entries_count, 0), result_version: "cycles-fixture",
+      page_info: { page: 1, page_size: 20, total: rows.length, has_more: false, next_page: null }, summary: rows.reduce((sum, row) => ({
       total: sum.total + row.total, received: sum.received + row.received, pending: sum.pending + row.pending,
     }), { total: 0, received: 0, pending: 0 }), professionals: [] } };
   });
@@ -258,7 +268,7 @@ afterEach(() => { cleanup(); jest.useRealTimers(); });
 test("link mensal preserva período, autorização pelo servidor e valores visíveis desde a abertura", async () => {
   renderMensalidades();
   await screen.findByText("Maria Silva");
-  expect(getFinancialRevenuesSummary).toHaveBeenLastCalledWith("2026-08", "month", { origin: "all", charge_type: "billing_cycle" });
+  expect(getFinancialRevenuesSummary).toHaveBeenLastCalledWith("2026-08", "month", { origin: "all", charge_types: "billing_cycle", financial_status: "all", patient_query: "", page: 1, page_size: 20 });
   expect(screen.getByRole("button", { name: "Mensalidade", exact: true })).toHaveAttribute("aria-pressed", "true");
   expect(screen.queryByRole("button", { name: "Todos", exact: true })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Pacote", exact: true })).toHaveAttribute("aria-pressed", "false");
@@ -289,7 +299,9 @@ test("parcial, vencido, hoje e futuro usam vencimento real sem alterar Data", as
   expect(row).toHaveTextContent("10/08/2026");
   expect(within(row).getAllByRole("cell")[2].textContent).toBe("10/08/2026");
   expect(within(row).getAllByRole("cell")[2].childElementCount).toBe(0);
-  expect(row).toHaveTextContent("Parcial");
+  expect(row).toHaveTextContent("Vencido");
+  expect(row).toHaveTextContent("R$ 300,00");
+  expect(row).toHaveTextContent("R$ 500,00");
 });
 
 test.each(["2026-08-20", "2026-08-31", null])("vencimento %s não inventa atraso ou data", async (dueDate) => {

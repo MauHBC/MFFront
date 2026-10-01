@@ -772,6 +772,13 @@ cobrem a simplificação, resumo por tipo, lista longa completa, vínculo/recarg
 sessões de mensalidade, estados e controles de teclado/rolagem, preservando as
 asserções financeiras na tabela. Persistência e lifecycle são validados por
 HTTP/MariaDB no Backend; testes de componente não comprovam a rolagem visual.
+As caracterizações de mensalidades e recebimentos também usam o contrato
+paginado real nos mocks (`page_info`, contagens globais, versão e status por
+paciente), inclusive pesquisa sem cobrança para crédito. O teste de estrutura
+verifica o contexto fora do único wrapper rolável e a tabela sem largura mínima
+que force corte em telas estreitas. O gate completo permanece `CI=true npm test
+-- --watchAll=false --runInBand`; executar somente os testes novos não cobre
+essas caracterizações.
 
 ### Cancelamento financeiro e histórico do paciente
 
