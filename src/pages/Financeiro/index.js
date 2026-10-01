@@ -1,5 +1,5 @@
 /* eslint-disable no-use-before-define */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import styled from "styled-components";
 import {
@@ -78,11 +78,11 @@ import FinancialCreditUseModal from "./components/FinancialCreditUseModal";
 import useFinancialPaymentFlow from "./hooks/useFinancialPaymentFlow";
 import currentObligationCents, { currentObligationFinancial } from "./helpers/currentObligation";
 import {
+  mergeUnifiedRevenueSummaries,
   buildUnifiedReceiptGroups,
   mapUnifiedRevenueCharge,
   revenueTypeLabel,
   validateUnifiedRevenueDetail,
-  validateUnifiedRevenueSummary,
 } from "./helpers/unifiedRevenueCharges";
 import {
   emptyFinancialRevenuesSummary,
@@ -668,7 +668,8 @@ export default function Financeiro() {
     getFinancialSectionFromPath(routeLocation.pathname)
   );
   const [receitasView, setReceitasView] = useState("atendimentos");
-  const [revenueType, setRevenueType] = useState("all");
+  const [revenueTypes, setRevenueTypes] = useState(["billing_cycle", "series", "entry"]);
+  const showRevenueProfessional = revenueTypes.length > 0 && !revenueTypes.includes("billing_cycle");
   const [unifiedCharges, setUnifiedCharges] = useState(null);
   const [revenueProfessionals, setRevenueProfessionals] = useState([]);
   const [revenuePatientSearchError, setRevenuePatientSearchError] = useState("");
@@ -679,6 +680,8 @@ export default function Financeiro() {
   const [loadingRevenues, setLoadingRevenues] = useState(false);
   const [loadingRevenuesSummary, setLoadingRevenuesSummary] = useState(false);
   const [revenuesSummaryError, setRevenuesSummaryError] = useState("");
+  const [revenuesSummaryQuery, setRevenuesSummaryQuery] = useState(null);
+  const [revenuesSummaryFailedQuery, setRevenuesSummaryFailedQuery] = useState(null);
   const [loadingExpenses, setLoadingExpenses] = useState(false);
   const [loadingExpenseCategories, setLoadingExpenseCategories] = useState(false);
   const [loadingPaymentMethods, setLoadingPaymentMethods] = useState(false);
@@ -860,7 +863,10 @@ export default function Financeiro() {
 
     setActiveSection("receitas");
     setReceitasView("atendimentos");
-    setRevenueType(view === "mensalidades" ? "billing_cycle" : "all");
+    setRevenueTypes((previous) => {
+      const next = view === "mensalidades" ? ["billing_cycle"] : ["billing_cycle", "series", "entry"];
+      return previous.length === next.length && next.every((type) => previous.includes(type)) ? previous : next;
+    });
 
     const month = params.get("month");
     const parsedMonth = parseMonthInputValue(month);
@@ -1387,6 +1393,12 @@ export default function Financeiro() {
     }
   }, [overviewTab, overviewPeriodMode, overviewPeriodMonth, overviewPeriodYear]);
 
+  const revenuesPeriodKey = `${attendancePeriodMode}:${attendancePeriodMode === "year" ? attendancePeriodYear : attendancePeriodMonth}`;
+  const revenuesQueryKey = JSON.stringify([revenuesPeriodKey, [...revenueTypes].sort(),
+    showRevenueProfessional ? attendanceFilters.professional_id : ""]);
+  const revenuesQueryRef = useRef(null);
+  revenuesQueryRef.current = { key: revenuesQueryKey, context: authorization.context };
+
   const loadRevenuesSummary = useCallback(async () => {
     const summaryPeriod = attendancePeriodMode === "year"
       ? attendancePeriodYear
@@ -1395,24 +1407,32 @@ export default function Financeiro() {
 
     const requestId = revenuesSummaryRequestRef.current + 1;
     revenuesSummaryRequestRef.current = requestId;
-    setAttendanceListPresentationByPatient(new Map());
+    const query = { key: revenuesQueryKey, period: revenuesPeriodKey,
+      types: revenueTypes, context: authorization.context };
 
     try {
       setLoadingRevenuesSummary(true);
       setRevenuesSummaryError("");
-      const response = await getFinancialRevenuesSummary(summaryPeriod, attendancePeriodMode, {
-        origin: "all",
-        charge_type: revenueType,
-        ...(["series", "entry"].includes(revenueType) && attendanceFilters.professional_id
-          ? { professional_id: attendanceFilters.professional_id } : {}),
-      });
-      if (revenuesSummaryRequestRef.current !== requestId) return;
-      validateUnifiedRevenueSummary(response.data);
+      setRevenuesSummaryFailedQuery(null);
+      const chargeTypes = revenueTypes.length === 3 ? ["all"] : revenueTypes;
+      const responses = await Promise.all(chargeTypes.map((chargeType) => (
+        getFinancialRevenuesSummary(summaryPeriod, attendancePeriodMode, {
+          origin: "all",
+          charge_type: chargeType,
+          ...(showRevenueProfessional && attendanceFilters.professional_id
+            ? { professional_id: attendanceFilters.professional_id } : {}),
+        })
+      )));
+      if (revenuesSummaryRequestRef.current !== requestId
+        || revenuesQueryRef.current.key !== query.key
+        || revenuesQueryRef.current.context !== query.context) return;
+      const response = { data: mergeUnifiedRevenueSummaries(responses.map((item) => item.data), summaryPeriod) };
       const normalizedSummary = normalizeFinancialRevenuesSummary(
         response.data || {},
         summaryPeriod,
       );
       setRevenuesSummary(normalizedSummary);
+      setRevenuesSummaryQuery(query);
       setRevenueProfessionals(response.data.professionals || []);
       setAttendanceListPresentationByPatient(new Map(response.data.patients.map((patient) => [
         Number(patient.patient_id), {
@@ -1422,9 +1442,11 @@ export default function Financeiro() {
         },
       ])));
     } catch (error) {
-      if (revenuesSummaryRequestRef.current !== requestId) return;
+      if (revenuesSummaryRequestRef.current !== requestId
+        || revenuesQueryRef.current.key !== query.key
+        || revenuesQueryRef.current.context !== query.context) return;
       setRevenuesSummaryError("Não foi possível carregar o resumo de receitas.");
-      setRevenuesSummary(emptyFinancialRevenuesSummary(summaryPeriod));
+      setRevenuesSummaryFailedQuery(query.key);
       toast.error("Não foi possível carregar o resumo de receitas.");
     } finally {
       if (revenuesSummaryRequestRef.current === requestId) {
@@ -1432,7 +1454,8 @@ export default function Financeiro() {
       }
     }
   }, [attendancePeriodMode, attendancePeriodMonth, attendancePeriodYear,
-    attendanceFilters.professional_id, revenueType]);
+    attendanceFilters.professional_id, revenueTypes, showRevenueProfessional,
+    revenuesPeriodKey, revenuesQueryKey, authorization.context]);
 
   const loadRevenuesData = useCallback(async () => {
     try {
@@ -4009,14 +4032,14 @@ export default function Financeiro() {
   ), [unifiedCharges]);
 
   const visibleRevenueCharges = useMemo(() => attendanceSelectedPatientPackages.filter((item) => (
-    (revenueType === "all" || item.kind === revenueType)
+    revenueTypes.includes(item.kind)
     && (attendanceFilters.financial === "all"
       || (attendanceFilters.financial === "overdue" ? item.overdueCents > 0
         : item.financialStatus === attendanceFilters.financial))
-    && (!["series", "entry"].includes(revenueType) || !attendanceFilters.professional_id
+    && (!showRevenueProfessional || !attendanceFilters.professional_id
       || item.sessions.some((session) => String(session.professional_user_id || session.professional?.id || "")
         === String(attendanceFilters.professional_id)))
-  )), [attendanceSelectedPatientPackages, revenueType, attendanceFilters.financial,
+  )), [attendanceSelectedPatientPackages, revenueTypes, showRevenueProfessional, attendanceFilters.financial,
     attendanceFilters.professional_id]);
 
   const selectedAttendancePackage = useMemo(() => {
@@ -4187,6 +4210,7 @@ export default function Financeiro() {
   }, [attendanceByPatient, creditBalanceByPatient]);
 
   const filteredRevenuesSummary = useMemo(() => {
+    if (revenuesSummaryQuery?.types.length === 0) return emptyFinancialRevenuesSummary(revenuesSummary.month);
     const filtered = filterFinancialRevenuesSummary(revenuesSummary, attendanceFilters.search);
     const items = [...filtered.patients];
     const search = normalizeSearchText(attendanceFilters.search);
@@ -4208,7 +4232,7 @@ export default function Financeiro() {
       pending: sum.pending + patient.pending,
     }), { total: 0, received: 0, pending: 0 }) };
   }, [attendanceFilters.search, attendanceFilters.financial, revenuesSummary,
-    attendanceListPresentationByPatient, patients]);
+    attendanceListPresentationByPatient, patients, revenuesSummaryQuery]);
 
   const aggregatedAttendanceByPatient = useMemo(
     () => mapRevenuesSummaryPatientsToAttendanceRows(filteredRevenuesSummary).map((row) => {
@@ -4491,7 +4515,7 @@ export default function Financeiro() {
   });
   const { openScopedPatientPaymentModal } = financialPaymentFlow;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (financeAuthorizationRef.current === authorization.context) return;
     financeAuthorizationRef.current = authorization.context;
     attendanceDetailCacheRef.current.clear();
@@ -4501,11 +4525,14 @@ export default function Financeiro() {
     setAttendanceDetailSummary(null);
     setAttendanceBackendCreditByPatient(new Map());
     setAttendanceDrilldownPatientId(null);
+    setRevenuesSummaryQuery(null);
+    setRevenuesSummaryFailedQuery(null);
+    setRevenuesSummary(emptyFinancialRevenuesSummary());
+    setAttendanceListPresentationByPatient(new Map());
     setPatients([]);
     setCreditUseModalContext(null);
     financialPaymentFlow.close();
-    if (activeSection === "receitas") loadRevenuesSummary();
-  }, [authorization.context, activeSection, financialPaymentFlow, loadRevenuesSummary]);
+  }, [authorization.context, financialPaymentFlow]);
 
   const openAttendanceScopedPaymentModal = useCallback(() => {
     if (!attendanceSelectedPatientSummary || !canSettleClinicExpenses) return;
@@ -5314,6 +5341,11 @@ export default function Financeiro() {
 
   const renderAttendance = () => {
     const useAggregatedRevenues = canUseAggregatedRevenuesSummary;
+    const hasCurrentRevenuesSummary = revenuesSummaryQuery?.period === revenuesPeriodKey
+      && revenuesSummaryQuery?.context === authorization.context;
+    const isRevenuesSelectionPending = useAggregatedRevenues
+      && revenuesSummaryQuery?.key !== revenuesQueryKey
+      && revenuesSummaryFailedQuery !== revenuesQueryKey;
     const displayAttendanceRows = useAggregatedRevenues
       ? aggregatedAttendanceByPatient
       : attendanceByPatient;
@@ -5328,18 +5360,20 @@ export default function Financeiro() {
     if (currentPatientDetailSummary) {
       displayAttendanceSummary = {
         ...displayAttendanceSummary,
-        total: attendanceSelectedPatientPackages.length,
-        expectedAmount: Number(currentPatientDetailSummary.total || 0),
-        paidAmount: Number(currentPatientDetailSummary.received || 0),
-        pendingAmount: Number(currentPatientDetailSummary.pending || 0),
+        total: visibleRevenueCharges.length,
+        expectedAmount: visibleRevenueCharges.reduce((sum, charge) => sum + charge.amountCents, 0),
+        paidAmount: visibleRevenueCharges.reduce((sum, charge) => sum + charge.paidCents, 0),
+        pendingAmount: visibleRevenueCharges.reduce((sum, charge) => sum + charge.openCents, 0),
       };
     }
     const isAttendanceInitialLoading = revenuePatientSearchLoading || (useAggregatedRevenues
-      ? loadingRevenuesSummary
+      ? !hasCurrentRevenuesSummary && (loadingRevenuesSummary || isRevenuesSelectionPending)
       : isAttendanceLoading && !hasAttendanceLoaded);
     const isAttendanceSummaryLoading = isAttendanceInitialLoading
       || (Boolean(attendanceDrilldownPatientId) && attendanceDetailSessions.isLoading);
-    const isAttendanceRefreshing = isAttendanceLoading && hasAttendanceLoaded;
+    const isAttendanceRefreshing = useAggregatedRevenues
+      ? hasCurrentRevenuesSummary && (loadingRevenuesSummary || isRevenuesSelectionPending)
+      : isAttendanceLoading && hasAttendanceLoaded;
     const periodSuffix = attendancePeriodLabel ? ` - ${attendancePeriodLabel}` : "";
     const attendanceTitle = `Resumo por paciente${periodSuffix}`;
 
@@ -5347,7 +5381,7 @@ export default function Financeiro() {
       <AttendanceEmptyState>Nenhuma cobrança no período. Pesquise um paciente para registrar crédito.</AttendanceEmptyState>
     );
 
-    if ((revenuesSummaryError || revenuePatientSearchError) && useAggregatedRevenues) {
+    if ((revenuePatientSearchError || (revenuesSummaryError && !hasCurrentRevenuesSummary)) && useAggregatedRevenues) {
       attendanceContent = (
         <AttendanceEmptyState role="alert">{revenuesSummaryError || revenuePatientSearchError}
           <AttendanceGhostAction type="button" onClick={() => {
@@ -5646,10 +5680,17 @@ export default function Financeiro() {
           Carregando resumo de cobrança...
         </BlockLoader>
       );
-    } else if (revenuesSummaryError && useAggregatedRevenues) {
+    } else if (revenuesSummaryError && useAggregatedRevenues && !hasCurrentRevenuesSummary) {
       attendanceSummaryContent = (
         <AttendanceEmptyState>{revenuesSummaryError}</AttendanceEmptyState>
       );
+    }
+
+    let resultsDescription;
+    if (isAttendanceRefreshing) resultsDescription = "revenue-update-status";
+    else if (revenuesSummaryError && hasCurrentRevenuesSummary) resultsDescription = "revenue-update-error";
+    if (isAttendanceRefreshing && displayAttendanceRows.length === 0) {
+      attendanceContent = <AttendanceInlineLoader>Atualizando resultados...</AttendanceInlineLoader>;
     }
 
     return (
@@ -5722,10 +5763,21 @@ export default function Financeiro() {
             </AttendancePeriodBlockRight>
           </AttendancePeriodBlock>
 
-          <AttendanceCard>
+          <AttendanceCard role="region" aria-label="Resumo de receitas" aria-busy={isAttendanceInitialLoading || isAttendanceRefreshing}>
             <AttendanceCardHeader>
               <AttendanceCardTitle>Resumo de cobrança</AttendanceCardTitle>
+              {isAttendanceRefreshing && (
+                <AttendanceInlineLoader role="status" id="revenue-update-status">
+                  <Spinner /> Atualizando receitas — resultados anteriores.
+                </AttendanceInlineLoader>
+              )}
             </AttendanceCardHeader>
+            {revenuesSummaryError && useAggregatedRevenues && hasCurrentRevenuesSummary && (
+              <AttendanceFilterMetaText role="alert" id="revenue-update-error">
+                {revenuesSummaryError} Resultados anteriores; atualização não concluída.
+                <AttendanceGhostAction type="button" onClick={loadRevenuesSummary}>Tentar novamente</AttendanceGhostAction>
+              </AttendanceFilterMetaText>
+            )}
             {attendanceSummaryContent}
           </AttendanceCard>
 
@@ -5733,8 +5785,22 @@ export default function Financeiro() {
             <AttendanceCardHeader>
               <AttendanceCardTitle>Filtros</AttendanceCardTitle>
             </AttendanceCardHeader>
-            <AttendanceFilterGrid>
-              <AttendanceFilterField>
+            <RevenueFiltersGrid>
+              <RevenueSearchField>
+                <PatientSearchField
+                  mode="filter"
+                  inputId="attendance-search"
+                  value={attendanceDrilldownPatientId
+                    ? selectedAttendancePatient?.full_name || ""
+                    : attendanceFilters.search}
+                  disabled={Boolean(attendanceDrilldownPatientId)}
+                  onChange={(nextValue) => setAttendanceFilters((prev) => ({
+                    ...prev,
+                    search: nextValue,
+                  }))}
+                />
+              </RevenueSearchField>
+              <RevenueStatusField>
                 <AttendanceFilterLabel htmlFor="attendance-status">Status financeiro</AttendanceFilterLabel>
                 <AttendanceFilterSelect
                   id="attendance-status"
@@ -5748,8 +5814,9 @@ export default function Financeiro() {
                   <option value="paid">Pagos</option>
                   <option value="overdue">Com valor vencido</option>
                 </AttendanceFilterSelect>
-              </AttendanceFilterField>
-              {["series", "entry"].includes(revenueType) && <AttendanceFilterField>
+              </RevenueStatusField>
+              {renderRevenueTypeFilters()}
+              {showRevenueProfessional && <RevenueProfessionalField>
                 <AttendanceFilterLabel htmlFor="attendance-professional">Profissional</AttendanceFilterLabel>
                 <AttendanceFilterSelect
                   id="attendance-professional"
@@ -5764,22 +5831,9 @@ export default function Financeiro() {
                     </option>
                   ))}
                 </AttendanceFilterSelect>
-              </AttendanceFilterField>}
-              <AttendanceFilterField>
-                <PatientSearchField
-                  mode="filter"
-                  inputId="attendance-search"
-                  value={attendanceDrilldownPatientId
-                    ? selectedAttendancePatient?.full_name || ""
-                    : attendanceFilters.search}
-                  disabled={Boolean(attendanceDrilldownPatientId)}
-                  onChange={(nextValue) => setAttendanceFilters((prev) => ({
-                    ...prev,
-                    search: nextValue,
-                  }))}
-                />
-              </AttendanceFilterField>
-            </AttendanceFilterGrid>
+              </RevenueProfessionalField>}
+
+            </RevenueFiltersGrid>
             {attendanceFilters.patient_id && (
               <AttendanceFilterMeta>
                 <AttendanceFilterMetaText>
@@ -5797,11 +5851,13 @@ export default function Financeiro() {
             )}
           </AttendanceCard>
 
-          <AttendanceResultsCard>
+          <AttendanceResultsCard role="region" aria-label="Resultados de receitas"
+            aria-busy={isAttendanceInitialLoading || isAttendanceRefreshing}
+            aria-describedby={resultsDescription}>
             {!attendanceDrilldownPatientId && (
               <AttendanceDetailHeader data-revenue-results-heading>
                 <AttendanceDetailTitle>{attendanceTitle}</AttendanceDetailTitle>
-                {isAttendanceRefreshing && (
+                {isAttendanceRefreshing && !useAggregatedRevenues && (
                   <AttendanceInlineLoader>
                     <Spinner />
                     Atualizando dados...
@@ -6461,12 +6517,11 @@ export default function Financeiro() {
     );
   };
 
-  const renderReceitasTabs = () => (
+  const renderRevenueTypeFilters = () => (
     <AttendanceFilterField>
       <AttendanceFilterLabel as="span" id="revenue-type-label">Tipo de cobrança</AttendanceFilterLabel>
-      <RevenueTypeSwitch role="group" aria-labelledby="revenue-type-label">
+      <RevenueTypeChips role="group" aria-labelledby="revenue-type-label">
         {[
-          ["all", "Todos"],
           ["billing_cycle", "Mensalidade"],
           ["series", "Pacote"],
           ["entry", "Avulsa"],
@@ -6474,18 +6529,18 @@ export default function Financeiro() {
           <RevenueTypeButton
             key={value}
             type="button"
-            $active={revenueType === value}
-            aria-pressed={revenueType === value}
+            $active={revenueTypes.includes(value)}
+            aria-pressed={revenueTypes.includes(value)}
             onClick={() => {
-              if (revenueType === value) return;
-              setRevenueType(value);
+              setRevenueTypes((previous) => (previous.includes(value)
+                ? previous.filter((type) => type !== value) : [...previous, value]));
               setAttendanceFilters((previous) => ({ ...previous, professional_id: "" }));
             }}
           >
             {label}
           </RevenueTypeButton>
         ))}
-      </RevenueTypeSwitch>
+      </RevenueTypeChips>
     </AttendanceFilterField>
   );
 
@@ -6586,11 +6641,6 @@ export default function Financeiro() {
                 <Title>{currentSectionTitle}</Title>
               </HeaderTitleRow>
             </HeaderText>
-            {activeSection === "receitas" && (
-              <HeaderTabsSlot>
-                {renderReceitasTabs()}
-              </HeaderTabsSlot>
-            )}
           </Header>
 
           {isFinancialSettings && (
@@ -7626,21 +7676,6 @@ const Title = styled.h1`
 `;
 
 
-const HeaderTabsSlot = styled.div`
-  display: flex;
-  justify-content: center;
-  margin-left: auto;
-  min-width: 180px;
-
-  @media (max-width: 900px) {
-    position: static;
-    order: 3;
-    width: 100%;
-    max-width: none;
-    transform: none;
-  }
-`;
-
 const TabsRow = styled.div`
   display: inline-flex;
   gap: 6px;
@@ -8354,37 +8389,77 @@ const AttendanceFilterField = styled.div`
   gap: ${ATTENDANCE_UI.spacing[1]};
 `;
 
-const RevenueTypeSwitch = styled.div`
-  display: inline-flex;
-  width: fit-content;
-  overflow: hidden;
-  border: 1px solid ${ATTENDANCE_UI.colors.actionBorder};
-  border-radius: ${radii.md};
-  background: ${appColors.white};
+const RevenueFiltersGrid = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: ${ATTENDANCE_UI.spacing[2]};
+  min-width: 0;
 
-  @media (max-width: 520px) {
-    width: 100%;
+  label {
+    color: ${ATTENDANCE_UI.colors.textSecondary};
+    font-size: ${ATTENDANCE_UI.font.size.xs};
+    line-height: ${ATTENDANCE_UI.font.lineHeight.xs};
+    font-weight: ${ATTENDANCE_UI.font.weight.medium};
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
   }
 `;
 
+const RevenueSearchField = styled(AttendanceFilterField)`
+  flex: 1 1 280px;
+  min-width: 0;
+  > div { min-width: 0; gap: ${ATTENDANCE_UI.spacing[1]}; }
+  input { height: 44px; }
+  @media (max-width: 560px) { flex-basis: 100%; }
+`;
+
+const RevenueStatusField = styled(AttendanceFilterField)`
+  flex: 0 0 205px;
+  min-width: 0;
+  @media (max-width: 560px) { flex-basis: 100%; }
+`;
+
+const RevenueProfessionalField = styled(RevenueStatusField)`
+  flex-basis: 100%;
+  select { max-width: 205px; }
+  @media (max-width: 560px) { select { max-width: none; } }
+`;
+
+const RevenueTypeChips = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  align-items: center;
+`;
+
 const RevenueTypeButton = styled.button`
-  min-height: 38px;
-  padding: 0 ${spacing.lg};
-  border: none;
-  background: ${(props) => (props.$active ? appColors.brand : "transparent")};
-  color: ${(props) => (props.$active ? appColors.white : appColors.brand)};
-  font-weight: ${ATTENDANCE_UI.font.weight.bold};
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid ${(props) => (props.$active ? "rgba(106, 121, 92, 0.55)" : "rgba(106, 121, 92, 0.18)")};
+  background: ${(props) => (props.$active ? "rgba(106, 121, 92, 0.14)" : "rgba(162, 177, 144, 0.2)")};
+  color: #42523a;
+  font-size: 0.75rem;
+  font-weight: ${(props) => (props.$active ? 900 : 700)};
+  box-shadow: ${(props) => (props.$active ? "0 5px 12px rgba(42, 52, 35, 0.12)" : "none")};
+  opacity: ${(props) => (props.$active ? 1 : 0.42)};
   white-space: nowrap;
   cursor: pointer;
+  transition: opacity 140ms ease, transform 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 
-  &:focus-visible {
-    outline: 2px solid ${appColors.focus};
-    outline-offset: -2px;
+  &:hover {
+    opacity: 1;
+    transform: translateY(-1px);
   }
 
-  @media (max-width: 520px) {
-    flex: 1;
-    padding: 0 ${spacing.sm};
+  &:focus-visible {
+    outline: 2px solid rgba(106, 121, 92, 0.38);
+    outline-offset: 3px;
   }
 `;
 

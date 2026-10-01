@@ -2333,7 +2333,8 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
 
     renderFinanceiro();
 
-    await userEvent.click(screen.getByRole("button", { name: "Mensalidade", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Pacote", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Avulsa", exact: true }));
     await screen.findByText("Maria Silva");
 
     await userEvent.type(screen.getByLabelText("Pesquisar paciente"), "Maria Silva");
@@ -2372,7 +2373,8 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     renderFinanceiro();
     expectFinancialValuesAlwaysVisible();
 
-    await userEvent.click(screen.getByRole("button", { name: "Mensalidade", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Pacote", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Avulsa", exact: true }));
     await screen.findByText("Maria Silva");
 
     const groupedPatientCell = screen.getByText("Maria Silva");
