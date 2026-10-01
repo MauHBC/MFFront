@@ -1285,10 +1285,13 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
     expect(await screen.findByText("Fisioterapia")).toBeInTheDocument();
-    expect(within(screen.getByText("Fisioterapia").closest("tr")).getByText("Pacote")).toBeInTheDocument();
-    expect(screen.getByText("R$ 1.050,00")).toBeInTheDocument();
-    expect(screen.getByText("R$ 150,00")).toBeInTheDocument();
-    expect(screen.getByText("R$ 900,00")).toBeInTheDocument();
+    const chargeRow = within(screen.getByText("Fisioterapia").closest("tr"));
+    const revenueSummary = within(screen.getByRole("region", { name: "Resumo de receitas" }));
+    expect(chargeRow.getByText("Pacote")).toBeInTheDocument();
+    ["R$ 1.050,00", "R$ 150,00", "R$ 900,00"].forEach((amount) => {
+      expect(chargeRow.getByText(amount)).toBeInTheDocument();
+      expect(revenueSummary.getByText(amount)).toBeInTheDocument();
+    });
     expect(screen.queryByText("Sem cobrança gerada")).not.toBeInTheDocument();
     expectChargeTableStructure("Fisioterapia", [
       "10/06/2026",
