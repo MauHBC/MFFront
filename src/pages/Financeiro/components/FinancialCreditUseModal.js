@@ -3,6 +3,8 @@ import PropTypes from "prop-types";
 import styled from "styled-components";
 import { v4 as uuidv4 } from "uuid";
 import { GhostButton, PrimaryButton } from "../../../components/AppButton";
+import { colors, fontSizes, radii, spacing, typography } from "../../../styles/tokens";
+import { CurrencyInputGroup, CurrencyPrefix, CurrencyInput } from "./FinancialPaymentModal";
 import { getUserFacingApiError } from "../../../services/axios";
 import {
   getFinancialCreditDestinations,
@@ -11,6 +13,7 @@ import {
 } from "../../../services/financialCredit";
 import {
   formatCurrencyInputFromCents,
+  formatCurrencyInput,
   parseCurrencyInputToCents,
   sanitizePositiveCurrencyInput,
 } from "../helpers/expenseFormatters";
@@ -26,15 +29,35 @@ const dateLabel = (value) => {
     ...(!dateOnly ? { hour: "2-digit", minute: "2-digit" } : {}),
   });
 };
-const destinationLabel = (entry) => `${entry.service_name || "Serviço não registrado"} — ${dateLabel(entry.session_starts_at)}`;
-const groupLabel = (group) => `${group.kind === "package" ? "Pacote" : "Sessão avulsa"} de ${group.service_name || "serviço não registrado"} — ${dateLabel(group.reference_date)}`;
+const billingCyclePeriod = (item) => [dateLabel(item.cycle_start), dateLabel(item.cycle_end)]
+  .filter(Boolean).join(" a ");
+const destinationLabel = (entry) => entry.destination_kind === "billing_cycle"
+  ? `${entry.plan_name || "Plano não registrado"} — ${billingCyclePeriod(entry)}`
+  : `${entry.service_name || "Serviço não registrado"} — ${dateLabel(entry.session_starts_at)}`;
+const destinationBalanceLabel = (entry) => entry.destination_kind === "billing_cycle"
+  ? "A receber nesta mensalidade após o uso"
+  : "A receber nesta sessão após o uso";
+const groupLabel = (group) => group.kind === "billing_cycle"
+  ? `${group.plan_name || "Plano não registrado"} — ${billingCyclePeriod(group)} · vencimento ${dateLabel(group.due_date)}`
+  : `${group.kind === "package" ? "Pacote" : "Sessão avulsa"} de ${group.service_name || "serviço não registrado"} — ${dateLabel(group.reference_date)}`;
+const groupTitle = (group) => group.kind === "billing_cycle"
+  ? group.plan_name || "Plano não registrado"
+  : `${group.kind === "package" ? "Pacote" : "Sessão avulsa"} de ${group.service_name || "serviço não registrado"}`;
+const groupDescription = (group) => group.kind === "billing_cycle"
+  ? `${billingCyclePeriod(group)} · vencimento ${dateLabel(group.due_date)}`
+  : dateLabel(group.reference_date);
+const groupBalanceContext = (group) => {
+  if (group.kind === "package") return "no pacote";
+  if (group.kind === "billing_cycle") return "na mensalidade";
+  return "na sessão";
+};
 
 function validDestinations(data, patientId) {
   return Number(data?.patient?.id) === Number(patientId)
     && Boolean(data.patient.full_name || data.patient.name)
     && cents(data.credit_available_cents)
     && Array.isArray(data.groups)
-    && data.groups.every((group) => group.key && ["package", "standalone"].includes(group.kind)
+    && data.groups.every((group) => group.key && ["package", "standalone", "billing_cycle"].includes(group.kind)
       && cents(group.open_cents) && Array.isArray(group.entries) && group.entries.length > 0
       && group.entries.every((entry) => Number.isSafeInteger(entry.entry_id) && entry.entry_id > 0
         && cents(entry.open_cents) && entry.open_cents > 0));
@@ -67,7 +90,7 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
   const inFlight = useRef(false);
   const attempt = useRef(null);
   const command = useRef(null);
-  const editedAmount = useRef(false);
+  const amountInitialized = useRef(false);
   const destinationsLoaded = useRef(false);
   const refreshDestinationsOnBack = useRef(false);
   const dialog = useRef(null);
@@ -80,7 +103,8 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
     patient_id: context.patientId,
     period_start: context.periodStart,
     period_end: context.periodEnd,
-  }), [context.patientId, context.periodStart, context.periodEnd]);
+    ...(context.destinationType ? { destination_type: context.destinationType } : {}),
+  }), [context.destinationType, context.patientId, context.periodStart, context.periodEnd]);
 
   const loadDestinations = async (preserve = destinationsLoaded.current) => {
     const { data } = await getFinancialCreditDestinations(query);
@@ -144,15 +168,20 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
   const maximum = Math.min(destinations?.credit_available_cents || 0, selectedOpen);
   const destinationsAvailable = Boolean(destinations);
   useEffect(() => {
-    if (!destinationsAvailable) return;
-    setAmount((current) => {
-      const currentCents = parseCurrencyInputToCents(current);
-      if (editedAmount.current && currentCents > 0 && currentCents <= maximum) return current;
-      return maximum > 0 ? formatCurrencyInputFromCents(maximum) : "";
-    });
+    // Seed once per opening. A refreshed limit validates the draft, never rewrites it.
+    if (!destinationsAvailable || amountInitialized.current || maximum <= 0) return;
+    amountInitialized.current = true;
+    setAmount(formatCurrencyInputFromCents(maximum));
   }, [maximum, destinationsAvailable]);
   const amountCents = parseCurrencyInputToCents(amount);
   const validAmount = selected.length > 0 && cents(amountCents) && amountCents > 0 && amountCents <= maximum;
+  let amountError = "";
+  if (destinationsAvailable && selected.length && !validAmount) {
+    amountError = amountCents > maximum
+      ? `O valor não pode ultrapassar ${formatCurrency(maximum)}.`
+      : `Informe um valor maior que zero, até ${formatCurrency(maximum)}.`;
+    if (maximum === 0) amountError = `Crédito disponível para esta seleção: ${formatCurrency(0)}.`;
+  }
 
   const invalidate = () => {
     setPreview(null);
@@ -196,7 +225,6 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
   const back = async () => {
     if (inFlight.current || uncertain) return;
     if (!refreshDestinationsOnBack.current) { invalidate(); return; }
-    editedAmount.current = true;
     inFlight.current = true;
     setBusy("destinations"); setError("");
     try {
@@ -257,16 +285,16 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
       <Dialog ref={dialog} role="dialog" aria-modal="true" aria-labelledby="credit-use-title" aria-busy={Boolean(busy)}>
         <Header>
           <h2 ref={heading} tabIndex={-1} id="credit-use-title">{preview ? "Conferir uso do crédito" : "Onde usar o crédito?"}</h2>
-          <p><strong>{displayed?.patient?.full_name || displayed?.patient?.name || context.patientName}</strong></p>
-          <SummaryLine><span>Crédito disponível</span><strong>{displayed ? formatCurrency(displayed.credit_available_cents) : "—"}</strong></SummaryLine>
+          <PatientName>{displayed?.patient?.full_name || displayed?.patient?.name || context.patientName}</PatientName>
           {context.periodLabel && <small>Período consultado: {context.periodLabel}</small>}
+          <CreditAvailable><strong>Crédito disponível:</strong><span>{displayed ? formatCurrency(displayed.credit_available_cents) : "—"}</span></CreditAvailable>
         </Header>
         <Body>
           {error && <Notice role="alert">{error}</Notice>}
           {busy === "destinations" && <p role="status">Consultando destinos...</p>}
           {!destinations && !busy && <GhostButton type="button" onClick={retryDestinations}>Tentar novamente</GhostButton>}
           {!preview && destinations && <>
-            {!destinations.groups.length && <p>Nenhum pacote ou sessão avulsa elegível neste período.</p>}
+            {!destinations.groups.length && <p>Nenhuma cobrança elegível neste período.</p>}
             <GroupList aria-label="Destinos do crédito">
               {destinations.groups.map((group) => {
                 const ids = [...new Set(group.entries.map((entry) => entry.entry_id))];
@@ -278,11 +306,11 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
                     <input id={`credit-select-${group.key}`} type="checkbox" checked={checked} aria-checked={partial ? "mixed" : checked}
                       ref={(input) => { const checkbox = input; if (checkbox) checkbox.indeterminate = partial; }} disabled={Boolean(busy)}
                       onChange={(event) => toggleEntries(ids, event.target.checked)} />
-                    <span>{groupLabel(group)}<small>A receber {group.kind === "package" ? "no pacote" : "na sessão"}: {formatCurrency(group.open_cents)}</small></span>
+                    <span>{groupLabel(group)}<small>A receber {groupBalanceContext(group)}: {formatCurrency(group.open_cents)}</small></span>
                   </label>
                   {group.kind === "package" && <GhostButton type="button" aria-expanded={isExpanded} aria-controls={`credit-group-${group.key}`} disabled={Boolean(busy)}
                     onClick={() => setExpanded((current) => isExpanded ? current.filter((key) => key !== group.key) : [...current, group.key])}>
-                    Escolher sessões
+                    {isExpanded ? "Recolher sessões" : "Escolher sessões"}
                   </GhostButton>}
                   {isExpanded && <SessionList id={`credit-group-${group.key}`}>
                     {group.entries.map((entry) => <li key={entry.entry_id}><label htmlFor={`credit-select-${group.key}-${entry.entry_id}`}>
@@ -294,29 +322,48 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
                 </Group>;
               })}
             </GroupList>
-            <AmountLabel htmlFor="credit-use-amount">Valor a usar
-              <input id="credit-use-amount" inputMode="decimal" value={amount} disabled={Boolean(busy) || !selected.length}
-                aria-describedby="credit-use-limit" onChange={(event) => { editedAmount.current = true; setAmount(sanitizePositiveCurrencyInput(event.target.value)); invalidate(); }} />
-            </AmountLabel>
-            <small id="credit-use-limit">Até {formatCurrency(maximum)} nos destinos selecionados.</small>
+            <AmountField>
+              <AmountLabel htmlFor="credit-use-amount">Valor a usar</AmountLabel>
+              <CreditCurrencyInputGroup>
+                <CurrencyPrefix aria-hidden="true">R$</CurrencyPrefix>
+                <CurrencyInput id="credit-use-amount" inputMode="decimal" placeholder="0,00" value={amount} disabled={Boolean(busy) || !selected.length}
+                  aria-invalid={Boolean(amountError)} aria-describedby={amountError ? "credit-use-limit" : undefined}
+                  onBlur={() => setAmount((current) => current ? formatCurrencyInput(current) : "")}
+                  onChange={(event) => { amountInitialized.current = true; setAmount(sanitizePositiveCurrencyInput(event.target.value)); invalidate(); }} />
+              </CreditCurrencyInputGroup>
+              {amountError && <AmountError id="credit-use-limit" role="alert">{amountError}</AmountError>}
+            </AmountField>
           </>}
           {preview && <>
             <GroupList aria-label="Destinos conferidos">
-              {preview.groups.map((group) => <Group key={group.key}>
-                <strong>{groupLabel(group)}</strong>
-                <SessionList>
-                  {group.entries.filter((entry) => entry.allocated_cents > 0).map((entry) => <li key={entry.entry_id}>
-                    <div>{destinationLabel(entry)}</div>
-                    <SummaryLine><span>Crédito nesta sessão</span><strong>{formatCurrency(entry.allocated_cents)}</strong></SummaryLine>
-                    <small>A receber nesta sessão após o uso: {formatCurrency(entry.open_after_cents)}</small>
-                  </li>)}
-                </SessionList>
-                {group.kind === "package" && <small>A receber no pacote após o uso: {formatCurrency(group.open_after_cents)}</small>}
-              </Group>)}
+              {preview.groups.map((group) => {
+                const receiving = group.entries.filter((entry) => entry.allocated_cents > 0);
+                return <ReviewGroup key={group.key}>
+                  <strong>{groupTitle(group)}</strong>
+                  <small>{groupDescription(group)}</small>
+                  {group.kind === "package" ? <>
+                    {receiving.length > 0 && <>
+                    <DistributionLabel>Sessões que receberão o crédito</DistributionLabel>
+                    <DistributionList aria-label="Sessões que receberão o crédito">
+                      {receiving.map((entry) => <li key={entry.entry_id}>
+                        <SummaryLine>
+                          <span>{entry.service_name && entry.service_name !== group.service_name ? `${entry.service_name} · ` : ""}Sessão <SessionDate>{dateLabel(entry.session_starts_at)}</SessionDate></span>
+                          <span>{formatCurrency(entry.allocated_cents)}</span>
+                        </SummaryLine>
+                        <small>{destinationBalanceLabel(entry)}: {formatCurrency(entry.open_after_cents)}</small>
+                      </li>)}
+                    </DistributionList>
+                    </>}
+                    <small>A receber no pacote após o uso: {formatCurrency(group.open_after_cents)}</small>
+                  </> : receiving.map((entry) => <DirectDestination key={entry.entry_id}>
+                    <SummaryLine><span>Crédito neste destino</span><span>{formatCurrency(entry.allocated_cents)}</span></SummaryLine>
+                    <small>{destinationBalanceLabel(entry)}: {formatCurrency(entry.open_after_cents)}</small>
+                  </DirectDestination>)}
+                </ReviewGroup>;
+              })}
             </GroupList>
             <Totals>
-              <SummaryLine><span>Total de crédito a aplicar</span><strong>{formatCurrency(preview.amount_cents)}</strong></SummaryLine>
-              <SummaryLine><span>A receber na seleção após o uso</span><strong>{formatCurrency(preview.selected_open_after_cents)}</strong></SummaryLine>
+              <PrimaryTotal><span>Crédito a aplicar</span><strong>{formatCurrency(preview.amount_cents)}</strong></PrimaryTotal>
               <SummaryLine><span>Crédito restante</span><strong>{formatCurrency(preview.credit_remaining_cents)}</strong></SummaryLine>
             </Totals>
           </>}
@@ -345,6 +392,7 @@ FinancialCreditUseModal.propTypes = {
     periodStart: PropTypes.string.isRequired,
     periodEnd: PropTypes.string.isRequired,
     periodLabel: PropTypes.string,
+    destinationType: PropTypes.oneOf(["per_session", "billing_cycle", "all"]),
   }).isRequired,
   formatCurrency: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
@@ -365,6 +413,13 @@ const Dialog = styled.div`
   button:focus-visible, input:focus-visible { outline: 2px solid #28643e; outline-offset: 3px; }
 `;
 const Header = styled.header`padding: 22px 24px 14px; border-bottom: 1px solid #e3e9e4; flex-shrink: 0;`;
+const PatientName = styled.p`font-size: ${fontSizes.body}; color: ${colors.textSecondary};`;
+const CreditAvailable = styled.p`
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: ${spacing.xs};
+  font-size: ${fontSizes.body};
+  strong { font-weight: ${typography.weightSemibold}; }
+  span { font-weight: ${typography.weightRegular}; }
+`;
 const Body = styled.div`padding: 16px 24px; overflow-y: auto; min-height: 0;`;
 const Footer = styled.footer`
   padding: 16px 24px; border-top: 1px solid #e3e9e4; display: flex; justify-content: flex-end; gap: 10px; flex-shrink: 0;
@@ -380,10 +435,32 @@ const SessionList = styled.ul`
   list-style: none; padding: 0 0 0 26px; margin: 8px 0;
   li { padding: 8px 0; }
 `;
-const AmountLabel = styled.label`
-  display: flex; flex-direction: column; gap: 6px; margin: 18px 0 6px; font-weight: 600;
-  input { box-sizing: border-box; width: 180px; max-width: 100%; border: 1px solid #b7c5bb; border-radius: 7px; padding: 9px 10px; font: inherit; }
+const AmountField = styled.div`
+  display: flex; flex-direction: column; gap: 6px; margin: ${spacing.lg} 0 6px;
 `;
+const AmountLabel = styled.label`font-weight: ${typography.weightSemibold}; color: ${colors.textSecondary};`;
+const CreditCurrencyInputGroup = styled(CurrencyInputGroup)`
+  width: 240px; max-width: 100%; border-radius: ${radii.md};
+  input { width: 100%; height: 42px; font-family: inherit; font-size: ${fontSizes.body}; font-weight: ${typography.weightRegular}; }
+`;
+const AmountError = styled.small`&& { color: ${colors.danger}; }`;
+const ReviewGroup = styled.li`
+  padding: ${spacing.md} 0; overflow-wrap: anywhere;
+  & + & { border-top: 1px solid ${colors.borderSubtle}; }
+  > strong { font-size: ${fontSizes.body}; font-weight: ${typography.weightSemibold}; }
+`;
+const DistributionLabel = styled.p`font-size: ${fontSizes.small}; color: ${colors.textSecondary};`;
+const DistributionList = styled.ul`
+  list-style: none; padding: 0 0 0 ${spacing.md}; margin: ${spacing.xs} 0 ${spacing.sm};
+  li { padding: ${spacing.xs} 0; font-size: ${fontSizes.body}; }
+  small { font-size: ${fontSizes.small}; }
+`;
+const SessionDate = styled.span`font-size: ${fontSizes.small}; color: ${colors.textSecondary};`;
+const DirectDestination = styled.div`margin-top: ${spacing.sm}; font-size: ${fontSizes.body};`;
 const SummaryLine = styled.div`display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 5px 0;`;
-const Totals = styled.div`padding-top: 14px;`;
+const Totals = styled.div`
+  border-top: 1px solid ${colors.borderSubtle}; padding-top: ${spacing.md}; margin-top: ${spacing.xs};
+  font-size: ${fontSizes.body}; color: ${colors.textSecondary};
+`;
+const PrimaryTotal = styled(SummaryLine)`font-size: 1rem; color: ${colors.textPrimary}; font-weight: ${typography.weightSemibold};`;
 const Notice = styled.p`padding: 10px 12px; background: #fff4e8; color: #80401d; border-radius: 8px;`;

@@ -45,7 +45,7 @@ test("tabela compacta agrupa cancelamento e crédito da mesma operação sem som
     historical_details_available: true,
   }];
   const { rerender } = renderHistory({ events });
-  expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Data", "Movimento", "Valor", "Detalhes"]);
+  expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Registrado em", "Movimento", "Valor", "Detalhes"]);
   expect(rows()).toHaveLength(3);
   expect(screen.queryByRole("list")).not.toBeInTheDocument();
   expect(screen.getByText("Sessão de 28/10 cancelada — R$ 100.00 liberados como crédito")).toBeInTheDocument();
@@ -104,7 +104,7 @@ test("operation_id explícito agrupa sem exigir extração do identificador do e
 test("dados antigos não ganham responsável nem data a partir de IDs, updated_at ou agendamento atual", () => {
   renderHistory({ events: [{ ...receipt, occurred_at: null, session_id: 9, session_starts_at: null,
     actor: { membership_id: 123, user_id: 456 }, reason: null, updated_at: "2026-09-23T12:00:00Z" }] });
-  expect(within(rows()[0]).getAllByRole("cell")[0]).toHaveTextContent("Data não registrada");
+  expect(within(rows()[0]).getAllByRole("cell")[0]).toHaveTextContent("Registro não disponível");
   expect(screen.getByText("Responsável").nextSibling).toHaveTextContent("Não registrado");
   expect(screen.getByText("Recebido em").nextSibling).toHaveTextContent("Data não registrada");
   expect(screen.getByText("Sessão").nextSibling).toHaveTextContent("Fisioterapia");
@@ -158,7 +158,7 @@ test.each([
   renderHistory({ events: [{ ...cancellation, type }] });
   fireEvent.click(screen.getByText("Ver detalhes"));
   expect(screen.getByText("Sessão").nextSibling).toHaveTextContent(/Fisioterapia.*28\/10\/2026.*10:00/);
-  expect(screen.getByText(dateLabel).nextSibling).toHaveTextContent(/10\/11\/2026.*09:00/);
+  expect(screen.getByText(dateLabel).nextSibling).toHaveTextContent(type === "RECEIPT" ? /^10\/11\/2026$/ : /10\/11\/2026.*09:00/);
   expect(screen.getByText(reasonLabel).nextSibling).toHaveTextContent("Cancelamento definitivo");
   expect(screen.getByText("Responsável").nextSibling).toHaveTextContent("Pessoa autorizada");
   expect(rows()[0].querySelectorAll("dl")).toHaveLength(1);
@@ -200,7 +200,7 @@ test("uso de crédito mostra serviço, sessão e valor confirmados sem observaç
   fireEvent.click(screen.getByText("Ver detalhes"));
   expect(rows()).toHaveLength(1);
   expect(mainValues()).toEqual(["R$ 50.00"]);
-  expect(screen.getByText("Sessão").nextSibling).toHaveTextContent(/Fisioterapia confirmada.*04\/11\/2026.*10:00:00.*Crédito aplicado: R\$ 50.00/);
+  expect(screen.getByText("Destino").nextSibling).toHaveTextContent(/Fisioterapia confirmada.*04\/11\/2026.*10:00:00.*Crédito aplicado: R\$ 50.00/);
   expect(screen.getByText("Crédito usado em").nextSibling).toHaveTextContent(/24\/09\/2026.*13:21:22/);
   expect(screen.getByText("Responsável").nextSibling).toHaveTextContent("Responsável local");
   expect(screen.queryByText("Observação")).not.toBeInTheDocument();
@@ -265,12 +265,138 @@ test("destinos históricos incompletos não recebem serviço, hora ou valor atua
     applied_sessions: [{ session_id: 9, service_name: null, session_starts_at: "2026-11-04", amount_cents: null }],
   };
   const { rerender } = renderHistory({ events: [applied] });
-  expect(screen.getByText("Sessão").nextSibling).toHaveTextContent("04/11/2026 (horário não registrado)");
-  expect(screen.getByText("Sessão").nextSibling).toHaveTextContent("Valor não registrado");
+  expect(screen.getByText("Destino").nextSibling).toHaveTextContent("04/11/2026 (horário não registrado)");
+  expect(screen.getByText("Destino").nextSibling).toHaveTextContent("Valor não registrado");
   expect(screen.queryByText(/Fisioterapia|25\/12|00:00/)).not.toBeInTheDocument();
   expect(screen.getByText("Observação").nextSibling).toHaveTextContent("Não registrado");
   rerender(<FinancialHistory events={[{ ...applied, applied_sessions: [{ ...applied.applied_sessions[0], amount_cents: 5000 }] }]} formatCurrency={() => "R$ ••••"} />);
   expect(mainValues()).toEqual(["R$ ••••"]);
-  expect(screen.getByText("Sessão").nextSibling).toHaveTextContent("Crédito aplicado: R$ ••••");
+  expect(screen.getByText("Destino").nextSibling).toHaveTextContent("Crédito aplicado: R$ ••••");
   expect(screen.queryByText(/50.00/)).not.toBeInTheDocument();
+});
+
+test("registro real ordena recebimentos futuros e retroativos, crédito e cancelamento pelo instante completo", () => {
+  const future = { ...receipt, id: "payment:future", occurred_at: "2026-10-25T09:00:00.000Z", recorded_at: "2026-09-30T12:00:00.002Z", amount_cents: 68000 };
+  const retroactive = { ...receipt, id: "payment:past", occurred_at: "2026-09-01T09:00:00.000Z", recorded_at: "2026-09-30T12:00:00.001Z", amount_cents: 3000 };
+  const canceled = { ...cancellation, recorded_at: "2026-09-30T12:00:00.003Z" };
+  const released = { ...release, recorded_at: canceled.recorded_at };
+  const used = { id: "credit-command:9", type: "CREDIT_APPLIED", amount_cents: 15000,
+    occurred_at: "2026-09-30T12:00:00.004Z", recorded_at: "2026-09-30T12:00:00.004Z" };
+  renderHistory({ events: [retroactive, released, future, used, canceled, future, used] });
+  expect(rows()).toHaveLength(4);
+  expect(mainValues()).toEqual(["R$ 150.00", "R$ 100.00", "R$ 680.00", "R$ 30.00"]);
+  const recordCells = rows().map((row) => within(row).getAllByRole("cell")[0]);
+  recordCells.forEach((cell) => {
+    expect(within(cell).getByText("30/09/2026")).toBeVisible();
+    const time = within(cell).getByText("· 09:00");
+    expect(time.tagName).toBe("SMALL");
+    expect(time).toHaveStyle({ display: "inline", fontSize: "0.8rem", whiteSpace: "nowrap" });
+    expect(cell).not.toHaveTextContent(/25\/10|01\/09|09:00:00/);
+  });
+  expect(recordCells[0].querySelector("time")).toHaveAttribute("datetime", used.recorded_at);
+  expect(screen.getAllByText(/liberados como crédito/)).toHaveLength(1);
+  expect(within(rows()[2]).getByText("Recebido em").nextSibling).toHaveTextContent(/^25\/10\/2026$/);
+  expect(within(rows()[3]).getByText("Recebido em").nextSibling).toHaveTextContent(/^01\/09\/2026$/);
+});
+
+test("registro compacto mantém data e hora secundária na mesma linha com quebra natural entre elas", () => {
+  renderHistory({ events: [{ ...receipt, recorded_at: "2026-09-30T18:27:05.000Z" }] });
+  const cell = within(rows()[0]).getAllByRole("cell")[0];
+  const stamp = cell.querySelector("time");
+  expect(stamp).toHaveTextContent(/^30\/09\/2026 · 15:27$/);
+  expect(stamp).toHaveAttribute("datetime", "2026-09-30T18:27:05.000Z");
+  expect(stamp).toHaveStyle({ display: "inline", whiteSpace: "normal" });
+  expect(stamp.querySelector("span")).toHaveStyle({ whiteSpace: "nowrap" });
+  expect(stamp.querySelector("small")).toHaveStyle({ display: "inline", fontSize: "0.8rem", color: "#59645d", whiteSpace: "nowrap" });
+  expect(stamp.querySelector("small")).not.toHaveStyle({ marginTop: "2px" });
+  expect(stamp.querySelector("br")).toBeNull();
+  expect(within(rows()[0]).getByRole("button", { name: "Ver detalhes" })).toBeEnabled();
+});
+
+test("empate do registro tem desempate determinístico sem reordenar eventos sem timestamp", () => {
+  const sameTime = "2026-09-30T12:01:42.350Z";
+  const first = { ...receipt, id: "payment:a", recorded_at: sameTime, amount_cents: 1000 };
+  const second = { ...receipt, id: "payment:z", recorded_at: sameTime, amount_cents: 2000 };
+  const unavailableFirst = { ...receipt, id: "payment:unavailable-z", recorded_at: null, amount_cents: 3000 };
+  const unavailableSecond = { ...receipt, id: "payment:unavailable-a", recorded_at: null, amount_cents: 4000 };
+  const { rerender } = renderHistory({ events: [unavailableFirst, second, unavailableSecond, first] });
+  expect(mainValues()).toEqual(["R$ 10.00", "R$ 20.00", "R$ 30.00", "R$ 40.00"]);
+  rerender(<FinancialHistory events={[second, first, unavailableFirst, unavailableSecond]} formatCurrency={money} />);
+  expect(mainValues()).toEqual(["R$ 10.00", "R$ 20.00", "R$ 30.00", "R$ 40.00"]);
+});
+
+test.each([undefined, null, "inválido", "2026-09-30", "2026-09-30T14:30:00"])(
+  "registro ausente ou incompleto %s não usa data financeira, atualização, sessão ou relógio como substituto", (recordedAt) => {
+    renderHistory({ events: [{ ...receipt, recorded_at: recordedAt, paid_at: "2026-12-31T12:00:00.000Z",
+      updated_at: "2026-12-30T12:00:00.000Z", session_starts_at: "2026-12-29T12:00:00.000Z" }] });
+    const cell = within(rows()[0]).getAllByRole("cell")[0];
+    expect(cell).toHaveTextContent(/^Registro não disponível$/);
+    expect(cell.querySelector("time")).toBeNull();
+    expect(cell.querySelector("small")).toBeNull();
+  },
+);
+
+test("replay conserva posição e registro original, sem duplicar a operação nem usar updated_at", () => {
+  const original = { ...receipt, recorded_at: "2026-09-30T12:00:00.000Z", amount_cents: 68000 };
+  const later = { id: "credit-command:9", type: "CREDIT_APPLIED", amount_cents: 15000,
+    occurred_at: "2026-09-30T12:01:00.000Z", recorded_at: "2026-09-30T12:01:00.000Z" };
+  const { rerender } = renderHistory({ events: [original, later] });
+  expect(mainValues()).toEqual(["R$ 150.00", "R$ 680.00"]);
+  const replayed = { ...original, replayed: true, updated_at: "2026-12-31T23:59:59.000Z" };
+  rerender(<FinancialHistory events={[later, original, replayed]} formatCurrency={money} />);
+  expect(rows()).toHaveLength(2);
+  expect(mainValues()).toEqual(["R$ 150.00", "R$ 680.00"]);
+  expect(within(rows()[1]).getAllByRole("cell")[0].querySelector("time")).toHaveAttribute("datetime", original.recorded_at);
+  expect(within(rows()[1]).getAllByRole("cell")[0]).toHaveTextContent("09:00");
+});
+
+test("registro usa America/Sao_Paulo inclusive na virada de dia, sem ajustar horas manualmente", () => {
+  renderHistory({ events: [
+    { ...receipt, id: "payment:before", recorded_at: "2026-09-30T02:59:59.999Z", amount_cents: 1000 },
+    { ...receipt, id: "payment:after", recorded_at: "2026-09-30T03:00:00.000Z", amount_cents: 2000 },
+  ] });
+  expect(mainValues()).toEqual(["R$ 20.00", "R$ 10.00"]);
+  const firstCell = within(rows()[0]).getAllByRole("cell")[0];
+  const secondCell = within(rows()[1]).getAllByRole("cell")[0];
+  expect(firstCell).toHaveTextContent("30/09/2026");
+  expect(firstCell).toHaveTextContent("00:00");
+  expect(secondCell).toHaveTextContent("29/09/2026");
+  expect(secondCell).toHaveTextContent("23:59");
+});
+
+test.each([
+  ["2026-10-25", "25/10/2026"],
+  ["2026-10-25T09:00:00", "25/10/2026"],
+  ["2026-10-25T09:00:00.000Z", "25/10/2026"],
+  ["2026-10-25T09:00:00-03:00", "25/10/2026"],
+  ["2026-10-26T02:59:00.000Z", "25/10/2026"],
+])("Recebido em usa somente a data financeira %s no fuso do projeto", (paidAt, expected) => {
+  renderHistory({ events: [{ ...receipt, occurred_at: paidAt, recorded_at: "2026-09-30T16:47:28.000Z" }] });
+  fireEvent.click(screen.getByText("Ver detalhes"));
+  expect(screen.getByText("Recebido em").nextSibling).toHaveTextContent(new RegExp(`^${expected}$`));
+  expect(screen.getByText("Recebido em").nextSibling).not.toHaveTextContent(/09:00|horário/);
+  expect(within(rows()[0]).getAllByRole("cell")[0]).toHaveTextContent("30/09/2026");
+  expect(within(rows()[0]).getAllByRole("cell")[0]).toHaveTextContent("13:47");
+});
+
+test("compatibilidade de recibos usa registro separado e não promove paid_at ao horário real", () => {
+  renderHistory({ events: null, receipts: [
+    { payment: { id: 81, paid_at: "2026-10-25T09:00:00.000Z", recorded_at: "2026-09-30T13:27:15.000Z" }, amountCents: 68000 },
+    { payment: { id: 82, paid_at: "2026-09-30T09:00:00.000Z" }, amountCents: 3000 },
+  ] });
+  expect(mainValues()).toEqual(["R$ 680.00", "R$ 30.00"]);
+  expect(within(rows()[0]).getAllByRole("cell")[0]).toHaveTextContent("30/09/2026");
+  expect(within(rows()[0]).getAllByRole("cell")[0]).toHaveTextContent("10:27");
+  expect(within(rows()[1]).getAllByRole("cell")[0]).toHaveTextContent(/^Registro não disponível$/);
+  expect(within(rows()[0]).getByText("Recebido em").nextSibling).toHaveTextContent(/^25\/10\/2026$/);
+});
+
+test.each(["created_at", "createdAt"])("compatibilidade sem eventos usa criação persistida do pagamento em %s", (field) => {
+  renderHistory({ events: null, receipts: [{
+    payment: { id: 81, paid_at: "2026-10-25T09:00:00.000Z", [field]: "2026-09-30T13:27:15.000Z" }, amountCents: 68000,
+  }] });
+  const cell = within(rows()[0]).getAllByRole("cell")[0];
+  expect(cell).toHaveTextContent("30/09/2026");
+  expect(cell).toHaveTextContent("10:27");
+  expect(cell.querySelector("time")).toHaveAttribute("datetime", "2026-09-30T13:27:15.000Z");
 });

@@ -8,6 +8,8 @@ const belongsToPackage = (record, packageItem) => {
   if (!packageItem) return true;
   if (packageItem.kind === "series")
     return Number(record.series_id) === Number(packageItem.sourceId);
+  if (packageItem.kind === "entry")
+    return Number(record.entry_id) === Number(packageItem.sourceId);
   return (
     Number(record.session_id || record.source_session_id) ===
     Number(packageItem.sourceId)

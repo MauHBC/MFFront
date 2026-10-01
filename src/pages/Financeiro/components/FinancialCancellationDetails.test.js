@@ -47,3 +47,14 @@ test("sem autorização explícita do servidor não oferece resolução", () => 
   ]} />);
   expect(screen.queryByRole("button", { name: "Resolver pendência" })).not.toBeInTheDocument();
 });
+
+test("avulsa do DTO unificado identifica pendência pelo lançamento, sem confundir ID de sessão", () => {
+  render(<FinancialCancellationDetails {...props} packageItem={{ kind: "entry", sourceId: 51 }}
+    pendingResolutions={[
+      { entry_id: 51, session_id: 701, can_resolve: true },
+      { entry_id: 52, session_id: 51, can_resolve: true },
+    ]} />);
+  expect(screen.getAllByRole("button", { name: "Resolver pendência" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Resolver pendência" }));
+  expect(props.onResolve).toHaveBeenCalledWith(expect.objectContaining({ entry_id: 51, session_id: 701 }));
+});

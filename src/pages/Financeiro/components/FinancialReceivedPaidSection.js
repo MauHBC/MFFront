@@ -27,7 +27,6 @@ const MONTH_NAMES = [
   "Novembro",
   "Dezembro",
 ];
-const MASK = "••••";
 
 export default function FinancialReceivedPaidSection(props) {
   const authorization = useAuthorization();
@@ -47,7 +46,6 @@ export default function FinancialReceivedPaidSection(props) {
     onYearChange,
     onPreviousYear,
     onNextYear,
-    valuesVisible,
     formatCurrency,
     currentDate,
     view = "received-paid",
@@ -63,7 +61,6 @@ export default function FinancialReceivedPaidSection(props) {
       onYearChange={onYearChange}
       onPreviousYear={onPreviousYear}
       onNextYear={onNextYear}
-      valuesVisible={valuesVisible}
       formatCurrency={formatCurrency}
       currentDate={currentDate}
       onAccessDenied={authorization.reload}
@@ -78,7 +75,6 @@ function ReceivedPaidContent({
   onYearChange,
   onPreviousYear,
   onNextYear,
-  valuesVisible,
   formatCurrency,
   currentDate,
   onAccessDenied,
@@ -216,14 +212,12 @@ function ReceivedPaidContent({
       if (mounted.current) setSaving(false);
     }
   };
-  const money = (amount) => (valuesVisible ? formatCurrency(amount) : MASK);
   const date =
     currentDate instanceof Date && !Number.isNaN(currentDate.getTime())
       ? currentDate
       : new Date();
   const currentMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
   const futureEmpty = (month) =>
-    valuesVisible &&
     String(year) === String(date.getFullYear()) &&
     month.month > currentMonth &&
     month.received_cents === 0 &&
@@ -282,23 +276,19 @@ function ReceivedPaidContent({
                   </td>
                   <td>
                     <AttendanceMoneyText>
-                      {futureEmpty(month) ? "—" : money(month.received_cents)}
+                      {futureEmpty(month) ? "—" : formatCurrency(month.received_cents)}
                     </AttendanceMoneyText>
                   </td>
                   <td>
                     <AttendanceMoneyText>
-                      {futureEmpty(month) ? "—" : money(month.paid_cents)}
+                      {futureEmpty(month) ? "—" : formatCurrency(month.paid_cents)}
                     </AttendanceMoneyText>
                   </td>
                   <td data-primary-metric="true">
-                    <Result
-                      $negative={
-                        valuesVisible && month.realized_result_cents < 0
-                      }
-                    >
+                    <Result $negative={month.realized_result_cents < 0}>
                       {futureEmpty(month)
                         ? "—"
-                        : money(month.realized_result_cents)}
+                        : formatCurrency(month.realized_result_cents)}
                     </Result>
                   </td>
                 </tr>
@@ -307,15 +297,11 @@ function ReceivedPaidContent({
             <tfoot>
               <tr>
                 <th scope="row">Total no ano</th>
-                <td>{money(report.totals.received_cents)}</td>
-                <td>{money(report.totals.paid_cents)}</td>
+                <td>{formatCurrency(report.totals.received_cents)}</td>
+                <td>{formatCurrency(report.totals.paid_cents)}</td>
                 <td data-primary-metric="true">
-                  <Result
-                    $negative={
-                      valuesVisible && report.totals.realized_result_cents < 0
-                    }
-                  >
-                    {money(report.totals.realized_result_cents)}
+                  <Result $negative={report.totals.realized_result_cents < 0}>
+                    {formatCurrency(report.totals.realized_result_cents)}
                   </Result>
                 </td>
               </tr>
@@ -405,9 +391,9 @@ function ReceivedPaidContent({
                 >
                   <td>{monthName(month.month)}</td>
                   <td>
-                    {valuesVisible && !month.distribution.has_available_result
+                    {!month.distribution.has_available_result
                       ? "—"
-                      : money(month.distribution.distributable_cents)}
+                      : formatCurrency(month.distribution.distributable_cents)}
                   </td>
                   {report.distribution.participants.map((column) => {
                     const participant = month.distribution.participants.find(
@@ -416,12 +402,10 @@ function ReceivedPaidContent({
                     return (
                       <td key={column.participant_id}>
                         {!participant ||
-                        (valuesVisible &&
-                          !month.distribution.has_available_result)
+                        !month.distribution.has_available_result
                           ? "—"
-                          : money(participant.amount_cents)}
+                          : formatCurrency(participant.amount_cents)}
                         {participant &&
-                        valuesVisible &&
                         month.distribution.has_available_result &&
                         participant.name !== column.name ? (
                           <small>{participant.name}</small>
@@ -435,10 +419,10 @@ function ReceivedPaidContent({
             <tfoot>
               <tr>
                 <th scope="row">Total distribuível no ano</th>
-                <td>{money(report.distribution.distributable_cents)}</td>
+                <td>{formatCurrency(report.distribution.distributable_cents)}</td>
                 {report.distribution.participants.map((participant) => (
                   <td key={participant.participant_id}>
-                    {money(participant.amount_cents)}
+                    {formatCurrency(participant.amount_cents)}
                   </td>
                 ))}
               </tr>

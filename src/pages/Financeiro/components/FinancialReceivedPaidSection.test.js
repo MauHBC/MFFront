@@ -171,7 +171,6 @@ const props = {
   ui,
   year: "2026",
   yearOptions: ["2025", "2026", "2027"],
-  valuesVisible: true,
   formatCurrency: currency,
   currentDate: new Date(2026, 8, 18),
   onYearChange: jest.fn(),
@@ -357,22 +356,24 @@ test("meses futuros seguem apresentação anual, sem esconder movimentos registr
 });
 
 test.each(["received-paid", "distribution"])(
-  "privacidade oculta valores e sinais auxiliares em %s",
+  "valores e sinais financeiros permanecem visíveis em %s sem modo de ocultação",
   async (section) => {
     getDistributionConfiguration.mockResolvedValue({ data: configured() });
     getReceivedPaid.mockResolvedValue({ data: report("2026", true) });
-    const view = renderPanel({ view: section });
-    await (section === "distribution" ? distributionReady() : ready());
-    view.update({ valuesVisible: false });
-    expect(view.container).not.toHaveTextContent("R$");
-    expect(view.container.innerHTML).not.toContain("12345");
-    expect(view.container.innerHTML).not.toContain("20000");
-    expect(
-      screen.queryByText(/Sem resultado disponível/),
-    ).not.toBeInTheDocument();
-    expect(screen.getAllByText("••••")).toHaveLength(
-      section === "distribution" ? 27 : 39,
-    );
+    const { container } = renderPanel({ view: section });
+    const table = await (section === "distribution" ? distributionReady() : ready());
+    expect(container).toHaveTextContent(currency(12345));
+    expect(container).not.toHaveTextContent("••••");
+    expect(within(table).getByRole("row", { name: /Abril/ })).toHaveTextContent(currency(12345));
+    if (section === "received-paid") {
+      expect(within(table).getByRole("row", { name: /Maio/ })).toHaveTextContent(currency(-20000));
+      expect(table.querySelector("tfoot")).toHaveTextContent(currency(-7655));
+      expect(within(table).getByRole("row", { name: /Outubro/ })).toHaveTextContent("—");
+    } else {
+      expect(within(table).getByRole("row", { name: /Maio/ })).toHaveTextContent("—");
+      expect(table.querySelector("tfoot")).toHaveTextContent(currency(12345));
+      expect(table.querySelector("tfoot")).toHaveTextContent(currency(0));
+    }
     expect(getReceivedPaid).toHaveBeenCalledTimes(1);
   },
 );

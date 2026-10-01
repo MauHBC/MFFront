@@ -44,16 +44,22 @@ export const getFinancialOverview = (period, periodMode = 'month') =>
     params: periodMode === 'year' ? { year: period } : { month: period },
   });
 
-export const getFinancialRevenuesSummary = (period, periodMode = 'month') =>
+export const getFinancialRevenuesSummary = (period, periodMode = 'month', filters = {}) =>
   api.get('/financial-revenues-summary', {
-    params: periodMode === 'year' ? { year: period } : { month: period },
+    params: { ...(periodMode === 'year' ? { year: period } : { month: period }), ...filters },
   });
 
-export const getFinancialRevenuePatientDetail = (patientId, period, periodMode = 'month') =>
+export const getFinancialRevenuePatientDetail = (
+  patientId,
+  period,
+  periodMode = 'month',
+  origin = null,
+) =>
   api.get('/financial-revenues/patient-detail', {
     params: {
       patient_id: patientId,
       ...(periodMode === 'year' ? { year: period } : { month: period }),
+      ...(origin ? { origin } : {}),
     },
   });
 

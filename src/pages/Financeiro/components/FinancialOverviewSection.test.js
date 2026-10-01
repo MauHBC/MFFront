@@ -117,7 +117,6 @@ const props = (overrides = {}) => ({
   overviewPeriodLabel: "outubro de 2026",
   overviewPeriodMode: "month",
   currentDate: new Date("2026-09-22T12:00:00-03:00"),
-  financialValuesVisible: true,
   formatCurrency,
   overviewMonthPickerRef: React.createRef(),
   handleOverviewMonthChange: jest.fn(),
@@ -292,13 +291,11 @@ describe("FinancialOverviewSection", () => {
     ).toHaveLength(12);
   });
 
-  it("preserva privacidade sem geometria, labels ou centavos expostos no gráfico", () => {
+  it("mostra valores reais e gráfico sem depender de um modo de visibilidade", () => {
     const { container } = render(
       <FinancialOverviewSection
         {...props({
           overviewPeriodMode: "year",
-          financialValuesVisible: false,
-          formatCurrency: () => "R$ ••••",
           overview: {
             summary: summary({
               incomeTotal: 40000,
@@ -314,15 +311,17 @@ describe("FinancialOverviewSection", () => {
         })}
       />,
     );
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Saldo das contas por mês" })).toBeVisible();
     expect(
-      screen.getByText("Mostre os valores financeiros para visualizar o gráfico."),
-    ).toBeInTheDocument();
-    expect(container.querySelector("[data-value-cents]")).toBeNull();
-    expect(container.textContent).not.toContain("40000");
-    expect(
-      within(screen.getByRole("table", { name: "Contas por mês" })).getAllByText("R$ ••••"),
-    ).toHaveLength(39);
+      screen.queryByText("Mostre os valores financeiros para visualizar o gráfico."),
+    ).not.toBeInTheDocument();
+    expect(container.querySelector('rect[data-month="2026-10"]')).toHaveAttribute("data-value-cents", "40000");
+    expect(container.querySelector('text[data-month="2026-10"]')).toHaveTextContent("R$ 400,00");
+    const table = screen.getByRole("table", { name: "Contas por mês" });
+    const october = table.querySelector('[data-month="2026-10"]');
+    expect(october.querySelector('[data-field="incomeTotal"]')).toHaveTextContent("R$ 400,00");
+    expect(october.querySelector('[data-field="periodResult"]')).toHaveTextContent("R$ 400,00");
+    expect(container.textContent).not.toContain("••••");
   });
 
   it("mantém zeros sem bloco de ausência mensal e preserva carregamento e erros", () => {

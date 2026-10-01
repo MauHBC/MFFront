@@ -44,6 +44,7 @@ const receiptEvents = (receipts) =>
     id: `receipt:${payment.id}`,
     type: "RECEIPT",
     amount_cents: amountCents,
+    recorded_at: payment.recorded_at ?? payment.created_at ?? payment.createdAt ?? null,
     occurred_at: payment.paid_at,
     actor: null,
     reason: payment.note || null,
@@ -93,6 +94,23 @@ const historyRows = (events) => {
   });
 };
 
+const recordedTimestamp = (value) => {
+  // A date without a proven time/offset is not a registration instant.
+  if (typeof value !== "string"
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+const orderHistoryRows = (rows) => rows.map((row, index) => ({
+  row, index, recordedAt: recordedTimestamp(row.recorded_at),
+})).sort((first, second) => {
+  if (first.recordedAt === null && second.recordedAt === null) return first.index - second.index;
+  if (first.recordedAt === null) return 1;
+  if (second.recordedAt === null) return -1;
+  return second.recordedAt - first.recordedAt || String(first.row.id).localeCompare(String(second.row.id));
+}).map(({ row }) => row);
+
 const referenceType = PropTypes.shape({
   payment_id: PropTypes.number,
   entry_id: PropTypes.number,
@@ -114,6 +132,7 @@ const eventType = PropTypes.shape({
   id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
   type: PropTypes.string.isRequired,
   amount_cents: PropTypes.number,
+  recorded_at: PropTypes.string,
   occurred_at: PropTypes.string,
   session_id: PropTypes.number,
   session_starts_at: PropTypes.string,
@@ -123,6 +142,18 @@ const eventType = PropTypes.shape({
     session_id: PropTypes.number.isRequired,
     service_name: PropTypes.string,
     session_starts_at: PropTypes.string,
+    amount_cents: PropTypes.number,
+  })),
+  applied_destinations: PropTypes.arrayOf(PropTypes.shape({
+    kind: PropTypes.string,
+    session_id: PropTypes.number,
+    service_name: PropTypes.string,
+    session_starts_at: PropTypes.string,
+    billing_cycle_id: PropTypes.number,
+    plan_name: PropTypes.string,
+    cycle_start: PropTypes.string,
+    cycle_end: PropTypes.string,
+    due_date: PropTypes.string,
     amount_cents: PropTypes.number,
   })),
   actor: PropTypes.shape({
@@ -142,6 +173,9 @@ const eventType = PropTypes.shape({
 function EventDetails({ event, serviceName, formatCurrency }) {
   const isCreditUse = event.type === "CREDIT_APPLIED";
   const appliedSessions = isCreditUse && Array.isArray(event.applied_sessions) ? event.applied_sessions : [];
+  const appliedDestinations = isCreditUse && Array.isArray(event.applied_destinations)
+    ? event.applied_destinations
+    : appliedSessions.map((session) => ({ kind: "session", ...session }));
   const hideGenericObservation = isCreditUse && event.reason?.trim() === "Aplicação de crédito em cobrança";
   const hasSession = Boolean(event.session_id || event.session_starts_at);
   const sessionDescription = [serviceName, formatDetailDate(event.session_starts_at)]
@@ -151,17 +185,25 @@ function EventDetails({ event, serviceName, formatCurrency }) {
     <EventDetail>
       <dl>
         {isCreditUse && <>
-          <dt>{appliedSessions.length > 1 ? "Sessões" : "Sessão"}</dt>
-          <dd>{appliedSessions.length ? <AppliedSessionsList>
-            {appliedSessions.map((session) => <li key={session.session_id}>
-              <div>{[session.service_name?.trim(), formatDetailDate(session.session_starts_at)].filter(Boolean).join(" — ")}</div>
-              <span>Crédito aplicado: <strong>{Number.isSafeInteger(session.amount_cents)
-                ? formatCurrency(session.amount_cents) : "Valor não registrado"}</strong></span>
+          <dt>{appliedDestinations.length > 1 ? "Destinos" : "Destino"}</dt>
+          <dd>{appliedDestinations.length ? <AppliedSessionsList>
+            {appliedDestinations.map((destination, index) => <li key={`${destination.kind || "destination"}:${destination.session_id || destination.billing_cycle_id || index}`}>
+              <div>{destination.kind === "billing_cycle"
+                ? [
+                  destination.plan_name?.trim(),
+                  [formatDetailDate(destination.cycle_start), formatDetailDate(destination.cycle_end)].filter(Boolean).join(" a "),
+                  destination.due_date ? `Vencimento ${formatDetailDate(destination.due_date)}` : null,
+                ].filter(Boolean).join(" — ")
+                : [destination.service_name?.trim(), formatDetailDate(destination.session_starts_at)].filter(Boolean).join(" — ")}</div>
+              <span>Crédito aplicado: <strong>{Number.isSafeInteger(destination.amount_cents)
+                ? formatCurrency(destination.amount_cents) : "Valor não registrado"}</strong></span>
             </li>)}
           </AppliedSessionsList> : "Destino histórico indisponível"}</dd>
         </>}
         {!isCreditUse && hasSession && <><dt>Sessão</dt><dd>{sessionDescription}</dd></>}
-        <dt>{detailDateLabels[event.type] || "Alterado em"}</dt><dd>{formatDetailDate(event.occurred_at)}</dd>
+        <dt>{detailDateLabels[event.type] || "Alterado em"}</dt><dd>{event.type === "RECEIPT"
+          ? formatFinancialEventDate(event.occurred_at, { dateOnly: true })
+          : formatDetailDate(event.occurred_at)}</dd>
         <dt>Responsável</dt><dd>{event.actor?.name?.trim() || "Não registrado"}</dd>
         {event.type === "RECEIPT" && <><dt>Forma de pagamento</dt><dd>{event.payment_method_name?.trim() || "—"}</dd></>}
         {!hideGenericObservation && <><dt>{reasonLabel}</dt><dd>{event.reason?.trim() || "Não registrado"}</dd></>}
@@ -211,7 +253,7 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
       }) : receiptEvents(receipts);
   const unique = [...new Map(source.filter((event) => event?.id)
     .map((event) => [String(event.id), event])).values()];
-  const displayed = historyRows(unique.filter((event) => filter === "all" || event.type === "RECEIPT"));
+  const displayed = orderHistoryRows(historyRows(unique.filter((event) => filter === "all" || event.type === "RECEIPT")));
   const movementLabel = (row) => {
     const session = row.session_starts_at ? `Sessão de ${formatFinancialEventDate(row.session_starts_at, { short: true })}` : "Sessão";
     if (row.groupedCancellation) return `${session} cancelada — ${Number.isSafeInteger(row.amount_cents) ? `${formatCurrency(row.amount_cents)} liberados como crédito` : "crédito liberado"}`;
@@ -224,10 +266,15 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
       {displayed.length === 0 ? <p>Nenhum evento financeiro encontrado neste contexto.</p> : (
         <TableScroll>
           <HistoryTable>
-            <thead><tr><th>Data</th><th>Movimento</th><th>Valor</th><th>Detalhes</th></tr></thead>
+            <thead><tr><th>Registrado em</th><th>Movimento</th><th>Valor</th><th>Detalhes</th></tr></thead>
             <tbody>{displayed.map((row) => (
               <tr key={row.id}>
-                <td>{formatFinancialEventDate(row.occurred_at, { dateOnly: true })}</td>
+                <td>{recordedTimestamp(row.recorded_at) === null ? "Registro não disponível" : <RecordedDate dateTime={row.recorded_at}>
+                  <span>{formatFinancialEventDate(row.recorded_at, { dateOnly: true })}</span>{" "}
+                  <small>· {new Date(row.recorded_at).toLocaleTimeString("pt-BR", {
+                    timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+                  })}</small>
+                </RecordedDate>}</td>
                 <td>{movementLabel(row)}</td>
                 <td>{Number.isSafeInteger(row.amount_cents) ? formatCurrency(row.amount_cents) : "Valor não registrado"}</td>
                 <td><HistoryDetails row={row}
@@ -245,7 +292,10 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
 FinancialHistory.propTypes = {
   events: PropTypes.arrayOf(eventType),
   receipts: PropTypes.arrayOf(PropTypes.shape({
-    payment: PropTypes.shape({ id: PropTypes.number.isRequired, paid_at: PropTypes.string, note: PropTypes.string, voided: PropTypes.bool }).isRequired,
+    payment: PropTypes.shape({
+      id: PropTypes.number.isRequired, recorded_at: PropTypes.string, created_at: PropTypes.string, createdAt: PropTypes.string,
+      paid_at: PropTypes.string, note: PropTypes.string, voided: PropTypes.bool,
+    }).isRequired,
     amountCents: PropTypes.number,
     paymentMethodName: PropTypes.string,
   })),
@@ -263,6 +313,12 @@ const HistorySection = styled.section`
   p { color: #59645d; line-height: 1.5; }
 `;
 const TableScroll = styled.div`overflow-x: auto;`;
+const RecordedDate = styled.time`
+  display: inline;
+  white-space: normal;
+  span { white-space: nowrap; }
+  small { display: inline; color: #59645d; font-size: 0.8rem; white-space: nowrap; }
+`;
 const HistoryTable = styled.table`
   width: 100%;
   border-collapse: collapse;

@@ -26,6 +26,10 @@ import { listSpecialSchedulingEvents } from "../../services/scheduling";
 jest.mock("react-toastify", () => ({
   toast: { error: jest.fn(), success: jest.fn(), info: jest.fn() },
 }));
+jest.mock("../../contexts/AuthorizationContext", () => {
+  const context = { clinic_id: 1 };
+  return { useAuthorization: () => ({ context, canAccessModule: () => true, hasCapability: () => true }) };
+});
 
 jest.mock("../../services/axios", () => ({
   __esModule: true,
@@ -111,6 +115,8 @@ const session = {
 };
 
 const patientDetail = {
+  origin: "all",
+  financial_history: [],
   patient: { id: 30, name: "Maria Silva" },
   month: "2026-08",
   summary: { total: 100000, received: 40000, pending: 60000, creditAvailable: 0 },
@@ -146,12 +152,15 @@ const patientDetail = {
     amount_cents: 100000,
     paid_cents: 40000,
     open_cents: 60000,
+    overdue_cents: 60000,
+    due_date: "2026-08-10",
     financial_status: "partial",
     entries: [{ entryId: 501, openCents: 60000 }],
     usage_summary: { scheduled: 0, done: 1, noShow: 0, canceledWithoutCharge: 0 },
     sessions: [session],
   }],
 };
+patientDetail.charges = patientDetail.packages;
 
 const monthlyCycle = {
   id: 11,
@@ -200,6 +209,7 @@ describe("Financeiro - caracterização dos recebimentos publicados", () => {
     });
     getFinancialRevenuesSummary.mockResolvedValue({
       data: {
+        origin: "all",
         month: "2026-08",
         summary: { total: 100000, received: 40000, pending: 60000 },
         patients: [{
@@ -279,10 +289,12 @@ describe("Financeiro - caracterização dos recebimentos publicados", () => {
         },
       ],
       packages: [oldestPackage, newestPackage],
+      charges: [oldestPackage, newestPackage],
     };
     getFinancialRevenuePatientDetail.mockResolvedValue({ data: partialDiscountDetail });
     getFinancialRevenuesSummary.mockResolvedValue({
       data: {
+        origin: "all",
         month: "2026-08",
         summary: { total: 160000, received: 0, pending: 160000 },
         patients: [{
@@ -300,7 +312,8 @@ describe("Financeiro - caracterização dos recebimentos publicados", () => {
 
     renderFinanceiro();
     expect(await screen.findByText("Maria Silva")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Mostrar valores financeiros" }));
+    expect(screen.queryByRole("button", { name: /(?:Mostrar|Ocultar) valores financeiros/ }))
+      .not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
     expect(await screen.findByRole("button", { name: "Registrar recebimento" })).toBeInTheDocument();
     expect((await screen.findAllByText("Fisioterapia")).length).toBeGreaterThanOrEqual(2);
@@ -324,13 +337,13 @@ describe("Financeiro - caracterização dos recebimentos publicados", () => {
 
     await waitFor(() => expect(createFinancialEntry).toHaveBeenCalledWith({
       type: "income",
-      description: "Recebimento por sessão (sistema)",
+      description: "Recebimento do paciente (sistema)",
       patient_id: 30,
       amount_cents: 0,
       currency: "BRL",
       reference_date: "2026-08-15",
       due_date: "2026-08-15",
-      notes: "Entrada técnica automática para viabilizar recebimento por sessão.",
+      notes: "Entrada técnica automática para viabilizar recebimento do paciente.",
     }));
     await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -347,18 +360,31 @@ describe("Financeiro - caracterização dos recebimentos publicados", () => {
   });
 
   it("recebe mensalidade pelo mesmo contrato de anchor e alocação", async () => {
+    getFinancialRevenuePatientDetail.mockResolvedValue({ data: {
+      ...patientDetail,
+      summary: { total: 70000, received: 0, pending: 70000, creditAvailable: 0 },
+      charges: [{ kind: "billing_cycle", sourceId: 11, service_name: "Recovery",
+        reference_date: monthlyCycle.cycle_start, due_date: "2026-08-05",
+        cycle_start: monthlyCycle.cycle_start, cycle_end: monthlyCycle.cycle_end,
+        amount_cents: 70000, paid_cents: 0, open_cents: 70000, overdue_cents: 70000,
+        financial_status: "pending", entries: [{ entryId: 901, openCents: 70000 }], sessions: [] }],
+    } });
     renderFinanceiro();
-    await userEvent.click(await screen.findByRole("button", { name: "Mensalidades" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mensalidade", exact: true }));
     expect(await screen.findByText("Maria Silva")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
     expect(await screen.findByText("Recovery")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Registrar recebimento" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Avançar" }));
 
     fireEvent.change(await screen.findByLabelText("Forma de pagamento"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Data do recebimento"), { target: { value: "2026-08-15" } });
     await userEvent.click(screen.getByRole("button", { name: "Confirmar recebimento" }));
 
     await waitFor(() => expect(createFinancialEntry).toHaveBeenCalled());
+    expect(createFinancialEntry).toHaveBeenCalledWith(expect.objectContaining({
+      description: "Recebimento do paciente (sistema)",
+    }));
     await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledWith(
       expect.objectContaining({
         entry_id: 990,
