@@ -74,6 +74,14 @@ export const validateUnifiedRevenueDetail = (detail, patientId) => {
   return detail;
 };
 
+const revenueStatus = (charge) => {
+  if (charge.revenue_status) return charge.revenue_status;
+  if (["canceled", "no_charge", "missing", "covered_by_plan"].includes(charge.financial_status)) return charge.financial_status;
+  if (charge.open_cents <= 0) return "paid";
+  if (charge.overdue_cents > 0) return "overdue";
+  return charge.due_date ? "upcoming" : "missing_due_date";
+};
+
 export const mapUnifiedRevenueCharge = (charge) => ({
   ...charge,
   id: `${charge.kind}-${charge.sourceId}`,
@@ -87,6 +95,7 @@ export const mapUnifiedRevenueCharge = (charge) => ({
   paidCents: charge.paid_cents,
   openCents: charge.open_cents,
   financialStatus: charge.financial_status,
+  revenueStatus: revenueStatus(charge),
   duePresentation: getBillingDueStatus({ dueDate: charge.due_date, openCents: charge.open_cents }),
   totalSessions: Number(charge.total_sessions || charge.sessions?.length || 0),
   usedSessions: Number(charge.used_sessions || 0),
