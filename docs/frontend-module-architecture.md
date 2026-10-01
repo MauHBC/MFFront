@@ -8,7 +8,15 @@ padrões dos módulos autenticados.
 A Visão geral possui as abas separadas “Recebido e pago” e “Distribuição”,
 montadas e consultadas somente para `useAuthorization().isAdministrator === true`.
 Os painéis anuais e o modal de configuração da Distribuição reutilizam os
-componentes locais e a privacidade do Financeiro. Trocas de aba, ano, contexto
+componentes locais. A remoção do botão de mostrar/ocultar e da máscara de valores
+abrange **todo o Financeiro**: Visão geral, Receitas e Despesas, incluindo
+Recebido e pago e Distribuição. Isso inclui indicadores, tabelas, gráficos,
+históricos e modais, não somente Receitas.
+Essa decisão é exclusivamente de apresentação: não altera permissões,
+capacidades, isolamento por clínica/paciente ou as restrições de Administrador,
+nem autoriza acesso a dados financeiros antes restritos. A autorização continua
+sendo validada pelo Backend, independentemente da visibilidade dos valores.
+Trocas de aba, ano, contexto
 oficial ou token desmontam o estado privado;
 respostas atrasadas são descartadas. Conflito de gravação recarrega a configuração
 para nova edição, sem reaplicar o comando. A UI valida participantes, mas exibe
@@ -424,9 +432,40 @@ próprio wrapper rolável. Os ancestrais de grid e a página admitem encolhiment
 com `min-width: 0`; por isso a rolagem horizontal permanece no wrapper da tabela
 e não se propaga ao documento ou ao App Shell.
 
-### Fronteira compartilhada de recebimentos no Financeiro
+### Receitas unificadas e fronteira compartilhada de recebimentos
 
-Os recebimentos ativos por sessão e por Mensalidades compartilham a fronteira
+Receitas apresenta uma lista única por paciente para mensalidades, pacotes e
+avulsas. **Tipo de cobrança** usa botões segmentados no padrão da Agenda:
+**Todos**, **Mensalidade**, **Pacote** e **Avulsa**, com uma única opção ativa e
+**Todos** como padrão. Os tipos filtram a mesma experiência, sem abas
+operacionais separadas, e não alteram a seleção financeira dos modais. Os links
+antigos com `view=mensalidades` conservam paciente e período e abrem o filtro Mensalidade.
+Status financeiro, pesquisa e competência mensal/anual permanecem; Profissional
+é pertinente aos filtros Pacote e Avulsa.
+
+O resumo e o detalhe consomem os endpoints financeiros existentes com
+`origin=all`. O detalhe recebe `charges`, uma projeção canônica por ciclo, série
+ou avulsa, sem duplicar a fundação do pacote nem suas sessões. Não soma as antigas
+consultas por modalidade. Crédito é consultado uma vez no detalhe, global por
+paciente/clínica. O cache do detalhe é compartilhado por paciente/período dentro
+do contexto autorizado e é invalidado por operações financeiras e troca de
+contexto. Uma cobrança parcial permanece na projeção após a recarga.
+
+A tabela do detalhe usa **Data | Serviço | Vencimento | Valor | Pago |
+A receber | Situação | Ações**. Serviço preserva o nome do serviço ou plano e
+mostra abaixo uma etiqueta compacta, não clicável, de Mensalidade, Pacote ou
+Avulsa. Data vem da referência financeira autoritativa usada pela competência; não é a data
+do recebimento nem a primeira sessão ainda visível. Na lista de pacientes e no
+detalhe, Vencimento mostra somente a data retornada pelo Backend, em formato
+brasileiro, ou `-` quando ausente, sem valor ou aviso de atraso na célula.
+Essa simplificação não altera cálculos, filtros de atraso ou situação financeira.
+Datas não quebram internamente e colunas monetárias ficam alinhadas à direita.
+Vencimentos adicionais, período completo da mensalidade e sessões ficam em
+Detalhes. Referência e vencimento
+ausentes não são inventados. A política prospectiva de novos pacotes e a
+preservação de acordos/parcelas existentes pertencem às regras do Backend.
+
+Os recebimentos ativos compartilham a fronteira
 `src/pages/Financeiro/hooks/useFinancialPaymentFlow.js` e o componente
 `src/pages/Financeiro/components/FinancialPaymentModal.js`. O hook concentra o
 estado e o preview do modal, validações, descontos, alocação proporcional e a
@@ -438,22 +477,39 @@ O preview permite recebimento parcial com desconto: o saldo pendente é calculad
 sobre o total ajustado, enquanto o backend permanece a autoridade da alocação e
 da persistência final.
 
-Por sessão, o modal tem duas etapas. A primeira lista uma linha por pacote ou
+O modal tem duas etapas. A primeira lista uma linha por mensalidade, pacote ou
 avulsa elegível, com paciente, período, data e saldo; várias cobranças começam
 sem seleção, enquanto uma pode vir selecionada. Avançar não chama escrita HTTP.
 A segunda mantém os campos existentes e o Resumo da operação, sem tabela/lista
 intermediária de revisão, contêiner ou rolagem exclusivos desse bloco. O resumo
 preserva valores, desconto, pendente e crédito, sem alterar a lógica financeira.
 Voltar preserva seleção e formulário; valor recebido editado não é recalculado.
-Mensalidades conserva o fluxo anterior, sem mudança em Agenda ou Planos.
+Cada mensalidade reutiliza as mesmas duas etapas. Sua linha representa um
+`BillingCycle` elegível pelo nome do plano, período e vencimento, nunca suas
+sessões. O período delimita a consulta; na visão anual podem ser escolhidos
+ciclos existentes de meses diferentes. A tela não cria ciclos futuros e não
+altera Agenda, Motor V2, contratação, cobertura, renovação ou cancelamento de
+Planos. A antiguidade financeira é validada pelo Backend somente entre os ciclos
+selecionados, independentemente da ordenação visual. A seleção pode misturar
+tipos. `unifiedRevenueCharges` adapta o DTO e ordena os grupos financeiros pela
+referência; as obrigações internas de cada pacote permanecem juntas e são
+ordenadas dentro desse grupo. Filtros visuais não escolhem destinos nem reduzem
+silenciosamente as opções do recebimento ou de Usar crédito.
 
 Sem seleção (inclusive período carregado sem cobranças), Avançar é permitido
 com o aviso “Avançar sem selecionar cobranças, o valor ficará como crédito do
 paciente.” O valor inicial fica vazio; valor conscientemente editado é
 preservado ao voltar. Desconto é ocultado e zerado. A confirmação envia
 `receipt_intent=credit_only` e `allocation_mode=none`, sem âncora ou alocações;
-não recorre à distribuição automática legada. Falha de consulta, cache de outro
+não recorre à distribuição automática legada. Somente nesse caminho explícito,
+o resumo mostra uma linha: **Será adicionado ao crédito: R$X.**, com o valor novo
+da operação, não o saldo de crédito disponível. O campo **Valor recebido** é
+preservado. Com cobranças selecionadas, inclusive totalmente descontadas,
+mantém o resumo de valor original, desconto e resultado. Falha de consulta, cache de outro
 período/paciente ou revisão inválida bloqueia o fluxo, não significa mês vazio.
+Em Receitas, um paciente pesquisado sem cobrança no período ainda pode abrir o
+detalhe e registrar crédito; a ausência válida é diferenciada de erro e este
+último oferece nova tentativa.
 
 O campo se chama **Desconto**, inicia em `0,00` e seleciona o zero ao receber
 foco por clique/teclado; não seleciona nem apaga valor não zero. Edição, colagem
@@ -472,10 +528,11 @@ bloqueia nova confirmação até atualizar os dados e reabrir a revisão. O deta
 usa a projeção das parcelas elegíveis para a coluna Valor da avulsa, preservando
 o original separadamente, assim como já faz com os totais do pacote.
 
-Na aba Recebimentos do detalhe do paciente, a linha existente ganha “Ver
+Na aba Histórico do detalhe do paciente, a linha existente ganha “Ver
 detalhes” como ação discreta, com teclado, foco e estado de expansão, sem modal.
-A linha principal mantém Data, Valor recebido, Forma de pagamento, Observações
-e Detalhes. Ao entrar na aba, carrega o catálogo de formas pela API existente;
+A linha principal mantém **Registrado em | Movimento | Valor | Detalhes**;
+forma de pagamento e observação permanecem na expansão. Ao entrar na aba,
+carrega o catálogo de formas pela API existente;
 o nome é resolvido pelo `payment_method_id` persistido, sem depender de abrir
 o modal de recebimento. Informação ausente permanece “—”, sem nome presumido.
 `FinancialReceiptDetails` consulta sob demanda
@@ -492,7 +549,12 @@ da prévia do navegador. A visão dedicada desabilitada não é alterada.
 
 Regressões: `FinancialPaymentModal.test.js`, `useFinancialPaymentFlow.test.js`,
 `FinancialReceiptDetails.test.js`, `currentObligation.test.js`, `index.test.js` e o gate do Backend
-`test:financial-partial-discount:database` com o hook real desta worktree.
+`test:financial-partial-discount:database` com o hook real desta worktree. Para
+Mensalidades e seleção mista, `unifiedRevenues.test.js`, `billingCycles.characterization.test.js`,
+`activePayments.characterization.test.js`, `FinancialCreditUseModal.test.js` e
+`test:financial-monthly-receipts:database` e `test:financial-unified-receipts:database`
+cobrem a fronteira compartilhada com HTTP e MariaDB descartável; o último usa
+o adaptador e o hook reais do Frontend.
 
 Cada confirmação lógica mantém uma única `Idempotency-Key` e o mesmo payment
 anchor enquanto a requisição está pendente ou um erro ambíguo pode exigir retry.
@@ -500,22 +562,40 @@ Duplo clique não abre outra tentativa material. Alterar o comando ou abrir uma
 nova operação gera nova chave e novo anchor; o serviço envia a chave somente no
 header do POST de `financial-payments`.
 
-Detalhes, cache, crédito e preview específicos de sessão permanecem no fluxo de
-sessões. Filtros, agrupamento, resolução de BillingCycle, preview de sessões e
-renderização de Mensalidades permanecem no fluxo de Mensalidades. A visão
+Detalhes de sessão, resolução de pendências e ciclos conservam seus contratos
+próprios dentro do detalhe único. Mensalidades não recebem ações de cancelamento
+de sessão. Recebimento, crédito e Histórico compartilham o mesmo contexto. A visão
 dedicada de Recebimentos continua desabilitada intencionalmente e fora dessa
 capacidade compartilhada ativa.
 
 **Usar crédito** mantém um único modal em duas etapas. **Onde usar o crédito?**
-consulta destinos elegíveis no Backend, permite selecionar pacotes/avulsas ou
-expandir **Escolher sessões** na própria lista e editar **Valor a usar**. Somente
+consulta destinos elegíveis no Backend com `destination_type=all`, permite selecionar pacotes/avulsas,
+expandir **Escolher sessões** na própria lista ou selecionar ciclos de
+mensalidade por plano, período e vencimento, e editar **Valor a usar**. Somente
 um grupo elegível pode vir selecionado; vários exigem escolha explícita. Paciente
-e crédito disponível permanecem visíveis, com identificação por serviço/data.
-O estado conserva seleção e valor válido ao voltar; alterações invalidam a revisão.
+e período permanecem visíveis, com menor destaque que o título da etapa.
+**Crédito disponível:** e seu valor aparecem próximos, com somente o rótulo em
+negrito e quebra natural em telas estreitas. O campo monetário reutiliza a
+apresentação e os formatadores de Registrar recebimento: digitar `150` significa
+R$150 e sair do campo apresenta `150,00`, sem alterar centavos. O preenchimento
+automático ocorre somente na inicialização; edição, exclusão, retorno ou atualização
+dos destinos não autorizam substituir silenciosamente o valor. O limite atual
+aparece junto ao campo somente quando há valor inválido, bloqueando Avançar.
+Na mesma abertura, Voltar conserva valor, seleção, expansão, paciente e período;
+alterações de valor ou seleção invalidam a revisão e exigem nova prévia.
+**Escolher sessões / Recolher sessões** apenas mostra/esconde as opções de pacote,
+sem desmarcar sessões, preservando foco, teclado e `aria-expanded`.
 
 **Conferir uso do crédito** apresenta exclusivamente a prévia do servidor, com
-destinos, valores por sessão e saldos da sessão, do pacote e da seleção claramente
-distintos. **Avançar** não grava; apenas **Confirmar** conclui a aplicação. Uma
+uma identificação moderada da cobrança e suas datas. Pacotes mostram
+**Sessões que receberão o crédito**, com linhas compactas recuadas, valores
+previstos e informações auxiliares secundárias, sem repetir o nome do pacote.
+Mensalidades e avulsas apresentam o destino diretamente, sem lista artificial de
+sessões. Saldos por destino permanecem secundários. Uma divisória separa o resumo:
+**Crédito a aplicar** é principal e **Crédito restante**, secundário; não há total
+redundante de saldo da seleção, nova tabela ou janela sobreposta. A rolagem fica
+no corpo do modal e o rodapé permanece acessível.
+**Avançar** não grava; apenas **Confirmar** conclui a aplicação. Uma
 tentativa com resposta incerta conserva comando e chave idempotente para retry;
 mudança relevante exige revisão atualizada e outra confirmação. Carregamento,
 erros, foco e bloqueio de envio duplicado pertencem ao modal. As regras e a
@@ -524,6 +604,14 @@ o Frontend não recalcula o plano de aplicação nem usa o período como destino
 Após sucesso no detalhe do paciente, a recarga permanece nesse escopo e atualiza
 a cobrança e o resumo autoritativos sem substituir temporariamente o detalhe por
 listas globais; carregamento ou erro continuam explícitos e não viram lista vazia.
+
+No detalhe de Receitas, o topo exibe **A receber** e o saldo global de
+**Crédito disponível**; as linhas exibem **Pago** aplicado à obrigação. Não há soma
+de créditos por modalidade ou saldo paralelo. **Cobranças / Histórico** reutiliza a
+apresentação compacta, com pagamentos, descontos e usos retornados pelos
+registros reais do Backend e sem IDs técnicos. Operação mista aparece uma vez,
+com composição por tipo nos detalhes e crédito original preservado. Falha de
+consulta mostra erro/repetição, sem apresentar crédito zero ou período vazio.
 
 ### Pesquisa e identificação do paciente em Receitas
 
@@ -538,23 +626,78 @@ paciente e permanece desabilitado. Esse texto identifica o detalhe e é separado
 do estado da pesquisa: não dispara uma busca nem recalcula valores. Voltar à
 lista restaura a pesquisa anterior e permite sua edição.
 
-### Valores no modal de sessões do pacote
+O bloco de resultados, imediatamente após os filtros, apresenta a competência
+somente no título existente: **Resumo por paciente - Setembro de 2026** na lista
+e **Nome do paciente - Setembro de 2026** no detalhe. Na visão anual, o sufixo é
+somente o ano. Não há uma segunda indicação menor acima do título. O texto
+deriva do mesmo `attendancePeriodLabel` do seletor principal; a linha de título
+fica sticky abaixo do cabeçalho global, com offset de `layout.appHeaderHeight`,
+fundo opaco e empilhamento limitado ao próprio bloco. O sufixo permanece no
+detalhe em Cobranças/Histórico e no período vazio, sem outro seletor ou estado
+de período. No Histórico, identifica a competência consultada, não as datas
+de registro ou recebimento. As mudanças de período conservam os loaders e não
+reapresentam resultados anteriores durante a consulta. O seletor principal e
+os critérios de consulta permanecem iguais.
 
-Em **Receitas > Por sessão > Detalhes > Cobranças > Sessões**, o modal
-**Sessões do pacote** apresenta exatamente **Valor do pacote**, **Pago** e
-**A receber**. Esses cards usam, respectivamente, `amount_cents`, `paid_cents`
-e `open_cents` do pacote agregado por `financial-revenues/patient-detail`,
-conforme a [FIN-002 do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#fin-002).
+### Resumo da cobrança e sessões vinculadas
 
-A consulta operacional de sessões ao abrir o modal não substitui esses
-agregados, nem recalcula o valor pela quantidade visível ou pelo preço atual do
-serviço. A competência usa a data de referência recebida do Backend. O campo
-`contracted_amount_cents` permanece compatível na API, mas não é exibido nos
-cards. O modal mantém a ocultação de valores existente.
+Em **Receitas > Detalhes > Cobranças > Detalhes**, o título do modal identifica
+Mensalidade/Pacote/Avulsa e o nome do serviço/plano. O paciente aparece abaixo,
+com peso normal e menor destaque. O corpo mantém o período da mensalidade em
+linha compacta, o resumo das sessões e a tabela **Data | Profissional | Status**.
+Não há faixa isolada de quantidade, título de distribuição ou seção/cards
+financeiros: valores ficam na tabela de Cobranças, e operações/descontos no
+Histórico, sem alteração dos dados ou cálculos.
 
-As regressões em `Financeiro/index.test.js` cobrem os cards, a privacidade,
-pesquisa e a independência dos valores agregados em relação às sessões ainda
-visíveis; persistência e lifecycle são validados por HTTP/MariaDB no Backend.
+O vencimento único, já apresentado na tabela anterior, não é repetido. Quando
+há vários vencimentos, todas as datas retornadas permanecem em metadados
+compactos com rótulo discreto, peso normal e quebra natural, sem saldo repetido.
+
+O único resumo **Sessões** distingue, na mensalidade, a quantidade realmente
+vinculada ao ciclo. No pacote, **contratadas** usa exclusivamente `total_sessions`
+da projeção canônica; **vinculadas** e os estados operacionais usam as sessões
+retornadas. Quantidade contratada ausente não é inferida do número de linhas, e
+a diferença não calcula direitos restantes. Agendadas, realizadas, faltas,
+canceladas e suspensas são mostradas somente quando positivas. A avulsa mostra
+o atendimento diretamente, sem resumo artificial de uma sessão.
+
+Ao abrir uma mensalidade, a lista é consultada pelo vínculo exato em
+`GET /sessions?patient_id=...&billing_cycle_id=...`, sob as permissões existentes
+da Agenda. Não consulta todas as sessões do paciente nem limita as vinculadas às
+datas do ciclo: uma sessão remarcada para fora do período continua identificada
+pelo seu `billing_cycle_id`. O cliente exige resposta em lista e vínculos de
+paciente/ciclo coerentes; resposta inválida é erro, não lista vazia. Carregamento,
+falha com nova tentativa e ausência válida são estados distintos. Respostas de
+outro ciclo, de uma abertura encerrada ou de outro contexto autorizado são
+descartadas. Reabrir a mensalidade relê as sessões.
+
+Mensalidade sem sessões mostra uma única mensagem: **Nenhuma sessão vinculada
+a esta mensalidade.**, sem título de zero sessões ou bloco de distribuição
+vazio. Pacote e avulsa usam mensagens próprias; contrato conhecido do pacote
+continua informado, sem repetir contagem zero de vínculos. A consulta não
+recalcula os valores financeiros nem altera Histórico ou tabela principal.
+
+Somente este modal usa as variantes locais `RevenueChargeDetail*`: o cartão
+flex limita sua altura à janela e às margens de área segura; título/X e rodapé
+com **Fechar** não encolhem. O corpo, focável por teclado, é a única área de
+rolagem vertical. A tabela tem altura natural, diretamente nesse corpo, sem
+wrapper rolável intermediário. Os três cabeçalhos **Data | Profissional | Status**
+ficam sticky no topo do corpo quando alcançados, com fundo opaco, sem duplicar
+tabela/cabeçalho nem sobrepor título ou rodapé. Em telas estreitas, eventual
+rolagem horizontal também pertence ao corpo, sem transbordar o modal. Não há
+limite próprio de altura ou segunda rolagem vertical. Listas pequenas não
+recebem altura fixa, e o conteúdo não usa fonte reduzida. A página ao fundo fica
+travada durante a abertura. Foco inicial no X, Tab contido, Escape e restauração
+do foco/overflow ao fechar são locais ao modal; o teclado só é interceptado se
+este for o diálogo mais alto. Ao trocar para Resolver pendência, o fechamento
+de Detalhes não rouba o foco inicial do diálogo seguinte. A aprovação visual
+da rolagem em janela baixa/estreita pertence à conferência manual de Maurício.
+
+As regressões em `Financeiro/index.test.js` e `Financeiro/unifiedRevenues.test.js`
+cobrem a simplificação, resumo por tipo, lista longa completa, vínculo/recarga das
+sessões de mensalidade, estados e controles de teclado/rolagem, preservando as
+asserções financeiras na tabela. Persistência e lifecycle são validados por
+HTTP/MariaDB no Backend; testes de componente não comprovam a rolagem visual.
 
 ### Cancelamento financeiro e histórico do paciente
 
@@ -576,11 +719,11 @@ financeiro pendente.** quando houver pendência. Reposição e penalidade contin
 nos comandos operacionais. Falha da operação conjunta não executa cancelamento
 operacional separado nem liberação de crédito independente.
 
-Em **Receitas > Por sessão > Detalhes > Cobranças**, **Resolver pendência** aparece
+Em **Receitas > Detalhes > Cobranças**, **Resolver pendência** aparece
 somente para pendências reais de `pending_resolutions`, com `can_resolve: true`,
 `finance/manage` e `finance.settle`. A lista genérica `cancellation_candidates`
-não habilita botões. Detalhe e modal **Sessões do pacote** mantêm o resumo, os
-três cards e a tabela **Data | Profissional | Status**, com aviso discreto apenas
+não habilita botões. O modal **Detalhes** mantém o resumo compacto e a tabela
+**Data | Profissional | Status**, com aviso discreto apenas
 quando houver pendência financeira. Alterações concluídas são consultadas pela
 aba **Histórico**, sem aviso ou botão adicional no detalhe ou modal.
 Sem pendência aplicável, nenhum bloco ou espaço é reservado.
@@ -595,15 +738,34 @@ o cache do paciente é invalidado e os agregados são relidos. As regras
 financeiras permanecem no [Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md).
 
 A aba **Histórico**, com filtro **Recebimentos**, consome
-`financial_history` em tabela compacta **Data | Movimento | Valor | Detalhes**.
+`financial_history` em tabela compacta **Registrado em | Movimento | Valor | Detalhes**.
+**Registrado em** usa exclusivamente `recorded_at`, o timestamp persistido de
+criação do pagamento ou do registro autoritativo da operação retornado pelo
+Backend. Exibe data e hora real lado a lado (**30/09/2026 · 15:27**), com
+**HH:mm** discreto e quebra natural entre data e horário somente quando faltar
+espaço, no fuso `America/Sao_Paulo`. A lista é ordenada pelo instante completo decrescente, com
+desempate por identidade do evento após os agrupamentos existentes; o Backend
+ordena o conjunto completo, antes de qualquer eventual limite. Timestamp ausente,
+inválido ou sem horário/fuso explícito aparece como **Registro não disponível**;
+esses itens ficam ao final, preservando sua ordem. `paid_at`, `occurred_at`,
+`updated_at`, sessão e relógio do navegador nunca substituem o registro.
+Replay mantém o timestamp original e uma única linha pela identidade da operação.
 O seletor **Todos os eventos / Recebimentos** fica à direita na linha das abas
 **Cobranças / Histórico**, sem texto introdutório ou rótulo visível.
 Cancelamento e liberação aparecem na mesma linha somente quando vinculados por
 `cancellation_resolution_id` ou `operation_id` explícito; o valor da linha é o
 crédito liberado, sem somar novamente o cancelamento. **Ver detalhes** apresenta
-um resumo por operação: sessão, data/hora do movimento, responsável e motivo ou
-observação. Em **Uso de crédito**, `applied_sessions` identifica os destinos
-efetivamente confirmados, com serviço, data/horário histórico e valor por sessão;
+um resumo por operação: sessão, data do movimento, responsável e motivo ou
+observação. Em recebimentos, **Recebido em** mostra somente a data financeira
+de `occurred_at` (preservada a partir de `paid_at`), sem horário técnico.
+Datas puras `YYYY-MM-DD` mantêm o dia com formatação UTC; timestamps conservam o
+fuso `America/Sao_Paulo` já usado pelo módulo. O sufixo `T09:00:00` acrescentado
+pelo hook à data informada não é hora de registro; seu contrato de gravação não
+é alterado. Nos demais movimentos, a data/hora real da operação continua nos
+detalhes. Em **Uso de crédito**, `applied_destinations` identifica os destinos
+efetivamente confirmados, incluindo serviço/data de sessão ou plano/período de
+mensalidade e valor aplicado; `applied_sessions` permanece como compatibilidade
+para registros anteriores. Para sessões,
 parcelas/fontes são consolidadas pelo Backend somente com vínculo inequívoco ao
 comprovante persistido da operação. Prévia, saldo ou agendamento atual não
 substituem esse registro. Na ausência de vínculo confiável, exibe **Destino
@@ -621,8 +783,10 @@ não são entradas de dinheiro.
 O contexto das contas consultadas e recebimentos posteriores vinculados é
 preservado, com as datas reais dos eventos. Dados legados ausentes são marcados
 como não registrados. Na compatibilidade sem `financial_history`, apresenta
-somente os recebimentos reais retornados, sem reconstruir aplicações,
-cancelamentos ou autoria.
+somente os recebimentos reais retornados e usa a criação persistida do pagamento
+(`recorded_at` ou `created_at`/`createdAt` do ORM), sem reconstruir aplicações,
+cancelamentos ou autoria. A cronologia de registro não muda a inclusão por
+paciente/período nem a data financeira de Recebido e pago, Distribuição e caixa.
 
 ### Abas da Visão geral financeira
 
@@ -646,8 +810,8 @@ distingue ausência de contas de contas com valor zero. No Resumo mensal, a
 ausência de contas mantém os indicadores zerados, sem bloco de mensagem ou
 espaço reservado. Carregamento, falha e
 contrato incompleto possuem estados próprios. Uma resposta incompleta nunca é
-transformada em saldo zero. Com a privacidade ativa, os valores são mascarados
-e o gráfico não renderiza proporções ou rótulos monetários reais.
+transformada em saldo zero. Os valores, proporções e rótulos monetários são
+apresentados sem alternância de mostrar/ocultar.
 
 **Recebido e pago** mantém `GET /financial-received-paid?year=YYYY`, com dinheiro
 efetivamente recebido/pago pela data do pagamento em São Paulo (FIN-014).
@@ -661,7 +825,7 @@ contexto descartam respostas privadas antigas.
 
 As regressões em `Financeiro/index.test.js`, `FinancialOverviewSection.test.js`
 e `FinancialReceivedPaidSection.test.js`
-cobrem contratos, competência, futuro, navegação, privacidade e permissões. Os
+cobrem contratos, competência, futuro, navegação, valores visíveis e permissões. Os
 cálculos do Resumo também são validados por HTTP/MariaDB no Backend.
 
 ### Despesas da clínica

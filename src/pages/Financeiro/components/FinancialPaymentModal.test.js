@@ -1,7 +1,7 @@
 /* eslint-env jest */
 import React from "react";
 import userEvent from "@testing-library/user-event";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import FinancialPaymentModal from "./FinancialPaymentModal";
 import useFinancialPaymentFlow from "../hooks/useFinancialPaymentFlow";
 import { createFinancialEntry, createFinancialPayment } from "../../../services/financial";
@@ -15,11 +15,11 @@ const groups = [
   { key: "pacote", kind: "series", sourceId: 2, label: "Pacote", referenceDate: "2026-09-11", entries: Array.from({ length: 24 }, (_, index) => ({ entryId: index + 2, openCents: 16666 })) },
 ];
 const currency = (cents) => (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const harness = (choices = groups, selectionReady = true) => {
+const harness = (choices = groups, selectionReady = true, creditAvailableCents = 0) => {
   function Harness() {
     const flow = useFinancialPaymentFlow({ onPaymentSaved: jest.fn() });
     return <>
-      <button type="button" onClick={() => flow.openScopedPatientPaymentModal({ id: 3, full_name: "Paciente sintético" }, { groups: choices, selectionReady, periodLabel: "09/2026" })}>Abrir</button>
+      <button type="button" onClick={() => flow.openScopedPatientPaymentModal({ id: 3, full_name: "Paciente sintético" }, { groups: choices, selectionReady, periodLabel: "09/2026", creditAvailableCents })}>Abrir</button>
       <FinancialPaymentModal flow={flow} formatCurrency={currency} paymentMethods={[{ id: 4, name: "Pix" }]} onRequestClose={(close) => close()} />
     </>;
   }
@@ -32,6 +32,15 @@ const enterPayment = () => {
   fireEvent.change(screen.getByLabelText("Data do recebimento"), { target: { value: "2026-09-10" } });
   fireEvent.change(screen.getByLabelText("Forma de pagamento"), { target: { value: "4" } });
   fireEvent.change(screen.getByLabelText("Observações"), { target: { value: "Teste sintético" } });
+};
+const expectCreditOnlySummary = (newCreditCents) => {
+  const summary = screen.getByText("Resumo da operacao").parentElement;
+  const normalize = (value) => value.replace(/\s+/g, " ").trim();
+  expect(normalize(summary.textContent.replace("Resumo da operacao", "")))
+    .toBe(`Será adicionado ao crédito: ${normalize(currency(newCreditCents))}.`);
+  ["Valor recebido", "Ficará como crédito", "Saldo em credito", "Valor original", "Desconto", "Total final", "Valor pendente"]
+    .forEach((label) => expect(within(summary).queryByText(label)).toBeNull());
+  expect(within(summary).queryByRole("table")).toBeNull();
 };
 beforeEach(() => {
   jest.clearAllMocks();
@@ -76,6 +85,14 @@ test.each([["111,00", []], ["110,99", [{ entry_id: 1, amount_cents: 1 }]]])(
     enterPayment();
     fireEvent.change(screen.getByLabelText("Valor recebido"), { target: { value: "200,00" } });
     fireEvent.change(screen.getByLabelText("Desconto"), { target: { value: discount } });
+    const expectedDiscount = discount === "111,00" ? 11100 : 11099;
+    const summary = screen.getByText("Resumo da operacao").parentElement;
+    expect(within(summary).getByText("Valor original").parentElement.textContent).toContain(currency(11100));
+    expect(within(summary).getByText("Desconto").parentElement.textContent).toContain(`- ${currency(expectedDiscount)}`);
+    expect(within(summary).getByText("Total final").parentElement.textContent).toContain(currency(11100 - expectedDiscount));
+    expect(within(summary).getByText("Valor recebido").parentElement.textContent).toContain(currency(20000));
+    expect(within(summary).getByText("Saldo em credito").parentElement.textContent).toContain(currency(20000 - (11100 - expectedDiscount)));
+    expect(within(summary).queryByText(/Será adicionado ao crédito/)).toBeNull();
     expect(screen.getByText("Confirmar recebimento").disabled).toBe(false);
     fireEvent.click(screen.getByText("Confirmar recebimento"));
     await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledTimes(1));
@@ -129,7 +146,7 @@ test.each([{ choices: groups }, { choices: [] }])("sem seleção recebe somente 
   fireEvent.click(screen.getByText("Voltar"));
   fireEvent.click(screen.getByText("Avançar"));
   expect(screen.getByLabelText("Valor recebido").value).toBe("200,00");
-  expect(screen.getByText("Ficará como crédito").parentElement.textContent).toContain("200,00");
+  expectCreditOnlySummary(20000);
   fireEvent.click(screen.getByText("Confirmar recebimento"));
   await waitFor(() => expect(createFinancialPayment).toHaveBeenCalledTimes(1));
   expect(createFinancialEntry).not.toHaveBeenCalled();
@@ -137,6 +154,21 @@ test.each([{ choices: groups }, { choices: [] }])("sem seleção recebe somente 
     receipt_intent: "credit_only", allocation_mode: "none", allocations: [],
     entry_id: null, amount_cents: 20000, discount_cents: undefined, receipt_groups: undefined,
   }));
+});
+test("resumo de crédito mostra somente o novo valor, sem somar o crédito anterior do paciente", () => {
+  harness([], true, 6500);
+  fireEvent.click(screen.getByText("Avançar"));
+  const amount = screen.getByLabelText("Valor recebido");
+  fireEvent.change(amount, { target: { value: "30,00" } });
+  expect(amount.value).toBe("30,00");
+  expectCreditOnlySummary(3000);
+  const summary = screen.getByText("Resumo da operacao").parentElement;
+  expect(summary.textContent).not.toContain(currency(6500));
+  expect(summary.textContent).not.toContain(currency(9500));
+  fireEvent.change(amount, { target: { value: "12,34" } });
+  expectCreditOnlySummary(1234);
+  expect(createFinancialEntry).not.toHaveBeenCalled();
+  expect(createFinancialPayment).not.toHaveBeenCalled();
 });
 test("remove desconto ao desmarcar tudo sem perder valor editado", () => {
   harness();

@@ -42,7 +42,6 @@ export default function FinancialOverviewSection({
   overviewYearOptions,
   overviewPeriodLabel,
   overviewPeriodMode,
-  financialValuesVisible,
   formatCurrency,
   currentDate = new Date(),
   overviewMonthPickerRef,
@@ -187,7 +186,6 @@ export default function FinancialOverviewSection({
             onYearChange={handleOverviewYearChange}
             onPreviousYear={handleOverviewPreviousMonth}
             onNextYear={handleOverviewNextMonth}
-            valuesVisible={financialValuesVisible}
             formatCurrency={formatCurrency}
             currentDate={currentDate}
           />
@@ -341,7 +339,6 @@ export default function FinancialOverviewSection({
                         <EvolutionChartBlock>
                           <AnnualFinancialResultChart
                             months={monthPresentations}
-                            valuesVisible={financialValuesVisible}
                             formatCurrency={formatCurrency}
                             palette={attendancePalette}
                           />

@@ -26,24 +26,10 @@ const PLOT_LEFT = 18;
 
 export default function AnnualFinancialResultChart({
   months,
-  valuesVisible,
   formatCurrency,
   palette,
 }) {
   const descriptionId = useId();
-
-  if (!valuesVisible) {
-    return (
-      <HiddenChartState
-        role="status"
-        $background={palette.surfaceMuted}
-        $border={palette.borderStrong}
-        $color={palette.textTertiary}
-      >
-        Mostre os valores financeiros para visualizar o gráfico.
-      </HiddenChartState>
-    );
-  }
 
   const accountValues = months.map((item) => item.periodResult);
   const scaleValues = accountValues.length ? accountValues : [0];
@@ -184,7 +170,6 @@ AnnualFinancialResultChart.propTypes = {
     periodResult: PropTypes.number.isRequired,
     isCurrent: PropTypes.bool,
   })).isRequired,
-  valuesVisible: PropTypes.bool.isRequired,
   formatCurrency: PropTypes.func.isRequired,
   palette: PropTypes.shape({
     action: PropTypes.string.isRequired,
@@ -192,7 +177,6 @@ AnnualFinancialResultChart.propTypes = {
     actionSoft: PropTypes.string.isRequired,
     borderStrong: PropTypes.string.isRequired,
     dangerAccent: PropTypes.string.isRequired,
-    surfaceMuted: PropTypes.string.isRequired,
     textSecondary: PropTypes.string.isRequired,
     textTertiary: PropTypes.string.isRequired,
   }).isRequired,
@@ -253,19 +237,6 @@ const CurrentMonthMarker = styled.text`
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-`;
-
-const HiddenChartState = styled.div`
-  display: grid;
-  min-height: 180px;
-  place-items: center;
-  padding: 24px;
-  border: 1px dashed ${(props) => props.$border};
-  border-radius: 14px;
-  background: ${(props) => props.$background};
-  color: ${(props) => props.$color};
-  font-size: 13px;
-  text-align: center;
 `;
 
 const ZeroResultNote = styled.p`

@@ -224,6 +224,13 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
 
     expect(await screen.findByText("Aluguel")).toBeInTheDocument();
     expect(screen.getByText("Internet")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /(?:Mostrar|Ocultar) valores financeiros/ }))
+      .not.toBeInTheDocument();
+    expect(screen.queryAllByText(/R\$\s*•/)).toHaveLength(0);
+    expect(screen.getByText("Aluguel").closest("tr")).toHaveTextContent("R$ 2.500,00");
+    expect(screen.getByText("Internet").closest("tr")).toHaveTextContent("R$ 150,00");
+    expect(within(screen.getByText("Total do mês").parentElement)
+      .getByText("R$ 2.650,00")).toBeVisible();
     expect(listClinicExpenses).toHaveBeenCalledWith(expect.objectContaining({
       reference_month: expect.stringMatching(/^\d{4}-\d{2}$/),
     }));
@@ -553,7 +560,6 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
 
     renderFinanceiro("/financeiro/despesas");
     await screen.findByText("Aluguel");
-    await userEvent.click(screen.getByRole("button", { name: "Mostrar valores financeiros" }));
     expect(within(screen.getByText("Total do mês").parentElement)
       .getByText("R$ 2.500,00")).toBeInTheDocument();
     await openExpenseAction("Aluguel", "Excluir");
@@ -780,13 +786,15 @@ describe("Financeiro - caracterização de despesas e configurações publicadas
     expect(listSpecialSchedulingEvents).not.toHaveBeenCalled();
   });
 
-  it("oculta valores por padrão e os revela somente após ação explícita", async () => {
+  it("apresenta os valores da visão geral desde a abertura, sem controle de ocultação", async () => {
     renderFinanceiro("/financeiro/visao-geral");
 
-    expect(await screen.findAllByText("R$ ••••")).not.toHaveLength(0);
-    expect(screen.queryByText("R$ 1.250,00")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Mostrar valores financeiros" }));
     expect(await screen.findByText("R$ 1.250,00")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ocultar valores financeiros" })).toBeInTheDocument();
+    expect(screen.getByText("R$ 500,00")).toBeVisible();
+    expect(screen.getByText("R$ 150,00")).toBeVisible();
+    expect(screen.getByText("R$ 2.500,00")).toBeVisible();
+    expect(screen.queryAllByText(/R\$\s*•/)).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: /(?:Mostrar|Ocultar) valores financeiros/ }))
+      .not.toBeInTheDocument();
   });
 });

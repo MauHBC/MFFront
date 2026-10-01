@@ -74,3 +74,16 @@ test("falha de leitura é exibida sem valores inventados", async () => {
   expect(await screen.findByRole("alert")).toBeTruthy();
   expect(screen.queryByRole("table")).toBeNull();
 });
+
+test("composição mista identifica mensalidade, pacote e avulsa sem duplicar recebimento", async () => {
+  show({ groups: [
+    { key: "cycle:1", kind: "billing_cycle", service_name: "Recovery", reference_date: "2026-09-01", paid_cents: 48000 },
+    { key: "series:2", kind: "series", service_name: "Fisioterapia", reference_date: "2026-09-22", paid_cents: 10000 },
+    { key: "entry:3", kind: "entry", service_name: "Pilates", reference_date: "2026-09-25", paid_cents: 10000 },
+  ], original_credit_cents: 0 });
+  expect(await screen.findByText(/Mensalidade · 01\/09\/2026 · Recovery/)).toBeTruthy();
+  expect(screen.getByText(/Pacote · 22\/09\/2026 · Fisioterapia/)).toBeTruthy();
+  expect(screen.getByText(/Avulsa · 25\/09\/2026 · Pilates/)).toBeTruthy();
+  expect(screen.getAllByRole("listitem")).toHaveLength(3);
+  expect(screen.queryByRole("table")).toBeNull();
+});

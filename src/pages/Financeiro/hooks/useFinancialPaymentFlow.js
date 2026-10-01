@@ -19,9 +19,20 @@ const emptyPayment = {
   note: "",
 };
 
-const STANDALONE_PAYMENT_ANCHOR_DESCRIPTION = "Recebimento por sessão (sistema)";
-const STANDALONE_PAYMENT_ANCHOR_NOTE =
-  "Entrada técnica automática para viabilizar recebimento por sessão.";
+const paymentAnchorCopy = (scopeType) => {
+  if (scopeType === "all") return {
+    description: "Recebimento do paciente (sistema)",
+    note: "Entrada técnica automática para viabilizar recebimento do paciente.",
+  };
+  return scopeType === "billing_cycles" ? {
+    description: "Recebimento de mensalidade (sistema)",
+    note: "Entrada técnica automática para viabilizar recebimento de mensalidade.",
+  }
+  : {
+    description: "Recebimento por sessão (sistema)",
+    note: "Entrada técnica automática para viabilizar recebimento por sessão.",
+  };
+};
 
 const parseCurrencyInputToNumber = (value) => {
   if (value === null || value === undefined) return Number.NaN;
@@ -289,18 +300,19 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
     || String(form.note || "").trim(),
   );
 
-  const createStandalonePaymentAnchor = useCallback(async ({ patientId, referenceDate }) => {
+  const createStandalonePaymentAnchor = useCallback(async ({ patientId, referenceDate, scopeType }) => {
     const normalizedReferenceDate =
       String(referenceDate || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const copy = paymentAnchorCopy(scopeType);
     const response = await createFinancialEntry({
       type: "income",
-      description: STANDALONE_PAYMENT_ANCHOR_DESCRIPTION,
+      description: copy.description,
       patient_id: patientId,
       amount_cents: 0,
       currency: "BRL",
       reference_date: normalizedReferenceDate,
       due_date: normalizedReferenceDate,
-      notes: STANDALONE_PAYMENT_ANCHOR_NOTE,
+      notes: copy.note,
     });
     const createdEntryId = Number(response?.data?.id || 0);
     if (!createdEntryId) {
@@ -413,6 +425,7 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
         attempt.anchorId = await createStandalonePaymentAnchor({
           patientId,
           referenceDate,
+          scopeType: context?.scopedPayment?.type,
         });
       }
 
@@ -450,7 +463,7 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
       savingRef.current = false;
       setIsSaving(false);
     }
-  }, [close, createStandalonePaymentAnchor, form, isSaving, onPaymentSaved,
+  }, [close, context, createStandalonePaymentAnchor, form, isSaving, onPaymentSaved,
     selectedEntries, selectedGroups, selectionFlow, selectionReady, selectionStale, creditOnly, step]);
 
   return {

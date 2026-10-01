@@ -40,7 +40,7 @@ export default function FinancialPaymentModal({
                     <SelectionRow key={group.key}>
                       <input type="checkbox" checked={flow.selectedKeys.includes(group.key)}
                         onChange={() => flow.toggleSelection(group.key)} />
-                      <span>{group.label}<small>{dateLabel(group.referenceDate)}</small></span>
+                      <span>{group.label}<small>{group.details || dateLabel(group.referenceDate)}</small></span>
                       <strong>{formatCurrency(group.entries.reduce((sum, entry) => sum + entry.openCents, 0))}</strong>
                     </SelectionRow>
                   ))}
@@ -122,7 +122,9 @@ export default function FinancialPaymentModal({
             {flow.selectionStale && <p role="alert">As cobranças mudaram. Atualize os dados da página e reabra o recebimento para revisar os saldos atuais.</p>}
             <PaymentPreviewBox>
               <PaymentPreviewTitle>Resumo da operacao</PaymentPreviewTitle>
-              {!flow.creditOnly && <>
+              {flow.creditOnly ? <PaymentPreviewRow $total>
+                <span>Será adicionado ao crédito: {formatCurrency(preview.receivedCents)}.</span>
+              </PaymentPreviewRow> : <>
               <PaymentPreviewRow>
                 <span>Valor original</span>
                 <strong>{formatCurrency(preview.baseCents || 0)}</strong>
@@ -138,13 +140,12 @@ export default function FinancialPaymentModal({
                 <span>Total final</span>
                 <strong>{formatCurrency(preview.finalChargedCents || 0)}</strong>
               </PaymentPreviewRow>
-              </>}
               <PaymentPreviewRow>
                 <span>Valor recebido</span>
                 <strong>{formatCurrency(preview.receivedCents)}</strong>
               </PaymentPreviewRow>
               <PaymentPreviewRow $balance={preview.openAfterCents > 0 || preview.creditAfterCents > 0}>
-                <span>{flow.creditOnly ? "Ficará como crédito" : balanceLabel}</span>
+                <span>{balanceLabel}</span>
                 <strong>
                   {formatCurrency(
                     preview.creditAfterCents > 0
@@ -153,6 +154,7 @@ export default function FinancialPaymentModal({
                   )}
                 </strong>
               </PaymentPreviewRow>
+              </>}
             </PaymentPreviewBox>
             <Field>
               <Label htmlFor="payment-note">Observações</Label>
@@ -192,6 +194,7 @@ FinancialPaymentModal.propTypes = {
     step: PropTypes.number,
     groups: PropTypes.arrayOf(PropTypes.shape({
       key: PropTypes.string, label: PropTypes.string, referenceDate: PropTypes.string,
+      details: PropTypes.string,
       entries: PropTypes.arrayOf(PropTypes.shape({ openCents: PropTypes.number })),
     })),
     selectedKeys: PropTypes.arrayOf(PropTypes.string),
@@ -342,7 +345,7 @@ const FixedPatientDisplay = styled.div`
   word-break: normal;
 `;
 
-const CurrencyInputGroup = styled.div`
+export const CurrencyInputGroup = styled.div`
   display: flex;
   align-items: center;
   border: 1px solid rgba(0, 0, 0, 0.15);
@@ -351,7 +354,7 @@ const CurrencyInputGroup = styled.div`
   overflow: hidden;
 `;
 
-const CurrencyPrefix = styled.span`
+export const CurrencyPrefix = styled.span`
   padding: 0 10px;
   font-weight: 700;
   color: #4a4a4a;
@@ -362,7 +365,7 @@ const CurrencyPrefix = styled.span`
   align-items: center;
 `;
 
-const CurrencyInput = styled(Input)`
+export const CurrencyInput = styled(Input)`
   border: none;
   border-radius: 0;
   flex: 1;

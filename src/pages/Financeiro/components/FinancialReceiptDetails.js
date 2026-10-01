@@ -23,7 +23,7 @@ export default function FinancialReceiptDetails({ paymentId, formatCurrency }) {
   return <Container>
     {groups.length > 0 && <div role="list" aria-label="Detalhes do recebimento">
       {groups.map((group) => <p role="listitem" key={group.key || `${group.kind}-${group.service_name}-${group.reference_date}`}>
-        {group.kind === "series" ? "Pacote" : "Avulsa"} · {String(group.reference_date || "").split("-").reverse().join("/")}
+        {{ series: "Pacote", billing_cycle: "Mensalidade", entry: "Avulsa" }[group.kind] || "Cobrança"} · {String(group.reference_date || "").split("-").reverse().join("/")}
         {group.service_name && group.service_name !== "Cobrança" && ` · ${group.service_name}`}
         {` — ${formatCurrency(group.paid_cents)} pagos`}
         {group.discount_cents > 0 && ` · desconto de ${formatCurrency(group.discount_cents)}`}
