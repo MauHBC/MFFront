@@ -5570,7 +5570,7 @@ export default function Agendamentos() {
 	                                          <DayServiceBar $color={card.serviceColor} $history />
 		                                          <DaySessionBody>
 			                                            <DaySessionTop>
-			                                              <DaySessionPatient>
+			                                              <DaySessionPatient $history>
 			                                                {renderPatientAttentionIndicator(attentionLevel)}
 			                                                {patientId ? (
 			                                                  <PatientProfileLink to={`/pacientes/${patientId}`} title={patientName}>
@@ -5799,7 +5799,7 @@ export default function Agendamentos() {
 		                        const groupPatientId = getSessionPatientId(session);
 		                        return (
 		                          <GroupItem key={session.id} $history={isHistoricalGroupSession}>
-		                            <PatientInfo>
+		                            <PatientInfo $history={isHistoricalGroupSession}>
 		                              <PatientInfoName>
 		                                {groupPatientId ? (
 		                                  <PatientProfileLink
@@ -8673,7 +8673,6 @@ const DaySessionCard = styled.article`
     if (props.$status === "no_show") return "rgba(214, 170, 104, 0.09)";
     return "#fff";
   }};
-  opacity: ${(props) => (props.$history ? 0.78 : 1)};
 `;
 
 const DayServiceBar = styled.span`
@@ -8700,6 +8699,7 @@ const DaySessionTop = styled.div`
 `;
 
 const DaySessionPatient = styled.strong`
+  opacity: ${(props) => (props.$history ? 0.78 : 1)};
   margin: 0;
   color: #1f1f1f;
   font-size: 0.96rem;
@@ -8950,7 +8950,6 @@ const GroupItem = styled.div`
   grid-template-columns: 1fr auto;
   gap: 8px;
   align-items: center;
-  opacity: ${(props) => (props.$history ? 0.78 : 1)};
 
   @media (max-width: 720px) {
     grid-template-columns: 1fr;
@@ -8958,6 +8957,7 @@ const GroupItem = styled.div`
 `;
 
 const PatientInfo = styled.div`
+  opacity: ${(props) => (props.$history ? 0.78 : 1)};
   display: flex;
   flex-direction: column;
   gap: 2px;
