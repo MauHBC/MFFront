@@ -97,7 +97,7 @@ describe("AuthorizationContext", () => {
   }));
   const administrator = {
     authorization_state: "authorized",
-    catalog_version: 7,
+    catalog_version: 8,
     is_administrator: true,
     modules,
     capabilities: [],
@@ -169,7 +169,7 @@ describe("AuthorizationContext", () => {
     expect(contextHasCapability(agendaOnly, "schedule.configure")).toBe(true);
     expect(isValidAuthorizationContext({ ...agendaOnly, modules: agendaOnly.modules.slice(1) }))
       .toBe(false);
-    expect(isValidAuthorizationContext({ ...agendaOnly, catalog_version: 6 })).toBe(false);
+    expect(isValidAuthorizationContext({ ...agendaOnly, catalog_version: 7 })).toBe(false);
     expect(contextCanAccessModule({ ...agendaOnly, authorization_state: "invalid" }, "schedule"))
       .toBe(false);
   });

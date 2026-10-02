@@ -937,6 +937,50 @@ conservam seus rótulos de confirmação/atribuição. Não há validação visu
 adicional na revisão: o Backend continua responsável por rejeitar serviço
 incompatível com o pacote, mesmo em payload adulterado.
 
+### Compartilhamento de pacote em Novo agendamento
+
+A opção **Usar pacote de outro paciente** existe somente para quem recebe
+`schedule.package.share` e fica no bloco **Valor da sessão**, ao lado de **Sem
+cobrança**; as duas opções são mutuamente exclusivas. Ela já é visível ao abrir
+o Novo agendamento e permanece desabilitada até existir paciente atendido. Ao
+ativá-la, o drawer expande apenas **De quem é o pacote?**. Serviço, profissional,
+data, horário e observações continuam no formulário comum, e alterações nesses
+campos não limpam silenciosamente o paciente dono do pacote.
+
+A revisão mostra paciente atendido, dono do pacote e atendimento, sem expor IDs
+ou unidades. Ela consulta somente pacotes elegíveis para o serviço já escolhido,
+ordena os mais recentes primeiro e apresenta contratação, quantidade e
+disponibilidade em cards compactos. Direito livre aparece como **N livres** e
+não expande sessões. Quando não há direito livre, o card informa **N agendadas**
+e, somente após ser selecionado, expande **Escolha a sessão:** com as futuras
+realocáveis. Cada opção combina data/hora, paciente atualmente atendido e
+profissional; o paciente da origem pode ser o titular, um terceiro ou o próprio
+destinatário. Contratação e sessões usam data completa `dd/mm/aaaa`; a fronteira
+do Frontend rejeita respostas sem `free_rights`, `relocatable_sessions` e lista
+coerente, em vez de renderizar contadores indefinidos. Contadores agregados da
+revisão ficam ocultos apenas neste fluxo;
+alertas e bloqueios reais continuam no item correspondente. A confirmação
+continua usando `POST /sessions`,
+com token de revisão e chave idempotente; mudanças concorrentes atualizam as
+opções sem trocar o serviço ou o dono selecionado. Cards da
+grade Semana/Mês mantêm somente o paciente atendido. Em sessão de `PackageUnit`
+elegível, o campo **Paciente** do Editar agendamento usa diretamente a busca já
+existente e só dispara o comando de compartilhamento quando a escolha realmente
+muda; sessão comum, protegida ou sem `schedule.package.share` permanece somente
+leitura. A data original já ter passado não torna somente por isso uma sessão
+aberta inelegível; o Backend decide pelos estados e efeitos consolidados. O
+serviço continua fixo. Troca exclusiva do paciente preserva horário e não é
+remarcação; mudança simultânea de início ou fim continua sujeita à antecedência
+vigente. Detalhes do horário, visão Dia, Editar e a sessão avulsa do destinatário
+no Histórico exibem o `PackagePill` lilás **Pacote de {titular}** somente quando
+o paciente atendido difere do titular; a comparação usa IDs e acompanha a
+seleção no formulário. Em `PatientDetails`, `/patients/:id/package-history`
+mantém o pacote integral somente no titular e o modal inclui uma linha por
+`PackageUnit`: sessão vigente com **Paciente atendido**, ou **Não agendada**
+quando o direito está `available`, com campos ainda indefinidos em travessão.
+Remarcação, reposição e compartilhamento não duplicam direitos; o destinatário
+continua vendo somente as próprias sessões.
+
 ### Confirmação de bloqueio manual por feriado
 
 Em Configurações da Agenda, criação de feriado bloqueante e a ação **Bloquear
@@ -1338,6 +1382,7 @@ Badges de status e informação.
 | `StatusPill` | `$tone="canceled"` / default | Cinza |
 | `InfoPill` | — | Azul sutil (avisos, notas) |
 | `NeutralPill` | — | Cinza neutro |
+| `PackagePill` | — | Lilás sutil (contexto de Package) |
 
 ---
 

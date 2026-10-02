@@ -1,7 +1,7 @@
 /* eslint-env jest */
 import "@testing-library/jest-dom";
 import {
-  act, fireEvent, render, screen, waitFor,
+  act, fireEvent, render, screen, waitFor, within,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -120,6 +120,27 @@ const doneSession = {
   },
 };
 
+const packageSession = {
+  ...baseSession,
+  PackageUnit: {
+    id: 501,
+    package_id: 701,
+    position: 1,
+    state: "reserved",
+    Package: {
+      id: 701,
+      patient_id: 20,
+      service_id: 40,
+      quantity: 3,
+      status: "active",
+      Patient: {
+        id: 20,
+        full_name: "Paciente Teste",
+      },
+    },
+  },
+};
+
 const suspendedSession = {
   ...baseSession,
   id: 14,
@@ -228,6 +249,7 @@ describe("Agendamentos - editar agendamento", () => {
             { id: 24, full_name: "Paciente Suspenso" },
             { id: 25, full_name: "Paciente Com Plano" },
             { id: 26, full_name: "Paciente Sem Vinculo" },
+            { id: 88, full_name: "Maurício Titular" },
           ],
         });
       }
@@ -347,6 +369,14 @@ describe("Agendamentos - editar agendamento", () => {
     expect(axios.get).toHaveBeenCalledWith("/schedule/references/professionals");
     expect(axios.get.mock.calls.some(([url]) => url === "/patients")).toBe(false);
     expect(axios.get.mock.calls.some(([url]) => url === "/users")).toBe(false);
+  });
+
+  it("mantem Paciente somente leitura em sessao comum", async () => {
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    expect(screen.queryByRole("searchbox", { name: "Paciente" }))
+      .not.toBeInTheDocument();
+    expect(screen.getAllByText("Paciente Teste").length).toBeGreaterThan(0);
   });
 
   it("renderiza a Agenda dentro do App Shell", async () => {
@@ -1487,6 +1517,10 @@ describe("Agendamentos - editar agendamento", () => {
     expect(await screen.findByRole("heading", { name: "Revisar agendamento" }))
       .toBeInTheDocument();
     expect(screen.getByText("1 sessão selecionada")).toBeInTheDocument();
+    expect(screen.getByText("Agendamento único")).toBeInTheDocument();
+    expect(screen.getByText("Selecionadas 1")).toBeInTheDocument();
+    expect(screen.getByText("Alertas 0")).toBeInTheDocument();
+    expect(screen.getByText("Bloqueadas 0")).toBeInTheDocument();
     expect(axios.post.mock.calls.some(([url]) => url === "/sessions")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
 
@@ -2111,7 +2145,7 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(hourSelect, { target: { value: "10" } });
 
     fireEvent.click(screen.getByRole("button", { name: "+ Adicionar" }));
-    expect(screen.getByText("Valor por sessão")).toBeInTheDocument();
+    expect(screen.getByText("Valor da sessão")).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText("Ex.: 10"), {
       target: { value: "4" },
     });
@@ -2196,5 +2230,654 @@ describe("Agendamentos - editar agendamento", () => {
         billing_mode: "per_session",
       }),
     ));
+  });
+
+  it("mantem o novo agendamento compacto e escolhe na revisao um pacote disponivel", async () => {
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners") {
+        return Promise.resolve({ data: [{ id: 88, name: "Maurício Titular" }] });
+      }
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({ data: [
+          {
+            id: 701,
+            owner: { id: 88, name: "Maurício Titular" },
+            service: { id: 41, code: "physio", name: "Fisioterapia" },
+            contracted_at: "2026-09-05",
+            quantity: 3,
+            free_rights: 1,
+            relocatable_sessions: 0,
+            requires_scheduled_session: false,
+            eligible_scheduled_sessions: [],
+            review_token: "review-token-701",
+          },
+          {
+            id: 702,
+            owner: { id: 88, name: "Maurício Titular" },
+            service: { id: 41, code: "physio", name: "Fisioterapia" },
+            contracted_at: "2026-09-20",
+            quantity: 4,
+            free_rights: 2,
+            relocatable_sessions: 0,
+            requires_scheduled_session: false,
+            eligible_scheduled_sessions: [],
+            review_token: "review-token-702",
+          },
+          {
+            id: 999,
+            owner: { id: 88, name: "Maurício Titular" },
+            service: { id: 40, code: "spine_eval", name: "Avaliação Coluna" },
+            contracted_at: "2026-09-30",
+            quantity: 8,
+            free_rights: 8,
+            relocatable_sessions: 0,
+            requires_scheduled_session: false,
+            eligible_scheduled_sessions: [],
+            review_token: "review-token-999",
+          },
+        ] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    const sharing = screen.getByLabelText("Usar pacote de outro paciente");
+    expect(sharing).toBeVisible();
+    expect(sharing).toBeDisabled();
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
+    expect(screen.getAllByText("Valor da sessão")).toHaveLength(1);
+    expect(screen.queryByText("Pacote de outro paciente", { selector: "strong" }))
+      .not.toBeInTheDocument();
+
+    const noCharge = screen.getByLabelText("Sem cobrança");
+    expect(sharing).toBeEnabled();
+    fireEvent.click(noCharge);
+    expect(noCharge).toBeChecked();
+    expect(sharing).not.toBeChecked();
+    fireEvent.click(sharing);
+    expect(sharing).toBeChecked();
+    expect(noCharge).not.toBeChecked();
+
+    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+    expect(screen.getByText("De quem é o pacote?")).toBeInTheDocument();
+    expect(screen.queryByText("Qual pacote vamos usar?")).not.toBeInTheDocument();
+    fireEvent.change(ownerInput, { target: { value: "Maurício" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "41" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-07-20" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    fireEvent.change(container.querySelector('textarea[name="notes"]'), {
+      target: { value: "Observação administrativa" },
+    });
+    expect(ownerInput).toHaveValue("Maurício Titular");
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+    expect(await screen.findByText("Pacote de: Maurício Titular")).toBeInTheDocument();
+    expect(screen.getByText("Atendimento: Fisioterapia")).toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledWith(
+      "/package-sharing/owners/88/packages",
+      { params: { service_id: 41 } },
+    );
+    expect(screen.queryByText(/Avaliação Coluna/)).not.toBeInTheDocument();
+    expect(document.body.textContent.indexOf("Pacote de Fisioterapia · 20/09/2026"))
+      .toBeLessThan(document.body.textContent.indexOf("Pacote de Fisioterapia · 05/09/2026"));
+    expect(screen.getByText("4 sessões · 2 livres"))
+      .toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("undefined");
+    expect(screen.queryByText("Qual sessão do pacote será liberada?"))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText(/^Selecionadas /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Alertas /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Bloqueadas /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sessão selecionada/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Agendamento único")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/Pacote de Fisioterapia · 20\/09\/2026/));
+    expect(screen.queryByText(/Todas as sessões desse pacote/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar", exact: true }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 20,
+        service_id: 41,
+        is_no_charge: false,
+        shared_package_id: 702,
+        shared_package_source_session_id: null,
+        shared_package_review_token: "review-token-702",
+        idempotency_key: expect.stringMatching(/^package-share:/),
+      }),
+    ));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("billing_mode");
+    expect(payload).not.toHaveProperty("price_override_cents");
+  });
+
+  it("exige na revisao a sessao futura quando o pacote esta totalmente reservado", async () => {
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners") {
+        return Promise.resolve({ data: [{ id: 88, name: "Maurício Titular" }] });
+      }
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 88, name: "Maurício Titular" },
+          service: { id: 41, code: "physio", name: "Fisioterapia" },
+          contracted_at: "2026-09-05",
+          quantity: 2,
+          free_rights: 0,
+          relocatable_sessions: 2,
+          requires_scheduled_session: true,
+          eligible_scheduled_sessions: [
+            {
+              id: 801,
+              starts_at: "2026-10-12T09:00:00",
+              patient_name: "Maurício Titular",
+              professional_name: "Profissional A",
+            },
+            {
+              id: 802,
+              starts_at: "2026-10-14T09:00:00",
+              patient_name: "João Atendido",
+              professional_name: "Profissional B",
+            },
+          ],
+          review_token: "review-token-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
+    fireEvent.click(screen.getByLabelText("Usar pacote de outro paciente"));
+    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+    fireEvent.change(ownerInput, { target: { value: "Maurício" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "41" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-10-20" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+    await screen.findByText("Qual pacote vamos usar?");
+    expect(screen.getByText("2 sessões · 2 agendadas")).toBeInTheDocument();
+    expect(screen.queryByText("Qual sessão do pacote será liberada?"))
+      .not.toBeInTheDocument();
+    expect(screen.queryByLabelText("12/10/2026 às 09h · Maurício Titular · Profissional A"))
+      .not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/Pacote de Fisioterapia · 05\/09\/2026/));
+
+    expect(screen.getByText("Qual sessão do pacote será liberada?"))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/Todas as sessões desse pacote/)).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("undefined");
+    expect(screen.getByLabelText("14/10/2026 às 09h · João Atendido · Profissional B"))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmar", exact: true })).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("12/10/2026 às 09h · Maurício Titular · Profissional A"));
+    expect(screen.getByLabelText("12/10/2026 às 09h · Maurício Titular · Profissional A"))
+      .toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar", exact: true }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 20,
+        starts_at: "2026-10-20T10:00",
+        shared_package_id: 701,
+        shared_package_source_session_id: 801,
+        shared_package_review_token: "review-token-701",
+      }),
+    ));
+  });
+
+  it("rejeita o contexto comercial quando ele não é a coleção canônica de pacotes", async () => {
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners") {
+        return Promise.resolve({ data: [{ id: 88, name: "Maurício Titular" }] });
+      }
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({
+          data: {
+            managed: false,
+            identity: {
+              id: 1,
+              name: "Administrador Pacotes",
+              email: "admin.pacotes@example.test",
+            },
+          },
+        });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
+    fireEvent.click(screen.getByLabelText("Usar pacote de outro paciente"));
+    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+    fireEvent.change(ownerInput, { target: { value: "Maurício" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "41" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-10-20" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Não foi possível buscar os pacotes desse paciente.",
+    ));
+    expect(screen.queryByText("Qual pacote vamos usar?")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("undefined");
+  });
+
+  it("mostra ausencia elegivel de forma humana e oculta a opcao sem capacidade", async () => {
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners") {
+        return Promise.resolve({ data: [{ id: 88, name: "Maurício Titular" }] });
+      }
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({ data: [] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container, unmount } = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
+    fireEvent.click(screen.getByLabelText("Usar pacote de outro paciente"));
+    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+    fireEvent.change(ownerInput, { target: { value: "Maurício" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "41" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-10-20" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+    expect(await screen.findByText("Maurício não tem pacote disponível para Fisioterapia."))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmar", exact: true })).toBeDisabled();
+    unmount();
+
+    mockAuthorization = {
+      ...mockAuthorization,
+      hasCapability: jest.fn((capability) => capability !== "schedule.package.share"),
+    };
+    renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    expect(screen.queryByLabelText("Usar pacote de outro paciente"))
+      .not.toBeInTheDocument();
+  });
+
+  it("troca o paciente de uma sessao de pacote pelo mesmo comando e unidade", async () => {
+    sessionsMockData = [packageSession];
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners/20/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 20, name: "Paciente Teste" },
+          service: { id: 40, code: "spine_eval", name: "Avaliacao Coluna" },
+          contracted_at: "2026-06-01",
+          quantity: 3,
+          free_rights: 1,
+          relocatable_sessions: 0,
+          requires_scheduled_session: false,
+          eligible_scheduled_sessions: [],
+          source_session_eligible: true,
+          review_token: "review-token-edit-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/package-sharing/owners/20/packages",
+      { params: { service_id: 40, source_session_id: 10 } },
+    ));
+    const patientSearch = await screen.findByRole("searchbox", { name: "Paciente" });
+    expect(patientSearch).toHaveValue("Paciente Teste");
+    expect(screen.queryByText("Usar esta sessão para outro paciente"))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText("Trocar paciente")).not.toBeInTheDocument();
+    fireEvent.change(patientSearch, { target: { value: "Paciente Cancelado" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Paciente Cancelado/ }));
+
+    const professionalSelect = container.querySelector('select[name="professional_user_id"]');
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/schedule/references/professionals",
+      { params: { patient_id: 21 } },
+    ));
+    await waitFor(() => expect(
+      Array.from(professionalSelect.options).some((option) => option.value === "31"),
+    ).toBe(true));
+    fireEvent.change(professionalSelect, {
+      target: { value: "31" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-06-30" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    const latePolicyException = screen.getByLabelText("Tem justificativa");
+    expect(latePolicyException).toBeInTheDocument();
+    fireEvent.click(latePolicyException);
+    fireEvent.change(screen.getByPlaceholderText("Motivo"), {
+      target: { value: "Alteração de horário autorizada" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 21,
+        professional_user_id: 31,
+        service_id: 40,
+        starts_at: "2026-06-30T10:00",
+        shared_package_id: 701,
+        shared_package_source_session_id: 10,
+        shared_package_review_token: "review-token-edit-701",
+        shared_package_preserve_source_unit: true,
+        idempotency_key: expect.stringMatching(/^package-share:/),
+        late_policy_exception_justified: true,
+        late_policy_exception_reason: "Alteração de horário autorizada",
+      }),
+    ));
+    expect(axios.put).not.toHaveBeenCalledWith(
+      "/sessions/10",
+      expect.objectContaining({ patient_id: 21 }),
+    );
+  });
+
+  it("mantem data e horario ao trocar somente quem sera atendido", async () => {
+    sessionsMockData = [packageSession];
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners/20/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 20, name: "Paciente Teste" },
+          service: { id: 40, code: "spine_eval", name: "Avaliacao Coluna" },
+          contracted_at: "2026-06-01",
+          quantity: 3,
+          free_rights: 1,
+          relocatable_sessions: 0,
+          requires_scheduled_session: false,
+          eligible_scheduled_sessions: [],
+          source_session_eligible: true,
+          review_token: "review-token-edit-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    expect(screen.queryByText("Pacote de Paciente Teste")).not.toBeInTheDocument();
+    const patientSearch = await screen.findByRole("searchbox", { name: "Paciente" });
+    fireEvent.change(patientSearch, { target: { value: "Paciente Cancelado" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Paciente Cancelado/ }));
+    expect(screen.queryByLabelText("Tem justificativa")).not.toBeInTheDocument();
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/schedule/references/professionals",
+      { params: { patient_id: 21 } },
+    ));
+    const professionalSelect = container.querySelector('select[name="professional_user_id"]');
+    await waitFor(() => expect(professionalSelect).toHaveValue("30"));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 21,
+        professional_user_id: 30,
+        starts_at: "2026-06-29T07:00",
+        ends_at: "2026-06-29T08:00",
+        shared_package_id: 701,
+        shared_package_source_session_id: 10,
+        shared_package_preserve_source_unit: true,
+      }),
+    ));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("rescheduled_from_id");
+    expect(payload.late_policy_exception_justified).toBe(false);
+    expect(axios.put).not.toHaveBeenCalledWith(
+      "/sessions/10",
+      expect.objectContaining({ patient_id: 21 }),
+    );
+  });
+
+  it.each([
+    ["outro paciente", 21, "Paciente Cancelado"],
+    ["o titular", 88, "Maurício Titular"],
+  ])("permite trocar paciente compartilhado por %s", async (_label, targetId, targetName) => {
+    const sharedSession = {
+      ...packageSession,
+      patient_id: 20,
+      Patient: { id: 20, full_name: "Paciente Teste" },
+      PackageUnit: {
+        ...packageSession.PackageUnit,
+        Package: {
+          ...packageSession.PackageUnit.Package,
+          patient_id: 88,
+          Patient: { id: 88, full_name: "Maurício Titular" },
+        },
+      },
+    };
+    sessionsMockData = [sharedSession];
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 88, name: "Maurício Titular" },
+          service: { id: 40, code: "spine_eval", name: "Avaliacao Coluna" },
+          contracted_at: "2026-06-01",
+          quantity: 3,
+          free_rights: 0,
+          relocatable_sessions: 1,
+          requires_scheduled_session: true,
+          eligible_scheduled_sessions: [{
+            id: 10,
+            starts_at: baseSession.starts_at,
+            patient_name: "Paciente Teste",
+            professional_name: "Profissional Teste",
+          }],
+          source_session_eligible: true,
+          review_token: "review-token-edit-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    const patientSearch = await screen.findByRole("searchbox", { name: "Paciente" });
+    fireEvent.change(patientSearch, { target: { value: targetName } });
+    fireEvent.click(await screen.findByRole("button", { name: targetName }));
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/schedule/references/professionals",
+      { params: { patient_id: targetId } },
+    ));
+    await waitFor(() => expect(
+      container.querySelector('select[name="professional_user_id"]'),
+    ).toHaveValue("30"));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: targetId,
+        shared_package_id: 701,
+        shared_package_source_session_id: 10,
+        shared_package_preserve_source_unit: true,
+      }),
+    ));
+    expect(axios.put).not.toHaveBeenCalledWith(
+      "/sessions/10",
+      expect.objectContaining({ patient_id: targetId }),
+    );
+  });
+
+  it("identifica pacote compartilhado e limita a troca por elegibilidade e permissao", async () => {
+    const sharedSession = {
+      ...packageSession,
+      patient_id: 20,
+      Patient: { id: 20, full_name: "Paciente Teste" },
+      PackageUnit: {
+        ...packageSession.PackageUnit,
+        Package: {
+          ...packageSession.PackageUnit.Package,
+          patient_id: 88,
+          Patient: { id: 88, full_name: "Maurício Titular" },
+        },
+      },
+    };
+    sessionsMockData = [sharedSession];
+    const originalGet = axios.get.getMockImplementation();
+    let sourceEligible = true;
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 88, name: "Maurício Titular" },
+          service: { id: 40, code: "spine_eval", name: "Avaliacao Coluna" },
+          contracted_at: "2026-06-01",
+          quantity: 3,
+          free_rights: 0,
+          relocatable_sessions: 1,
+          requires_scheduled_session: true,
+          eligible_scheduled_sessions: [{
+            id: 10,
+            starts_at: baseSession.starts_at,
+            patient_name: "Paciente Teste",
+            professional_name: "Profissional Teste",
+          }],
+          source_session_eligible: sourceEligible,
+          review_token: "review-token-edit-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const first = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    expect(screen.queryByText("Pacote de Maurício Titular")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mês" }));
+    expect(screen.queryByText("Pacote de Maurício Titular")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Semana" }));
+
+    const compactGridCard = await waitFor(() => {
+      const element = first.container.querySelector('[data-id="10"]');
+      expect(element).toBeTruthy();
+      return element;
+    });
+    expect(compactGridCard).not.toHaveTextContent("Pacote de Maurício Titular");
+    fireEvent.click(compactGridCard);
+    const detailsTitle = await screen.findByText("Detalhes do horário");
+    expect(screen.getByText("Pacote de Maurício Titular")).toBeInTheDocument();
+    fireEvent.click(detailsTitle.parentElement.parentElement.querySelector("button"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Dia" }));
+    const dayCard = await waitFor(() => {
+      const element = first.container.querySelector('[data-id="10"]');
+      expect(element).toBeTruthy();
+      return element;
+    });
+    expect(dayCard).toHaveTextContent("Pacote de Maurício Titular");
+    fireEvent.click(dayCard.querySelector("button[aria-label]"));
+    fireEvent.click(await screen.findByRole("button", { name: "Editar agendamento" }));
+    await screen.findByText("Motivo da alteração");
+    expect((await screen.findAllByText("Pacote de Maurício Titular")).length)
+      .toBeGreaterThan(0);
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/package-sharing/owners/88/packages",
+      { params: { service_id: 40, source_session_id: 10 } },
+    ));
+    const patientSearch = await screen.findByRole("searchbox", { name: "Paciente" });
+    const editForm = patientSearch.closest("form");
+    expect(patientSearch).toHaveValue("Paciente Teste");
+    fireEvent.change(patientSearch, { target: { value: "Maurício" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+    expect(within(editForm).queryByText("Pacote de Maurício Titular")).not.toBeInTheDocument();
+    fireEvent.change(patientSearch, { target: { value: "Paciente Cancelado" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Paciente Cancelado/ }));
+    expect(within(editForm).getByText("Pacote de Maurício Titular")).toBeInTheDocument();
+    expect(screen.queryByText("Trocar paciente")).not.toBeInTheDocument();
+    first.unmount();
+
+    sourceEligible = false;
+    const second = renderAgendamentos();
+    await openScheduledSessionEdit(second.container);
+    await waitFor(() => expect(axios.get.mock.calls.filter(
+      ([url]) => url === "/package-sharing/owners/88/packages",
+    )).toHaveLength(2));
+    expect(screen.queryByRole("searchbox", { name: "Paciente" }))
+      .not.toBeInTheDocument();
+    second.unmount();
+
+    mockAuthorization = {
+      ...mockAuthorization,
+      hasCapability: jest.fn((capability) => capability !== "schedule.package.share"),
+    };
+    const third = renderAgendamentos();
+    await openScheduledSessionEdit(third.container);
+    expect(screen.queryByRole("searchbox", { name: "Paciente" }))
+      .not.toBeInTheDocument();
+    expect(axios.get.mock.calls.filter(
+      ([url]) => url === "/package-sharing/owners/88/packages",
+    )).toHaveLength(2);
   });
 });

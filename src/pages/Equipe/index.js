@@ -167,7 +167,9 @@ export function validatePersonForm(values, validateCreationFields = true, profil
   return errors;
 }
 
-const capabilityLabel = (key) => key.split(".").map((part) => ({
+const capabilityLabel = (key) => {
+  if (key === "schedule.package.share") return "Usar pacote de outro paciente";
+  return key.split(".").map((part) => ({
   view: "visualizar",
   manage: "gerenciar",
   configure: "configurar",
@@ -179,7 +181,8 @@ const capabilityLabel = (key) => key.split(".").map((part) => ({
   audit: "auditoria",
   bulk: "ações em lote",
   own: "próprios",
-}[part] || MODULE_LABELS[part] || part.replaceAll("_", " "))).join(" · ");
+  }[part] || MODULE_LABELS[part] || part.replaceAll("_", " "))).join(" · ");
+};
 
 export function buildTeamPresentation(model) {
   const membershipMode = model.assignmentState?.authorization_source === "membership";

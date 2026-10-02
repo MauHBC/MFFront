@@ -92,6 +92,7 @@ function configureSuccessfulRequests() {
       "/session-replacement-credits",
     ].includes(url)) return response([]);
     if (url === "/unit-scheduling-policy") return response({});
+    if (/^\/patients\/\d+\/package-history$/.test(String(url))) return response([]);
     throw new Error(`Unexpected GET ${url}`);
   });
   listPatientClinicalCases.mockResolvedValue({ data: [] });
@@ -132,6 +133,7 @@ function configureResponse(url) {
     return response([]);
   }
   if (url === "/unit-scheduling-policy") return response({});
+  if (/^\/patients\/\d+\/package-history$/.test(String(url))) return response([]);
   throw new Error(`Unexpected GET ${url}`);
 }
 
@@ -196,6 +198,7 @@ describe("PatientDetails permission-aware bootstrap", () => {
     expect(requested("/session-series")).toBe(schedule);
     expect(requested("/session-replacement-credits")).toBe(schedule);
     expect(requested("/unit-scheduling-policy")).toBe(schedule);
+    expect(requested("/patients/101/package-history")).toBe(schedule);
     expect(screen.queryByRole("button", { name: "Prontuário" })).toBe(
       clinical ? screen.getByRole("button", { name: "Prontuário" }) : null,
     );
@@ -479,5 +482,207 @@ describe("PatientDetails permission-aware bootstrap", () => {
     expect(await screen.findByRole("heading", { name: "Bruno Modular" })).toBeInTheDocument();
     expect(await screen.findByRole("alert")).toHaveTextContent("Prontuário de Bruno indisponível");
     expect(screen.queryByText("Caso exclusivo da Ana")).not.toBeInTheDocument();
+  });
+
+  it("mantém o pacote no histórico do titular e identifica o paciente atendido", async () => {
+    authorize(["patients", "schedule"]);
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/patients/101/package-history") {
+        return response([{
+          id: 501,
+          service: { id: 40, name: "Fisioterapia", code: "physio" },
+          quantity: 3,
+          contracted_at: "2026-08-01",
+          status: "active",
+          sessions: [{
+            unit_id: 601,
+            position: 1,
+            unit_state: "reserved",
+            current_session_id: 901,
+            id: 901,
+            starts_at: "2026-08-25T10:00:00",
+            status: "scheduled",
+            professional_name: "Dra. Paula",
+            attended_patient: { id: 202, name: "Bruno Modular" },
+          }, {
+            unit_id: 602,
+            position: 2,
+            unit_state: "available",
+            current_session_id: null,
+            id: null,
+            starts_at: null,
+            status: "available",
+            professional_name: null,
+            attended_patient: null,
+          }, {
+            unit_id: 603,
+            position: 3,
+            unit_state: "available",
+            current_session_id: null,
+            id: null,
+            starts_at: null,
+            status: "available",
+            professional_name: null,
+            attended_patient: null,
+          }],
+        }]);
+      }
+      return configureResponse(url, config);
+    });
+    renderPage();
+    expect(await screen.findByRole("heading", { name: "Ana Modular" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    expect(await screen.findByText("Fisioterapia")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Ver sessões" }));
+    expect(await screen.findByRole("columnheader", { name: "Paciente atendido" }))
+      .toBeInTheDocument();
+    expect(screen.getByText("Bruno Modular")).toBeInTheDocument();
+    const packageTable = screen.getByRole("columnheader", { name: "Paciente atendido" })
+      .closest("table");
+    const rows = within(packageTable).getAllByRole("row");
+    expect(rows).toHaveLength(4);
+    const scheduledRow = rows.find((row) => within(row).queryByText("Agendada"));
+    expect(scheduledRow).toHaveTextContent("25/08/2026");
+    expect(scheduledRow).toHaveTextContent("10:00");
+    expect(scheduledRow).toHaveTextContent("Dra. Paula");
+    expect(scheduledRow).toHaveTextContent("Bruno Modular");
+    const unscheduledRows = within(packageTable).getAllByText("Não agendada")
+      .map((label) => label.closest("tr"));
+    expect(unscheduledRows).toHaveLength(2);
+    unscheduledRows.forEach((row) => {
+      expect(within(row).getAllByRole("cell").map((cell) => cell.textContent))
+        .toEqual(["—", "—", "—", "Não agendada", "—"]);
+    });
+    expect(within(packageTable).queryByText("Disponível")).not.toBeInTheDocument();
+    expect(screen.getByText("0/3 realizadas")).toBeInTheDocument();
+  });
+
+  it("preserva estados e contadores das unidades que não são direitos livres", async () => {
+    authorize(["patients", "schedule"]);
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/patients/101/package-history") {
+        return response([{
+          id: 502,
+          service: { id: 41, name: "Pilates", code: "pilates" },
+          quantity: 6,
+          contracted_at: "2026-08-01",
+          status: "active",
+          sessions: [{
+            unit_id: 611,
+            unit_state: "reserved",
+            current_session_id: 911,
+            id: 911,
+            starts_at: "2026-08-25T10:00:00",
+            status: "scheduled",
+            professional_name: "Dra. Paula",
+            attended_patient: { id: 101, name: "Ana Modular" },
+          }, {
+            unit_id: 612,
+            unit_state: "consumed",
+            current_session_id: 912,
+            id: 912,
+            starts_at: "2026-08-26T10:00:00",
+            status: "done",
+            professional_name: "Dra. Paula",
+            attended_patient: { id: 101, name: "Ana Modular" },
+          }, {
+            unit_id: 613,
+            unit_state: "consumed",
+            current_session_id: 913,
+            id: 913,
+            starts_at: "2026-08-27T10:00:00",
+            status: "no_show",
+            professional_name: "Dra. Paula",
+            attended_patient: { id: 101, name: "Ana Modular" },
+          }, {
+            unit_id: 614,
+            unit_state: "available",
+            current_session_id: null,
+            id: 914,
+            starts_at: "2026-08-28T10:00:00",
+            status: "canceled",
+            professional_name: "Dra. Paula",
+            attended_patient: { id: 101, name: "Ana Modular" },
+          }, {
+            unit_id: 615,
+            unit_state: "closed",
+            current_session_id: null,
+            id: null,
+            starts_at: null,
+            status: "closed",
+            professional_name: null,
+            attended_patient: null,
+          }, {
+            unit_id: 616,
+            unit_state: "available",
+            current_session_id: null,
+            id: null,
+            starts_at: null,
+            status: "replacement_pending",
+            professional_name: null,
+            attended_patient: null,
+            replacement: {
+              id: 701,
+              status: "pending",
+              expires_at: "2026-11-30",
+            },
+          }],
+        }]);
+      }
+      return configureResponse(url, config);
+    });
+
+    renderPage();
+    expect(await screen.findByRole("heading", { name: "Ana Modular" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    const packageRow = (await screen.findByText("Pilates")).closest("tr");
+    const packageCells = within(packageRow).getAllByRole("cell");
+    expect(packageCells[3]).toHaveTextContent("6");
+    expect(packageCells[4]).toHaveTextContent("1");
+    expect(packageCells[5]).toHaveTextContent("1");
+    expect(packageCells[6]).toHaveTextContent("1");
+    fireEvent.click(within(packageRow).getByRole("button", { name: "Ver sessões" }));
+    expect(screen.getByText("1/6 realizadas")).toBeInTheDocument();
+    [
+      "Agendada",
+      "Realizada",
+      "Falta",
+      "Cancelada · disponível",
+      "Encerrada",
+      "Reposição até 30/11/2026",
+    ].forEach((label) => expect(screen.getByText(label)).toBeInTheDocument());
+    expect(screen.queryByText("Não agendada")).not.toBeInTheDocument();
+  });
+
+  it("identifica o titular do pacote no histórico do paciente atendido", async () => {
+    authorize(["patients", "schedule"]);
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/sessions") {
+        return response([{
+          id: 902,
+          patient_id: 101,
+          billing_mode: "per_session",
+          starts_at: "2026-08-25T10:00:00",
+          status: "scheduled",
+          professional_name: "Dra. Paula",
+          Patient: { id: 101, full_name: "Ana Modular" },
+          Service: { id: 40, name: "Fisioterapia", code: "physio" },
+          PackageUnit: {
+            id: 601,
+            Package: {
+              id: 501,
+              patient_id: 202,
+              Patient: { id: 202, full_name: "Bruno Modular" },
+            },
+          },
+        }]);
+      }
+      return configureResponse(url, config);
+    });
+    renderPage();
+    expect(await screen.findByRole("heading", { name: "Ana Modular" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    expect(await screen.findByText("Pacote de Bruno Modular")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ver sessões" })).not.toBeInTheDocument();
   });
 });

@@ -39,7 +39,7 @@ jest.mock("../pages/SettingsDocuments", () => () => null);
 jest.mock("react-toastify", () => ({ toast: { error: jest.fn(), success: jest.fn() } }));
 
 const contextFor = (source = "membership", isAdministrator = true) => ({
-  catalog_version: 7,
+  catalog_version: 8,
   authorization_state: "authorized",
   is_administrator: isAdministrator,
   modules: ["dashboard", "schedule", "patients", "clinical_records", "plans", "finance", "team", "settings"]

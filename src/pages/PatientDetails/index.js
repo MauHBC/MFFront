@@ -44,6 +44,7 @@ import {
   ModuleTitle,
 } from "../../components/AppModuleShell";
 import { PrimaryButton as SharedPrimaryButton } from "../../components/AppButton";
+import { PackagePill } from "../../components/AppStatus";
 import { alpha, colors, fontSizes, radii, spacing } from "../../styles/tokens";
 import {
   calculateAgeFromBirthDate,
@@ -491,6 +492,11 @@ function formatSessionStatus(status, fallback = valueOrDash(status)) {
     no_show: "Falta",
     canceled: "Cancelada",
     suspended: "Suspensa",
+    available: "Disponível",
+    reserved: "Reservada",
+    consumed: "Consumida",
+    closed: "Encerrada",
+    replacement_pending: "Reposição disponível",
   };
   return map[status] || fallback;
 }
@@ -869,6 +875,7 @@ export default function PatientDetails() {
   const [frequencySessions, setFrequencySessions] = useState([]);
   const [perSessionSessions, setPerSessionSessions] = useState([]);
   const [perSessionSeries, setPerSessionSeries] = useState([]);
+  const [ownedPackageHistory, setOwnedPackageHistory] = useState([]);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [replacementCredits, setReplacementCredits] = useState([]);
   const [externalProfessionals, setExternalProfessionals] = useState([]);
@@ -1035,6 +1042,7 @@ export default function PatientDetails() {
     setFrequencySessions([]);
     setPerSessionSessions([]);
     setPerSessionSeries([]);
+    setOwnedPackageHistory([]);
     setReplacementCredits([]);
     setOperationalPolicy(DEFAULT_OPERATIONAL_POLICY);
     if (!id || !canViewSchedule) {
@@ -1059,6 +1067,7 @@ export default function PatientDetails() {
       axios.get("/session-series", { params: { patient_id: id } }),
       axios.get("/session-replacement-credits", { params: { patient_id: id } }),
       axios.get("/unit-scheduling-policy"),
+      axios.get(`/patients/${id}/package-history`),
     ])
       .then(([
         sessionsResponse,
@@ -1066,6 +1075,7 @@ export default function PatientDetails() {
         sessionSeriesResponse,
         replacementCreditsResponse,
         operationalPolicyResponse,
+        packageHistoryResponse,
       ]) => {
         if (!active) return;
         setFrequencySessions(Array.isArray(sessionsResponse.data) ? sessionsResponse.data : []);
@@ -1079,6 +1089,8 @@ export default function PatientDetails() {
           ...DEFAULT_OPERATIONAL_POLICY,
           ...(operationalPolicyResponse.data || {}),
         });
+        setOwnedPackageHistory(Array.isArray(packageHistoryResponse.data)
+          ? packageHistoryResponse.data : []);
         setScheduleLoad({ patientId: id, status: "ready", error: "" });
       })
       .catch((error) => {
@@ -1252,11 +1264,22 @@ export default function PatientDetails() {
   const perSessionItems = useMemo(() => {
     const eligibleSessions = perSessionSessions
       .filter((session) => (session.billing_mode || "per_session") === "per_session")
+      .filter((session) => {
+        const packageOwnerId = session?.PackageUnit?.Package?.patient_id
+          || session?.PackageUnit?.Package?.Patient?.id;
+        return !packageOwnerId || String(packageOwnerId) !== String(id);
+      })
       .sort((first, second) => new Date(first.starts_at || 0) - new Date(second.starts_at || 0));
     const sessionsBySeriesId = new Map();
     const singleSessions = [];
 
     eligibleSessions.forEach((session) => {
+      const packageOwnerId = session?.PackageUnit?.Package?.patient_id
+        || session?.PackageUnit?.Package?.Patient?.id;
+      if (packageOwnerId && String(packageOwnerId) !== String(session.patient_id)) {
+        singleSessions.push(session);
+        return;
+      }
       const seriesId = Number(session.series_id || session.series?.id || 0);
       if (seriesId) {
         const list = sessionsBySeriesId.get(seriesId) || [];
@@ -1267,20 +1290,70 @@ export default function PatientDetails() {
       singleSessions.push(session);
     });
 
-    const buildSessionDetail = (session) => {
+    const buildSessionDetail = (session, packageServiceName = "") => {
+      const packageOwner = session?.PackageUnit?.Package?.Patient;
+      const packageOwnerId = packageOwner?.id || session?.PackageUnit?.Package?.patient_id;
+      const attendedPatient = session.attended_patient || session.Patient;
+      const hasScheduledDate = Boolean(session.starts_at);
+      const isUnscheduledPackageRight = session.status === "available"
+        && session.unit_state === "available"
+        && session.current_session_id === null;
+      let statusLabel = isUnscheduledPackageRight
+        ? "Não agendada"
+        : formatSessionStatus(session.status || session.unit_state || "available");
+      if (session.replacement?.status === "pending" && session.replacement.expires_at) {
+        statusLabel = `Reposição até ${formatDate(session.replacement.expires_at)}`;
+      } else if (session.status === "canceled" && session.unit_state === "available") {
+        statusLabel = "Cancelada · disponível";
+      } else if (session.status === "canceled" && session.unit_state === "closed") {
+        statusLabel = "Cancelada · encerrada";
+      }
       return {
-        id: session.id,
+        id: session.id || `unit-${session.unit_id}`,
+        unitId: session.unit_id || null,
         starts_at: session.starts_at,
-        dateLabel: formatDate(session.starts_at),
-        timeLabel: formatTime(session.starts_at),
-        serviceName: session.Service?.name || session.service?.name || valueOrDash(session.service_type),
-        professionalName: session.professional?.name || "-",
-        status: session.status || "scheduled",
-        statusLabel: formatSessionStatus(session.status || "scheduled"),
+        dateLabel: hasScheduledDate ? formatDate(session.starts_at) : "—",
+        timeLabel: hasScheduledDate ? formatTime(session.starts_at) : "—",
+        serviceName: packageServiceName
+          || session.Service?.name
+          || session.service?.name
+          || valueOrDash(session.service_type),
+        professionalName: session.professional_name || session.professional?.name || "—",
+        attendedPatientName: isUnscheduledPackageRight
+          ? "—"
+          : (attendedPatient?.name || getPatientDisplayName(attendedPatient) || "—"),
+        packageOwnerName: packageOwnerId && String(packageOwnerId) !== String(session.patient_id)
+          ? getPatientDisplayName(packageOwner)
+          : "",
+        status: session.status || session.unit_state || "available",
+        statusLabel,
       };
     };
 
-    const packageItems = Array.from(sessionsBySeriesId.entries()).map(([seriesId, sessions]) => {
+    const foundationPackageItems = ownedPackageHistory.map((pkg) => {
+      const sessionDetails = (pkg.sessions || []).map((session) => (
+        buildSessionDetail(session, pkg.service?.name || "Pacote de sessões")
+      ));
+      const doneCount = sessionDetails.filter((session) => session.status === "done").length;
+      const noShowCount = sessionDetails.filter((session) => session.status === "no_show").length;
+      const scheduledCount = sessionDetails.filter((session) => session.status === "scheduled").length;
+      const canceledCount = sessionDetails.filter((session) => session.status === "canceled").length;
+      return {
+        id: `package-${pkg.id}`,
+        kind: "package",
+        sourceId: pkg.id,
+        serviceName: pkg.service?.name || "Pacote de sessões",
+        referenceDate: pkg.reference_date || pkg.contracted_at || pkg.sessions?.[0]?.starts_at || null,
+        totalSessions: Number(pkg.quantity || 0),
+        doneCount,
+        noShowCount,
+        scheduledCount,
+        canceledCount,
+        sessions: sessionDetails,
+      };
+    });
+
+    const legacyPackageItems = Array.from(sessionsBySeriesId.entries()).map(([seriesId, sessions]) => {
       const series = perSessionSeriesById.get(Number(seriesId)) || sessions[0]?.series || {};
       const sessionDetails = sessions.map(buildSessionDetail);
       const totalSessions = Number(series.occurrence_count || 0)
@@ -1328,7 +1401,7 @@ export default function PatientDetails() {
       };
     });
 
-    return [...packageItems, ...singleItems]
+    return [...foundationPackageItems, ...legacyPackageItems, ...singleItems]
       .sort((first, second) => {
         const firstDate = new Date(first.referenceDate || 0).getTime();
         const secondDate = new Date(second.referenceDate || 0).getTime();
@@ -1337,6 +1410,8 @@ export default function PatientDetails() {
   }, [
     perSessionSeriesById,
     perSessionSessions,
+    ownedPackageHistory,
+    id,
   ]);
 
   const isTreatmentGoalOtherSelected = editForm.treatment_goal_options.includes(
@@ -2785,6 +2860,13 @@ export default function PatientDetails() {
                           </td>
                           <td>
                             <strong>{item.serviceName}</strong>
+                            {item.kind === "single" && item.sessions[0]?.packageOwnerName && (
+                              <div>
+                                <PackagePill>
+                                  Pacote de {item.sessions[0].packageOwnerName}
+                                </PackagePill>
+                              </div>
+                            )}
                           </td>
                           <td>{formatDate(item.referenceDate)}</td>
                           <td>{item.totalSessions}</td>
@@ -4823,6 +4905,7 @@ export default function PatientDetails() {
                       <th>Horário</th>
                       <th>Profissional</th>
                       <th>Status</th>
+                      <th>Paciente atendido</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4834,6 +4917,7 @@ export default function PatientDetails() {
                         <td>
                           <StatusPill>{session.statusLabel}</StatusPill>
                         </td>
+                        <td>{session.attendedPatientName}</td>
                       </tr>
                     ))}
                   </tbody>

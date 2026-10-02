@@ -22,7 +22,7 @@ const AuthorizationContext = createContext({
   reload: () => {},
 });
 const TEAM_POWER = "access_profiles.manage";
-const AUTHORIZATION_CATALOG_VERSION = 7;
+const AUTHORIZATION_CATALOG_VERSION = 8;
 const ACCESS_LEVELS = Object.freeze({ none: 0, view: 1, edit: 2, manage: 3 });
 const MODULE_KEYS = Object.freeze([
   "dashboard",
