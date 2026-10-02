@@ -7,8 +7,11 @@ const test = require('node:test');
 
 const {
   LOCAL_DEFAULTS,
+  LOCAL_STACK_PROFILES,
   buildChildEnvironment,
+  proxyTargetForEnvironment,
 } = require('../scripts/run-local-development.cjs');
+const setupProxy = require('../src/setupProxy');
 
 const repositoryRoot = path.resolve(__dirname, '..');
 
@@ -21,6 +24,65 @@ test('applies the versioned localhost contract to a new worktree', () => {
   try {
     const child = buildChildEnvironment(temporaryRepository, {});
     assert.deepEqual(child, LOCAL_DEFAULTS);
+  } finally {
+    fs.rmSync(temporaryRepository, { recursive: true, force: true });
+  }
+});
+
+test('selects the closed combined validation slot without accepting direct endpoint overrides', () => {
+  const temporaryRepository = makeTemporaryRepository();
+  const environment = {
+    MOTRIA_LOCAL_STACK_SLOT: 'combined-validation',
+    BROWSER: 'none',
+  };
+  try {
+    fs.writeFileSync(
+      path.join(temporaryRepository, '.env.development'),
+      'HOST=127.0.0.1\nPORT=3000\nHTTPS=false\nREACT_APP_API_BASE_URL=http://localhost:3006/api\n',
+      'utf8',
+    );
+    const child = buildChildEnvironment(temporaryRepository, environment);
+    assert.deepEqual(child, {
+      ...environment,
+      ...LOCAL_STACK_PROFILES['combined-validation'],
+    });
+    assert.equal(proxyTargetForEnvironment(environment), 'http://127.0.0.1:3016');
+    assert.equal(
+      setupProxy.proxyTargetForEnvironment(environment),
+      'http://127.0.0.1:3016',
+    );
+    assert.throws(
+      () => buildChildEnvironment(temporaryRepository, { PORT: '3010' }),
+      /LOCAL_ENVIRONMENT_CONFLICT:process:PORT/,
+    );
+    assert.throws(
+      () => buildChildEnvironment(temporaryRepository, {
+        ...environment,
+        REACT_APP_API_BASE_URL: 'https://api.example.invalid/api',
+      }),
+      /LOCAL_ENVIRONMENT_CONFLICT:process:REACT_APP_API_BASE_URL/,
+    );
+  } finally {
+    fs.rmSync(temporaryRepository, { recursive: true, force: true });
+  }
+});
+
+test('rejects unknown or persisted local stack slots', () => {
+  const temporaryRepository = makeTemporaryRepository();
+  try {
+    assert.throws(
+      () => buildChildEnvironment(temporaryRepository, { MOTRIA_LOCAL_STACK_SLOT: 'other' }),
+      /LOCAL_STACK_SLOT_INVALID:other/,
+    );
+    fs.writeFileSync(
+      path.join(temporaryRepository, '.env.local'),
+      'MOTRIA_LOCAL_STACK_SLOT=combined-validation\n',
+      'utf8',
+    );
+    assert.throws(
+      () => buildChildEnvironment(temporaryRepository, {}),
+      /LOCAL_STACK_SLOT_FILE_FORBIDDEN:.env.local/,
+    );
   } finally {
     fs.rmSync(temporaryRepository, { recursive: true, force: true });
   }

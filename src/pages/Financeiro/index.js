@@ -6733,18 +6733,23 @@ export default function Financeiro() {
 	                              <thead>
 	                                <tr>
 	                                  <th scope="col">Data</th>
+	                                  <th scope="col">Paciente atendido</th>
 	                                  <th scope="col">Profissional</th>
 	                                  <th scope="col">Status</th>
 	                                </tr>
 	                              </thead>
 	                              <tbody>
 	                                {sessions.map((session) => {
+	                                  const attendedPatientName = session?.Patient
+	                                    ? getPatientDisplayName(session.Patient)
+	                                    : "—";
 		                                  const professionalName =
 		                                    session?.professional?.name || session?.professional?.email || "-";
 	
 	                                  return (
 	                                    <tr key={session.id}>
 	                                      <td>{formatSessionDateTimeBR(session.starts_at)}</td>
+	                                      <td>{attendedPatientName}</td>
 	                                      <td>{professionalName}</td>
 	                                      <td>
 	                                        <AttendanceStatusBadge $status={session.status}>
@@ -7784,9 +7789,10 @@ const RevenueChargeDetailSessionsTable = styled(SimpleTable)`
   border-collapse: separate;
   border-spacing: 0;
   th, td { overflow-wrap: anywhere; }
-  th:nth-child(1) { width: 34%; }
-  th:nth-child(2) { width: 36%; }
-  th:nth-child(3) { width: 30%; }
+  th:nth-child(1) { width: 24%; }
+  th:nth-child(2) { width: 28%; }
+  th:nth-child(3) { width: 28%; }
+  th:nth-child(4) { width: 20%; }
   @media (max-height: 600px), (max-width: 480px) {
     th, td { padding: 6px; }
   }

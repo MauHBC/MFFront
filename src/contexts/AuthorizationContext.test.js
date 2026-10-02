@@ -169,9 +169,32 @@ describe("AuthorizationContext", () => {
     expect(contextHasCapability(agendaOnly, "schedule.configure")).toBe(true);
     expect(isValidAuthorizationContext({ ...agendaOnly, modules: agendaOnly.modules.slice(1) }))
       .toBe(false);
-    expect(isValidAuthorizationContext({ ...agendaOnly, catalog_version: 7 })).toBe(false);
+    expect(isValidAuthorizationContext({ ...agendaOnly, catalog_version: 7 })).toBe(true);
+    expect(isValidAuthorizationContext({ ...agendaOnly, catalog_version: 6 })).toBe(false);
+    expect(isValidAuthorizationContext({ ...agendaOnly, catalog_version: 9 })).toBe(false);
     expect(contextCanAccessModule({ ...agendaOnly, authorization_state: "invalid" }, "schedule"))
       .toBe(false);
+  });
+
+  it("aceita transitoriamente o catalogo 7 sem inventar a capacidade de compartilhar pacote", () => {
+    const previousCatalog = {
+      ...scheduleOnly,
+      catalog_version: 7,
+      capabilities: ["schedule.configure"],
+    };
+
+    expect(isValidAuthorizationContext(previousCatalog)).toBe(true);
+    expect(contextCanAccessModule(previousCatalog, "schedule", "manage")).toBe(true);
+    expect(contextHasCapability(previousCatalog, "schedule.package.share")).toBe(false);
+    expect(contextHasCapability({
+      ...previousCatalog,
+      capabilities: [...previousCatalog.capabilities, "schedule.package.share"],
+    }, "schedule.package.share")).toBe(false);
+    expect(contextHasCapability({
+      ...previousCatalog,
+      catalog_version: 8,
+      capabilities: [...previousCatalog.capabilities, "schedule.package.share"],
+    }, "schedule.package.share")).toBe(true);
   });
 
   it("torna modulo own indisponivel sem atuacao profissional ativa", () => {

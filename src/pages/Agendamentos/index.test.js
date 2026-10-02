@@ -961,7 +961,7 @@ describe("Agendamentos - editar agendamento", () => {
   const financialPreview = (release = 10000, extra = {}) => ({
     eligible: true, preview_fingerprint: "server-preview", blockers: [],
     patient: { id: 20, name: "Paciente Teste" },
-    session: { id: 10, starts_at: baseSession.starts_at },
+    session: { id: 10, patient_id: 20, starts_at: baseSession.starts_at },
     entry: { id: 90, amount_cents: 10000, paid_cents: release, open_cents: 10000 - release },
     package: { series_id: 1, amount_before_cents: 40000, amount_after_cents: 30000 },
     release_amount_cents: release, credit_after_cents: release,
@@ -1022,6 +1022,39 @@ describe("Agendamentos - editar agendamento", () => {
       reason: "Pedido definitivo", preview_fingerprint: "server-preview",
       late_policy_exception_justified: true, late_policy_exception_reason: "Pedido definitivo",
     }, { headers: { "Idempotency-Key": expect.any(String) } });
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(1);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it("valida separadamente atendido e titular financeiro ao cancelar sessão compartilhada", async () => {
+    sessionsMockData = [{
+      ...packageSession,
+      patient_id: 20,
+      Patient: { id: 20, full_name: "Paciente Teste" },
+      PackageUnit: {
+        ...packageSession.PackageUnit,
+        Package: {
+          ...packageSession.PackageUnit.Package,
+          patient_id: 88,
+          Patient: { id: 88, full_name: "Maurício Titular" },
+        },
+      },
+    }];
+    axios.post.mockImplementation((url) => Promise.resolve({
+      data: url.endsWith("cancellation-preview")
+        ? financialPreview(10000, {
+          patient: { id: 88, name: "Maurício Titular" },
+          session: { id: 10, patient_id: 20, starts_at: baseSession.starts_at },
+        })
+        : { id: 2, entry_id: 90, patient_id: 88 },
+    }));
+
+    await openFinancialAbsence();
+    await readyToConfirmCancellation();
+    fireEvent.click(confirmCancellationButton());
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sessão cancelada."));
+    expect(cancellationCalls("cancellation-preview")).toHaveLength(1);
     expect(cancellationCalls("cancel-with-credit")).toHaveLength(1);
     expect(axios.put).not.toHaveBeenCalled();
   });

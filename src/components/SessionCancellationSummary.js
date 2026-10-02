@@ -10,9 +10,12 @@ const clinicalDate = (value, includeYear = false) => new Date(value).toLocaleDat
   day: "2-digit", month: "2-digit", ...(includeYear ? { year: "numeric" } : {}),
 });
 export const validCancellationPreview = (preview, target) => Boolean(
-  preview && target && identifier(Number(target.patient_id))
+  preview && target
+  && identifier(Number(target.financial_patient_id ?? target.patient_id))
   && typeof preview.eligible === "boolean"
-  && Number(preview.patient?.id) === Number(target.patient_id)
+  && Number(preview.patient?.id) === Number(target.financial_patient_id ?? target.patient_id)
+  && (!target.attended_patient_id
+    || Number(preview.session?.patient_id) === Number(target.attended_patient_id))
   && (!target.entry_id || Number(preview.entry?.id) === Number(target.entry_id))
   && (!target.session_id || Number(preview.session?.id) === Number(target.session_id))
   && Array.isArray(preview.blockers)

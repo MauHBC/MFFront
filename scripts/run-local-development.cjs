@@ -9,6 +9,16 @@ const LOCAL_DEFAULTS = Object.freeze({
   HTTPS: 'false',
   REACT_APP_API_BASE_URL: 'http://localhost:3006/api',
 });
+const LOCAL_STACK_SLOT_KEY = 'MOTRIA_LOCAL_STACK_SLOT';
+const LOCAL_STACK_PROFILES = Object.freeze({
+  'combined-validation': Object.freeze({
+    NODE_ENV: 'development',
+    HOST: '127.0.0.1',
+    PORT: '3010',
+    HTTPS: 'false',
+    REACT_APP_API_BASE_URL: 'http://127.0.0.1:3016/api',
+  }),
+});
 const ENV_FILES = Object.freeze([
   '.env',
   '.env.local',
@@ -72,10 +82,24 @@ function environmentValue(values, key, sourceLabel) {
   return matches.length === 1 ? values[matches[0]] : undefined;
 }
 
-function validateValues(values, sourceLabel) {
-  Object.entries(LOCAL_DEFAULTS).forEach(([key, expected]) => {
+function resolveLocalDefaults(environment = process.env) {
+  const slot = environmentValue(environment, LOCAL_STACK_SLOT_KEY, 'process');
+  if (slot === undefined || slot === '') return LOCAL_DEFAULTS;
+  if (!Object.prototype.hasOwnProperty.call(LOCAL_STACK_PROFILES, slot)) {
+    fail(`LOCAL_STACK_SLOT_INVALID:${slot}`);
+  }
+  return LOCAL_STACK_PROFILES[slot];
+}
+
+function proxyTargetForEnvironment(environment = process.env) {
+  return new URL(resolveLocalDefaults(environment).REACT_APP_API_BASE_URL).origin;
+}
+
+function validateValues(values, sourceLabel, expectedValues, compatibleValues = null) {
+  Object.entries(expectedValues).forEach(([key, expected]) => {
     const actual = environmentValue(values, key, sourceLabel);
-    if (actual !== undefined && actual !== expected) {
+    const compatible = compatibleValues?.[key];
+    if (actual !== undefined && actual !== expected && actual !== compatible) {
       fail(`LOCAL_ENVIRONMENT_CONFLICT:${sourceLabel}:${key}`);
     }
   });
@@ -87,7 +111,8 @@ function validateValues(values, sourceLabel) {
 }
 
 function validateLocalEnvironment(repositoryRoot, environment = process.env) {
-  validateValues(environment, 'process');
+  const expectedValues = resolveLocalDefaults(environment);
+  validateValues(environment, 'process', expectedValues);
   ENV_FILES.forEach((filename) => {
     const filePath = path.join(repositoryRoot, filename);
     if (!fs.existsSync(filePath)) return;
@@ -95,18 +120,23 @@ function validateLocalEnvironment(repositoryRoot, environment = process.env) {
     if (!stat.isFile() || stat.isSymbolicLink()) {
       fail(`LOCAL_ENVIRONMENT_FILE_INVALID:${filename}`);
     }
-    validateValues(parseEnv(fs.readFileSync(filePath, 'utf8'), filename), filename);
+    const values = parseEnv(fs.readFileSync(filePath, 'utf8'), filename);
+    if (environmentValue(values, LOCAL_STACK_SLOT_KEY, filename) !== undefined) {
+      fail(`LOCAL_STACK_SLOT_FILE_FORBIDDEN:${filename}`);
+    }
+    validateValues(values, filename, expectedValues, LOCAL_DEFAULTS);
   });
 }
 
 function buildChildEnvironment(repositoryRoot, environment = process.env) {
   validateLocalEnvironment(repositoryRoot, environment);
+  const expectedValues = resolveLocalDefaults(environment);
   const childEnvironment = { ...environment };
-  const protectedKeys = new Set([...Object.keys(LOCAL_DEFAULTS), ...FORBIDDEN_LOCAL_KEYS]);
+  const protectedKeys = new Set([...Object.keys(expectedValues), ...FORBIDDEN_LOCAL_KEYS]);
   Object.keys(childEnvironment).forEach((key) => {
     if (protectedKeys.has(key.toUpperCase())) delete childEnvironment[key];
   });
-  Object.assign(childEnvironment, LOCAL_DEFAULTS);
+  Object.assign(childEnvironment, expectedValues);
   return childEnvironment;
 }
 
@@ -147,8 +177,11 @@ if (require.main === module) runCli();
 
 module.exports = {
   LOCAL_DEFAULTS,
+  LOCAL_STACK_PROFILES,
   LocalDevelopmentError,
   buildChildEnvironment,
   parseEnv,
+  proxyTargetForEnvironment,
+  resolveLocalDefaults,
   validateLocalEnvironment,
 };

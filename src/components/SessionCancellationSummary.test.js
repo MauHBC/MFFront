@@ -64,6 +64,29 @@ test("aceita bloqueio identificado pelo servidor mesmo sem os valores de uma prÃ
   expect(validCancellationPreview(data, target)).toBe(true);
 });
 
+test("distingue o paciente atendido do titular financeiro em sessÃ£o compartilhada", () => {
+  const sharedTarget = {
+    financial_patient_id: 30,
+    attended_patient_id: 31,
+    session_id: 701,
+  };
+  const data = preview({
+    patient: { id: 30 },
+    session: { id: 701, patient_id: 31, starts_at: "2026-10-28T13:00:00Z" },
+  });
+
+  expect(validCancellationPreview(data, sharedTarget)).toBe(true);
+  expect(validCancellationPreview({ ...data, patient: { id: 31 } }, sharedTarget)).toBe(false);
+  expect(validCancellationPreview({
+    ...data,
+    session: { ...data.session, patient_id: 30 },
+  }, sharedTarget)).toBe(false);
+  expect(validCancellationPreview({
+    ...data,
+    session: { id: 701, starts_at: data.session.starts_at },
+  }, sharedTarget)).toBe(false);
+});
+
 test.each([
   ["ausente", null],
   ["paciente incorreto", preview({ patient: { id: 99 } })],

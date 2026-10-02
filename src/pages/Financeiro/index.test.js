@@ -1003,7 +1003,9 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       expect(within(dialog).queryByText(label, { exact: true })).not.toBeInTheDocument();
     });
     const table = screen.getByRole("columnheader", { name: "Profissional" }).closest("table");
-    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Data", "Profissional", "Status"]);
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+      "Data", "Paciente atendido", "Profissional", "Status",
+    ]);
     expect(screen.queryByText("Cancelamento de cobrança")).not.toBeInTheDocument();
     expect(screen.queryByText(/Há alterações financeiras registradas/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ver histórico financeiro" })).not.toBeInTheDocument();

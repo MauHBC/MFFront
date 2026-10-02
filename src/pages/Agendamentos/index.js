@@ -1118,6 +1118,46 @@ const isSessionInMonth = (session, monthDate) => {
 const getSessionPatientId = (session) =>
   session?.patient_id || session?.patient?.id || session?.Patient?.id || null;
 
+const positiveIdentifier = (value) => {
+  const normalized = Number(value);
+  return Number.isSafeInteger(normalized) && normalized > 0 ? normalized : null;
+};
+
+const getSessionCancellationIdentity = (session) => {
+  const attendedPatientId = positiveIdentifier(getSessionPatientId(session));
+  if (!attendedPatientId) return null;
+  const unit = session?.PackageUnit;
+  const packageUnitId = positiveIdentifier(session?.package_unit_id || unit?.id);
+  if (!packageUnitId && !unit) {
+    return {
+      attended_patient_id: attendedPatientId,
+      financial_patient_id: attendedPatientId,
+      package_owner_id: null,
+    };
+  }
+  const pkg = unit?.Package;
+  const embeddedUnitId = positiveIdentifier(unit?.id);
+  const unitPackageId = positiveIdentifier(unit?.package_id);
+  const packageId = positiveIdentifier(pkg?.id);
+  const packageOwnerId = positiveIdentifier(pkg?.Patient?.id || pkg?.patient_id);
+  if (!packageUnitId || !embeddedUnitId || packageUnitId !== embeddedUnitId
+    || !unitPackageId || !packageId || unitPackageId !== packageId || !packageOwnerId) {
+    return null;
+  }
+  const sessionClinicId = positiveIdentifier(session?.clinic_id);
+  const unitClinicId = positiveIdentifier(unit?.clinic_id);
+  const packageClinicId = positiveIdentifier(pkg?.clinic_id);
+  if ((unitClinicId && sessionClinicId && unitClinicId !== sessionClinicId)
+    || (packageClinicId && sessionClinicId && packageClinicId !== sessionClinicId)) {
+    return null;
+  }
+  return {
+    attended_patient_id: attendedPatientId,
+    financial_patient_id: packageOwnerId,
+    package_owner_id: packageOwnerId,
+  };
+};
+
 const sameDay = (a, b) => {
   if (!a || !b) return false;
   return (
@@ -3944,8 +3984,17 @@ export default function Agendamentos() {
       late_policy_exception_reason: absenceModal.reason.trim(),
     } : {}),
   }), [absenceModal.reason, absenceModal.latePolicyExceptionJustified]);
-  const absencePatientId = getSessionPatientId(absenceModal.session);
-  const financialCommandKey = JSON.stringify([absenceModal.id, absencePatientId, absenceCommand]);
+  const absencePatientIdentity = useMemo(
+    () => getSessionCancellationIdentity(absenceModal.session),
+    [absenceModal.session],
+  );
+  const financialCommandKey = JSON.stringify([
+    absenceModal.id,
+    absencePatientIdentity?.attended_patient_id,
+    absencePatientIdentity?.financial_patient_id,
+    absencePatientIdentity?.package_owner_id,
+    absenceCommand,
+  ]);
   const matchingFinancialPreview = absenceModal.financialPreviewKey === financialCommandKey;
   const useJointCancellation = requiresTechnicalCancellationPreview
     && !(matchingFinancialPreview && absenceModal.financialNotApplicable);
@@ -3979,7 +4028,11 @@ export default function Agendamentos() {
         const { data } = await previewSessionCancellation(absenceModal.id, absenceCommand);
         if (!active || requestVersion !== absenceRequestVersion.current) return;
         const additionalSessions = (data?.affected_sessions || []).filter((session) => Number(session.id) !== Number(absenceModal.id));
-        if (!validCancellationPreview(data, { session_id: absenceModal.id, patient_id: absencePatientId })
+        if (!validCancellationPreview(data, {
+          session_id: absenceModal.id,
+          attended_patient_id: absencePatientIdentity?.attended_patient_id,
+          financial_patient_id: absencePatientIdentity?.financial_patient_id,
+        })
           || (additionalSessions.length > 0 && !data.patient?.name?.trim())) {
           throw new Error("Invalid session cancellation preview");
         }
@@ -4001,7 +4054,7 @@ export default function Agendamentos() {
     }, 250);
     return () => { active = false; clearTimeout(timer); };
   }, [requiresTechnicalCancellationPreview, absenceCommand, financialCommandKey, absenceModal.id,
-    absencePatientId, absenceModal.financialPreviewRevision, authorization.context]);
+    absencePatientIdentity, absenceModal.financialPreviewRevision, authorization.context]);
 
   const handleConfirmAbsence = useCallback(async () => {
     if (!absenceModal.id || !absenceModal.status || absenceModal.isSaving || absenceModal.isChangingStatus || financialAbsenceInFlight.current) return;
@@ -4044,7 +4097,7 @@ export default function Agendamentos() {
       const { data } = await confirmSessionCancellation(absenceModal.id, attempt.body, attempt.key);
       if (requestVersion !== absenceRequestVersion.current) return;
       if (Number(data?.entry_id) !== Number(absenceModal.financialPreview.entry.id)
-        || Number(data?.patient_id) !== Number(getSessionPatientId(absenceModal.session))) {
+        || Number(data?.patient_id) !== Number(absencePatientIdentity?.financial_patient_id)) {
         throw new Error("Invalid session cancellation confirmation");
       }
       setAbsenceModal(emptyAbsenceModal);
@@ -4075,7 +4128,7 @@ export default function Agendamentos() {
       }
     }
   }, [absenceModal, absenceCommand, requiresTechnicalCancellationPreview, financialPreviewReady,
-    canRetryFinancialPreview, useJointCancellation, updateSessionStatus, reloadVisibleSessions,
+    canRetryFinancialPreview, useJointCancellation, absencePatientIdentity, updateSessionStatus, reloadVisibleSessions,
     loadPendingSessions, loadOperationalAlerts, selectedMonthKey]);
 
   const handleOpenAttendanceCall = useCallback(({ timeGroup }) => {

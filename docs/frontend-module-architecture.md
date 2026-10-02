@@ -73,10 +73,17 @@ As regras autoritativas estão na
 - `PublicClinicContext` atende a landing; `ClinicContext` atende a aplicação
   autenticada. O domínio público não substitui o tenant da sessão.
 - Em produção, a API é `/api` same-origin e o bundle não contém localhost. Em
-  desenvolvimento, o frontend usa `http://localhost:3000` e o backend local
-  normalmente usa `http://localhost:3006`.
+  desenvolvimento, o contrato padrão usa Frontend em `127.0.0.1:3000` e Backend
+  em loopback na porta `3006`. A validação combinada isolada pode selecionar
+  somente o perfil fechado `MOTRIA_LOCAL_STACK_SLOT=combined-validation`, que
+  usa `127.0.0.1:3010` e API `127.0.0.1:3016`; o launcher continua recusando
+  endpoints remotos, portas avulsas, persistência do perfil em `.env*` e qualquer
+  slot desconhecido.
 - `npm run dev` impõe esses destinos locais e recusa overrides remotos em
   variáveis de processo ou arquivos `.env*`; worktrees não exigem `.env` manual.
+  Para subir a validação combinada sem abrir o navegador, use no Git Bash:
+  `export MOTRIA_LOCAL_STACK_SLOT=combined-validation`, depois
+  `export BROWSER=none` e `npm run dev`. A URL é `http://127.0.0.1:3010`.
 
 ### Registro modular da landing
 
@@ -158,7 +165,12 @@ daquele módulo.
 ### Autorização oficial e fail-closed
 
 `AuthorizationProvider` carrega `/team/authorization-context` para a identidade
-e o token atuais e aceita o catálogo oficial na versão `7`. Sidebar, atalhos e `MyRoute` usam exclusivamente os módulos,
+e o token atuais. O catálogo corrente é `8`; durante a compatibilidade fechada
+da transição, somente `7` e `8` são aceitos. Versões anteriores, futuras ou
+desconhecidas falham fechadas. A capacidade `schedule.package.share` exige
+simultaneamente catálogo `8` e presença explícita no payload: um contexto `7`
+não a concede, mesmo que contenha essa string de forma incompatível. Sidebar,
+atalhos e `MyRoute` usam exclusivamente os módulos,
 níveis e capacidades desse contrato. O frontend não consulta grupo ou nome de
 perfil para conceder acesso, não replica o resolvedor e somente considera
 administrativo o booleano literal `is_administrator === true` em um contexto
@@ -715,8 +727,11 @@ os critérios de consulta permanecem iguais.
 
 Em **Receitas > Detalhes > Cobranças > Detalhes**, o título do modal identifica
 Mensalidade/Pacote/Avulsa e o nome do serviço/plano. O paciente aparece abaixo,
-com peso normal e menor destaque. O corpo mantém o período da mensalidade em
-linha compacta, o resumo das sessões e a tabela **Data | Profissional | Status**.
+com peso normal e menor destaque. Esse cabeçalho conserva o comprador como
+identidade financeira. O corpo mantém o período da mensalidade em linha compacta,
+o resumo das sessões e a tabela **Data | Paciente atendido | Profissional |
+Status**; em pacote compartilhado, a identidade operacional de cada linha vem
+da sessão e não substitui o comprador.
 Não há faixa isolada de quantidade, título de distribuição ou seção/cards
 financeiros: valores ficam na tabela de Cobranças, e operações/descontos no
 Histórico, sem alteração dos dados ou cálculos.
@@ -752,8 +767,8 @@ recalcula os valores financeiros nem altera Histórico ou tabela principal.
 Somente este modal usa as variantes locais `RevenueChargeDetail*`: o cartão
 flex limita sua altura à janela e às margens de área segura; título/X e rodapé
 com **Fechar** não encolhem. Período/metadados e o resumo único de sessões ficam
-fora da rolagem. Somente a região focável da tabela pode rolar; seus três
-cabeçalhos **Data | Profissional | Status** permanecem sticky no topo dessa
+fora da rolagem. Somente a região focável da tabela pode rolar; seus quatro
+cabeçalhos **Data | Paciente atendido | Profissional | Status** permanecem sticky no topo dessa
 região, com fundo opaco. Não há tabela, cabeçalho ou resumo duplicado. O corpo
 flexível limita a região à altura disponível da janela, sem segunda rolagem
 vertical. Colunas têm larguras compartilhadas entre cabeçalho e linhas e textos
@@ -800,11 +815,19 @@ financeiro pendente.** quando houver pendência. Reposição e penalidade contin
 nos comandos operacionais. Falha da operação conjunta não executa cancelamento
 operacional separado nem liberação de crédito independente.
 
+Em sessão compartilhada, a Agenda valida separadamente as duas identidades do
+contrato autoritativo: `session.patient_id` da prévia precisa corresponder ao
+paciente atendido da sessão aberta, enquanto `patient.id` da prévia e
+`patient_id` da confirmação precisam corresponder ao comprador do `Package`
+projetado pela `PackageUnit`. Sessão comum usa o próprio paciente nas duas
+funções. Vínculo de pacote incompleto, divergente ou de outra clínica falha
+fechado; o navegador não envia nem aceita um `patient_id` escolhido livremente.
+
 Em **Receitas > Detalhes > Cobranças**, **Resolver pendência** aparece
 somente para pendências reais de `pending_resolutions`, com `can_resolve: true`,
 `finance/manage` e `finance.settle`. A lista genérica `cancellation_candidates`
 não habilita botões. O modal **Detalhes** mantém o resumo compacto e a tabela
-**Data | Profissional | Status**, com aviso discreto apenas
+**Data | Paciente atendido | Profissional | Status**, com aviso discreto apenas
 quando houver pendência financeira. Alterações concluídas são consultadas pela
 aba **Histórico**, sem aviso ou botão adicional no detalhe ou modal.
 Sem pendência aplicável, nenhum bloco ou espaço é reservado.
@@ -1014,6 +1037,20 @@ rota sensível protegida. A recarga exige nova oportunidade segura nesses evento
 ou após perda de foco do campo; remover um modal, sozinho, não garante recarga
 imediata. Falha de consulta não força recarga. Não remover essas proteções, criar
 logout global ou reenviar comandos financeiros após atualizar a página.
+
+Na transição fechada do catálogo de autorização `7` para `8`, uma aba com o
+bundle compatível conserva apenas os módulos e capacidades efetivamente presentes
+no contexto `7`; o compartilhamento permanece indisponível. Quando o documento
+recebe os assets correntes, `AppVersionReloader` aplica a mesma recarga segura
+descrita acima. Isso não abre aceitação genérica de versões nem contorna comandos
+em andamento.
+
+A ordem técnica de uma futura ativação coordenada é: primeiro disponibilizar o
+Frontend transitório que aceita somente `7` e `8` e exige `8` para
+`schedule.package.share`; depois ativar Backend e migration do catálogo `8`,
+deixando abas antigas convergirem pela recarga segura; somente em release
+posterior retirar o suporte ao catálogo `7`. Esta integração local não executa
+nenhuma dessas etapas de publicação.
 
 O servidor permanece responsável pela compatibilidade de comandos das abas
 antigas. Recusa definitiva anterior à gravação usa o envelope de erro já
