@@ -91,6 +91,12 @@ como pendente uma alteração que já está presente no artefato.
   modal/edição podem adiar a recarga. Publique primeiro o Backend compatível e
   comprove a recusa segura pelo formatador de erros do Frontend ainda publicado;
   não dependa exclusivamente do bundle novo ou da recarga automática.
+- O corte fechado do catálogo de autorização 7 para 8 é uma exceção explícita:
+  publique e valide primeiro o Frontend transitório 7/8, ainda sobre Backend 7;
+  depois contenha escritores, aplique a migration e ative Backend 8 conforme o
+  [runbook coordenado do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/deploy-production.md#corte-coordenado-do-catálogo-7-para-8).
+  O bundle transitório não habilita compartilhamento enquanto o contexto
+  autoritativo continuar em 7, e sua publicação não autoriza iniciar o corte.
 - No hotfix de recebimentos com seleção explícita, não retorne ao Backend
   anterior incompatível. A contenção e recuperação por correção adiante estão no
   [runbook do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/deploy-production.md#recebimentos-com-seleção-explícita--recuperação-sem-retorno-ao-backend-antigo).

@@ -1099,12 +1099,23 @@ adiamento protege o rascunho, mas não prova compatibilidade funcional do bundle
 antigo com o Backend novo. Comandos já enviados continuam dependendo da
 idempotência e compatibilidade mantidas pelo servidor, sem reenvio automático.
 
+Se uma aba antiga perder os módulos ao receber catálogo `8`, a orientação é
+concluir ou cancelar com segurança a edição/modal local, sem repetir comando de
+resultado incerto, e então atualizar explicitamente a página para carregar o
+bundle corrente. Navegar, focar ou tornar a aba visível oferece uma nova
+oportunidade ao mecanismo existente, mas não garante recarga imediata; esperar
+ou apenas fechar o modal não substitui a atualização explícita. Não exigir
+logout global. Resultado incerto deve ser esclarecido no servidor antes de
+qualquer nova tentativa.
+
 A ordem técnica de uma futura ativação coordenada é: primeiro disponibilizar o
 Frontend transitório que aceita somente `7` e `8` e exige `8` para
-`schedule.package.share`; depois ativar Backend e migration do catálogo `8`,
-deixando abas antigas convergirem pela recarga segura; somente em release
-posterior retirar o suporte ao catálogo `7`. Esta integração local não executa
-nenhuma dessas etapas de publicação.
+`schedule.package.share`; depois conter os escritores afetados, aplicar a
+migration do catálogo `8`, ativar Backend 8 e validar a combinação antes da
+reabertura. Backend 7 não pode atender o banco promovido. Somente em release
+posterior se retira o suporte ao catálogo `7`. O procedimento operacional fica
+no [runbook do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/deploy-production.md#corte-coordenado-do-catálogo-7-para-8).
+Esta integração local não executa nenhuma dessas etapas de publicação.
 
 O servidor permanece responsável pela compatibilidade de comandos das abas
 antigas. Recusa definitiva anterior à gravação usa o envelope de erro já
