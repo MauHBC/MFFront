@@ -20,22 +20,23 @@ let mockProfessionalAssigned = true;
 let mockAuthorization = null;
 let controlledFakeTimersEnabled = false;
 
-const AGENDA_TEST_NOW = new Date("2026-06-29T06:00:00");
 const NativeDate = Date;
+const DEFAULT_AGENDA_TEST_NOW = new NativeDate("2026-06-29T09:00:00.000Z");
+let agendaTestNow = DEFAULT_AGENDA_TEST_NOW;
 
 class FixedAgendaDate extends NativeDate {
   constructor(...args) {
-    super(...(args.length > 0 ? args : [AGENDA_TEST_NOW.valueOf()]));
+    super(...(args.length > 0 ? args : [agendaTestNow.valueOf()]));
   }
 
   static now() {
-    return AGENDA_TEST_NOW.valueOf();
+    return agendaTestNow.valueOf();
   }
 }
 
 const enableControlledFakeTimers = () => {
   global.Date = NativeDate;
-  jest.useFakeTimers().setSystemTime(AGENDA_TEST_NOW);
+  jest.useFakeTimers().setSystemTime(agendaTestNow);
   controlledFakeTimersEnabled = true;
 };
 
@@ -159,6 +160,18 @@ const packageSession = {
       },
     },
   },
+};
+
+const absoluteBaseSession = {
+  ...baseSession,
+  starts_at: "2026-06-29T10:00:00.000Z",
+  ends_at: "2026-06-29T11:00:00.000Z",
+};
+
+const absolutePackageSession = {
+  ...packageSession,
+  starts_at: absoluteBaseSession.starts_at,
+  ends_at: absoluteBaseSession.ends_at,
 };
 
 const suspendedSession = {
@@ -429,6 +442,7 @@ describe("Agendamentos - editar agendamento", () => {
 
   beforeEach(() => {
     controlledFakeTimersEnabled = false;
+    agendaTestNow = DEFAULT_AGENDA_TEST_NOW;
     global.Date = FixedAgendaDate;
     jest.clearAllMocks();
     getUserFacingApiError.mockImplementation((error, fallback) => fallback);
@@ -800,6 +814,7 @@ describe("Agendamentos - editar agendamento", () => {
   });
 
   it("usa uma unica remarcacao formal ao editar horario", async () => {
+    sessionsMockData = [absoluteBaseSession, canceledSession, noShowSession];
     const { container } = renderAgendamentos();
     await openScheduledSessionEdit(container);
     const hourSelect = Array.from(container.querySelectorAll("select"))
@@ -814,8 +829,8 @@ describe("Agendamentos - editar agendamento", () => {
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/sessions",
       expect.objectContaining({
-        starts_at: "2026-06-29T10:00",
-        ends_at: "2026-06-29T11:00",
+        starts_at: "2026-06-29T13:00:00.000Z",
+        ends_at: "2026-06-29T14:00:00.000Z",
         notes: "ajuste administrativo",
         status: "scheduled",
         rescheduled_from_id: 10,
@@ -830,7 +845,35 @@ describe("Agendamentos - editar agendamento", () => {
     expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(1);
   });
 
+  it("reconhece alterar e voltar ao horario original como edicao nao temporal", async () => {
+    sessionsMockData = [absoluteBaseSession, canceledSession, noShowSession];
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+
+    expect(hourSelect).toHaveValue("07");
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    expect(screen.getByLabelText("Tem justificativa")).toBeInTheDocument();
+    fireEvent.change(hourSelect, { target: { value: "07" } });
+    expect(screen.queryByLabelText("Tem justificativa")).not.toBeInTheDocument();
+    fireEvent.change(container.querySelector('textarea[name="notes"]'), {
+      target: { value: "horário original restaurado" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.put).toHaveBeenCalledWith(
+      "/sessions/10",
+      expect.objectContaining({
+        starts_at: absoluteBaseSession.starts_at,
+        ends_at: absoluteBaseSession.ends_at,
+      }),
+    ));
+    expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(0);
+  });
+
   it("mantem PUT quando somente a observacao muda", async () => {
+    sessionsMockData = [absoluteBaseSession, canceledSession, noShowSession];
     const { container } = renderAgendamentos();
     await openScheduledSessionEdit(container);
     fireEvent.change(container.querySelector('textarea[name="notes"]'), {
@@ -841,8 +884,8 @@ describe("Agendamentos - editar agendamento", () => {
     await waitFor(() => expect(axios.put).toHaveBeenCalledWith(
       "/sessions/10",
       expect.objectContaining({
-        starts_at: "2026-06-29T07:00",
-        ends_at: "2026-06-29T08:00",
+        starts_at: absoluteBaseSession.starts_at,
+        ends_at: absoluteBaseSession.ends_at,
         notes: "observacao sem mudanca temporal",
       }),
     ));
@@ -882,6 +925,7 @@ describe("Agendamentos - editar agendamento", () => {
   });
 
   it("mantem PUT quando somente o profissional muda", async () => {
+    sessionsMockData = [absoluteBaseSession, canceledSession, noShowSession];
     const { container } = renderAgendamentos();
     await openScheduledSessionEdit(container);
     fireEvent.change(container.querySelector('select[name="professional_user_id"]'), {
@@ -896,14 +940,15 @@ describe("Agendamentos - editar agendamento", () => {
       "/sessions/10",
       expect.objectContaining({
         professional_user_id: 31,
-        starts_at: "2026-06-29T07:00",
-        ends_at: "2026-06-29T08:00",
+        starts_at: absoluteBaseSession.starts_at,
+        ends_at: absoluteBaseSession.ends_at,
       }),
     ));
     expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(0);
   });
 
   it("combina horario profissional e observacao em uma unica remarcacao", async () => {
+    sessionsMockData = [absoluteBaseSession, canceledSession, noShowSession];
     const { container } = renderAgendamentos();
     await openScheduledSessionEdit(container);
     const hourSelect = Array.from(container.querySelectorAll("select"))
@@ -920,8 +965,8 @@ describe("Agendamentos - editar agendamento", () => {
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/sessions",
       expect.objectContaining({
-        starts_at: "2026-06-29T10:00",
-        ends_at: "2026-06-29T11:00",
+        starts_at: "2026-06-29T13:00:00.000Z",
+        ends_at: "2026-06-29T14:00:00.000Z",
         professional_user_id: 31,
         notes: "excecao com outro profissional",
         rescheduled_from_id: 10,
@@ -1704,8 +1749,8 @@ describe("Agendamentos - editar agendamento", () => {
       service_id: 41,
       service_type: "physio",
       session_replacement_credit_id: 901,
-      starts_at: "2026-07-01T11:00",
-      ends_at: "2026-07-01T12:00",
+      starts_at: "2026-07-01T14:00:00.000Z",
+      ends_at: "2026-07-01T15:00:00.000Z",
       notes: "Outra observação",
       assign_patient_care: !assigned,
     })));
@@ -1800,8 +1845,8 @@ describe("Agendamentos - editar agendamento", () => {
       expect.objectContaining({
         patient_id: 25,
         service_id: 40,
-        starts_at: "2026-06-30T10:00",
-        ends_at: "2026-06-30T11:00",
+        starts_at: "2026-06-30T13:00:00.000Z",
+        ends_at: "2026-06-30T14:00:00.000Z",
         billing_mode: "per_session",
         session_replacement_credit_id: null,
         assign_patient_care: false,
@@ -2428,6 +2473,8 @@ describe("Agendamentos - editar agendamento", () => {
 
     await waitFor(() => expect(previewSchedulingOccurrences).toHaveBeenCalledWith(
       expect.objectContaining({
+        starts_at: "2026-07-06T13:00:00.000Z",
+        duration_minutes: 60,
         repeat_interval: 2,
         occurrence_count: 4,
 	        weekdays: [1, 4],
@@ -2449,8 +2496,10 @@ describe("Agendamentos - editar agendamento", () => {
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/session-series",
       expect.objectContaining({
-	        repeat_interval: 2,
-	        occurrence_count: 4,
+        starts_at: "2026-07-06T13:00:00.000Z",
+        duration_minutes: 60,
+        repeat_interval: 2,
+        occurrence_count: 4,
         billing_mode: "per_session",
         price_override_cents: 10000,
         assign_patient_care: true,
@@ -3631,6 +3680,8 @@ describe("Agendamentos - editar agendamento", () => {
 	  await waitFor(() => expect(checkSchedulingAvailability).toHaveBeenCalledWith(
 	    expect.objectContaining({
 	      patient_id: 20,
+	      starts_at: "2026-10-20T13:00:00.000Z",
+	      ends_at: "2026-10-20T14:00:00.000Z",
 	      shared_package_id: 701,
 	      shared_package_source_session_id: 801,
 	      shared_package_review_token: "review-token-701",
@@ -3644,7 +3695,8 @@ describe("Agendamentos - editar agendamento", () => {
       "/sessions",
       expect.objectContaining({
         patient_id: 20,
-        starts_at: "2026-10-20T10:00",
+        starts_at: "2026-10-20T13:00:00.000Z",
+        ends_at: "2026-10-20T14:00:00.000Z",
         shared_package_id: 701,
         shared_package_source_session_id: 801,
         shared_package_review_token: "review-token-701",
@@ -3756,7 +3808,7 @@ describe("Agendamentos - editar agendamento", () => {
   });
 
   it("troca o paciente de uma sessao de pacote pelo mesmo comando e unidade", async () => {
-    sessionsMockData = [packageSession];
+    sessionsMockData = [absolutePackageSession];
     const originalGet = axios.get.getMockImplementation();
     axios.get.mockImplementation((url, config) => {
       if (url === "/package-sharing/owners/20/packages") {
@@ -3822,7 +3874,8 @@ describe("Agendamentos - editar agendamento", () => {
         patient_id: 21,
         professional_user_id: 31,
         service_id: 40,
-        starts_at: "2026-06-30T10:00",
+        starts_at: "2026-06-30T13:00:00.000Z",
+        ends_at: "2026-06-30T14:00:00.000Z",
         shared_package_id: 701,
         shared_package_source_session_id: 10,
         shared_package_review_token: "review-token-edit-701",
@@ -3839,7 +3892,7 @@ describe("Agendamentos - editar agendamento", () => {
   });
 
   it("mantem data e horario ao trocar somente quem sera atendido", async () => {
-    sessionsMockData = [packageSession];
+    sessionsMockData = [absolutePackageSession];
     const originalGet = axios.get.getMockImplementation();
     axios.get.mockImplementation((url, config) => {
       if (url === "/package-sharing/owners/20/packages") {
@@ -3862,6 +3915,10 @@ describe("Agendamentos - editar agendamento", () => {
 
     const { container } = renderAgendamentos();
     await openScheduledSessionEdit(container);
+    expect(container.querySelector('input[type="date"]')).toHaveValue("2026-06-29");
+    const displayedHour = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    expect(displayedHour).toHaveValue("07");
     expect(screen.queryByText("Pacote de Paciente Teste")).not.toBeInTheDocument();
     const patientSearch = await screen.findByRole("searchbox", { name: "Paciente" });
     fireEvent.change(patientSearch, { target: { value: "Paciente Cancelado" } });
@@ -3880,8 +3937,8 @@ describe("Agendamentos - editar agendamento", () => {
       expect.objectContaining({
         patient_id: 21,
         professional_user_id: 30,
-        starts_at: "2026-06-29T07:00",
-        ends_at: "2026-06-29T08:00",
+        starts_at: absolutePackageSession.starts_at,
+        ends_at: absolutePackageSession.ends_at,
         shared_package_id: 701,
         shared_package_source_session_id: 10,
         shared_package_preserve_source_unit: true,
@@ -3894,6 +3951,59 @@ describe("Agendamentos - editar agendamento", () => {
       "/sessions/10",
       expect.objectContaining({ patient_id: 21 }),
     );
+  });
+
+  it("preserva os instantes ao trocar paciente de sessao passada ainda aberta", async () => {
+    agendaTestNow = new NativeDate("2026-06-29T12:00:00.000Z");
+    sessionsMockData = [absolutePackageSession];
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners/20/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 20, name: "Paciente Teste" },
+          service: { id: 40, code: "spine_eval", name: "Avaliacao Coluna" },
+          contracted_at: "2026-06-01",
+          quantity: 3,
+          free_rights: 1,
+          relocatable_sessions: 0,
+          requires_scheduled_session: false,
+          eligible_scheduled_sessions: [],
+          source_session_eligible: true,
+          review_token: "review-token-edit-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    const patientSearch = await screen.findByRole("searchbox", { name: "Paciente" });
+    fireEvent.change(patientSearch, { target: { value: "Paciente Cancelado" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Paciente Cancelado/ }));
+    expect(screen.queryByLabelText("Tem justificativa")).not.toBeInTheDocument();
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/schedule/references/professionals",
+      { params: { patient_id: 21 } },
+    ));
+    await waitFor(() => expect(
+      container.querySelector('select[name="professional_user_id"]'),
+    ).toHaveValue("30"));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 21,
+        starts_at: absolutePackageSession.starts_at,
+        ends_at: absolutePackageSession.ends_at,
+        shared_package_id: 701,
+        shared_package_source_session_id: 10,
+        shared_package_preserve_source_unit: true,
+      }),
+    ));
+    expect(axios.post.mock.calls.find(([url]) => url === "/sessions")[1])
+      .not.toHaveProperty("rescheduled_from_id");
   });
 
   it.each([

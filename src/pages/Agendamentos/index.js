@@ -42,6 +42,17 @@ import {
   getPatientSearchText,
   normalizeSearchText,
 } from "../../utils/patientSearch";
+import {
+  formatAgendaDate,
+  formatAgendaDateInput,
+  formatAgendaDateTimeInput,
+  formatAgendaHourInput,
+  formatAgendaMinuteInput,
+  formatAgendaTime,
+  getAgendaIsoWeekday,
+  parseAgendaDateTime,
+  resolveAgendaFormInterval,
+} from "../../utils/agendaDateTime";
 import { alpha, colors } from "../../styles/tokens";
 import {
   PENDING_CENTER_ACTION_STATE_KEY,
@@ -430,13 +441,7 @@ const formatOccurrenceDate = (dateOnly, startsAt) => {
     }
   }
   if (!startsAt) return "";
-  const date = new Date(startsAt);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  return formatAgendaDate(startsAt);
 };
 
 const OCCURRENCE_WEEKDAY_LABELS = [
@@ -453,11 +458,12 @@ const formatOccurrenceCompactLabel = (occurrence) => {
   const dateLabel = formatOccurrenceDate(occurrence?.date, occurrence?.starts_at);
   const startTime = String(occurrence?.start_time || "").slice(0, 5);
   const hourLabel = startTime ? `${startTime.replace(":", "h")}` : "--h--";
-  const referenceDate = occurrence?.starts_at
-    ? new Date(occurrence.starts_at)
-    : new Date(`${occurrence?.date || ""}T00:00:00`);
-  const weekdayLabel = referenceDate && !Number.isNaN(referenceDate.getTime())
-    ? OCCURRENCE_WEEKDAY_LABELS[referenceDate.getDay()]
+  const isoWeekday = occurrence?.starts_at
+    ? getAgendaIsoWeekday(occurrence.starts_at)
+    : getAgendaIsoWeekday(occurrence?.date ? `${occurrence.date}T12:00` : null);
+  const weekdayIndex = isoWeekday === 7 ? 0 : isoWeekday;
+  const weekdayLabel = Number.isInteger(weekdayIndex)
+    ? OCCURRENCE_WEEKDAY_LABELS[weekdayIndex]
     : "";
   return [dateLabel, hourLabel, weekdayLabel].filter(Boolean).join(" · ");
 };
@@ -465,31 +471,28 @@ const formatOccurrenceCompactLabel = (occurrence) => {
 const getOccurrenceTimeValue = (occurrence) => {
   if (occurrence?.start_time) return String(occurrence.start_time).slice(0, 5);
   if (!occurrence?.starts_at) return "";
-  const date = new Date(occurrence.starts_at);
-  if (Number.isNaN(date.getTime())) return "";
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  return `${hour}:${minute}`;
+  return formatAgendaTime(occurrence.starts_at);
 };
 
-const getOccurrenceDurationMinutes = (occurrence) => {
+const getOccurrenceDurationMilliseconds = (occurrence) => {
   const startsAt = new Date(occurrence?.starts_at);
   const endsAt = new Date(occurrence?.ends_at);
   if (!Number.isNaN(startsAt.getTime()) && !Number.isNaN(endsAt.getTime())) {
-    const diff = Math.round((endsAt.getTime() - startsAt.getTime()) / 60000);
+    const diff = endsAt.getTime() - startsAt.getTime();
     if (diff > 0) return diff;
   }
-  return 60;
+  return 60 * 60000;
 };
+
+const getOccurrenceDurationMinutes = (occurrence) =>
+  Math.round(getOccurrenceDurationMilliseconds(occurrence) / 60000);
 
 const buildEditedOccurrenceTimes = (occurrence, dateValue, timeValue) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateValue || ""))) return null;
   if (!/^\d{2}:\d{2}$/.test(String(timeValue || ""))) return null;
-  const [year, month, day] = String(dateValue).split("-").map(Number);
-  const [hour, minute] = String(timeValue).split(":").map(Number);
-  const startsAt = new Date(year, month - 1, day, hour, minute, 0, 0);
-  if (Number.isNaN(startsAt.getTime())) return null;
-  const endsAt = new Date(startsAt.getTime() + getOccurrenceDurationMinutes(occurrence) * 60000);
+  const startsAt = parseAgendaDateTime(`${dateValue}T${timeValue}`);
+  if (!startsAt) return null;
+  const endsAt = new Date(startsAt.getTime() + getOccurrenceDurationMilliseconds(occurrence));
   return {
     starts_at: startsAt.toISOString(),
     ends_at: endsAt.toISOString(),
@@ -1158,21 +1161,11 @@ const resolveSchedulingErrorMessage = (error) => {
   return safeErrorMessage;
 };
 
-const toIsoWeekday = (date) => {
-  const day = date.getDay();
-  return day === 0 ? 7 : day;
-};
-
 const isWeekendDate = (value) => {
   if (!value) return false;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return false;
   return date.getDay() === 0 || date.getDay() === 6;
-};
-
-const toSelectableWeekday = (date, allowWeekendScheduling = false) => {
-  const weekday = toIsoWeekday(date);
-  return weekday >= 1 && weekday <= (allowWeekendScheduling ? 7 : 5) ? weekday : null;
 };
 
 const formatDateTime = (value) => {
@@ -1353,8 +1346,8 @@ const formatTime = (value) => {
 };
 
 const formatPackageSession = (value) => {
-  const day = formatDate(value);
-  const time = formatTime(value);
+  const day = formatAgendaDate(value);
+  const time = formatAgendaTime(value);
   if (!day || !time) return "Sem data";
   return `${day} às ${time.replace(":00", "h")}`;
 };
@@ -1411,20 +1404,6 @@ const toInputValue = (value) => {
   if (Number.isNaN(date.getTime())) return "";
   const offset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-};
-
-const getHourInputValue = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return String(date.getHours()).padStart(2, "0");
-};
-
-const getMinuteInputValue = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return String(date.getMinutes()).padStart(2, "0");
 };
 
 const buildDateTimeInputValue = (dateValue, hourValue, minuteValue = "00") => {
@@ -2545,8 +2524,8 @@ export default function Agendamentos() {
 
   const formLocalSpecialSummary = useMemo(() => {
     if (!form.starts_at) return null;
-    const date = new Date(form.starts_at);
-    if (Number.isNaN(date.getTime())) return null;
+    const date = parseDateInputValue(formatAgendaDateInput(form.starts_at));
+    if (!date) return null;
     const key = startOfDay(date).toISOString();
     return specialEventsByDay.get(key) || null;
   }, [form.starts_at, specialEventsByDay]);
@@ -2892,42 +2871,72 @@ export default function Agendamentos() {
       setForm((prev) => ({ ...prev, starts_at: "", ends_at: "" }));
       return;
     }
-    const startDate = new Date(nextStartsAt);
-    if (Number.isNaN(startDate.getTime())) {
+    const startDate = parseAgendaDateTime(nextStartsAt);
+    if (!startDate) {
       setForm((prev) => ({ ...prev, starts_at: nextStartsAt, ends_at: "" }));
       return;
     }
-    const nextEndsAt = new Date(startDate);
-    nextEndsAt.setHours(nextEndsAt.getHours() + 1);
+    const sourceSession = editingId
+      ? filteredSessions.find((session) => String(session.id) === String(editingId))
+      : null;
+    const originalStart = parseAgendaDateTime(sourceSession?.starts_at);
+    const originalEnd = parseAgendaDateTime(sourceSession?.ends_at);
+    const currentStart = parseAgendaDateTime(form.starts_at);
+    const currentEnd = parseAgendaDateTime(form.ends_at);
+    const originalDuration = originalStart && originalEnd
+      ? originalEnd.getTime() - originalStart.getTime()
+      : NaN;
+    const currentDuration = currentStart && currentEnd
+      ? currentEnd.getTime() - currentStart.getTime()
+      : NaN;
+    let durationMilliseconds = 60 * 60000;
+    if (originalDuration > 0) {
+      durationMilliseconds = originalDuration;
+    } else if (currentDuration > 0) {
+      durationMilliseconds = currentDuration;
+    }
+    const nextEndsAt = new Date(startDate.getTime() + durationMilliseconds);
     setForm((prev) => ({
       ...prev,
       starts_at: nextStartsAt,
-      ends_at: toInputValue(nextEndsAt),
+      ends_at: formatAgendaDateTimeInput(nextEndsAt),
     }));
     if (repeatEnabled && repeatWeekdays.length === 0) {
-      const weekday = toSelectableWeekday(startDate, allowWeekendScheduling);
-      if (weekday) setRepeatWeekdays([weekday]);
+      const weekday = getAgendaIsoWeekday(startDate);
+      const selectableWeekday = weekday >= 1 && weekday <= (allowWeekendScheduling ? 7 : 5)
+        ? weekday
+        : null;
+      if (selectableWeekday) setRepeatWeekdays([selectableWeekday]);
     }
-  }, [allowBrokenTimeScheduling, allowWeekendScheduling, repeatEnabled, repeatWeekdays.length]);
+  }, [
+    allowBrokenTimeScheduling,
+    allowWeekendScheduling,
+    editingId,
+    filteredSessions,
+    form.ends_at,
+    form.starts_at,
+    repeatEnabled,
+    repeatWeekdays.length,
+  ]);
 
   const handleStartDateChange = useCallback((event) => {
     const dateValue = event.target.value;
-    const hourValue = getHourInputValue(form.starts_at) || String(START_HOUR).padStart(2, "0");
-    const minuteValue = allowBrokenTimeScheduling ? getMinuteInputValue(form.starts_at) || "00" : "00";
+    const hourValue = formatAgendaHourInput(form.starts_at) || String(START_HOUR).padStart(2, "0");
+    const minuteValue = allowBrokenTimeScheduling ? formatAgendaMinuteInput(form.starts_at) || "00" : "00";
     updateStartDateTime(dateValue, hourValue, minuteValue);
   }, [allowBrokenTimeScheduling, form.starts_at, updateStartDateTime]);
 
   const handleStartHourChange = useCallback((event) => {
     const hourValue = event.target.value;
-    const dateValue = toDateInputValue(form.starts_at) || toDateInputValue(selectedDate);
-    const minuteValue = allowBrokenTimeScheduling ? getMinuteInputValue(form.starts_at) || "00" : "00";
+    const dateValue = formatAgendaDateInput(form.starts_at) || toDateInputValue(selectedDate);
+    const minuteValue = allowBrokenTimeScheduling ? formatAgendaMinuteInput(form.starts_at) || "00" : "00";
     updateStartDateTime(dateValue, hourValue, minuteValue);
   }, [allowBrokenTimeScheduling, form.starts_at, selectedDate, updateStartDateTime]);
 
   const handleStartMinuteChange = useCallback((event) => {
     const minuteValue = event.target.value;
-    const dateValue = toDateInputValue(form.starts_at) || toDateInputValue(selectedDate);
-    const hourValue = getHourInputValue(form.starts_at) || String(START_HOUR).padStart(2, "0");
+    const dateValue = formatAgendaDateInput(form.starts_at) || toDateInputValue(selectedDate);
+    const hourValue = formatAgendaHourInput(form.starts_at) || String(START_HOUR).padStart(2, "0");
     updateStartDateTime(dateValue, hourValue, minuteValue);
   }, [form.starts_at, selectedDate, updateStartDateTime]);
 
@@ -2942,8 +2951,16 @@ export default function Agendamentos() {
       return undefined;
     }
 
-    const startsAtDate = new Date(form.starts_at);
-    if (Number.isNaN(startsAtDate.getTime())) {
+    const sourceSession = editingId
+      ? filteredSessions.find((session) => String(session.id) === String(editingId))
+      : null;
+    const interval = resolveAgendaFormInterval({
+      startInput: form.starts_at,
+      endInput: form.ends_at,
+      originalStart: sourceSession?.starts_at || null,
+      originalEnd: sourceSession?.ends_at || null,
+    });
+    if (!interval.valid) {
       setFormAvailability(null);
       return undefined;
     }
@@ -2952,8 +2969,8 @@ export default function Agendamentos() {
     const timerId = window.setTimeout(async () => {
       try {
         const response = await checkSchedulingAvailability({
-          starts_at: form.starts_at,
-          ends_at: form.ends_at || null,
+          starts_at: interval.starts_at,
+          ends_at: interval.ends_at,
           professional_user_id: form.professional_user_id
             ? Number(form.professional_user_id)
             : null,
@@ -2984,11 +3001,13 @@ export default function Agendamentos() {
     };
   }, [
     drawerMode,
+    editingId,
     form.ends_at,
     form.professional_user_id,
     form.service_id,
     form.service_type,
     form.starts_at,
+    filteredSessions,
     isDrawerOpen,
   ]);
 
@@ -3049,7 +3068,7 @@ export default function Agendamentos() {
       starts_at: startsAt.toISOString(),
       ends_at: endsAt.toISOString(),
       start_time: getOccurrenceTimeValue({ starts_at: startsAt.toISOString() }),
-      date: formatDateParam(startsAt),
+      date: formatAgendaDateInput(startsAt),
       status,
       can_override_block: status === "BLOCK"
         && validation?.blocking_code !== "PATIENT_SCHEDULE_CONFLICT"
@@ -3287,7 +3306,9 @@ export default function Agendamentos() {
       return {
         ...previous,
         editing_index: occurrence.index,
-        edit_date: toDateInputValue(occurrence.starts_at || occurrence.date),
+        edit_date: occurrence.starts_at
+          ? formatAgendaDateInput(occurrence.starts_at)
+          : occurrence.date,
         edit_time: getOccurrenceTimeValue(occurrence),
         edit_error: "",
       };
@@ -3498,11 +3519,11 @@ export default function Agendamentos() {
   const handleAddMoreSessions = useCallback(() => {
     setRepeatEnabled(true);
     if (repeatWeekdays.length === 0 && form.starts_at) {
-      const start = new Date(form.starts_at);
-      if (!Number.isNaN(start.getTime())) {
-        const weekday = toSelectableWeekday(start, allowWeekendScheduling);
-        if (weekday) setRepeatWeekdays([weekday]);
-      }
+      const weekday = getAgendaIsoWeekday(form.starts_at);
+      const selectableWeekday = weekday >= 1 && weekday <= (allowWeekendScheduling ? 7 : 5)
+        ? weekday
+        : null;
+      if (selectableWeekday) setRepeatWeekdays([selectableWeekday]);
     }
   }, [allowWeekendScheduling, form.starts_at, repeatWeekdays.length]);
 
@@ -4155,8 +4176,8 @@ export default function Agendamentos() {
         service_id: serviceIdValue,
         status: session.status || "scheduled",
         is_initial: !!session.is_initial,
-        starts_at: toInputValue(session.starts_at),
-        ends_at: toInputValue(session.ends_at),
+        starts_at: formatAgendaDateTimeInput(session.starts_at),
+        ends_at: formatAgendaDateTimeInput(session.ends_at),
         notes: "",
         absence_reason: session.absence_reason || "",
         late_policy_exception_justified: false,
@@ -5257,60 +5278,55 @@ export default function Agendamentos() {
         toast.error("Informe um valor por sessão válido.");
         return;
       }
-	      const startsAtDate = new Date(form.starts_at);
-      if (Number.isNaN(startsAtDate.getTime())) {
-        toast.error("Data de início inválida.");
+      const editingOriginalSession = editingId
+        ? filteredSessions.find((session) => String(session.id) === String(editingId))
+        : null;
+      const resolvedFormInterval = resolveAgendaFormInterval({
+        startInput: form.starts_at,
+        endInput: form.ends_at,
+        originalStart: editingOriginalSession?.starts_at || null,
+        originalEnd: editingOriginalSession?.ends_at || null,
+      });
+      if (!resolvedFormInterval.valid) {
+        toast.error(resolvedFormInterval.startDate
+          ? "Data de término inválida."
+          : "Data de início inválida.");
         return;
       }
-      if (!allowWeekendScheduling && isWeekendDate(startsAtDate)) {
+      const startsAtDate = resolvedFormInterval.startDate;
+      const endsAtDate = resolvedFormInterval.endDate;
+      const agendaWeekday = getAgendaIsoWeekday(startsAtDate);
+      if (!allowWeekendScheduling && (agendaWeekday === 6 || agendaWeekday === 7)) {
         toast.error("Agendamentos aos sábados e domingos estão desativados nas regras operacionais da clínica.");
         return;
       }
 
       if (
         !allowBrokenTimeScheduling
-        && (startsAtDate.getMinutes() !== 0 || startsAtDate.getSeconds() !== 0 || startsAtDate.getMilliseconds() !== 0)
+        && formatAgendaMinuteInput(startsAtDate) !== "00"
       ) {
         toast.error("Esta clínica permite agendamentos apenas em horários cheios.");
         return;
       }
 
-	      const editingOriginalSession = editingId
-	        ? filteredSessions.find((session) => String(session.id) === String(editingId))
-	        : null;
-	      const selectedPackageUpdateScope =
-	        form.package_update_scope === "series" ? "series" : "single";
-	      const originalStart = editingOriginalSession?.starts_at
-	        ? new Date(editingOriginalSession.starts_at).getTime()
-	        : NaN;
-	      const nextStart = form.starts_at ? new Date(form.starts_at).getTime() : NaN;
-	      const originalEnd = editingOriginalSession?.ends_at
-	        ? new Date(editingOriginalSession.ends_at).getTime()
-	        : null;
-	      const nextEnd = form.ends_at ? new Date(form.ends_at).getTime() : null;
-	      const editingScheduleWasChanged =
-	        !!editingOriginalSession
-	        && (
-	          (
-	            Number.isFinite(originalStart)
-	            && Number.isFinite(nextStart)
-	            && originalStart !== nextStart
-	          )
-	          || originalEnd !== nextEnd
-	        );
-	      const packageScopeProfessionalChanged =
-	        !!editingOriginalSession
-	        && String(editingOriginalSession.professional_user_id || "") !== String(form.professional_user_id || "");
-	      const packageScopeTimeChanged =
-	        editingScheduleWasChanged;
-	      const packageScopeApplies =
-	        !!editingOriginalSession
-	        && isPackageSeriesSession(editingOriginalSession)
-	        && editingIntent === "edit";
-	      const packageScopeDateWasChanged =
-	        packageScopeApplies
-	        && editingScheduleWasChanged
-	        && toDateInputValue(editingOriginalSession?.starts_at) !== toDateInputValue(form.starts_at);
+      const selectedPackageUpdateScope =
+        form.package_update_scope === "series" ? "series" : "single";
+      const editingScheduleWasChanged =
+        !!editingOriginalSession
+        && resolvedFormInterval.changed;
+      const packageScopeProfessionalChanged =
+        !!editingOriginalSession
+        && String(editingOriginalSession.professional_user_id || "") !== String(form.professional_user_id || "");
+      const packageScopeTimeChanged = editingScheduleWasChanged;
+      const packageScopeApplies =
+        !!editingOriginalSession
+        && isPackageSeriesSession(editingOriginalSession)
+        && editingIntent === "edit";
+      const packageScopeDateWasChanged =
+        packageScopeApplies
+        && editingScheduleWasChanged
+        && formatAgendaDateInput(editingOriginalSession?.starts_at)
+          !== formatAgendaDateInput(form.starts_at);
       const shouldUsePackageScopeUpdate =
         packageScopeApplies
         && selectedPackageUpdateScope === "series"
@@ -5321,20 +5337,15 @@ export default function Agendamentos() {
         return;
       }
 
-	      if (showReplacementCycleWarning && !form.cycle_reschedule_exception_justified) {
-	        toast.error("Confirme o agendamento da reposição fora do ciclo do plano mensal.");
-	        return;
-	      }
-
-	      const isRecurring = repeatEnabled
-	        && !editingId
-	        && !isSchedulingReplacement
-	        && !isPackageShareFlow;
-      const endsAtDate = form.ends_at ? new Date(form.ends_at) : null;
-      if (form.ends_at && (!endsAtDate || Number.isNaN(endsAtDate.getTime()))) {
-        toast.error("Data de término inválida.");
+      if (showReplacementCycleWarning && !form.cycle_reschedule_exception_justified) {
+        toast.error("Confirme o agendamento da reposição fora do ciclo do plano mensal.");
         return;
       }
+
+      const isRecurring = repeatEnabled
+        && !editingId
+        && !isSchedulingReplacement
+        && !isPackageShareFlow;
       if (endsAtDate && endsAtDate <= startsAtDate) {
         toast.error("O horário final deve ser posterior ao início.");
         return;
@@ -5414,8 +5425,8 @@ export default function Agendamentos() {
         ...(!usesMembershipSessionContract
           ? { is_initial: editingId ? !!form.is_initial : false }
           : {}),
-        starts_at: form.starts_at,
-        ends_at: form.ends_at || null,
+        starts_at: resolvedFormInterval.starts_at,
+        ends_at: resolvedFormInterval.ends_at,
         notes: editReason,
         absence_reason: normalizeText(form.absence_reason),
         late_policy_exception_justified: !!form.late_policy_exception_justified,
@@ -5455,16 +5466,16 @@ export default function Agendamentos() {
       if (isRecurring) {
         let untilDate = null;
         const recurrenceStartsAt = new Date(startsAtDate);
+        const recurrenceStartDate = formatAgendaDateInput(startsAtDate);
         const repeatInterval = repeatCadence === "alternate" ? 2 : 1;
         if (repeatMode === "weeks") {
           const weeks = Math.max(1, Number(repeatWeeks) || 1);
-          const endDate = new Date(startsAtDate);
-          endDate.setHours(0, 0, 0, 0);
+          const endDate = parseDateInputValue(recurrenceStartDate);
           endDate.setDate(endDate.getDate() + weeks * 7 - 1);
           untilDate = formatDateParam(endDate);
         }
         if (repeatMode === "month") {
-          const monthlyValidity = buildMonthlyValidityRange(startsAtDate, repeatMonths);
+          const monthlyValidity = buildMonthlyValidityRange(recurrenceStartDate, repeatMonths);
           if (!monthlyValidity.end) {
             releaseSubmitState();
             toast.error("Não foi possível calcular a vigência mensal.");
@@ -5475,7 +5486,7 @@ export default function Agendamentos() {
         }
         const weekdays = repeatWeekdays.length
           ? repeatWeekdays
-          : [toIsoWeekday(recurrenceStartsAt)];
+          : [getAgendaIsoWeekday(recurrenceStartsAt)];
 
         const seriesPayload = {
           patient_id: payload.patient_id,
@@ -6279,16 +6290,20 @@ export default function Agendamentos() {
 
 	  const packageScopeDateChanged = useMemo(() => {
 	    if (!showPackageUpdateScope) return false;
-	    return toDateInputValue(editingSession?.starts_at) !== toDateInputValue(form.starts_at);
+	    return formatAgendaDateInput(editingSession?.starts_at)
+	      !== formatAgendaDateInput(form.starts_at);
 	  }, [editingSession, form.starts_at, showPackageUpdateScope]);
 
   const editingScheduleChanged = useMemo(() => {
     if (!editingSession?.starts_at || !form.starts_at) return false;
-    const originalStart = new Date(editingSession.starts_at).getTime();
-    const nextStart = new Date(form.starts_at).getTime();
-    if (!Number.isFinite(originalStart) || !Number.isFinite(nextStart)) return false;
-    return originalStart !== nextStart;
-  }, [editingSession, form.starts_at]);
+    const interval = resolveAgendaFormInterval({
+      startInput: form.starts_at,
+      endInput: form.ends_at,
+      originalStart: editingSession.starts_at,
+      originalEnd: editingSession.ends_at || null,
+    });
+    return interval.valid && interval.changed;
+  }, [editingSession, form.ends_at, form.starts_at]);
 
 	  const isEditingScheduledReschedule =
 	    !!editingSession
@@ -7541,7 +7556,7 @@ export default function Agendamentos() {
 		                        Data *
 		                        <input
 		                          type="date"
-		                          value={toDateInputValue(form.starts_at)}
+		                          value={formatAgendaDateInput(form.starts_at)}
 		                          onChange={handleStartDateChange}
 		                        />
 		                      </Field>
@@ -7549,7 +7564,7 @@ export default function Agendamentos() {
 		                        Horário *
 			                        <TimeInputGrid>
 			                          <select
-			                            value={getHourInputValue(form.starts_at)}
+		                            value={formatAgendaHourInput(form.starts_at)}
 			                            onChange={handleStartHourChange}
 			                          >
 			                            <option value="" disabled>Selecione</option>
@@ -7561,7 +7576,7 @@ export default function Agendamentos() {
 			                          </select>
 			                          {allowBrokenTimeScheduling && (
 			                            <select
-			                              value={getMinuteInputValue(form.starts_at) || "00"}
+		                              value={formatAgendaMinuteInput(form.starts_at) || "00"}
 			                              onChange={handleStartMinuteChange}
 			                            >
 			                              {APPOINTMENT_MINUTE_OPTIONS.map((option) => (
@@ -7682,7 +7697,7 @@ export default function Agendamentos() {
                         Data *
                         <input
                           type="date"
-                          value={toDateInputValue(form.starts_at)}
+	                          value={formatAgendaDateInput(form.starts_at)}
                           onChange={handleStartDateChange}
                         />
                       </Field>
@@ -7690,7 +7705,7 @@ export default function Agendamentos() {
                         Horário *
 	                        <TimeInputGrid>
 	                          <select
-	                            value={getHourInputValue(form.starts_at)}
+	                            value={formatAgendaHourInput(form.starts_at)}
 	                            onChange={handleStartHourChange}
 	                          >
 	                            <option value="" disabled>Selecione</option>
@@ -7702,7 +7717,7 @@ export default function Agendamentos() {
 	                          </select>
 	                          {allowBrokenTimeScheduling && (
 	                            <select
-	                              value={getMinuteInputValue(form.starts_at) || "00"}
+	                              value={formatAgendaMinuteInput(form.starts_at) || "00"}
 	                              onChange={handleStartMinuteChange}
 	                            >
 	                              {APPOINTMENT_MINUTE_OPTIONS.map((option) => (

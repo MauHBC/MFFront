@@ -1022,7 +1022,11 @@ leitura. A data original já ter passado não torna somente por isso uma sessão
 aberta inelegível; o Backend decide pelos estados e efeitos consolidados. O
 serviço continua fixo. Troca exclusiva do paciente preserva horário e não é
 remarcação; mudança simultânea de início ou fim continua sujeita à antecedência
-vigente. Detalhes do horário, visão Dia, Editar e a sessão avulsa do destinatário
+vigente. O editor apresenta e interpreta seus campos civis no fuso canônico da
+Agenda (`America/Sao_Paulo`): sem mudança temporal, início e fim originais são
+reenviados literalmente; uma alteração explícita é serializada como o instante
+equivalente nesse fuso, independentemente do fuso do navegador ou do CI.
+Detalhes do horário, visão Dia, Editar e a sessão avulsa do destinatário
 no Histórico exibem o `PackagePill` lilás **Pacote de {titular}** somente quando
 o paciente atendido difere do titular; a comparação usa IDs e acompanha a
 seleção no formulário. Em `PatientDetails`, `/patients/:id/package-history`
