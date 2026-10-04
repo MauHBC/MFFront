@@ -535,7 +535,369 @@ const OCCURRENCE_STATUS_LABELS = {
   INFO: "Info",
   WARN_CONFIRM: "Alerta",
   BLOCK: "Bloqueado",
+  CHECKING: "Verificando disponibilidade...",
+  PENDING: "Escolha a sessão do pacote",
+  ERROR: "Não foi possível verificar",
 };
+const LEGACY_OPERATIONAL_AVAILABILITY_SCOPE = "operational_events_only";
+
+const PATIENT_SCHEDULE_CONFLICT_MESSAGE = "Paciente já agendado nesse horário";
+const PACKAGE_SHARE_PERMISSION_ERROR_MESSAGE =
+  "Você não tem permissão para compartilhar pacotes.";
+const SINGLE_AVAILABILITY_ERROR_MESSAGE =
+  "Não foi possível verificar a disponibilidade. Tente novamente.";
+const PACKAGE_SHARE_REVIEW_ERROR_CODES = new Set([
+  "SCHEDULING_PREVIEW_SELECTION_INVALID",
+  "PACKAGE_SHARE_SELECTION_INVALID",
+  "PACKAGE_SHARE_UNAVAILABLE",
+  "PACKAGE_SHARE_SERVICE_MISMATCH",
+  "PACKAGE_SHARE_REVIEW_CHANGED",
+  "PACKAGE_SHARE_SOURCE_REQUIRED",
+  "PACKAGE_SHARE_SOURCE_CHANGED",
+  "PACKAGE_SHARE_SOURCE_PROTECTED",
+  "PACKAGE_SHARE_SOURCE_UNEXPECTED",
+]);
+
+const hasCompletePatientAvailabilityValidation = (validation) => (
+  validation
+  && typeof validation === "object"
+  && validation.complete === true
+  && validation.patient_conflict_checked === true
+  && typeof validation.can_confirm === "boolean"
+  && (validation.blocking_code === null || typeof validation.blocking_code === "string")
+  && (validation.blocking_reason === null || typeof validation.blocking_reason === "string")
+);
+
+const COMPLETE_AVAILABILITY_SEVERITIES = new Set(["info", "warn", "block"]);
+const COMPLETE_AVAILABILITY_BLOCKING_CODES = new Set([
+  null,
+  "PATIENT_SCHEDULE_CONFLICT",
+  "SCHEDULING_BLOCKED",
+]);
+const hasOwnProperty = (value, property) => (
+  !!value && Object.prototype.hasOwnProperty.call(value, property)
+);
+const isNullableString = (value) => value === null || typeof value === "string";
+
+const hasCompleteOperationalAvailability = (value) => (
+  value
+  && typeof value === "object"
+  && typeof value.allowed === "boolean"
+  && COMPLETE_AVAILABILITY_SEVERITIES.has(value.severity)
+  && Array.isArray(value.matched_events)
+  && typeof value.requires_confirmation === "boolean"
+  && typeof value.has_blocking_events === "boolean"
+  && typeof value.has_warning_events === "boolean"
+  && hasOwnProperty(value, "blocking_reason")
+  && isNullableString(value.blocking_reason)
+  && value.policy
+  && typeof value.policy === "object"
+  && typeof value.policy.allow_admin_override_block === "boolean"
+  && value.allowed === !value.has_blocking_events
+  && (!value.has_blocking_events || value.severity === "block")
+  && (value.has_blocking_events || !value.has_warning_events || value.severity === "warn")
+  && (value.has_blocking_events || value.has_warning_events || value.severity === "info")
+);
+
+const hasLegacySingleSchedulingAvailabilityContract = (value) => (
+  value
+  && typeof value === "object"
+  && typeof value.has_blocking_events === "boolean"
+  && typeof value.requires_confirmation === "boolean"
+  && typeof value.can_override_block === "boolean"
+  && Array.isArray(value.matched_events)
+);
+
+const validateSingleSchedulingAvailability = (value, { requireCompleteValidation }) => {
+  const validation = value?.validation;
+  const blockingCode = value?.blocking_code;
+  const blockingReason = value?.blocking_reason;
+  const validationBlockingCode = validation?.blocking_code;
+  const validationBlockingReason = validation?.blocking_reason;
+  const hasPatientConflict = blockingCode === "PATIENT_SCHEDULE_CONFLICT";
+  const hasSchedulingBlock = blockingCode === "SCHEDULING_BLOCKED";
+  const hasNoBlock = blockingCode === null;
+  const hasConsistentCompleteValidation = !requireCompleteValidation || (
+    hasCompleteOperationalAvailability(value)
+    && hasOwnProperty(value, "blocking_code")
+    && hasCompletePatientAvailabilityValidation(validation)
+    && blockingCode === validationBlockingCode
+    && blockingReason === validationBlockingReason
+    && COMPLETE_AVAILABILITY_BLOCKING_CODES.has(blockingCode)
+    && (!value.can_override_block || value.policy.allow_admin_override_block)
+    && (hasPatientConflict || value.requires_confirmation === value.has_warning_events)
+    && (
+      !hasPatientConflict
+      || (
+      validation.can_confirm === false
+	      && value.has_blocking_events === true
+	      && value.allowed === false
+	      && value.severity === "block"
+	      && value.requires_confirmation === false
+	      && value.can_override_block === false
+	      && typeof blockingReason === "string"
+	      && blockingReason.length > 0
+	    )
+    )
+    && (
+      !hasSchedulingBlock
+      || (
+	        value.has_blocking_events === true
+	        && value.allowed === false
+	        && value.severity === "block"
+	        && validation.can_confirm === value.can_override_block
+	        && typeof blockingReason === "string"
+	        && blockingReason.length > 0
+      )
+    )
+    && (
+      !hasNoBlock
+      || (
+        validation.can_confirm === true
+	        && value.has_blocking_events === false
+	        && value.allowed === true
+	        && value.can_override_block === false
+	        && blockingReason === null
+      )
+    )
+  );
+  const hasCompleteContract = hasLegacySingleSchedulingAvailabilityContract(value)
+    && hasConsistentCompleteValidation;
+
+  if (!hasCompleteContract) {
+    throw new Error("SCHEDULING_AVAILABILITY_RESPONSE_INVALID");
+  }
+  return value;
+};
+
+const validateRecurringSchedulingAvailability = (value, { requireCompleteValidation }) => {
+  const hasValidRange = (occurrence) => {
+    const startsAt = new Date(occurrence?.starts_at).getTime();
+    const endsAt = new Date(occurrence?.ends_at).getTime();
+    return Number.isFinite(startsAt) && Number.isFinite(endsAt) && endsAt > startsAt;
+  };
+  const firstBlockingValidation = Array.isArray(value?.occurrences_preview)
+    ? value.occurrences_preview
+      .map((occurrence) => occurrence?.validation)
+      .find((validation) => validation?.complete === true && validation.can_confirm === false)
+    : null;
+  const hasConsistentAggregateValidation = !requireCompleteValidation || (
+    value?.validation?.can_confirm === !firstBlockingValidation
+    && value?.validation?.blocking_code === (firstBlockingValidation?.blocking_code || null)
+    && value?.validation?.blocking_reason === (firstBlockingValidation?.blocking_reason || null)
+  );
+  const occurrences = Array.isArray(value?.occurrences_preview)
+    ? value.occurrences_preview
+    : [];
+  const countByStatus = (status) => occurrences.filter(
+    (occurrence) => occurrence?.status === status,
+  ).length;
+  const overrideableBlockedCount = occurrences.filter(
+    (occurrence) => occurrence?.status === "BLOCK" && occurrence.can_override_block === true,
+  ).length;
+  const availableCount = countByStatus("AVAILABLE");
+  const infoCount = countByStatus("INFO");
+  const warningCount = countByStatus("WARN_CONFIRM");
+  const blockedCount = countByStatus("BLOCK");
+  const hasConsistentSummary = !requireCompleteValidation || (
+    Number.isSafeInteger(value?.summary?.total)
+    && value.summary.total === occurrences.length
+    && Number.isSafeInteger(value?.summary?.available)
+    && value.summary.available === availableCount
+    && Number.isSafeInteger(value?.summary?.info)
+    && value.summary.info === infoCount
+    && Number.isSafeInteger(value?.summary?.warn)
+    && value.summary.warn === warningCount
+    && Number.isSafeInteger(value?.summary?.blocked)
+    && value.summary.blocked === blockedCount
+    && Number.isSafeInteger(value?.summary?.overrideable_blocked)
+    && value.summary.overrideable_blocked === overrideableBlockedCount
+    && Number.isSafeInteger(value?.summary?.creatable)
+    && value.summary.creatable === availableCount + infoCount
+    && Number.isSafeInteger(value?.summary?.creatable_with_warning_confirmation)
+    && value.summary.creatable_with_warning_confirmation
+      === availableCount + infoCount + warningCount
+    && Number.isSafeInteger(value?.summary?.creatable_with_override)
+    && value.summary.creatable_with_override
+      === availableCount + infoCount + warningCount + overrideableBlockedCount
+  );
+  const hasCompleteContract = value
+    && typeof value === "object"
+    && Array.isArray(value.occurrences_preview)
+    && (!requireCompleteValidation || value.occurrences_preview.length > 0)
+    && value.summary
+    && typeof value.summary === "object"
+    && (!requireCompleteValidation || hasCompletePatientAvailabilityValidation(value.validation))
+    && hasConsistentAggregateValidation
+    && hasConsistentSummary
+    && value.occurrences_preview.every((occurrence, occurrencePosition) => {
+      const availability = occurrence?.availability;
+      const blockingCode = occurrence?.blocking_code;
+      const blockingReason = occurrence?.blocking_reason;
+      const validation = occurrence?.validation;
+	      let expectedStatus = "AVAILABLE";
+	      if (availability?.matched_events?.length > 0) expectedStatus = "INFO";
+	      if (availability?.requires_confirmation) expectedStatus = "WARN_CONFIRM";
+	      if (availability?.has_blocking_events) expectedStatus = "BLOCK";
+      const hasPatientConflict = blockingCode === "PATIENT_SCHEDULE_CONFLICT";
+      const hasSchedulingBlock = blockingCode === "SCHEDULING_BLOCKED";
+      const hasNoBlock = blockingCode === null;
+      const hasCompleteOccurrence = !requireCompleteValidation || (
+        Number.isSafeInteger(occurrence.index)
+        && occurrence.index === occurrencePosition + 1
+        && typeof occurrence.date === "string"
+        && /^\d{4}-\d{2}-\d{2}$/.test(occurrence.date)
+        && typeof occurrence.start_time === "string"
+        && /^\d{2}:\d{2}$/.test(occurrence.start_time)
+        && typeof occurrence.end_time === "string"
+        && /^\d{2}:\d{2}$/.test(occurrence.end_time)
+        && typeof occurrence.requires_confirmation === "boolean"
+        && typeof occurrence.can_create === "boolean"
+        && hasOwnProperty(occurrence, "blocking_reason")
+        && isNullableString(blockingReason)
+        && hasOwnProperty(occurrence, "blocking_code")
+        && hasCompleteOperationalAvailability(availability)
+        && hasCompletePatientAvailabilityValidation(validation)
+        && occurrence.status === expectedStatus
+        && occurrence.requires_confirmation === availability.requires_confirmation
+        && occurrence.can_create === !availability.has_blocking_events
+        && blockingReason === availability.blocking_reason
+        && JSON.stringify(occurrence.matched_events)
+          === JSON.stringify(availability.matched_events)
+        && blockingCode === validation.blocking_code
+        && blockingReason === validation.blocking_reason
+        && COMPLETE_AVAILABILITY_BLOCKING_CODES.has(blockingCode)
+        && (!occurrence.can_override_block
+          || availability.policy.allow_admin_override_block)
+        && (hasPatientConflict
+          || availability.requires_confirmation === availability.has_warning_events)
+        && (
+          !hasPatientConflict
+          || (
+            validation.can_confirm === false
+            && occurrence.status === "BLOCK"
+            && occurrence.can_override_block === false
+            && occurrence.can_create === false
+            && availability.allowed === false
+            && availability.severity === "block"
+            && availability.requires_confirmation === false
+            && typeof blockingReason === "string"
+            && blockingReason.length > 0
+          )
+        )
+        && (
+          !hasSchedulingBlock
+          || (
+            occurrence.status === "BLOCK"
+            && occurrence.can_create === false
+            && validation.can_confirm === occurrence.can_override_block
+            && typeof blockingReason === "string"
+            && blockingReason.length > 0
+          )
+        )
+        && (
+          !hasNoBlock
+          || (
+            validation.can_confirm === true
+            && occurrence.can_override_block === false
+            && availability.has_blocking_events === false
+            && blockingReason === null
+          )
+        )
+      );
+      return (
+      occurrence
+      && typeof occurrence === "object"
+	    && (requireCompleteValidation
+	      ? Number.isSafeInteger(occurrence.index) && occurrence.index > 0
+	      : Number.isSafeInteger(Number(occurrence.index)) && Number(occurrence.index) > 0)
+      && hasValidRange(occurrence)
+      && ["AVAILABLE", "INFO", "WARN_CONFIRM", "BLOCK"].includes(occurrence.status)
+      && Array.isArray(occurrence.matched_events)
+      && typeof occurrence.can_override_block === "boolean"
+	    && hasCompleteOccurrence
+      );
+    });
+
+  if (!hasCompleteContract) {
+    throw new Error("SCHEDULING_OCCURRENCES_PREVIEW_RESPONSE_INVALID");
+  }
+  return value;
+};
+
+const isReviewOccurrenceSelectable = (occurrence) => (
+  occurrence?.status === "AVAILABLE"
+  || occurrence?.status === "INFO"
+  || occurrence?.status === "WARN_CONFIRM"
+  || (occurrence?.status === "BLOCK" && occurrence?.can_override_block)
+);
+
+const shouldAutoSelectReviewOccurrence = (occurrence) => (
+  isReviewOccurrenceSelectable(occurrence)
+  && !(occurrence?.status === "BLOCK" && occurrence?.can_override_block)
+);
+
+const reviewOccurrenceStatusLabel = (occurrence) => {
+  const blockingCode = occurrence?.blocking_code || occurrence?.validation?.blocking_code;
+  if (blockingCode === "PATIENT_SCHEDULE_CONFLICT") {
+    return occurrence?.blocking_reason
+      || occurrence?.validation?.blocking_reason
+      || PATIENT_SCHEDULE_CONFLICT_MESSAGE;
+  }
+  if (occurrence?.status === "ERROR") {
+    return occurrence.availability_error || SINGLE_AVAILABILITY_ERROR_MESSAGE;
+  }
+  if (occurrence?.availability_message) return occurrence.availability_message;
+  if (
+    occurrence?.status === "AVAILABLE"
+    && occurrence?.availability_scope === LEGACY_OPERATIONAL_AVAILABILITY_SCOPE
+  ) {
+    return "Sem bloqueio operacional";
+  }
+  return OCCURRENCE_STATUS_LABELS[occurrence?.status] || occurrence?.status;
+};
+
+const buildSingleOccurrenceSummary = (occurrence) => ({
+  total: 1,
+  available: occurrence?.status === "AVAILABLE" ? 1 : 0,
+  info: occurrence?.status === "INFO" ? 1 : 0,
+  warn: occurrence?.status === "WARN_CONFIRM" ? 1 : 0,
+  blocked: occurrence?.status === "BLOCK" ? 1 : 0,
+});
+
+const buildRecurringOccurrenceSummary = (occurrences) => occurrences.reduce((summary, item) => {
+  const nextSummary = { ...summary };
+  if (item?.status === "AVAILABLE") nextSummary.available += 1;
+  if (item?.status === "INFO") nextSummary.info += 1;
+  if (item?.status === "WARN_CONFIRM") nextSummary.warn += 1;
+  if (item?.status === "BLOCK") nextSummary.blocked += 1;
+  if (item?.status === "BLOCK" && item?.can_override_block) {
+    nextSummary.overrideable_blocked += 1;
+  }
+  return nextSummary;
+}, {
+  total: occurrences.length,
+  available: 0,
+  info: 0,
+  warn: 0,
+  blocked: 0,
+  overrideable_blocked: 0,
+});
+
+const dateTimeComparisonKey = (value) => {
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? String(timestamp) : null;
+};
+
+const markOccurrenceAvailabilityPending = (occurrence, status = "CHECKING") => ({
+  ...occurrence,
+  status,
+  can_override_block: false,
+  blocking_code: null,
+  blocking_reason: null,
+  availability_error: null,
+  availability_message: status === "PENDING" ? "Escolha a sessão do pacote" : null,
+});
 
 const emptyForm = {
   patient_id: "",
@@ -1269,7 +1631,10 @@ export default function Agendamentos() {
   const routeLocation = useLocation();
   const routeHistory = useHistory();
   const authorization = useAuthorization();
+  const authorizationCatalogVersion = authorization.context?.catalog_version;
+  const usesCompleteSchedulingAvailabilityContract = authorizationCatalogVersion === 8;
   const canSharePackages = authorization.status === "ready"
+    && usesCompleteSchedulingAvailabilityContract
     && authorization.hasCapability("schedule.package.share");
   const canResolveSessionFinancial = authorization.canAccessModule?.("finance", "manage") === true
     && authorization.canAccessModule?.("schedule", "manage") === true
@@ -1372,6 +1737,7 @@ export default function Agendamentos() {
   const [repeatMonths, setRepeatMonths] = useState("1");
   const [formAvailability, setFormAvailability] = useState(null);
   const [recurrencePreview, setRecurrencePreview] = useState(null);
+  const singleReviewAvailabilityRequestIdRef = useRef(0);
   const [deleteModal, setDeleteModal] = useState(emptyDeleteModal);
   const [isDeletePreviewing, setIsDeletePreviewing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -2280,7 +2646,41 @@ export default function Agendamentos() {
     }));
   }, []);
 
+  useEffect(() => {
+    if (canSharePackages) return;
+    singleReviewAvailabilityRequestIdRef.current += 1;
+    setPackageOwnerQuery("");
+    setPackageOwners([]);
+    setSharedPackages([]);
+    setRecurrencePreview((previous) => (
+      previous?.package_share_review ? null : previous
+    ));
+    if (!editingId) {
+      setForm((previous) => {
+        const hasPackageShareState = !!(
+          previous.shared_package_owner_id
+          || previous.shared_package_id
+          || previous.shared_package_source_session_id
+          || previous.shared_package_review_token
+        );
+        if (!hasPackageShareState) return previous;
+        return {
+          ...previous,
+          shared_package_owner_id: "",
+          shared_package_id: "",
+          shared_package_source_session_id: "",
+          shared_package_review_token: "",
+          package_share_idempotency_key: "",
+        };
+      });
+    }
+  }, [canSharePackages, editingId]);
+
   const startPackageShare = useCallback(async () => {
+    if (!canSharePackages) {
+      toast.error(PACKAGE_SHARE_PERMISSION_ERROR_MESSAGE);
+      return;
+    }
     setIsPackageShareLoading(true);
     setRepeatEnabled(false);
     setForm((prev) => ({
@@ -2305,7 +2705,7 @@ export default function Agendamentos() {
     } finally {
       setIsPackageShareLoading(false);
     }
-  }, [clearPackageShare]);
+  }, [canSharePackages, clearPackageShare]);
 
   const handleSelectPackageOwner = useCallback((owner) => {
     const ownerId = String(owner.id);
@@ -2324,6 +2724,8 @@ export default function Agendamentos() {
   const handleSelectSharedPackage = useCallback((packageId) => {
     const selected = sharedPackages.find((item) => String(item.id) === packageId);
     if (!selected) return;
+    const requestId = singleReviewAvailabilityRequestIdRef.current + 1;
+    singleReviewAvailabilityRequestIdRef.current = requestId;
     const idempotencyKey = `package-share:${uuidv4()}`;
     setForm((prev) => ({
       ...prev,
@@ -2337,14 +2739,35 @@ export default function Agendamentos() {
     }));
     setRecurrencePreview((previous) => {
       if (!previous?.package_share_review) return previous;
+      const requiresSource = !!selected.requires_scheduled_session;
+      const nextPayload = {
+        ...previous.single_payload,
+        shared_package_id: Number(selected.id),
+        shared_package_source_session_id: null,
+        shared_package_review_token: selected.review_token,
+        idempotency_key: idempotencyKey,
+      };
+      const currentOccurrence = previous.occurrences?.[0];
+      const pendingOccurrence = markOccurrenceAvailabilityPending(
+        currentOccurrence,
+        requiresSource ? "PENDING" : "CHECKING",
+      );
       return {
         ...previous,
-        single_payload: {
-          ...previous.single_payload,
-          shared_package_id: Number(selected.id),
-          shared_package_source_session_id: null,
-          shared_package_review_token: selected.review_token,
-          idempotency_key: idempotencyKey,
+        single_payload: nextPayload,
+        occurrences: [pendingOccurrence],
+        summary: buildSingleOccurrenceSummary(pendingOccurrence),
+        selected_indexes: [],
+        confirm_warning_indexes: [],
+        force_override_indexes: [],
+        single_availability_request: requiresSource ? null : {
+          id: requestId,
+          payload: nextPayload,
+          owner_id: positiveIdentifier(previous.package_share_review.owner_id),
+          service_id: positiveIdentifier(nextPayload.service_id),
+          duration_minutes: getOccurrenceDurationMinutes(currentOccurrence),
+          index: currentOccurrence?.index || 1,
+          manually_edited: !!currentOccurrence?.manually_edited,
         },
         package_share_review: {
           ...previous.package_share_review,
@@ -2356,14 +2779,33 @@ export default function Agendamentos() {
   }, [sharedPackages]);
 
   const handleSelectSharedPackageSource = useCallback((sessionId) => {
+    const requestId = singleReviewAvailabilityRequestIdRef.current + 1;
+    singleReviewAvailabilityRequestIdRef.current = requestId;
     setForm((prev) => ({ ...prev, shared_package_source_session_id: sessionId }));
     setRecurrencePreview((previous) => {
       if (!previous?.package_share_review) return previous;
+      const nextPayload = {
+        ...previous.single_payload,
+        shared_package_source_session_id: Number(sessionId),
+      };
+      const currentOccurrence = previous.occurrences?.[0];
+      const pendingOccurrence = markOccurrenceAvailabilityPending(currentOccurrence);
       return {
         ...previous,
-        single_payload: {
-          ...previous.single_payload,
-          shared_package_source_session_id: Number(sessionId),
+        single_payload: nextPayload,
+        occurrences: [pendingOccurrence],
+        summary: buildSingleOccurrenceSummary(pendingOccurrence),
+        selected_indexes: [],
+        confirm_warning_indexes: [],
+        force_override_indexes: [],
+        single_availability_request: {
+          id: requestId,
+          payload: nextPayload,
+          owner_id: positiveIdentifier(previous.package_share_review.owner_id),
+          service_id: positiveIdentifier(nextPayload.service_id),
+          duration_minutes: getOccurrenceDurationMinutes(currentOccurrence),
+          index: currentOccurrence?.index || 1,
+          manually_edited: !!currentOccurrence?.manually_edited,
         },
         package_share_review: {
           ...previous.package_share_review,
@@ -2551,6 +2993,7 @@ export default function Agendamentos() {
   ]);
 
   const closeRecurrencePreview = useCallback(() => {
+    singleReviewAvailabilityRequestIdRef.current += 1;
     setRecurrencePreview(null);
   }, []);
 
@@ -2564,19 +3007,36 @@ export default function Agendamentos() {
     const endsAt = payload.ends_at
       ? new Date(payload.ends_at)
       : new Date(startsAt.getTime() + durationMinutes * 60000);
-    const availabilityResponse = await checkSchedulingAvailability({
+    const availabilityPayload = {
       starts_at: startsAt.toISOString(),
       ends_at: endsAt.toISOString(),
       professional_user_id: payload.professional_user_id,
       service_id: payload.service_id,
       service_type: payload.service_type,
+    };
+    if (usesCompleteSchedulingAvailabilityContract) {
+      availabilityPayload.patient_id = payload.patient_id;
+    }
+    if (positiveIdentifier(payload.shared_package_id)) {
+      availabilityPayload.shared_package_id = Number(payload.shared_package_id);
+    }
+    if (positiveIdentifier(payload.shared_package_source_session_id)) {
+      availabilityPayload.shared_package_source_session_id =
+        Number(payload.shared_package_source_session_id);
+    }
+    if (String(payload.shared_package_review_token || "").trim()) {
+      availabilityPayload.shared_package_review_token = payload.shared_package_review_token;
+    }
+    const availabilityResponse = await checkSchedulingAvailability(availabilityPayload);
+    const availability = validateSingleSchedulingAvailability(availabilityResponse?.data, {
+      requireCompleteValidation: usesCompleteSchedulingAvailabilityContract,
     });
-    const availability = availabilityResponse?.data || {};
-    const matchedEvents = Array.isArray(availability.matched_events)
-      ? availability.matched_events
-      : [];
+    const { validation, matched_events: matchedEvents } = availability;
     let status = "AVAILABLE";
-    if (availability.has_blocking_events) {
+    if (
+      (usesCompleteSchedulingAvailabilityContract && !validation.can_confirm)
+      || availability.has_blocking_events
+    ) {
       status = "BLOCK";
     } else if (availability.requires_confirmation) {
       status = "WARN_CONFIRM";
@@ -2591,19 +3051,202 @@ export default function Agendamentos() {
       start_time: getOccurrenceTimeValue({ starts_at: startsAt.toISOString() }),
       date: formatDateParam(startsAt),
       status,
-      can_override_block: false,
+      can_override_block: status === "BLOCK"
+        && validation?.blocking_code !== "PATIENT_SCHEDULE_CONFLICT"
+        && !!availability.can_override_block,
+      blocking_code: validation?.blocking_code || null,
+      blocking_reason: validation?.blocking_reason || availability.blocking_reason || null,
+      availability_error: null,
+      availability_message: null,
       matched_events: matchedEvents,
       manually_edited: manuallyEdited,
+      availability_scope: usesCompleteSchedulingAvailabilityContract
+        ? "patient_conflict_checked"
+        : LEGACY_OPERATIONAL_AVAILABILITY_SCOPE,
       professional_user_id: payload.professional_user_id,
       service_id: payload.service_id,
       service_type: payload.service_type,
     };
+  }, [usesCompleteSchedulingAvailabilityContract]);
+
+  const singleAvailabilityRequest = recurrencePreview?.single_availability_request || null;
+  useEffect(() => {
+    if (!singleAvailabilityRequest || recurrencePreview?.review_type !== "single") {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const applyResult = async () => {
+      try {
+        const nextOccurrence = await buildSingleReviewOccurrence({
+          payload: singleAvailabilityRequest.payload,
+          durationMinutes: singleAvailabilityRequest.duration_minutes,
+          index: singleAvailabilityRequest.index,
+          manuallyEdited: singleAvailabilityRequest.manually_edited,
+        });
+        if (
+          cancelled
+          || singleReviewAvailabilityRequestIdRef.current !== singleAvailabilityRequest.id
+        ) return;
+        const selectedIndexes = shouldAutoSelectReviewOccurrence(nextOccurrence)
+          ? [nextOccurrence.index]
+          : [];
+        setRecurrencePreview((previous) => {
+          if (
+            previous?.single_availability_request?.id !== singleAvailabilityRequest.id
+          ) return previous;
+          return {
+            ...previous,
+            occurrences: [nextOccurrence],
+            summary: buildSingleOccurrenceSummary(nextOccurrence),
+            selected_indexes: selectedIndexes,
+            confirm_warning_indexes:
+              nextOccurrence.status === "WARN_CONFIRM" ? selectedIndexes : [],
+            force_override_indexes: [],
+            single_availability_request: null,
+          };
+        });
+      } catch (error) {
+        if (
+          cancelled
+          || singleReviewAvailabilityRequestIdRef.current !== singleAvailabilityRequest.id
+        ) return;
+        const errorCode = error?.response?.data?.code || "";
+        if (
+          PACKAGE_SHARE_REVIEW_ERROR_CODES.has(errorCode)
+          && singleAvailabilityRequest.owner_id
+          && singleAvailabilityRequest.service_id
+        ) {
+          let refreshedPackages = [];
+          let refreshSucceeded = false;
+          try {
+            const packagesResponse = await axios.get(
+              `/package-sharing/owners/${singleAvailabilityRequest.owner_id}/packages`,
+              { params: { service_id: singleAvailabilityRequest.service_id } },
+            );
+            refreshedPackages = validatePackageShareOptions(packagesResponse.data)
+              .filter((pkg) => Number(pkg?.service?.id) === singleAvailabilityRequest.service_id)
+              .sort((left, right) => {
+                const dateDifference = new Date(right.contracted_at).getTime()
+                  - new Date(left.contracted_at).getTime();
+                return Number.isFinite(dateDifference) && dateDifference !== 0
+                  ? dateDifference
+                  : Number(right.id) - Number(left.id);
+              });
+            refreshSucceeded = true;
+          } catch {
+            refreshedPackages = [];
+          }
+          if (
+            cancelled
+            || singleReviewAvailabilityRequestIdRef.current !== singleAvailabilityRequest.id
+          ) return;
+          setSharedPackages(refreshedPackages);
+          setForm((previous) => ({
+            ...previous,
+            shared_package_id: "",
+            shared_package_source_session_id: "",
+            shared_package_review_token: "",
+            package_share_idempotency_key: "",
+          }));
+          setRecurrencePreview((previous) => {
+            if (
+              previous?.single_availability_request?.id !== singleAvailabilityRequest.id
+            ) return previous;
+            const pendingOccurrence = {
+              ...markOccurrenceAvailabilityPending(previous.occurrences?.[0], "PENDING"),
+              availability_message: refreshSucceeded
+                ? "As opções mudaram. Escolha o pacote novamente"
+                : "Não foi possível atualizar os pacotes. Volte e revise novamente",
+            };
+            return {
+              ...previous,
+              single_payload: {
+                ...previous.single_payload,
+                shared_package_id: undefined,
+                shared_package_source_session_id: undefined,
+                shared_package_review_token: undefined,
+                idempotency_key: undefined,
+              },
+              occurrences: [pendingOccurrence],
+              summary: buildSingleOccurrenceSummary(pendingOccurrence),
+              selected_indexes: [],
+              confirm_warning_indexes: [],
+              force_override_indexes: [],
+              single_availability_request: null,
+              package_share_review: {
+                ...previous.package_share_review,
+                packages: refreshedPackages,
+                selected_package_id: "",
+                selected_source_session_id: "",
+              },
+            };
+          });
+          return;
+        }
+        setRecurrencePreview((previous) => {
+          if (
+            previous?.single_availability_request?.id !== singleAvailabilityRequest.id
+          ) return previous;
+          const failedOccurrence = {
+            ...previous.occurrences?.[0],
+            status: "ERROR",
+            can_override_block: false,
+            blocking_code: null,
+            blocking_reason: null,
+            availability_error: SINGLE_AVAILABILITY_ERROR_MESSAGE,
+          };
+          return {
+            ...previous,
+            occurrences: [failedOccurrence],
+            summary: buildSingleOccurrenceSummary(failedOccurrence),
+            selected_indexes: [],
+            confirm_warning_indexes: [],
+            force_override_indexes: [],
+            single_availability_request: null,
+          };
+        });
+      }
+    };
+
+    applyResult();
+    return () => {
+      cancelled = true;
+    };
+  }, [buildSingleReviewOccurrence, recurrencePreview?.review_type, singleAvailabilityRequest]);
+
+  const handleRetrySingleAvailability = useCallback(() => {
+    const requestId = singleReviewAvailabilityRequestIdRef.current + 1;
+    singleReviewAvailabilityRequestIdRef.current = requestId;
+    setRecurrencePreview((previous) => {
+      if (previous?.review_type !== "single" || !previous.single_payload) return previous;
+      const currentOccurrence = previous.occurrences?.[0];
+      const pendingOccurrence = markOccurrenceAvailabilityPending(currentOccurrence);
+      return {
+        ...previous,
+        occurrences: [pendingOccurrence],
+        summary: buildSingleOccurrenceSummary(pendingOccurrence),
+        selected_indexes: [],
+        confirm_warning_indexes: [],
+        force_override_indexes: [],
+        single_availability_request: {
+          id: requestId,
+          payload: previous.single_payload,
+          owner_id: positiveIdentifier(previous.package_share_review?.owner_id),
+          service_id: positiveIdentifier(previous.single_payload.service_id),
+          duration_minutes: getOccurrenceDurationMinutes(currentOccurrence),
+          index: currentOccurrence?.index || 1,
+          manually_edited: !!currentOccurrence?.manually_edited,
+        },
+      };
+    });
   }, []);
 
   const handleTogglePreviewOccurrence = useCallback((occurrence) => {
     if (!occurrence?.index) return;
+    if (!isReviewOccurrenceSelectable(occurrence)) return;
     setRecurrencePreview((previous) => {
-      if (!previous) return previous;
+      if (!previous || previous.requires_revalidation) return previous;
       const { index } = occurrence;
       const isSelected = previous.selected_indexes.includes(index);
       const selectedIndexes = isSelected
@@ -2693,70 +3336,73 @@ export default function Agendamentos() {
         }
         : item);
     const sortedDraftOccurrences = sortOccurrencesByDateTime(draftOccurrences);
+    const nextSinglePayload = recurrencePreview.review_type === "single"
+      ? {
+        ...recurrencePreview.single_payload,
+        starts_at: editedTimes.starts_at,
+        ends_at: editedTimes.ends_at,
+      }
+      : null;
+    const requestId = recurrencePreview.review_type === "single"
+      ? singleReviewAvailabilityRequestIdRef.current + 1
+      : null;
+    if (requestId) singleReviewAvailabilityRequestIdRef.current = requestId;
 
-	    setRecurrencePreview((previous) =>
-	      previous
-	        ? {
-	          ...previous,
-	          is_editing_occurrence: true,
-	          edit_error: "",
-	        }
-	        : previous);
+    if (nextSinglePayload) {
+      setRecurrencePreview((previous) => {
+        if (!previous) return previous;
+        const pendingOccurrence = markOccurrenceAvailabilityPending(
+          sortedDraftOccurrences.find((item) => item.index === occurrence.index),
+        );
+        return {
+          ...previous,
+          single_payload: nextSinglePayload,
+          occurrences: [pendingOccurrence],
+          summary: buildSingleOccurrenceSummary(pendingOccurrence),
+          selected_indexes: [],
+          confirm_warning_indexes: [],
+          force_override_indexes: [],
+          single_availability_request: {
+            id: requestId,
+            payload: nextSinglePayload,
+            owner_id: positiveIdentifier(previous.package_share_review?.owner_id),
+            service_id: positiveIdentifier(nextSinglePayload.service_id),
+            duration_minutes: getOccurrenceDurationMinutes(occurrence),
+            index: occurrence.index,
+            manually_edited: true,
+          },
+          editing_index: null,
+          edit_date: "",
+          edit_time: "",
+          edit_error: "",
+          is_editing_occurrence: false,
+        };
+      });
+      return;
+    }
 
-	    try {
-	      if (recurrencePreview.review_type === "single") {
-	        const nextPayload = {
-	          ...recurrencePreview.single_payload,
-	          starts_at: editedTimes.starts_at,
-	          ends_at: editedTimes.ends_at,
-	        };
-	        const nextOccurrence = await buildSingleReviewOccurrence({
-	          payload: nextPayload,
-	          durationMinutes: getOccurrenceDurationMinutes(occurrence),
-	          index: occurrence.index,
-	          manuallyEdited: true,
-	        });
-	        const selectedIndexes =
-	          nextOccurrence.status === "BLOCK" && !nextOccurrence.can_override_block
-	            ? []
-	            : [nextOccurrence.index];
-	        setRecurrencePreview((previous) =>
-	          previous
-	            ? {
-	              ...previous,
-	              single_payload: nextPayload,
-	              occurrences: [nextOccurrence],
-	              summary: {
-	                total: 1,
-	                available: nextOccurrence.status === "AVAILABLE" ? 1 : 0,
-	                info: nextOccurrence.status === "INFO" ? 1 : 0,
-	                warn: nextOccurrence.status === "WARN_CONFIRM" ? 1 : 0,
-	                blocked: nextOccurrence.status === "BLOCK" ? 1 : 0,
-	              },
-	              selected_indexes: selectedIndexes,
-	              confirm_warning_indexes:
-	                nextOccurrence.status === "WARN_CONFIRM" ? selectedIndexes : [],
-	              force_override_indexes: [],
-	              editing_index: null,
-	              edit_date: "",
-	              edit_time: "",
-	              edit_error: "",
-	              is_editing_occurrence: false,
-	            }
-	            : previous);
-	        return;
-	      }
-	      const response = await previewSchedulingOccurrences({
-	        ...recurrencePreview.series_payload,
-	        occurrences: sortedDraftOccurrences.map((item) =>
+    setRecurrencePreview((previous) => previous ? {
+      ...previous,
+      is_editing_occurrence: true,
+      edit_error: "",
+    } : previous);
+
+    try {
+      const response = await previewSchedulingOccurrences({
+        ...recurrencePreview.series_payload,
+        occurrences: sortedDraftOccurrences.map((item) =>
           toOccurrencePreviewPayload(item, recurrencePreview.series_payload)),
       });
-      const nextOccurrences = Array.isArray(response?.data?.occurrences_preview)
-        ? response.data.occurrences_preview.map((item, index) => ({
-          ...item,
-          manually_edited: !!sortedDraftOccurrences[index]?.manually_edited,
-        }))
-        : [];
+      const preview = validateRecurringSchedulingAvailability(response?.data, {
+        requireCompleteValidation: usesCompleteSchedulingAvailabilityContract,
+      });
+      const nextOccurrences = preview.occurrences_preview.map((item, index) => ({
+        ...item,
+        manually_edited: !!sortedDraftOccurrences[index]?.manually_edited,
+        availability_scope: usesCompleteSchedulingAvailabilityContract
+          ? "patient_conflict_checked"
+          : LEGACY_OPERATIONAL_AVAILABILITY_SCOPE,
+      }));
       const validIndexes = new Set(nextOccurrences.map((item) => item.index));
       const previousSelectedSet = new Set(recurrencePreview.selected_indexes || []);
       const selectedByStartsAt = new Set(
@@ -2788,7 +3434,7 @@ export default function Agendamentos() {
           ? {
             ...previous,
             occurrences: nextOccurrences,
-            summary: response?.data?.summary || previous.summary,
+            summary: preview.summary,
             selected_indexes: selectedIndexes,
             confirm_warning_indexes: confirmWarningIndexes,
             force_override_indexes: forceOverrideIndexes,
@@ -2797,21 +3443,36 @@ export default function Agendamentos() {
             edit_time: "",
             edit_error: "",
             is_editing_occurrence: false,
+            requires_revalidation: false,
           }
           : previous);
     } catch (error) {
-      setRecurrencePreview((previous) =>
-        previous
-          ? {
-            ...previous,
-            edit_error:
-              error?.response?.data?.error ||
-              "Não foi possível recalcular esta ocorrência.",
-            is_editing_occurrence: false,
-          }
-          : previous);
+      setRecurrencePreview((previous) => {
+        if (!previous) return previous;
+        const availabilityError = error?.response?.data?.error
+          || "Não foi possível recalcular esta ocorrência.";
+        const failedOccurrences = previous.occurrences.map((item) => ({
+          ...item,
+          status: "ERROR",
+          can_override_block: false,
+          blocking_code: null,
+          blocking_reason: null,
+          availability_error: availabilityError,
+        }));
+        return {
+          ...previous,
+          occurrences: failedOccurrences,
+          summary: buildRecurringOccurrenceSummary(failedOccurrences),
+          selected_indexes: [],
+          confirm_warning_indexes: [],
+          force_override_indexes: [],
+          edit_error: availabilityError,
+          is_editing_occurrence: false,
+          requires_revalidation: true,
+        };
+      });
     }
-	  }, [buildSingleReviewOccurrence, recurrencePreview]);
+  }, [recurrencePreview, usesCompleteSchedulingAvailabilityContract]);
 
   const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
@@ -2898,6 +3559,7 @@ export default function Agendamentos() {
   }, [discardDrawerClose]);
 
   const resetForm = useCallback(() => {
+    singleReviewAvailabilityRequestIdRef.current += 1;
     setEditingId(null);
     setEditingIntent("create");
     setForm(emptyForm);
@@ -2922,6 +3584,11 @@ export default function Agendamentos() {
 
 	  const handleConfirmRecurrenceCreation = useCallback(async () => {
 	    if (!recurrencePreview?.series_payload && !recurrencePreview?.single_payload) return;
+		    if (recurrencePreview.package_share_review && !canSharePackages) {
+      setRecurrencePreview(null);
+      toast.error(PACKAGE_SHARE_PERMISSION_ERROR_MESSAGE);
+      return;
+    }
 
 	    const selectedOccurrences = sortOccurrencesByDateTime(
 	      (recurrencePreview.occurrences || []).filter((occurrence) =>
@@ -2983,8 +3650,8 @@ export default function Agendamentos() {
 	            ? selectedOccurrence.ends_at || null
 	            : recurrencePreview.single_payload.ends_at || null,
 	          confirm_schedule_warning: confirmWarningIndexes.length > 0,
-	          force_override: false,
-	          override_reason: null,
+	          force_override: forceOverrideIndexes.length > 0,
+	          override_reason: requiresOverrideReason ? overrideReason : null,
 	        });
 	        toast.success("Agendamento criado.");
 	        setRecurrencePreview(null);
@@ -3025,68 +3692,221 @@ export default function Agendamentos() {
       await loadPendingSessions();
     } catch (error) {
       const responseData = error?.response?.data || {};
-	      if (
-	        responseData?.code === "PACKAGE_SHARE_REVIEW_CHANGED"
-	        && form.shared_package_owner_id
-	        && form.shared_package_owner_id !== "pending"
-	      ) {
-	        let refreshedPackages = [];
-	        try {
-	          const packagesResponse = await axios.get(
-	            `/package-sharing/owners/${form.shared_package_owner_id}/packages`,
-	            { params: { service_id: Number(form.service_id) } },
-	          );
-	          refreshedPackages = validatePackageShareOptions(packagesResponse.data);
-	          setSharedPackages(refreshedPackages);
-	        } catch {
-	          setSharedPackages([]);
-	        }
-	        setForm((previous) => ({
-	          ...previous,
-	          shared_package_id: "",
-	          shared_package_source_session_id: "",
-	          shared_package_review_token: "",
-	          package_share_idempotency_key: "",
-	        }));
-	        setRecurrencePreview((previous) => previous ? {
-	          ...previous,
-	          is_submitting: false,
-	          single_payload: {
-	            ...previous.single_payload,
-	            shared_package_id: undefined,
-	            shared_package_source_session_id: undefined,
-	            shared_package_review_token: undefined,
-	            idempotency_key: undefined,
-	          },
-	          package_share_review: {
-	            ...previous.package_share_review,
-	            packages: refreshedPackages,
-	            selected_package_id: "",
-	            selected_source_session_id: "",
-	          },
-	        } : previous);
-	        toast.error(resolveSchedulingErrorMessage(error));
-	        return;
-	      }
-      if (Array.isArray(responseData?.occurrences_preview)) {
+      if (
+        responseData?.code === "PATIENT_SCHEDULE_CONFLICT"
+        && recurrencePreview.review_type === "single"
+      ) {
+        singleReviewAvailabilityRequestIdRef.current += 1;
         setRecurrencePreview((previous) => {
           if (!previous) return previous;
-          const validIndexes = new Set(
-            responseData.occurrences_preview.map((occurrence) => occurrence.index),
-          );
+          const conflictOccurrence = {
+            ...previous.occurrences?.[0],
+            status: "BLOCK",
+            can_override_block: false,
+            blocking_code: "PATIENT_SCHEDULE_CONFLICT",
+            blocking_reason: PATIENT_SCHEDULE_CONFLICT_MESSAGE,
+            availability_error: null,
+          };
           return {
             ...previous,
-            occurrences: responseData.occurrences_preview,
-            summary: responseData.summary || previous.summary,
-            selected_indexes: previous.selected_indexes.filter((index) =>
-              validIndexes.has(index),
-            ),
-            confirm_warning_indexes: previous.confirm_warning_indexes.filter((index) =>
-              validIndexes.has(index),
-            ),
-            force_override_indexes: previous.force_override_indexes.filter((index) =>
-              validIndexes.has(index),
-            ),
+            occurrences: [conflictOccurrence],
+            summary: buildSingleOccurrenceSummary(conflictOccurrence),
+            selected_indexes: [],
+            confirm_warning_indexes: [],
+            force_override_indexes: [],
+            single_availability_request: null,
+            is_submitting: false,
+          };
+        });
+        toast.error(resolveSchedulingErrorMessage(error));
+        return;
+      }
+      if (
+        responseData?.code === "PATIENT_SCHEDULE_CONFLICT"
+        && recurrencePreview.review_type !== "single"
+      ) {
+        const conflicts = Array.isArray(responseData.conflicts) ? responseData.conflicts : [];
+        const conflictKeys = new Set(
+          conflicts.map((conflict) => dateTimeComparisonKey(conflict?.starts_at)).filter(Boolean),
+        );
+        const occurrenceKeys = new Set(
+          recurrencePreview.occurrences
+            .map((occurrence) => dateTimeComparisonKey(occurrence?.starts_at))
+            .filter(Boolean),
+        );
+        const canMapEveryConflict = conflicts.length > 0
+          && conflictKeys.size > 0
+          && conflicts.every((conflict) => {
+            const key = dateTimeComparisonKey(conflict?.starts_at);
+            return key && occurrenceKeys.has(key);
+          });
+
+        setRecurrencePreview((previous) => {
+          if (!previous) return previous;
+          const nextOccurrences = previous.occurrences.map((occurrence) => {
+            const isConflicting = canMapEveryConflict
+              && conflictKeys.has(dateTimeComparisonKey(occurrence.starts_at));
+            if (isConflicting) {
+              return {
+                ...occurrence,
+                status: "BLOCK",
+                can_override_block: false,
+                blocking_code: "PATIENT_SCHEDULE_CONFLICT",
+                blocking_reason: PATIENT_SCHEDULE_CONFLICT_MESSAGE,
+                availability_error: null,
+                validation: {
+                  complete: true,
+                  patient_conflict_checked: true,
+                  can_confirm: false,
+                  blocking_code: "PATIENT_SCHEDULE_CONFLICT",
+                  blocking_reason: PATIENT_SCHEDULE_CONFLICT_MESSAGE,
+                },
+              };
+            }
+            if (canMapEveryConflict) return occurrence;
+            return {
+              ...occurrence,
+              status: "ERROR",
+              can_override_block: false,
+              blocking_code: null,
+              blocking_reason: null,
+              availability_error: "A disponibilidade mudou. Revise novamente.",
+            };
+          });
+          const selectableIndexes = new Set(
+            nextOccurrences
+              .filter((occurrence) => isReviewOccurrenceSelectable(occurrence))
+              .map((occurrence) => occurrence.index),
+          );
+          const remainingSelectedIndexes = canMapEveryConflict
+            ? previous.selected_indexes.filter((index) => selectableIndexes.has(index))
+            : [];
+          return {
+            ...previous,
+            occurrences: nextOccurrences,
+            summary: buildRecurringOccurrenceSummary(nextOccurrences),
+            selected_indexes: remainingSelectedIndexes,
+            confirm_warning_indexes: previous.confirm_warning_indexes
+              .filter((index) => remainingSelectedIndexes.includes(index)),
+            force_override_indexes: previous.force_override_indexes
+              .filter((index) => remainingSelectedIndexes.includes(index)),
+            is_submitting: false,
+            requires_revalidation: true,
+          };
+        });
+        toast.error(resolveSchedulingErrorMessage(error));
+        return;
+      }
+      if (
+        PACKAGE_SHARE_REVIEW_ERROR_CODES.has(responseData?.code)
+        && form.shared_package_owner_id
+        && form.shared_package_owner_id !== "pending"
+      ) {
+        let refreshedPackages = [];
+        try {
+          const packagesResponse = await axios.get(
+            `/package-sharing/owners/${form.shared_package_owner_id}/packages`,
+            { params: { service_id: Number(form.service_id) } },
+          );
+          refreshedPackages = validatePackageShareOptions(packagesResponse.data);
+          setSharedPackages(refreshedPackages);
+        } catch {
+          setSharedPackages([]);
+        }
+        setForm((previous) => ({
+          ...previous,
+          shared_package_id: "",
+          shared_package_source_session_id: "",
+          shared_package_review_token: "",
+          package_share_idempotency_key: "",
+        }));
+        setRecurrencePreview((previous) => {
+          if (!previous) return previous;
+          const pendingOccurrence = {
+            ...markOccurrenceAvailabilityPending(previous.occurrences?.[0], "PENDING"),
+            availability_message: "As opções mudaram. Escolha o pacote novamente",
+          };
+          return {
+            ...previous,
+            is_submitting: false,
+            single_payload: {
+              ...previous.single_payload,
+              shared_package_id: undefined,
+              shared_package_source_session_id: undefined,
+              shared_package_review_token: undefined,
+              idempotency_key: undefined,
+            },
+            occurrences: [pendingOccurrence],
+            summary: buildSingleOccurrenceSummary(pendingOccurrence),
+            selected_indexes: [],
+            confirm_warning_indexes: [],
+            force_override_indexes: [],
+            single_availability_request: null,
+            package_share_review: {
+              ...previous.package_share_review,
+              packages: refreshedPackages,
+              selected_package_id: "",
+              selected_source_session_id: "",
+            },
+          };
+        });
+        toast.error(resolveSchedulingErrorMessage(error));
+        return;
+      }
+	      const hasChangedRecurringPreview = recurrencePreview.review_type !== "single"
+	        && (
+	          responseData?.code === "SCHEDULING_AVAILABILITY_CHANGED"
+	          || Object.prototype.hasOwnProperty.call(responseData, "occurrences_preview")
+	        );
+	      if (hasChangedRecurringPreview) {
+        let changedPreview;
+        try {
+          changedPreview = validateRecurringSchedulingAvailability(responseData, {
+            requireCompleteValidation: usesCompleteSchedulingAvailabilityContract,
+          });
+        } catch {
+          setRecurrencePreview((previous) => {
+            if (!previous) return previous;
+            const failedOccurrences = previous.occurrences.map((occurrence) => ({
+              ...occurrence,
+              status: "ERROR",
+              can_override_block: false,
+              blocking_code: null,
+              blocking_reason: null,
+              availability_error: "A disponibilidade mudou. Revise novamente.",
+            }));
+            return {
+              ...previous,
+              occurrences: failedOccurrences,
+              summary: buildRecurringOccurrenceSummary(failedOccurrences),
+              selected_indexes: [],
+              confirm_warning_indexes: [],
+              force_override_indexes: [],
+              override_reason: "",
+              requires_revalidation: true,
+              is_submitting: false,
+            };
+          });
+          toast.error(resolveSchedulingErrorMessage(error));
+          return;
+        }
+        const nextOccurrences = changedPreview.occurrences_preview.map((occurrence) => ({
+          ...occurrence,
+          availability_scope: usesCompleteSchedulingAvailabilityContract
+            ? "patient_conflict_checked"
+            : LEGACY_OPERATIONAL_AVAILABILITY_SCOPE,
+        }));
+        setRecurrencePreview((previous) => {
+          if (!previous) return previous;
+          return {
+            ...previous,
+            occurrences: nextOccurrences,
+            summary: changedPreview.summary,
+            selected_indexes: [],
+            confirm_warning_indexes: [],
+            force_override_indexes: [],
+            override_reason: "",
+            requires_revalidation: true,
             is_submitting: false,
           };
         });
@@ -3098,6 +3918,7 @@ export default function Agendamentos() {
       );
     }
   }, [
+		    canSharePackages,
 	    closeDrawer,
 	    form.service_id,
 	    form.shared_package_owner_id,
@@ -3108,6 +3929,7 @@ export default function Agendamentos() {
 	    recurrencePreview,
 	    resetForm,
 	    selectedMonthKey,
+		    usesCompleteSchedulingAvailabilityContract,
 	  ]);
 
 	  const handleCreateAt = useCallback(
@@ -4371,6 +5193,15 @@ export default function Agendamentos() {
     async (event) => {
       event.preventDefault();
       if (submitLockRef.current || isSaving) return;
+      const hasPackageShareSubmission = isPackageShareFlow
+        || isEditingPackageReallocation
+        || !!form.shared_package_id
+        || !!form.shared_package_source_session_id
+        || !!form.shared_package_review_token;
+      if (hasPackageShareSubmission && !canSharePackages) {
+        toast.error(PACKAGE_SHARE_PERMISSION_ERROR_MESSAGE);
+        return;
+      }
       if (!form.patient_id) {
         toast.error("Selecione o paciente.");
         return;
@@ -4707,10 +5538,16 @@ export default function Agendamentos() {
 
         try {
           const previewResponse = await previewSchedulingOccurrences(seriesPayload);
-          const occurrences = Array.isArray(previewResponse?.data?.occurrences_preview)
-            ? previewResponse.data.occurrences_preview
-            : [];
-          const summary = previewResponse?.data?.summary || {};
+          const preview = validateRecurringSchedulingAvailability(previewResponse?.data, {
+            requireCompleteValidation: usesCompleteSchedulingAvailabilityContract,
+          });
+          const occurrences = preview.occurrences_preview.map((occurrence) => ({
+            ...occurrence,
+            availability_scope: usesCompleteSchedulingAvailabilityContract
+              ? "patient_conflict_checked"
+              : LEGACY_OPERATIONAL_AVAILABILITY_SCOPE,
+          }));
+          const { summary } = preview;
 
           const selectedIndexes = occurrences
             .filter(
@@ -4739,6 +5576,7 @@ export default function Agendamentos() {
             edit_time: "",
             edit_error: "",
             is_editing_occurrence: false,
+            requires_revalidation: false,
           });
         } catch (error) {
           const message =
@@ -4751,7 +5589,8 @@ export default function Agendamentos() {
 	        return;
 	      }
 
-	      if (!editingId) {
+      if (!editingId) {
+        let packageOptionsLoaded = !isPackageShareFlow;
 	        try {
 	          let packageOptions = [];
 	          if (isPackageShareFlow) {
@@ -4769,6 +5608,7 @@ export default function Agendamentos() {
 	                  ? dateDifference
 	                  : Number(right.id) - Number(left.id);
 	              });
+            packageOptionsLoaded = true;
 	            setSharedPackages(packageOptions);
 	            setForm((previous) => ({
 	              ...previous,
@@ -4790,21 +5630,21 @@ export default function Agendamentos() {
 	              matched_events: formLocalSpecialSummary?.events || occurrence.matched_events || [],
 	            };
 	          }
-	          const selectedIndexes =
-	            occurrence.status === "BLOCK" && !occurrence.can_override_block
-	              ? []
-	              : [occurrence.index];
+          const selectedIndexes = shouldAutoSelectReviewOccurrence(occurrence)
+            ? [occurrence.index]
+            : [];
 	          setRecurrencePreview({
 	            open: true,
 	            review_type: "single",
-		            is_submitting: false,
-		            single_payload: payload,
-		            series_payload: null,
+            is_submitting: false,
+            single_payload: payload,
+            series_payload: null,
 	            price_unit_cents: isPackageShareFlow || payload.is_no_charge
 	              ? null
 	              : visibleSessionPriceCents,
 	            is_no_charge: !!payload.is_no_charge,
-	            package_share_review: isPackageShareFlow ? {
+            package_share_review: isPackageShareFlow ? {
+              owner_id: Number(form.shared_package_owner_id),
 	              patient_name: formPatientQuery || "Paciente",
 	              owner_name: packageOwnerQuery || "Paciente",
 	              service_name: servicesById.get(String(payload.service_id))?.name
@@ -4813,17 +5653,11 @@ export default function Agendamentos() {
 	              selected_package_id: "",
 	              selected_source_session_id: "",
 	            } : null,
-		            repeat_mode: "single",
+            repeat_mode: "single",
 	            repeat_cadence: null,
 	            repeat_months: null,
 	            occurrences: [occurrence],
-	            summary: {
-	              total: 1,
-	              available: occurrence.status === "AVAILABLE" ? 1 : 0,
-	              info: occurrence.status === "INFO" ? 1 : 0,
-	              warn: occurrence.status === "WARN_CONFIRM" ? 1 : 0,
-	              blocked: occurrence.status === "BLOCK" ? 1 : 0,
-	            },
+	            summary: buildSingleOccurrenceSummary(occurrence),
 	            selected_indexes: selectedIndexes,
 	            confirm_warning_indexes:
 	              occurrence.status === "WARN_CONFIRM" ? selectedIndexes : [],
@@ -4834,11 +5668,12 @@ export default function Agendamentos() {
 	            edit_time: "",
 	            edit_error: "",
 	            is_editing_occurrence: false,
+            single_availability_request: null,
 	          });
 	        } catch (error) {
 	          const message =
 	            error?.response?.data?.error ||
-	            (isPackageShareFlow
+	            (isPackageShareFlow && !packageOptionsLoaded
 	              ? "Não foi possível buscar os pacotes desse paciente."
 	              : "Não foi possível validar disponibilidade.");
 	          toast.error(message);
@@ -4987,6 +5822,7 @@ export default function Agendamentos() {
     },
 	    [
 	      canAssignPatientCare,
+		      canSharePackages,
 		      closeDrawer,
 		      allowBrokenTimeScheduling,
 		      allowWeekendScheduling,
@@ -5028,6 +5864,7 @@ export default function Agendamentos() {
       shouldSendPriceOverride,
 	      submitLockRef,
       usesMembershipSessionContract,
+      usesCompleteSchedulingAvailabilityContract,
       visibleSessionPriceCents,
 	    ],
 	  );
@@ -5260,6 +6097,26 @@ export default function Agendamentos() {
 	  : "";
 
   useEffect(() => {
+	    if (!canSharePackages && editingId && editingCurrentPatientId) {
+      setForm((previous) => {
+        const hasPackageShareState = !!(
+          previous.shared_package_id
+          || previous.shared_package_source_session_id
+          || previous.shared_package_review_token
+        );
+        if (!hasPackageShareState) return previous;
+        return {
+          ...previous,
+          patient_id: String(editingCurrentPatientId),
+          shared_package_owner_id: "",
+          shared_package_id: "",
+          shared_package_source_session_id: "",
+          shared_package_review_token: "",
+          package_share_idempotency_key: "",
+        };
+      });
+      setFormPatientQuery(editingCurrentPatientName);
+    }
     if (
       !canSharePackages
       || !editingPackageId
@@ -7261,6 +8118,10 @@ export default function Agendamentos() {
 		                                  name="shared-package-review"
 		                                  value={pkg.id}
 		                                  checked={isSelected}
+		                                  disabled={
+		                                    recurrencePreview.is_submitting
+		                                    || recurrencePreview.is_editing_occurrence
+		                                  }
 		                                  onChange={() => handleSelectSharedPackage(String(pkg.id))}
 		                                />
 		                                <PackageReviewOptionBody>
@@ -7285,6 +8146,10 @@ export default function Agendamentos() {
 		                                        value={session.id}
 		                                        checked={String(recurrencePreview.package_share_review.selected_source_session_id)
 		                                          === String(session.id)}
+		                                        disabled={
+		                                          recurrencePreview.is_submitting
+		                                          || recurrencePreview.is_editing_occurrence
+		                                        }
 		                                        onChange={() => handleSelectSharedPackageSource(String(session.id))}
 		                                      />
 		                                      <span>
@@ -7318,9 +8183,8 @@ export default function Agendamentos() {
                 <RecurrenceList>
 	                  {recurrencePreview.occurrences.map((occurrence) => {
 	                    const isSelected = recurrenceSelectedSet.has(occurrence.index);
-	                    const isBlocked = occurrence.status === "BLOCK";
-	                    const isSelectable =
-	                      !isBlocked || occurrence.can_override_block;
+	                    const isSelectable = !recurrencePreview.requires_revalidation
+	                      && isReviewOccurrenceSelectable(occurrence);
 	                    const selectedPosition = recurrenceSequenceMap.get(occurrence.index);
 	                    const isEditing = recurrencePreview.editing_index === occurrence.index;
 	                    return (
@@ -7347,8 +8211,7 @@ export default function Agendamentos() {
 		                                {formatOccurrenceCompactLabel(occurrence)}
 		                              </strong>
 		                              <span>
-	                                {OCCURRENCE_STATUS_LABELS[occurrence.status] ||
-	                                  occurrence.status}
+	                                {reviewOccurrenceStatusLabel(occurrence)}
 		                                {occurrence.manually_edited ? " · Alterada" : ""}
 		                              </span>
 		                            </div>
@@ -7357,15 +8220,34 @@ export default function Agendamentos() {
 		                                {selectedPosition}/{recurrenceSelectedOccurrences.length}
 		                              </RecurrenceSequenceBadge>
 		                            )}
-		                            {!isEditing && (
+		                            {!isEditing
+		                              && occurrence.status === "ERROR"
+		                              && recurrencePreview.review_type === "single" && (
 		                              <RecurrenceInlineButton
-	                                type="button"
-	                                onClick={() => handleStartEditPreviewOccurrence(occurrence)}
-	                                disabled={recurrencePreview.is_submitting}
-	                              >
-	                                Editar
-	                              </RecurrenceInlineButton>
-	                            )}
+		                                type="button"
+		                                onClick={handleRetrySingleAvailability}
+		                                disabled={recurrencePreview.is_submitting}
+		                              >
+		                                Tentar novamente
+		                              </RecurrenceInlineButton>
+		                            )}
+		                            {!isEditing
+		                              && (
+		                                occurrence.status !== "ERROR"
+		                                || recurrencePreview.review_type !== "single"
+		                              ) && (
+		                              <RecurrenceInlineButton
+		                                type="button"
+		                                onClick={() => handleStartEditPreviewOccurrence(occurrence)}
+		                                disabled={
+		                                  recurrencePreview.is_submitting
+		                                  || occurrence.status === "CHECKING"
+		                                  || occurrence.status === "PENDING"
+		                                }
+		                              >
+		                                Editar
+		                              </RecurrenceInlineButton>
+		                            )}
 	                          </RecurrenceOccurrenceHeader>
 	                          {isEditing && (
 	                            <RecurrenceEditBox>
@@ -7476,6 +8358,7 @@ export default function Agendamentos() {
 		                  disabled={
 		                    recurrencePreview.is_submitting ||
 		                    recurrencePreview.is_editing_occurrence ||
+		                    recurrencePreview.requires_revalidation ||
 		                    !!recurrencePreview.editing_index ||
 		                    recurrenceSelectedOccurrences.length === 0 ||
 		                    (recurrencePreview.package_share_review && (
@@ -10428,13 +11311,17 @@ const RecurrenceRow = styled.div`
   border-radius: 10px;
   border: 1px solid
     ${(props) => {
-    if (props.$status === "BLOCK") return "rgba(199, 102, 102, 0.35)";
+    if (props.$status === "BLOCK" || props.$status === "ERROR") {
+      return "rgba(199, 102, 102, 0.35)";
+    }
     if (props.$status === "WARN_CONFIRM") return "rgba(196, 146, 73, 0.35)";
     if (props.$status === "INFO") return "rgba(106, 121, 92, 0.25)";
     return "rgba(106, 121, 92, 0.2)";
   }};
   background: ${(props) => {
-    if (props.$status === "BLOCK") return "rgba(199, 102, 102, 0.1)";
+    if (props.$status === "BLOCK" || props.$status === "ERROR") {
+      return "rgba(199, 102, 102, 0.1)";
+    }
     if (props.$status === "WARN_CONFIRM") return "rgba(214, 170, 104, 0.12)";
     if (props.$selected) return "rgba(162, 177, 144, 0.12)";
     return "#fff";

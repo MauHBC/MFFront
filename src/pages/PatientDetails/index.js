@@ -230,6 +230,130 @@ const DEFAULT_OPERATIONAL_POLICY = {
   monthly_absence_limit: 2,
 };
 
+const isPositiveSafeInteger = (value) => (
+	  Number.isSafeInteger(value) && value > 0
+);
+
+const isNullablePositiveSafeInteger = (value) => (
+  value === null || isPositiveSafeInteger(value)
+);
+
+const PACKAGE_HISTORY_PACKAGE_STATUSES = new Set(["active", "closed"]);
+const PACKAGE_HISTORY_UNIT_STATES = new Set([
+  "available",
+  "reserved",
+  "consumed",
+  "closed",
+]);
+const hasOwnHistoryField = (value, field) => (
+  !!value && Object.prototype.hasOwnProperty.call(value, field)
+);
+const isParseableHistoryDate = (value) => (
+  typeof value === "string"
+  && value.trim().length > 0
+  && Number.isFinite(new Date(value).getTime())
+);
+
+const validatePackageUnitHistoryResponse = (value) => {
+  const isValid = Array.isArray(value) && value.every((pkg) => {
+	    const quantity = pkg?.quantity;
+	    const scheduledCount = pkg?.scheduled_count;
+    const sessions = pkg?.sessions;
+    if (
+      !isPositiveSafeInteger(pkg?.id)
+      || !pkg?.service
+      || !isPositiveSafeInteger(pkg.service.id)
+	      || typeof pkg.service.name !== "string"
+	      || !pkg.service.name.trim()
+	      || typeof pkg.service.code !== "string"
+	      || !pkg.service.code.trim()
+      || !Number.isSafeInteger(quantity)
+      || quantity <= 0
+      || !Number.isSafeInteger(scheduledCount)
+      || scheduledCount < 0
+      || scheduledCount > quantity
+	      || !isParseableHistoryDate(pkg.contracted_at)
+	      || !isParseableHistoryDate(pkg.reference_date)
+	      || !PACKAGE_HISTORY_PACKAGE_STATUSES.has(pkg.status)
+      || !Array.isArray(sessions)
+      || sessions.length !== quantity
+    ) return false;
+
+    const unitIds = new Set();
+	    const positions = new Set();
+	    return sessions.every((session, sessionIndex) => {
+	      const unitId = session?.unit_id;
+	      const position = session?.position;
+      const attendedPatient = session?.attended_patient;
+      const currentSessionId = session?.current_session_id;
+      const sessionId = session?.id;
+	      const replacement = session?.replacement;
+      const hasSessionDetails = sessionId !== null;
+      const hasValidAttendedPatient = attendedPatient
+        && isPositiveSafeInteger(attendedPatient.id)
+	        && typeof attendedPatient.name === "string"
+	        && attendedPatient.name.trim().length > 0
+        && typeof attendedPatient.can_view_profile === "boolean";
+	      const hasValidReplacement = replacement === null || (
+	        replacement
+	        && typeof replacement === "object"
+	        && isPositiveSafeInteger(replacement.id)
+	        && replacement.status === "pending"
+	        && isParseableHistoryDate(replacement.expires_at)
+	      );
+      const hasValidSessionDetails = hasSessionDetails
+        ? (
+	          isParseableHistoryDate(session.starts_at)
+          && hasValidAttendedPatient
+          && (currentSessionId === null || Number(currentSessionId) === Number(sessionId))
+        )
+        : (
+          session.starts_at === null
+          && attendedPatient === null
+	          && session.professional_name === null
+	          && session.status === (replacement ? "replacement_pending" : session.unit_state)
+        );
+      if (
+        !isPositiveSafeInteger(unitId)
+        || unitIds.has(unitId)
+	        || !isPositiveSafeInteger(position)
+	        || positions.has(position)
+	        || position !== sessionIndex + 1
+	        || !PACKAGE_HISTORY_UNIT_STATES.has(session.unit_state)
+	        || !hasOwnHistoryField(session, "current_session_id")
+        || !isNullablePositiveSafeInteger(currentSessionId)
+	        || !hasOwnHistoryField(session, "id")
+        || !isNullablePositiveSafeInteger(sessionId)
+	        || !hasOwnHistoryField(session, "starts_at")
+	        || !hasOwnHistoryField(session, "professional_name")
+	        || !(session.professional_name === null
+	          || typeof session.professional_name === "string")
+	        || !hasOwnHistoryField(session, "attended_patient")
+	        || !hasOwnHistoryField(session, "replacement")
+	        || typeof session.status !== "string"
+	        || !session.status.trim()
+	        || (["available", "closed"].includes(session.unit_state)
+	          && currentSessionId !== null)
+	        || (["reserved", "consumed"].includes(session.unit_state)
+	          && currentSessionId === null)
+	        || (replacement !== null && (
+	          session.unit_state !== "available"
+	          || currentSessionId !== null
+	        ))
+	        || (session.status === "replacement_pending" && replacement === null)
+	        || !hasValidReplacement
+        || !hasValidSessionDetails
+      ) return false;
+      unitIds.add(unitId);
+	      positions.add(position);
+      return true;
+    });
+  });
+
+  if (!isValid) throw new Error("PACKAGE_UNIT_HISTORY_RESPONSE_INVALID");
+  return value;
+};
+
 const CLINICAL_REFERENCE_TYPES = [
   { value: "scientific_article", label: "Artigo científico" },
   { value: "protocol", label: "Protocolo" },
@@ -824,7 +948,9 @@ export default function PatientDetails() {
   const canViewDocuments = canReadClinicalRecords || canIssueDocuments;
   const canEditClinicalPatientData = authorization.canAccessModule("patients", "manage")
     && canWriteClinicalRecords;
+  const canViewPatientProfiles = authorization.canAccessModule("patients", "view");
   const canViewSchedule = authorization.canAccessModule("schedule", "view");
+  const usesPackageUnitHistoryContract = authorization.context?.catalog_version === 8;
   const [activeTab, setActiveTab] = useState(() => getStoredPatientDetailsTab(id, sessionScope));
   const [activeProntuarioSection, setActiveProntuarioSection] = useState(
     PRONTUARIO_SECTIONS.records,
@@ -936,6 +1062,7 @@ export default function PatientDetails() {
     setClinicalReferenceEditReturn(null);
     setClinicalReferenceModal(null);
     setClinicalReferenceForm(buildClinicalReferenceForm());
+    setSelectedPackage(null);
   }, [id]);
 
   useEffect(() => {
@@ -1055,7 +1182,7 @@ export default function PatientDetails() {
     const sessionsFrom = addMonths(currentMonth, -5);
     const sessionsTo = addMonths(currentMonth, 1);
     setScheduleLoad({ patientId: id, status: "loading", error: "" });
-    Promise.all([
+    const scheduleRequests = [
       axios.get("/sessions", {
         params: {
           patient_id: id,
@@ -1067,8 +1194,11 @@ export default function PatientDetails() {
       axios.get("/session-series", { params: { patient_id: id } }),
       axios.get("/session-replacement-credits", { params: { patient_id: id } }),
       axios.get("/unit-scheduling-policy"),
-      axios.get(`/patients/${id}/package-history`),
-    ])
+    ];
+    if (usesPackageUnitHistoryContract) {
+      scheduleRequests.push(axios.get(`/patients/${id}/package-history`));
+    }
+    Promise.all(scheduleRequests)
       .then(([
         sessionsResponse,
         allSessionsResponse,
@@ -1078,6 +1208,9 @@ export default function PatientDetails() {
         packageHistoryResponse,
       ]) => {
         if (!active) return;
+        const packageHistory = usesPackageUnitHistoryContract
+          ? validatePackageUnitHistoryResponse(packageHistoryResponse?.data)
+          : [];
         setFrequencySessions(Array.isArray(sessionsResponse.data) ? sessionsResponse.data : []);
         setPerSessionSessions(Array.isArray(allSessionsResponse.data)
           ? allSessionsResponse.data : []);
@@ -1089,8 +1222,7 @@ export default function PatientDetails() {
           ...DEFAULT_OPERATIONAL_POLICY,
           ...(operationalPolicyResponse.data || {}),
         });
-        setOwnedPackageHistory(Array.isArray(packageHistoryResponse.data)
-          ? packageHistoryResponse.data : []);
+        setOwnedPackageHistory(packageHistory);
         setScheduleLoad({ patientId: id, status: "ready", error: "" });
       })
       .catch((error) => {
@@ -1101,7 +1233,7 @@ export default function PatientDetails() {
         toast.error(message);
       });
     return () => { active = false; };
-  }, [canViewSchedule, id]);
+  }, [canViewSchedule, id, usesPackageUnitHistoryContract]);
 
   useEffect(() => {
     if (patient && !editingSection) {
@@ -1265,6 +1397,7 @@ export default function PatientDetails() {
     const eligibleSessions = perSessionSessions
       .filter((session) => (session.billing_mode || "per_session") === "per_session")
       .filter((session) => {
+        if (!usesPackageUnitHistoryContract) return true;
         const packageOwnerId = session?.PackageUnit?.Package?.patient_id
           || session?.PackageUnit?.Package?.Patient?.id;
         return !packageOwnerId || String(packageOwnerId) !== String(id);
@@ -1294,6 +1427,7 @@ export default function PatientDetails() {
       const packageOwner = session?.PackageUnit?.Package?.Patient;
       const packageOwnerId = packageOwner?.id || session?.PackageUnit?.Package?.patient_id;
       const attendedPatient = session.attended_patient || session.Patient;
+      const attendedPatientId = attendedPatient?.id || null;
       const hasScheduledDate = Boolean(session.starts_at);
       const isUnscheduledPackageRight = session.status === "available"
         && session.unit_state === "available"
@@ -1322,6 +1456,12 @@ export default function PatientDetails() {
         attendedPatientName: isUnscheduledPackageRight
           ? "—"
           : (attendedPatient?.name || getPatientDisplayName(attendedPatient) || "—"),
+        attendedPatientId: isUnscheduledPackageRight ? null : attendedPatientId,
+        canViewAttendedPatientProfile: !isUnscheduledPackageRight && (
+          session.attended_patient
+            ? session.attended_patient.can_view_profile === true
+            : String(attendedPatientId) === String(id)
+        ),
         packageOwnerName: packageOwnerId && String(packageOwnerId) !== String(session.patient_id)
           ? getPatientDisplayName(packageOwner)
           : "",
@@ -1336,7 +1476,7 @@ export default function PatientDetails() {
       ));
       const doneCount = sessionDetails.filter((session) => session.status === "done").length;
       const noShowCount = sessionDetails.filter((session) => session.status === "no_show").length;
-      const scheduledCount = sessionDetails.filter((session) => session.status === "scheduled").length;
+      const scheduledCount = Number(pkg.scheduled_count ?? 0);
       const canceledCount = sessionDetails.filter((session) => session.status === "canceled").length;
       return {
         id: `package-${pkg.id}`,
@@ -1412,6 +1552,7 @@ export default function PatientDetails() {
     perSessionSessions,
     ownedPackageHistory,
     id,
+    usesPackageUnitHistoryContract,
   ]);
 
   const isTreatmentGoalOtherSelected = editForm.treatment_goal_options.includes(
@@ -2844,6 +2985,7 @@ export default function PatientDetails() {
                         <th>Serviço</th>
                         <th>Data inicial</th>
                         <th>Total</th>
+                        <th>Agendadas</th>
                         <th>Realizadas</th>
                         <th>Faltas</th>
                         <th>Canceladas</th>
@@ -2870,6 +3012,7 @@ export default function PatientDetails() {
                           </td>
                           <td>{formatDate(item.referenceDate)}</td>
                           <td>{item.totalSessions}</td>
+                          <td>{item.scheduledCount}</td>
                           <td>{item.doneCount}</td>
                           <td>{item.noShowCount}</td>
                           <td>{item.canceledCount}</td>
@@ -4917,7 +5060,18 @@ export default function PatientDetails() {
                         <td>
                           <StatusPill>{session.statusLabel}</StatusPill>
                         </td>
-                        <td>{session.attendedPatientName}</td>
+                        <td>
+                          {canViewPatientProfiles
+                            && session.canViewAttendedPatientProfile
+                            && session.attendedPatientId ? (
+                              <AttendedPatientLink
+                                to={`/pacientes/${session.attendedPatientId}`}
+                                onClick={closePackageModal}
+                              >
+                                {session.attendedPatientName}
+                              </AttendedPatientLink>
+                            ) : session.attendedPatientName}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -5257,7 +5411,7 @@ const PackageTableWrap = styled.div`
 const PackageTable = styled.table`
   width: 100%;
   border-collapse: collapse;
-  min-width: 780px;
+  min-width: 860px;
 
   th,
   td {
@@ -6572,6 +6726,17 @@ const PackageSessionTable = styled.table`
   td {
     color: #1b1b1b;
     font-size: 0.9rem;
+  }
+`;
+
+const AttendedPatientLink = styled(Link)`
+  color: inherit;
+  text-decoration: none;
+
+  &:hover {
+    color: #4f6b45;
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 `;
 

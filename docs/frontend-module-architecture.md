@@ -74,13 +74,19 @@ As regras autoritativas estão na
   autenticada. O domínio público não substitui o tenant da sessão.
 - Em produção, a API é `/api` same-origin e o bundle não contém localhost. Em
   desenvolvimento, o contrato padrão usa Frontend em `127.0.0.1:3000` e Backend
-  em loopback na porta `3006`. A validação combinada isolada pode selecionar
+  em loopback na porta `3006`. A validação persistente preparada pode selecionar
+  somente `MOTRIA_LOCAL_STACK_SLOT=persistent-validation` em `.env.local`; esse
+  marcador ignorado pelo Git fixa `127.0.0.1:3000` e API
+  `127.0.0.1:3006`, sem aceitar endpoints livres. A validação combinada isolada
+  pode selecionar
   somente o perfil fechado `MOTRIA_LOCAL_STACK_SLOT=combined-validation`, que
   usa `127.0.0.1:3010` e API `127.0.0.1:3016`; o launcher continua recusando
-  endpoints remotos, portas avulsas, persistência do perfil em `.env*` e qualquer
-  slot desconhecido.
+  endpoints remotos, portas avulsas, persistência de qualquer outro perfil em
+  `.env*` e slots desconhecidos.
 - `npm run dev` impõe esses destinos locais e recusa overrides remotos em
   variáveis de processo ou arquivos `.env*`; worktrees não exigem `.env` manual.
+  No perfil persistente já preparado, o comando não cria nem atualiza banco ou
+  fixture; reiniciar o Frontend não altera dados.
   Para subir a validação combinada sem abrir o navegador, use no Git Bash:
   `export MOTRIA_LOCAL_STACK_SLOT=combined-validation`, depois
   `export BROWSER=none` e `npm run dev`. A URL é `http://127.0.0.1:3010`.
@@ -970,7 +976,19 @@ ativá-la, o drawer expande apenas **De quem é o pacote?**. Serviço, profissio
 data, horário e observações continuam no formulário comum, e alterações nesses
 campos não limpam silenciosamente o paciente dono do pacote.
 
-A revisão mostra paciente atendido, dono do pacote e atendimento, sem expor IDs
+O caminho consumido é escolhido somente pelo `catalog_version` do contexto de
+autorização já validado, nunca pela ausência eventual de um campo, por `404` ou
+por falha de rede. No catálogo `7`, a Agenda mantém o contrato publicado que
+avalia eventos operacionais, sem exigir `validation`; a revisão identifica um
+resultado livre desses eventos como **Sem bloqueio operacional**, e a gravação
+continua sujeita à validação final do servidor. Nesse contexto não há
+compartilhamento, e o Histórico usa apenas `/sessions` e `/session-series`, sem
+consultar `/patients/:id/package-history` nem inventar unidades ou contadores.
+No catálogo `8`, a Agenda exige a validação completa de conflito do paciente e
+PatientDetails exige o read-model por `PackageUnit`; resposta incompleta, `404`
+ou erro permanece falha do contrato novo e não ativa fallback legado.
+
+A revisão de compartilhamento mostra paciente atendido, dono do pacote e atendimento, sem expor IDs
 ou unidades. Ela consulta somente pacotes elegíveis para o serviço já escolhido,
 ordena os mais recentes primeiro e apresenta contratação, quantidade e
 disponibilidade em cards compactos. Direito livre aparece como **N livres** e
@@ -982,8 +1000,18 @@ destinatário. Contratação e sessões usam data completa `dd/mm/aaaa`; a front
 do Frontend rejeita respostas sem `free_rights`, `relocatable_sessions` e lista
 coerente, em vez de renderizar contadores indefinidos. Contadores agregados da
 revisão ficam ocultos apenas neste fluxo;
-alertas e bloqueios reais continuam no item correspondente. A confirmação
-continua usando `POST /sessions`,
+alertas e bloqueios reais continuam no item correspondente. As prévias individual
+e recorrente enviam paciente, intervalo, serviço e profissional para a validação autoritativa;
+ao selecionar pacote ou sessão de origem, invalida a resposta anterior e refaz a
+consulta com esse contexto. **Disponível** aparece somente quando o Backend
+confirma o contrato completo e a ausência de conflito do paciente. Enquanto a
+consulta estiver pendente o item informa a verificação, e resposta incompleta,
+falha ou `PATIENT_SCHEDULE_CONFLICT` deixa a ocorrência sem seleção e sem
+confirmação. Na recorrência, o contrato completo é exigido também para cada
+ocorrência. Respostas atrasadas são descartadas. Se o conflito surgir depois da
+prévia, o `409` atualiza o item correspondente — ou invalida toda a prévia quando
+não puder mapeá-lo com segurança — sem apagar o formulário e exige nova avaliação;
+o Backend continua revalidando na gravação. A confirmação usa `POST /sessions`,
 com token de revisão e chave idempotente; mudanças concorrentes atualizam as
 opções sem trocar o serviço ou o dono selecionado. Cards da
 grade Semana/Mês mantêm somente o paciente atendido. Em sessão de `PackageUnit`
@@ -1003,6 +1031,24 @@ mantém o pacote integral somente no titular e o modal inclui uma linha por
 quando o direito está `available`, com campos ainda indefinidos em travessão.
 Remarcação, reposição e compartilhamento não duplicam direitos; o destinatário
 continua vendo somente as próprias sessões.
+
+Na tabela compacta **Pacotes e sessões avulsas**, **Agendadas** aparece
+imediatamente depois de **Total**. Para pacotes da fundação, a interface consome
+o `scheduled_count` autoritativo do read-model, calculado somente pela sessão
+vigente de cada `PackageUnit`; não deriva essa quantidade do tamanho da lista de
+sessões nem conta registros históricos. No histórico do destinatário, o item
+compartilhado continua representando somente a sessão atendida por ele, sem
+projetar os totais do pacote do titular.
+
+No modal, o próprio nome em **Paciente atendido** usa a rota existente
+`/pacientes/:id` somente quando há `patients/view` efetivo e
+`attended_patient.can_view_profile === true`; no legado, o paciente já aberto e
+autorizado pela própria rota conserva o mesmo padrão de link. A identidade do
+destino vem sempre do paciente atendido (`attended_patient.id` ou `Patient.id`),
+nunca do titular. Sem essa autorização, ou nas linhas **Não agendada**, o
+conteúdo permanece texto. A navegação usa o `Link` e o histórico nativos; ao
+voltar, a persistência já existente por paciente e clínica restaura a aba
+**Histórico**, sem criar estado paralelo de retorno.
 
 ### Confirmação de bloqueio manual por feriado
 
@@ -1044,6 +1090,14 @@ no contexto `7`; o compartilhamento permanece indisponível. Quando o documento
 recebe os assets correntes, `AppVersionReloader` aplica a mesma recarga segura
 descrita acima. Isso não abre aceitação genérica de versões nem contorna comandos
 em andamento.
+
+Um bundle antigo que conhece somente o catálogo `7` não negocia o contrato `8`
+em memória: ao receber esse contexto, falha fechado e depende da atualização de
+versão para carregar os assets transitórios. Se houver edição, modal ou rota
+sensível, a recarga pode ficar pendente até a próxima oportunidade segura; esse
+adiamento protege o rascunho, mas não prova compatibilidade funcional do bundle
+antigo com o Backend novo. Comandos já enviados continuam dependendo da
+idempotência e compatibilidade mantidas pelo servidor, sem reenvio automático.
 
 A ordem técnica de uma futura ativação coordenada é: primeiro disponibilizar o
 Frontend transitório que aceita somente `7` e `8` e exige `8` para
