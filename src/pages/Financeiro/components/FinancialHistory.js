@@ -2,6 +2,11 @@ import React, { useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import FinancialReceiptDetails from "./FinancialReceiptDetails";
+import { formatCivilDate } from "../../../utils/canonicalDateTime";
+import {
+  formatFinancialInstant,
+  parseFinancialHistoricalValue,
+} from "../helpers/financialDateTime";
 
 const labels = {
   RECEIPT: "Recebimento",
@@ -13,11 +18,14 @@ const labels = {
 
 export const formatFinancialEventDate = (value, { dateOnly = false, short = false } = {}) => {
   if (!value) return "Data não registrada";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Data não registrada";
-  const options = { timeZone: /^\d{4}-\d{2}-\d{2}$/.test(value) ? "UTC" : "America/Sao_Paulo" };
-  if (short) return date.toLocaleDateString("pt-BR", { ...options, day: "2-digit", month: "2-digit" });
-  return dateOnly ? date.toLocaleDateString("pt-BR", options) : date.toLocaleString("pt-BR", options);
+  const parsed = parseFinancialHistoricalValue(value);
+  if (!parsed) return "Data não registrada";
+  if (parsed.kind === "civil-date" || (parsed.kind === "legacy-paid-date" && dateOnly)) {
+    const formatted = formatCivilDate(parsed.dateOnly);
+    return short ? formatted.slice(0, 5) : formatted;
+  }
+  if (short) return formatFinancialInstant(parsed.date, "dd/MM");
+  return formatFinancialInstant(parsed.date, dateOnly ? "dd/MM/yyyy" : "dd/MM/yyyy HH:mm:ss");
 };
 
 const detailDateLabels = {
@@ -30,10 +38,8 @@ const detailDateLabels = {
 
 const formatDetailDate = (value) => {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value || "")) {
-    const date = new Date(value);
-    if (!Number.isNaN(date.getTime())) {
-      return `${date.toLocaleDateString("pt-BR", { timeZone: "UTC" })} (horário não registrado)`;
-    }
+    const formatted = formatCivilDate(value);
+    if (formatted) return `${formatted} (horário não registrado)`;
   }
   return formatFinancialEventDate(value);
 };

@@ -8,6 +8,10 @@ import {
   createFinancialPayment,
 } from "../../../services/financial";
 import { getPatientDisplayName } from "../../../utils/patientSearch";
+import {
+  financialPaidAtInstant,
+  financialTodayDate,
+} from "../helpers/financialDateTime";
 import { formatCurrencyInputFromCents } from "../helpers/expenseFormatters";
 
 const emptyPayment = {
@@ -132,8 +136,6 @@ const buildScopedAllocationItems = (scopedEntries = [], amountCents = 0, discoun
     .filter(Boolean);
 };
 
-const toDateInputValue = (date) => date.toISOString().slice(0, 10);
-
 export default function useFinancialPaymentFlow({ onPaymentSaved }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -163,7 +165,7 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
       patient_id: patientId,
       amount: !Array.isArray(scopedPayment?.groups) && totalOpenCents > 0
         ? formatCurrencyInputFromCents(totalOpenCents) : "",
-      paid_at: toDateInputValue(new Date()),
+      paid_at: financialTodayDate(),
     });
     setContext({
       patientName,
@@ -302,7 +304,7 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
 
   const createStandalonePaymentAnchor = useCallback(async ({ patientId, referenceDate, scopeType }) => {
     const normalizedReferenceDate =
-      String(referenceDate || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
+      String(referenceDate || "").slice(0, 10) || financialTodayDate();
     const copy = paymentAnchorCopy(scopeType);
     const response = await createFinancialEntry({
       type: "income",
@@ -434,7 +436,7 @@ export default function useFinancialPaymentFlow({ onPaymentSaved }) {
         patient_id: patientId,
         payment_method_id: paymentMethodId,
         amount_cents: amountCents,
-        paid_at: new Date(`${referenceDate}T09:00:00`).toISOString(),
+        paid_at: financialPaidAtInstant(referenceDate),
         note: note || null,
         allocation_mode: creditOnly ? "none" : "manual",
         receipt_intent: creditOnly ? "credit_only" : undefined,

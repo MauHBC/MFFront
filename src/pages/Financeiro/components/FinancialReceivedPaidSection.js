@@ -5,6 +5,7 @@ import styled from "styled-components";
 import { FaCog } from "react-icons/fa";
 import { useAuthorization } from "../../../contexts/AuthorizationContext";
 import { getUserFacingApiError } from "../../../services/axios";
+import { financialCivilMonthFromInstant } from "../helpers/financialDateTime";
 import {
   getReceivedPaid,
   getDistributionConfiguration,
@@ -216,9 +217,9 @@ function ReceivedPaidContent({
     currentDate instanceof Date && !Number.isNaN(currentDate.getTime())
       ? currentDate
       : new Date();
-  const currentMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const currentMonth = financialCivilMonthFromInstant(date);
   const futureEmpty = (month) =>
-    String(year) === String(date.getFullYear()) &&
+    String(year) === currentMonth.slice(0, 4) &&
     month.month > currentMonth &&
     month.received_cents === 0 &&
     month.paid_cents === 0;

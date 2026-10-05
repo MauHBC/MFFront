@@ -23,6 +23,10 @@ describe("expenseDueAlerts", () => {
 
   it("mostra alerta para despesa vencendo hoje", () => {
     expect(getExpenseDueAlertLabel({ due_date: "2026-06-09" }, today)).toBe("Vence hoje");
+    expect(getExpenseDueAlertLabel(
+      { due_date: "2026-06-09" },
+      new Date("2026-06-10T01:30:00.000Z"),
+    )).toBe("Vence hoje");
   });
 
   it("mostra alerta para despesa vencendo amanha", () => {

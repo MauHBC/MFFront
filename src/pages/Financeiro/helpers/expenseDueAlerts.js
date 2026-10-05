@@ -1,18 +1,16 @@
+import { financialCivilDateFromInstant } from "./financialDateTime";
+
 const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const toDateOnly = (value = new Date()) => {
   if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) return null;
-    const month = String(value.getMonth() + 1).padStart(2, "0");
-    const day = String(value.getDate()).padStart(2, "0");
-    return `${value.getFullYear()}-${month}-${day}`;
+    return financialCivilDateFromInstant(value) || null;
   }
 
   const match = String(value || "").match(DATE_ONLY_RE);
   return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
 };
-
 const toUtcDayTime = (dateOnly) => {
   const match = String(dateOnly || "").match(DATE_ONLY_RE);
   if (!match) return Number.NaN;
