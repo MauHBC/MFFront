@@ -49,6 +49,7 @@
     "dev": "node scripts/run-local-development.cjs",
     "start": "node scripts/run-local-development.cjs",
     "test:local-development": "node --test tests/run-local-development.test.cjs",
+    "test:temporal": "react-scripts test --watchAll=false --runInBand --silent --runTestsByPath src/utils/canonicalDateTime.test.js src/utils/agendaDateTime.test.js src/pages/Agendamentos/index.test.js src/pages/Dashboard/index.test.js src/components/PendingCenter/index.test.js src/pages/Financeiro/helpers/financialDateTime.test.js src/pages/Financeiro/helpers/billingCycleDueStatus.test.js src/pages/Financeiro/helpers/expenseDueAlerts.test.js src/pages/Financeiro/helpers/expenseStatus.test.js src/pages/Financeiro/hooks/useFinancialPaymentFlow.test.js src/pages/Financeiro/components/FinancialHistory.test.js src/pages/Financeiro/index.test.js src/pages/Planos/patientPlanDetailPresentation.test.js src/pages/Planos/index.test.js src/pages/PatientDetails/permissionAwareBootstrap.test.js",
     "prebuild": "node scripts/write-build-version.js public",
     "build": "react-scripts build",
     "postbuild": "node scripts/write-build-version.js build",

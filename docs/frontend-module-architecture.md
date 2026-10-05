@@ -168,6 +168,41 @@ daquele módulo.
 > Documento de referência para criação e manutenção de módulos administrativos no frontend.
 > Reflete o padrão consolidado nas microetapas 1–17 (Planos, Agendamentos, Financeiro).
 
+### Contratos temporais do Frontend
+
+O Frontend distingue instante, data civil `YYYY-MM-DD`, competência `YYYY-MM`,
+horário civil de grade e duração. Agenda e Planos projetam seus instantes e o
+calendário operacional em `America/Sao_Paulo`; o fuso do navegador e `TZ` do
+processo não são autoridade. Marcadores `Date` em UTC podem ser usados apenas
+para fazer aritmética de calendário sem deslocar a data civil e nunca representam
+um instante de atendimento. Dia, Semana e Mês agrupam e apresentam sessões pelo
+dia civil da Agenda. Drag-and-drop e alterações explícitas convertem data e hora
+civis para um instante de São Paulo, preservando a duração real. O editor mantém
+a regra mais estrita já documentada: se o horário não mudou, reenvia literalmente
+os instantes originais.
+
+`GET /sessions` recebe limites date-only semiabertos: `from` inclui o primeiro
+dia e `to` é o dia seguinte ao último dia visível. Quando o consumidor envia um
+datetime com offset, o limite é o instante exato, sem arredondamento civil; `to`
+continua exclusivo. Eventos especiais mantêm seu contrato date-only inclusivo
+nas duas pontas; os contratos não compartilham uma compensação implícita de fim
+de dia.
+
+No Financeiro, vencimento, referência, filtros e competência permanecem valores
+civis. Períodos mensal e anual são formados diretamente dessas datas, inclusive
+nas bordas de fevereiro, mês e ano. `paid_at` preserva a âncora técnica vigente
+de 09h no calendário de São Paulo, sem transformar essa hora em dado exibido ao
+usuário. O Histórico distingue data civil, instante com offset e a representação
+legada conhecida `T09:00:00`; outro timestamp sem offset não é reinterpretado.
+Esses helpers financeiros são separados dos helpers da Agenda. Datas clínicas
+sem contrato temporal confirmado, evolução e auditoria clínica não são
+reinterpretadas por essa regra transversal.
+
+O gate `npm run test:temporal` executa as caracterizações afetadas. O CI o roda
+em processos separados com `TZ=UTC`, `TZ=America/Sao_Paulo` e
+`TZ=Pacific/Kiritimati` antes da suíte canônica completa; esse gate focado não
+substitui `npm test -- --watchAll=false --runInBand`.
+
 ### Autorização oficial e fail-closed
 
 `AuthorizationProvider` carrega `/team/authorization-context` para a identidade

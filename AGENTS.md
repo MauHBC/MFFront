@@ -9,6 +9,8 @@ usa `main`.
 - Instalar por worktree: `npm ci`
 - Desenvolvimento local seguro: `npm run dev` em `http://localhost:3000`
 - Testes: `npm test -- --watchAll=false --runInBand`
+- Contratos temporais focados: `npm run test:temporal` (o CI executa em três
+  fusos antes da suíte completa)
 - Lint: `npx eslint src`
 - Mojibake e build: `npm run check:mojibake` e `npm run build`
 
