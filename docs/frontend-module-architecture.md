@@ -1147,14 +1147,14 @@ ou apenas fechar o modal não substitui a atualização explícita. Não exigir
 logout global. Resultado incerto deve ser esclarecido no servidor antes de
 qualquer nova tentativa.
 
-A ordem técnica de uma futura ativação coordenada é: primeiro disponibilizar o
-Frontend transitório que aceita somente `7` e `8` e exige `8` para
-`schedule.package.share`; depois conter os escritores afetados, aplicar a
+Na ativação coordenada concluída em 05/10/2026, a ordem técnica foi: primeiro
+disponibilizar o Frontend transitório que aceita somente `7` e `8` e exige `8`
+para `schedule.package.share`; depois conter os escritores afetados, aplicar a
 migration do catálogo `8`, ativar Backend 8 e validar a combinação antes da
 reabertura. Backend 7 não pode atender o banco promovido. Somente em release
-posterior se retira o suporte ao catálogo `7`. O procedimento operacional fica
-no [runbook do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/deploy-production.md#corte-coordenado-do-catálogo-7-para-8).
-Esta integração local não executa nenhuma dessas etapas de publicação.
+posterior se retira o suporte ao catálogo `7`. O procedimento operacional e o
+checkpoint da publicação ficam no
+[runbook do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/deploy-production.md#corte-coordenado-do-catálogo-7-para-8).
 
 O servidor permanece responsável pela compatibilidade de comandos das abas
 antigas. Recusa definitiva anterior à gravação usa o envelope de erro já
