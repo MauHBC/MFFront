@@ -1,6 +1,6 @@
 import React from "react";
 import "@testing-library/jest-dom";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import Dashboard from ".";
 import axios from "../../services/axios";
 import {
@@ -30,6 +30,10 @@ jest.mock("../../contexts/AuthorizationContext", () => ({
 }));
 
 describe("Dashboard", () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   beforeEach(() => {
     mockCanAccessModule.mockImplementation(() => true);
     axios.get.mockImplementation((url) => {
@@ -64,5 +68,24 @@ describe("Dashboard", () => {
     expect(screen.getByRole("heading", { name: "Financeiro" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Pendências" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Profissionais" })).toBeInTheDocument();
+  });
+
+  it("consulta Agenda com fronteiras civis exclusivas no calendário de São Paulo", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-10-01T02:30:00.000Z"));
+
+    render(<Dashboard />);
+
+    await waitFor(() => {
+      expect(axios.get.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(3);
+    });
+
+    const sessionRequests = axios.get.mock.calls
+      .filter(([url]) => url === "/sessions")
+      .map(([, config]) => config.params);
+    expect(sessionRequests).toEqual(expect.arrayContaining([
+      { from: "2026-09-01", to: "2026-10-01" },
+      { from: "2026-09-30", to: "2026-10-01" },
+      { status: "scheduled", from: "2026-09-01", to: "2026-10-01" },
+    ]));
   });
 });

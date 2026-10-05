@@ -1,6 +1,11 @@
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
+import {
+  normalizeCivilDate,
+  parseExplicitInstant,
+  SAO_PAULO_TIME_ZONE,
+} from "./canonicalDateTime";
 
-export const AGENDA_TIME_ZONE = "America/Sao_Paulo";
+export const AGENDA_TIME_ZONE = SAO_PAULO_TIME_ZONE;
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const CIVIL_DATE_TIME_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
@@ -39,8 +44,7 @@ export const parseAgendaDateTime = (value) => {
     return parseCivilAgendaDateTime(text);
   }
 
-  const date = new Date(text);
-  return isValidDate(date) ? date : null;
+  return parseExplicitInstant(text);
 };
 
 export const formatAgendaDateTimeInput = (value) => {
@@ -53,6 +57,15 @@ export const formatAgendaDateInput = (value) => {
   const date = parseAgendaDateTime(value);
   if (!date) return "";
   return formatInTimeZone(date, AGENDA_TIME_ZONE, "yyyy-MM-dd");
+};
+
+export const formatAgendaShortDate = (value) => {
+  if (!value) return "";
+  const civilDate = typeof value === "string" ? normalizeCivilDate(value) : "";
+  const dateOnly = civilDate || formatAgendaDateInput(value);
+  if (!dateOnly) return "";
+  const [year, month, day] = dateOnly.split("-");
+  return `${day}/${month}/${year.slice(2)}`;
 };
 
 export const formatAgendaHourInput = (value) => {
@@ -83,6 +96,11 @@ export const getAgendaIsoWeekday = (value) => {
   const date = parseAgendaDateTime(value);
   if (!date) return null;
   return Number(formatInTimeZone(date, AGENDA_TIME_ZONE, "i"));
+};
+
+export const isAgendaWeekendInstant = (value) => {
+  const weekday = getAgendaIsoWeekday(value);
+  return weekday === 6 || weekday === 7;
 };
 
 export const resolveAgendaFormInterval = ({

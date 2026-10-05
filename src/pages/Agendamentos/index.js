@@ -48,11 +48,22 @@ import {
   formatAgendaDateTimeInput,
   formatAgendaHourInput,
   formatAgendaMinuteInput,
+  formatAgendaShortDate,
   formatAgendaTime,
   getAgendaIsoWeekday,
+  isAgendaWeekendInstant,
   parseAgendaDateTime,
   resolveAgendaFormInterval,
 } from "../../utils/agendaDateTime";
+import {
+  addCivilDays,
+  addCivilMonths,
+  civilDateToMarker,
+  formatCivilDate,
+  getCivilMonthRange,
+  markerToCivilDate,
+  normalizeCivilDate,
+} from "../../utils/canonicalDateTime";
 import { alpha, colors } from "../../styles/tokens";
 import {
   PENDING_CENTER_ACTION_STATE_KEY,
@@ -1161,24 +1172,11 @@ const resolveSchedulingErrorMessage = (error) => {
   return safeErrorMessage;
 };
 
-const isWeekendDate = (value) => {
-  if (!value) return false;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-  return date.getDay() === 0 || date.getDay() === 6;
-};
-
 const formatDateTime = (value) => {
   if (!value) return "Sem data";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Sem data";
-  return date.toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const date = formatAgendaDate(value);
+  const time = formatAgendaTime(value);
+  return date && time ? `${date} ${time}` : "Sem data";
 };
 
 const firstName = (value) => String(value || "Paciente").trim().split(/\s+/)[0] || "Paciente";
@@ -1217,53 +1215,27 @@ const validatePackageShareOptions = (value) => {
 
 const formatDateParam = (value) => {
   if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  if (value instanceof Date) return markerToCivilDate(value);
+  const text = String(value).trim();
+  const civilPrefix = normalizeCivilDate(text.slice(0, 10));
+  if (civilPrefix && (!text.includes("T") || !/(?:Z|[+-]\d{2}:\d{2})$/.test(text))) {
+    return civilPrefix;
+  }
+  return formatAgendaDateInput(value);
 };
 
 const toDateInputValue = (value) => {
   if (!value) return "";
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return value;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return formatDateParam(value);
 };
 
 const toMonthInputValue = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
+  const dateOnly = toDateInputValue(value);
+  return dateOnly ? dateOnly.slice(0, 7) : "";
 };
 
 const parseDateInputValue = (value) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
-  const [yearString, monthString, dayString] = String(value).split("-");
-  const year = Number(yearString);
-  const monthIndex = Number(monthString) - 1;
-  const day = Number(dayString);
-  const date = new Date(year, monthIndex, day);
-  if (
-    Number.isNaN(date.getTime())
-    || date.getFullYear() !== year
-    || date.getMonth() !== monthIndex
-    || date.getDate() !== day
-  ) {
-    return null;
-  }
-  date.setHours(0, 0, 0, 0);
-  return date;
+  return civilDateToMarker(value);
 };
 
 const buildMonthlyValidityRange = (value, months = 1) => {
@@ -1276,74 +1248,28 @@ const buildMonthlyValidityRange = (value, months = 1) => {
   }
 
   const safeMonths = Math.min(12, Math.max(1, Number(months) || 1));
-  const firstDayAfterPeriod = new Date(
-    startDate.getFullYear(),
-    startDate.getMonth() + safeMonths,
-    1,
-  );
-  const daysInTargetMonth = new Date(
-    firstDayAfterPeriod.getFullYear(),
-    firstDayAfterPeriod.getMonth() + 1,
-    0,
-  ).getDate();
-  const targetMonthSameDay = new Date(
-    firstDayAfterPeriod.getFullYear(),
-    firstDayAfterPeriod.getMonth(),
-    Math.min(startDate.getDate(), daysInTargetMonth),
-  );
-  const endDate = new Date(targetMonthSameDay);
-  endDate.setDate(endDate.getDate() - 1);
+  const start = markerToCivilDate(startDate);
+  const end = addCivilDays(addCivilMonths(start, safeMonths), -1);
 
   return {
-    start: formatDateParam(startDate),
-    end: formatDateParam(endDate),
+    start,
+    end,
   };
 };
 
 const formatDate = (value) => {
   if (!value) return "";
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const parsedDate = parseDateInputValue(value);
-    if (!parsedDate) return "";
-    return parsedDate.toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  const dateOnly = typeof value === "string" ? normalizeCivilDate(value) : "";
+  if (dateOnly) return formatCivilDate(dateOnly);
+  if (value instanceof Date) return formatCivilDate(markerToCivilDate(value));
+  return formatAgendaDate(value);
 };
 
 const formatShortDate = (value) => {
-  if (!value) return "";
-  const dateOnlyMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (dateOnlyMatch) {
-    return `${dateOnlyMatch[3]}/${dateOnlyMatch[2]}/${dateOnlyMatch[1].slice(2)}`;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "2-digit",
-  });
+  return formatAgendaShortDate(value);
 };
 
-const formatTime = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
+const formatTime = (value) => formatAgendaTime(value);
 
 const formatPackageSession = (value) => {
   const day = formatAgendaDate(value);
@@ -1354,31 +1280,36 @@ const formatPackageSession = (value) => {
 
 const formatWeekRange = (start, end) => {
   if (!start || !end) return "";
-  const sameMonth = start.getMonth() === end.getMonth();
-  const sameYear = start.getFullYear() === end.getFullYear();
+  const sameMonth = start.getUTCMonth() === end.getUTCMonth();
+  const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
   if (sameMonth && sameYear) {
-    const monthName = start.toLocaleDateString("pt-BR", { month: "long" });
-    return `${start.getDate()} a ${end.getDate()} de ${monthName} de ${start.getFullYear()}`;
+    const monthName = start.toLocaleDateString("pt-BR", { month: "long", timeZone: "UTC" });
+    return `${start.getUTCDate()} a ${end.getUTCDate()} de ${monthName} de ${start.getUTCFullYear()}`;
   }
-  const startLabel = start.toLocaleDateString("pt-BR", { day: "numeric", month: "long" });
+  const startLabel = start.toLocaleDateString("pt-BR", {
+    day: "numeric", month: "long", timeZone: "UTC",
+  });
   const endLabel = end.toLocaleDateString("pt-BR", {
     day: "numeric",
     month: "long",
+    timeZone: "UTC",
   });
   if (!sameYear) {
     const startWithYear = start.toLocaleDateString("pt-BR", {
       day: "numeric",
       month: "long",
       year: "numeric",
+      timeZone: "UTC",
     });
     const endWithYear = end.toLocaleDateString("pt-BR", {
       day: "numeric",
       month: "long",
       year: "numeric",
+      timeZone: "UTC",
     });
     return `${startWithYear} a ${endWithYear}`;
   }
-  return `${startLabel} a ${endLabel} de ${end.getFullYear()}`;
+  return `${startLabel} a ${endLabel} de ${end.getUTCFullYear()}`;
 };
 
 const formatDayPeriodLabel = (date) => {
@@ -1387,6 +1318,7 @@ const formatDayPeriodLabel = (date) => {
     day: "numeric",
     month: "long",
     year: "numeric",
+    timeZone: "UTC",
   });
 };
 
@@ -1395,16 +1327,11 @@ const formatMonthPeriodLabel = (date) => {
   return date.toLocaleDateString("pt-BR", {
     month: "long",
     year: "numeric",
+    timeZone: "UTC",
   });
 };
 
-const toInputValue = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const offset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-};
+const toInputValue = (value) => formatAgendaDateTimeInput(value);
 
 const buildDateTimeInputValue = (dateValue, hourValue, minuteValue = "00") => {
   if (!dateValue || !hourValue) return "";
@@ -1419,14 +1346,8 @@ const buildDateTimeInputValue = (dateValue, hourValue, minuteValue = "00") => {
 };
 
 const getMonthDateRange = (value) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return { start: "", end: "" };
-  const start = new Date(date.getFullYear(), date.getMonth(), 1);
-  const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-  return {
-    start: toDateInputValue(start),
-    end: toDateInputValue(end),
-  };
+  const month = formatAgendaDateInput(value).slice(0, 7);
+  return getCivilMonthRange(month) || { start: "", end: "" };
 };
 
 const isDateWithinInputRange = (value, start, end) => {
@@ -1438,22 +1359,18 @@ const isDateWithinInputRange = (value, start, end) => {
 };
 
 const getMonthRangeForDate = (value) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return { start: null, endExclusive: null };
+  const monthRange = getMonthDateRange(value);
+  if (!monthRange.start || !monthRange.end) return { start: null, endExclusive: null };
   return {
-    start: new Date(date.getFullYear(), date.getMonth(), 1),
-    endExclusive: new Date(date.getFullYear(), date.getMonth() + 1, 1),
+    start: civilDateToMarker(monthRange.start),
+    endExclusive: civilDateToMarker(addCivilDays(monthRange.end, 1)),
   };
 };
 
 const isSessionInMonth = (session, monthDate) => {
-  const sessionDate = new Date(session?.starts_at);
-  const referenceDate = new Date(monthDate);
-  if (Number.isNaN(sessionDate.getTime()) || Number.isNaN(referenceDate.getTime())) return false;
-  return (
-    sessionDate.getFullYear() === referenceDate.getFullYear() &&
-    sessionDate.getMonth() === referenceDate.getMonth()
-  );
+  const sessionMonth = formatAgendaDateInput(session?.starts_at).slice(0, 7);
+  const referenceMonth = formatAgendaDateInput(monthDate).slice(0, 7);
+  return Boolean(sessionMonth && sessionMonth === referenceMonth);
 };
 
 const getSessionPatientId = (session) =>
@@ -1500,68 +1417,62 @@ const getSessionCancellationIdentity = (session) => {
 };
 
 const sameDay = (a, b) => {
-  if (!a || !b) return false;
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+  const first = a instanceof Date ? markerToCivilDate(a) : formatAgendaDateInput(a);
+  const second = b instanceof Date ? markerToCivilDate(b) : formatAgendaDateInput(b);
+  return Boolean(first && first === second);
 };
 
 const startOfDay = (date) => {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  if (date instanceof Date) return civilDateToMarker(markerToCivilDate(date));
+  return civilDateToMarker(formatAgendaDateInput(date));
 };
 
 const startOfNextDay = (date) => {
-  const d = startOfDay(date);
-  d.setDate(d.getDate() + 1);
-  return d;
-};
-
-const endOfDay = (date) => {
-  const d = new Date(date);
-  d.setHours(23, 59, 59, 999);
-  return d;
+  const dateOnly = date instanceof Date ? markerToCivilDate(date) : formatAgendaDateInput(date);
+  return civilDateToMarker(addCivilDays(dateOnly, 1));
 };
 
 const getWeekDays = (baseDate, includeWeekend = false) => {
   const start = startOfDay(baseDate);
-  const day = start.getDay();
+  const day = start.getUTCDay();
   const diff = day === 0 ? -6 : 1 - day;
-  start.setDate(start.getDate() + diff);
+  start.setUTCDate(start.getUTCDate() + diff);
   return Array.from({ length: includeWeekend ? 7 : 5 }).map((_, index) => {
     const d = new Date(start);
-    d.setDate(start.getDate() + index);
+    d.setUTCDate(start.getUTCDate() + index);
     return d;
   });
 };
 
 const getMonthDays = (baseDate) => {
-  const first = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
-  const last = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0);
+  const first = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth(), 1));
+  const last = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth() + 1, 0));
   const days = [];
   const start = new Date(first);
-  const offset = start.getDay() === 0 ? -6 : 1 - start.getDay();
-  start.setDate(start.getDate() + offset);
-  while (start <= last || start.getDay() !== 1) {
+  const offset = start.getUTCDay() === 0 ? -6 : 1 - start.getUTCDay();
+  start.setUTCDate(start.getUTCDate() + offset);
+  while (start <= last || start.getUTCDay() !== 1) {
     days.push(new Date(start));
-    start.setDate(start.getDate() + 1);
+    start.setUTCDate(start.getUTCDate() + 1);
   }
   return days;
 };
 
 const getVisibleDateRange = (view, baseDate, includeWeekend = false) => {
   if (view === "month") {
-    const firstDayOfMonth = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
-    const lastDayOfMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0);
+    const firstDayOfMonth = new Date(Date.UTC(
+      baseDate.getUTCFullYear(), baseDate.getUTCMonth(), 1,
+    ));
+    const lastDayOfMonth = new Date(Date.UTC(
+      baseDate.getUTCFullYear(), baseDate.getUTCMonth() + 1, 0,
+    ));
     return {
       sessionsFrom: startOfDay(firstDayOfMonth),
       // The sessions API treats the date-only `to` boundary as exclusive.
       sessionsTo: startOfNextDay(lastDayOfMonth),
       specialEventsFrom: startOfDay(firstDayOfMonth),
-      specialEventsTo: endOfDay(lastDayOfMonth),
+      // Special events use an inclusive DATEONLY `to`, unlike sessions.
+      specialEventsTo: startOfDay(lastDayOfMonth),
     };
   }
 
@@ -1571,7 +1482,7 @@ const getVisibleDateRange = (view, baseDate, includeWeekend = false) => {
       sessionsFrom: startOfDay(weekDays[0]),
       sessionsTo: startOfNextDay(weekDays[weekDays.length - 1]),
       specialEventsFrom: startOfDay(weekDays[0]),
-      specialEventsTo: endOfDay(weekDays[weekDays.length - 1]),
+      specialEventsTo: startOfDay(weekDays[weekDays.length - 1]),
     };
   }
 
@@ -1579,7 +1490,7 @@ const getVisibleDateRange = (view, baseDate, includeWeekend = false) => {
     sessionsFrom: startOfDay(baseDate),
     sessionsTo: startOfNextDay(baseDate),
     specialEventsFrom: startOfDay(baseDate),
-    specialEventsTo: endOfDay(baseDate),
+    specialEventsTo: startOfDay(baseDate),
   };
 };
 
@@ -1701,7 +1612,9 @@ export default function Agendamentos() {
   const [groupContext, setGroupContext] = useState(null);
   const [view, setView] = useState("week");
   const [showCanceledAndNoShowInDayView, setShowCanceledAndNoShowInDayView] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(() => (
+    civilDateToMarker(formatAgendaDateInput(new Date()))
+  ));
   const [filters, setFilters] = useState({
     status: "",
     patient_id: "",
@@ -2368,9 +2281,8 @@ export default function Agendamentos() {
   const sessionsByDay = useMemo(() => {
     const map = new Map();
     filteredSessions.forEach((session) => {
-      const date = session.starts_at ? new Date(session.starts_at) : null;
-      if (!date || Number.isNaN(date.getTime())) return;
-      const key = startOfDay(date).toISOString();
+      const key = formatAgendaDateInput(session?.starts_at);
+      if (!key) return;
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(session);
     });
@@ -2386,9 +2298,8 @@ export default function Agendamentos() {
   const weekSessionsByDay = useMemo(() => {
     const map = new Map();
     weekFilteredSessions.forEach((session) => {
-      const date = session.starts_at ? new Date(session.starts_at) : null;
-      if (!date || Number.isNaN(date.getTime())) return;
-      const key = startOfDay(date).toISOString();
+      const key = formatAgendaDateInput(session?.starts_at);
+      if (!key) return;
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(session);
     });
@@ -2399,15 +2310,15 @@ export default function Agendamentos() {
     const map = new Map();
     specialEvents.forEach((event) => {
       if (!event?.start_date || !event?.end_date) return;
-      const startDate = new Date(`${event.start_date}T00:00:00`);
-      const endDate = new Date(`${event.end_date}T00:00:00`);
-      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return;
+      const startDate = civilDateToMarker(event.start_date);
+      const endDate = civilDateToMarker(event.end_date);
+      if (!startDate || !endDate) return;
       if (startDate > endDate) return;
 
       const severity = eventSeverity(event);
       const cursor = new Date(startDate);
       while (cursor <= endDate) {
-        const key = startOfDay(cursor).toISOString();
+        const key = markerToCivilDate(cursor);
         if (!map.has(key)) {
           map.set(key, { events: [], severity: "info" });
         }
@@ -2416,14 +2327,14 @@ export default function Agendamentos() {
         if (severityWeight(severity) > severityWeight(base.severity)) {
           base.severity = severity;
         }
-        cursor.setDate(cursor.getDate() + 1);
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
       }
     });
     return map;
   }, [specialEvents]);
 
   const daySessions = useMemo(() => {
-    const key = startOfDay(selectedDate).toISOString();
+    const key = markerToCivilDate(selectedDate);
     return sessionsByDay.get(key) || [];
   }, [selectedDate, sessionsByDay]);
 
@@ -2439,21 +2350,17 @@ export default function Agendamentos() {
 
     visibleDaySessions.forEach((session) => {
       if (!session?.starts_at) return;
-      const startsAt = new Date(session.starts_at);
-      if (Number.isNaN(startsAt.getTime())) return;
+      const hour = Number(formatAgendaHourInput(session.starts_at));
+      const minute = Number(formatAgendaMinuteInput(session.starts_at));
+      if (!Number.isInteger(hour) || !Number.isInteger(minute)) return;
 
-      const minutes = startsAt.getHours() * 60 + startsAt.getMinutes();
-      const timeKey = `${String(startsAt.getHours()).padStart(2, "0")}:${String(
-        startsAt.getMinutes(),
-      ).padStart(2, "0")}`;
+      const minutes = hour * 60 + minute;
+      const timeKey = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 
       if (!timeMap.has(timeKey)) {
         timeMap.set(timeKey, {
           key: timeKey,
-          label: startsAt.toLocaleTimeString("pt-BR", {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
+          label: formatAgendaTime(session.starts_at),
           sortMinutes: minutes,
           serviceMap: new Map(),
         });
@@ -2513,20 +2420,19 @@ export default function Agendamentos() {
   }, [compareServiceGroups, compareSessionsByPatientThenId, visibleDaySessions, getSessionServiceCode, serviceColor, serviceName]);
 
   const selectedDaySpecialEvents = useMemo(() => {
-    const key = startOfDay(selectedDate).toISOString();
+    const key = markerToCivilDate(selectedDate);
     return specialEventsByDay.get(key)?.events || [];
   }, [selectedDate, specialEventsByDay]);
 
   const selectedDaySpecialSummary = useMemo(() => {
-    const key = startOfDay(selectedDate).toISOString();
+    const key = markerToCivilDate(selectedDate);
     return specialEventsByDay.get(key) || null;
   }, [selectedDate, specialEventsByDay]);
 
   const formLocalSpecialSummary = useMemo(() => {
     if (!form.starts_at) return null;
-    const date = parseDateInputValue(formatAgendaDateInput(form.starts_at));
-    if (!date) return null;
-    const key = startOfDay(date).toISOString();
+    const key = formatAgendaDateInput(form.starts_at);
+    if (!key) return null;
     return specialEventsByDay.get(key) || null;
   }, [form.starts_at, specialEventsByDay]);
 
@@ -2535,9 +2441,8 @@ export default function Agendamentos() {
       const groups = new Map();
       dayList.forEach((session) => {
         if (!session.starts_at) return;
-        const sessionDate = new Date(session.starts_at);
-        if (Number.isNaN(sessionDate.getTime())) return;
-        if (sessionDate.getHours() !== hour) return;
+        const sessionHour = Number(formatAgendaHourInput(session.starts_at));
+        if (!Number.isInteger(sessionHour) || sessionHour !== hour) return;
         const service =
           (session.service_id && servicesById.get(session.service_id)) ||
           (session.service_type && servicesByCode.get(session.service_type)) ||
@@ -2586,7 +2491,7 @@ export default function Agendamentos() {
   const weekSlotGroupsByKey = useMemo(() => {
     const map = new Map();
     weekDays.forEach((day) => {
-      const dayKey = startOfDay(day).toISOString();
+      const dayKey = markerToCivilDate(day);
       const dayList = weekSessionsByDay.get(dayKey) || [];
       for (let hour = START_HOUR; hour <= END_HOUR; hour += 1) {
         map.set(`${dayKey}-${hour}`, buildSlotGroupsForDayHour(dayList, hour));
@@ -2597,7 +2502,7 @@ export default function Agendamentos() {
 
   const getSlotGroups = useCallback(
     (day, hour) => {
-      const key = startOfDay(day).toISOString();
+      const key = markerToCivilDate(day);
       const precomputed = weekSlotGroupsByKey.get(`${key}-${hour}`);
       if (precomputed) return precomputed;
       return buildSlotGroupsForDayHour(weekSessionsByDay.get(key) || [], hour);
@@ -2607,7 +2512,7 @@ export default function Agendamentos() {
 
   const groupSessions = useMemo(() => {
     if (!groupContext?.date) return [];
-    const hour = groupContext.date.getHours();
+    const hour = Number(formatAgendaHourInput(groupContext.date));
     return getSlotGroups(groupContext.date, hour);
   }, [getSlotGroups, groupContext]);
 
@@ -3939,36 +3844,37 @@ export default function Agendamentos() {
       );
     }
   }, [
-		    canSharePackages,
-	    closeDrawer,
-	    form.service_id,
-	    form.shared_package_owner_id,
-	    loadOperationalAlerts,
-	    loadPendingSessions,
-	    loadReplacementCreditsForPatient,
-	    reloadVisibleSessions,
-	    recurrencePreview,
-	    resetForm,
-	    selectedMonthKey,
-		    usesCompleteSchedulingAvailabilityContract,
-	  ]);
+    canSharePackages,
+    closeDrawer,
+    form.service_id,
+    form.shared_package_owner_id,
+    loadOperationalAlerts,
+    loadPendingSessions,
+    loadReplacementCreditsForPatient,
+    reloadVisibleSessions,
+    recurrencePreview,
+    resetForm,
+    selectedMonthKey,
+    usesCompleteSchedulingAvailabilityContract,
+  ]);
 
-	  const handleCreateAt = useCallback(
-	    (date) => {
-      if (!allowWeekendScheduling && isWeekendDate(date)) {
+  const handleCreateAt = useCallback(
+    (date) => {
+      if (!allowWeekendScheduling && isAgendaWeekendInstant(date)) {
         toast.error("Agendamentos aos sábados e domingos estão desativados nas regras operacionais da clínica.");
         return;
       }
-	      if (
-	        !allowBrokenTimeScheduling
-	        && (date.getMinutes() !== 0 || date.getSeconds() !== 0 || date.getMilliseconds() !== 0)
-	      ) {
-	        toast.error("Esta clínica permite agendamentos apenas em horários cheios.");
-	        return;
-	      }
-	      resetForm();
-	      const endsAt = new Date(date);
-      endsAt.setHours(endsAt.getHours() + 1);
+      if (
+        !allowBrokenTimeScheduling
+        && (formatAgendaMinuteInput(date) !== "00"
+          || date.getUTCSeconds() !== 0
+          || date.getUTCMilliseconds() !== 0)
+      ) {
+        toast.error("Esta clínica permite agendamentos apenas em horários cheios.");
+        return;
+      }
+      resetForm();
+      const endsAt = new Date(date.getTime() + 60 * 60 * 1000);
       setDrawerMode("form");
       setGroupContext(null);
       setForm((prev) => ({
@@ -3978,52 +3884,52 @@ export default function Agendamentos() {
       }));
       setIsDrawerOpen(true);
     },
-		    [allowBrokenTimeScheduling, allowWeekendScheduling, resetForm],
-	  );
+    [allowBrokenTimeScheduling, allowWeekendScheduling, resetForm],
+  );
 
-	  const handleScheduleReplacement = useCallback((alert) => {
-	    const replacementCredit = buildReplacementCreditFromAlert(alert);
-	    if (!replacementCredit.id || !replacementCredit.patient_id) {
-	      toast.error("Reposição inválida para agendamento.");
-	      return;
-	    }
+  const handleScheduleReplacement = useCallback((alert) => {
+    const replacementCredit = buildReplacementCreditFromAlert(alert);
+    if (!replacementCredit.id || !replacementCredit.patient_id) {
+      toast.error("Reposição inválida para agendamento.");
+      return;
+    }
 
-	    const serviceId = replacementCredit.source_service_id
-	      ? String(replacementCredit.source_service_id)
-	      : "";
-	    const serviceType = replacementCredit.source_service_type || "";
-	    if (!serviceId && !serviceType) {
-	      toast.error("Não foi possível identificar o serviço da reposição.");
-	      return;
-	    }
+    const serviceId = replacementCredit.source_service_id
+      ? String(replacementCredit.source_service_id)
+      : "";
+    const serviceType = replacementCredit.source_service_type || "";
+    if (!serviceId && !serviceType) {
+      toast.error("Não foi possível identificar o serviço da reposição.");
+      return;
+    }
 
-	    resetForm();
-	    const defaultStart = new Date(selectedDate);
-	    defaultStart.setHours(START_HOUR, 0, 0, 0);
-	    const defaultEnd = new Date(defaultStart);
-	    defaultEnd.setHours(defaultEnd.getHours() + 1);
+    resetForm();
+    const defaultStart = parseAgendaDateTime(
+      `${markerToCivilDate(selectedDate)}T${String(START_HOUR).padStart(2, "0")}:00`,
+    );
+    const defaultEnd = new Date(defaultStart.getTime() + 60 * 60 * 1000);
 
-	    setDrawerMode("form");
-	    setGroupContext(null);
-	    setEditingId(null);
+    setDrawerMode("form");
+    setGroupContext(null);
+    setEditingId(null);
     setEditingIntent("create");
     setRepeatEnabled(false);
     setReplacementCreditsForPatient([replacementCredit]);
     setFormPatientQuery(replacementCredit.patient_name || "Paciente");
-	    setForm({
-	      ...emptyForm,
-	      patient_id: String(replacementCredit.patient_id),
-	      service_id: serviceId,
-	      service_type: serviceType,
-	      status: "scheduled",
-	      starts_at: toInputValue(defaultStart),
-	      ends_at: toInputValue(defaultEnd),
-	      billing_mode: replacementCredit.source_billing_mode || "per_session",
-	      session_replacement_credit_id: String(replacementCredit.id),
-	      patient_credit_id: "",
-	    });
-	    setIsDrawerOpen(true);
-	  }, [resetForm, selectedDate]);
+    setForm({
+      ...emptyForm,
+      patient_id: String(replacementCredit.patient_id),
+      service_id: serviceId,
+      service_type: serviceType,
+      status: "scheduled",
+      starts_at: toInputValue(defaultStart),
+      ends_at: toInputValue(defaultEnd),
+      billing_mode: replacementCredit.source_billing_mode || "per_session",
+      session_replacement_credit_id: String(replacementCredit.id),
+      patient_credit_id: "",
+    });
+    setIsDrawerOpen(true);
+  }, [resetForm, selectedDate]);
 
   useEffect(() => {
     const action = routeLocation.state?.[PENDING_CENTER_ACTION_STATE_KEY];
@@ -4039,8 +3945,10 @@ export default function Agendamentos() {
     });
 
     if (action.type === "open-day") {
-      const pendingDate = new Date(action.value);
-      if (Number.isNaN(pendingDate.getTime())) return;
+      const actionDate = normalizeCivilDate(String(action.value || "").slice(0, 10))
+        || formatAgendaDateInput(action.value);
+      const pendingDate = civilDateToMarker(actionDate);
+      if (!pendingDate) return;
       setSelectedDate(pendingDate);
       setView("day");
       closeDrawer();
@@ -5471,7 +5379,7 @@ export default function Agendamentos() {
         if (repeatMode === "weeks") {
           const weeks = Math.max(1, Number(repeatWeeks) || 1);
           const endDate = parseDateInputValue(recurrenceStartDate);
-          endDate.setDate(endDate.getDate() + weeks * 7 - 1);
+          endDate.setUTCDate(endDate.getUTCDate() + weeks * 7 - 1);
           untilDate = formatDateParam(endDate);
         }
         if (repeatMode === "month") {
@@ -5481,7 +5389,7 @@ export default function Agendamentos() {
             toast.error("Não foi possível calcular a vigência mensal.");
             return;
           }
-          recurrenceStartsAt.setSeconds(0, 0);
+          recurrenceStartsAt.setUTCSeconds(0, 0);
           untilDate = monthlyValidity.end;
         }
         const weekdays = repeatWeekdays.length
@@ -5917,33 +5825,33 @@ export default function Agendamentos() {
 
   const visibleMonthDays = useMemo(() => {
     if (allowWeekendScheduling) return monthDays;
-    return monthDays.filter((day) => day.getDay() !== 0 && day.getDay() !== 6);
+    return monthDays.filter((day) => day.getUTCDay() !== 0 && day.getUTCDay() !== 6);
   }, [allowWeekendScheduling, monthDays]);
 
   const handlePrev = useCallback(() => {
     const next = new Date(selectedDate);
     if (view === "month") {
-      next.setDate(1);
-      next.setMonth(next.getMonth() - 1);
+      next.setUTCDate(1);
+      next.setUTCMonth(next.getUTCMonth() - 1);
     }
-    if (view === "week") next.setDate(next.getDate() - 7);
-    if (view === "day") next.setDate(next.getDate() - 1);
+    if (view === "week") next.setUTCDate(next.getUTCDate() - 7);
+    if (view === "day") next.setUTCDate(next.getUTCDate() - 1);
     setSelectedDate(next);
   }, [selectedDate, view]);
 
   const handleNext = useCallback(() => {
     const next = new Date(selectedDate);
     if (view === "month") {
-      next.setDate(1);
-      next.setMonth(next.getMonth() + 1);
+      next.setUTCDate(1);
+      next.setUTCMonth(next.getUTCMonth() + 1);
     }
-    if (view === "week") next.setDate(next.getDate() + 7);
-    if (view === "day") next.setDate(next.getDate() + 1);
+    if (view === "week") next.setUTCDate(next.getUTCDate() + 7);
+    if (view === "day") next.setUTCDate(next.getUTCDate() + 1);
     setSelectedDate(next);
   }, [selectedDate, view]);
 
   const handleToday = useCallback(() => {
-    setSelectedDate(new Date());
+    setSelectedDate(civilDateToMarker(formatAgendaDateInput(new Date())));
   }, []);
 
   const formAvailabilityEvents = useMemo(
@@ -6577,31 +6485,31 @@ export default function Agendamentos() {
                   <div />
                   {weekDays.map((day) => (
                     <WeekHeaderCell
-                      key={day.toISOString()}
+                      key={markerToCivilDate(day)}
                       onClick={() => {
                         setSelectedDate(day);
                         setView("day");
                       }}
                     >
-                      <span>{day.toLocaleDateString("pt-BR", { weekday: "short" })}</span>
-                      <strong>{day.getDate()}</strong>
-                      {specialEventsByDay.get(startOfDay(day).toISOString()) && (
+                      <span>{day.toLocaleDateString("pt-BR", { weekday: "short", timeZone: "UTC" })}</span>
+                      <strong>{day.getUTCDate()}</strong>
+                      {specialEventsByDay.get(markerToCivilDate(day)) && (
                         <DaySpecialBadge
                           $severity={
-                            specialEventsByDay.get(startOfDay(day).toISOString()).severity
+                            specialEventsByDay.get(markerToCivilDate(day)).severity
                           }
                           title={buildSpecialEventsTooltip(
-                            specialEventsByDay.get(startOfDay(day).toISOString()).events,
+                            specialEventsByDay.get(markerToCivilDate(day)).events,
                           )}
                         >
                           <span>
                             {daySummaryLabel(
-                              specialEventsByDay.get(startOfDay(day).toISOString()),
+                              specialEventsByDay.get(markerToCivilDate(day)),
                             )}
                           </span>
                           <strong>
                             {
-                              specialEventsByDay.get(startOfDay(day).toISOString()).events
+                              specialEventsByDay.get(markerToCivilDate(day)).events
                                 .length
                             }
                           </strong>
@@ -6690,8 +6598,9 @@ export default function Agendamentos() {
                               )}
                             </TimeCell>
                             {weekDays.map((day) => {
-                              const slotDate = new Date(day);
-                              slotDate.setHours(hour, 0, 0, 0);
+                              const slotDate = parseAgendaDateTime(
+                                `${markerToCivilDate(day)}T${String(hour).padStart(2, "0")}:00`,
+                              );
                               const groups = getSlotGroups(day, hour);
                               const allItems = groups.flatMap((group) => {
                                 const color =
@@ -6702,11 +6611,11 @@ export default function Agendamentos() {
                               const visibleItems = isHourExpanded
                                 ? allItems
                                 : allItems.slice(0, MAX_WEEK_SLOT_VISIBLE);
-	                              const hiddenCount = allItems.length - MAX_WEEK_SLOT_VISIBLE;
-	                              return (
-	                                <SlotCell
-                                  key={`${day.toISOString()}-${hour}`}
-	                                  data-testid={`week-slot-${formatDateParam(day)}-${hour}`}
+                              const hiddenCount = allItems.length - MAX_WEEK_SLOT_VISIBLE;
+                              return (
+                                <SlotCell
+                                  key={`${markerToCivilDate(day)}-${hour}`}
+                                  data-testid={`week-slot-${formatDateParam(day)}-${hour}`}
                                   $striped={hour % 2 === 0}
                                   onClick={() => handleCreateAt(slotDate)}
                                   onDragOver={handleDragOver}
@@ -6714,7 +6623,7 @@ export default function Agendamentos() {
                                 >
                                   {visibleItems.map(({ session, group, color }) => (
                                     <WeekSlotSessionPill
-                                      key={`${session.id}-${day.toISOString()}-${hour}`}
+                                      key={`${session.id}-${markerToCivilDate(day)}-${hour}`}
                                       session={session}
                                       group={group}
                                       color={color}
@@ -6722,38 +6631,38 @@ export default function Agendamentos() {
                                       patientName={getSessionPatientName(session)}
                                       isHistory={isHistoricalSessionStatus(session.status)}
                                       attentionLevel={getSessionPatientAttentionLevel(session)}
-	                                      onDragStart={handleDragStart}
+                                      onDragStart={handleDragStart}
                                       onOpen={(event) => {
                                         event.stopPropagation();
                                         handleOpenGroup(slotDate);
                                       }}
                                     />
                                   ))}
-	                                  {hiddenCount > 0 && (
-	                                    <OverflowIndicatorBadge
-	                                      type="button"
-	                                      $expanded={isHourExpanded}
-	                                      title={
-	                                        isHourExpanded
-	                                          ? "Ver menos agendamentos neste horário"
-	                                          : `${hiddenCount} paciente(s) a mais neste horário`
-	                                      }
-	                                      aria-label={
-	                                        isHourExpanded
-	                                          ? "Ver menos agendamentos neste horário"
-	                                          : `Ver mais ${hiddenCount} agendamento(s) neste horário`
-	                                      }
-	                                      onClick={(event) => {
-	                                        event.stopPropagation();
-	                                        toggleExpandedHour(hour);
-	                                      }}
-	                                    >
-	                                      <span>{isHourExpanded ? "Ver menos" : `+${hiddenCount} mais`}</span>
-	                                      <WeekOverflowArrow aria-hidden="true">
-	                                        {isHourExpanded ? "▲" : "▼"}
-	                                      </WeekOverflowArrow>
-	                                    </OverflowIndicatorBadge>
-	                                  )}
+                                  {hiddenCount > 0 && (
+                                    <OverflowIndicatorBadge
+                                      type="button"
+                                      $expanded={isHourExpanded}
+                                      title={
+                                        isHourExpanded
+                                          ? "Ver menos agendamentos neste horário"
+                                          : `${hiddenCount} paciente(s) a mais neste horário`
+                                      }
+                                      aria-label={
+                                        isHourExpanded
+                                          ? "Ver menos agendamentos neste horário"
+                                          : `Ver mais ${hiddenCount} agendamento(s) neste horário`
+                                      }
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        toggleExpandedHour(hour);
+                                      }}
+                                    >
+                                      <span>{isHourExpanded ? "Ver menos" : `+${hiddenCount} mais`}</span>
+                                      <WeekOverflowArrow aria-hidden="true">
+                                        {isHourExpanded ? "▲" : "▼"}
+                                      </WeekOverflowArrow>
+                                    </OverflowIndicatorBadge>
+                                  )}
                                 </SlotCell>
                               );
                             })}
@@ -7140,12 +7049,12 @@ export default function Agendamentos() {
                     <MonthHeader key={label}>{label}</MonthHeader>
                   ))}
                   {visibleMonthDays.map((day) => {
-                    const key = startOfDay(day).toISOString();
+                    const key = markerToCivilDate(day);
                     return (
                       <MonthAgendaCell
-                        key={day.toISOString()}
+                        key={key}
                         day={day}
-                        isCurrentMonth={day.getMonth() === selectedDate.getMonth()}
+                        isCurrentMonth={day.getUTCMonth() === selectedDate.getUTCMonth()}
                         isActive={sameDay(day, selectedDate)}
                         daySummary={monthServicesByDay.get(key)}
                         specialSummary={specialEventsByDay.get(key)}
@@ -7194,8 +7103,7 @@ export default function Agendamentos() {
                     onClick={() => {
                       if (!groupContext?.date) return;
                       resetForm();
-                      const endsAt = new Date(groupContext.date);
-                      endsAt.setHours(endsAt.getHours() + 1);
+                      const endsAt = new Date(groupContext.date.getTime() + 60 * 60 * 1000);
                       setDrawerMode("form");
                       setGroupContext(null);
                       setForm((prev) => ({
@@ -8590,9 +8498,7 @@ export default function Agendamentos() {
                   <div aria-label="Outros agendamentos afetados">
                     {absenceModal.financialPreview.affected_sessions.filter((session) => Number(session.id) !== Number(absenceModal.id)).map((session) => (
                       <p key={session.id}>
-                        Também será cancelado: {absenceModal.financialPreview.patient.name} — {new Date(session.starts_at).toLocaleString("pt-BR", {
-                          timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short",
-                        })}.
+                        Também será cancelado: {absenceModal.financialPreview.patient.name} — {formatDateTime(session.starts_at)}.
                       </p>
                     ))}
                   </div>
@@ -9261,7 +9167,7 @@ const MonthAgendaCell = React.memo(
         $active={isActive}
         onClick={onOpenDay}
       >
-        <strong>{day.getDate()}</strong>
+        <strong>{day.getUTCDate()}</strong>
         {specialSummary && (
           <SpecialDayFlag
             $severity={specialSummary.severity}

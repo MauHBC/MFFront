@@ -1,7 +1,9 @@
 import {
   formatAgendaDateInput,
   formatAgendaDateTimeInput,
+  formatAgendaShortDate,
   formatAgendaTime,
+  isAgendaWeekendInstant,
   parseAgendaDateTime,
   resolveAgendaFormInterval,
 } from "./agendaDateTime";
@@ -21,6 +23,13 @@ describe("agendaDateTime", () => {
   it("preserva a data civil da Agenda perto da virada do dia", () => {
     expect(formatAgendaDateInput("2026-10-04T02:00:00.000Z")).toBe("2026-10-03");
     expect(formatAgendaTime("2026-10-04T02:00:00.000Z")).toBe("23:00");
+    expect(isAgendaWeekendInstant(new Date("2026-10-04T02:00:00.000Z"))).toBe(true);
+  });
+
+  it("formata data curta distinguindo DATEONLY de instante com offset", () => {
+    expect(formatAgendaShortDate("2026-10-01")).toBe("01/10/26");
+    expect(formatAgendaShortDate("2026-10-01T01:30:00.000Z")).toBe("30/09/26");
+    expect(formatAgendaShortDate("2026-10-01T01:30:00-00:00")).toBe("30/09/26");
   });
 
   it("mantém o instante de uma origem com offset explícito", () => {
@@ -30,6 +39,10 @@ describe("agendaDateTime", () => {
 
   it("rejeita horário civil inexistente em transição histórica do fuso", () => {
     expect(parseAgendaDateTime("2018-11-04T00:30")).toBeNull();
+  });
+
+  it("rejeita instante com offset cuja data civil é impossível", () => {
+    expect(parseAgendaDateTime("2026-02-30T10:00:00Z")).toBeNull();
   });
 
   it("preserva literalmente início e fim quando o horário civil não mudou", () => {

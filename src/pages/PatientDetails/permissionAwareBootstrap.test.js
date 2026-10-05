@@ -484,8 +484,8 @@ describe("PatientDetails permission-aware bootstrap", () => {
         id: 901, patient_id: 101, source_session_id: 991, used_session_id: 992,
         status, expires_at: "2026-11-30", reason: "Observação registrada na reposição",
         canceled_reason: "Cancelamento posterior do direito",
-        sourceSession: { id: 991, patient_id: 101, starts_at: new Date(2026, 9, 28, 10).toISOString(), Service: { name: "Fisioterapia" } },
-        usedSession: { id: 992, patient_id: 101, starts_at: new Date(2026, 10, 4, 11, 30).toISOString(), status: "done", absence_reason: "Justificativa posterior do agendamento" },
+        sourceSession: { id: 991, patient_id: 101, starts_at: "2026-10-28T10:00:00-03:00", Service: { name: "Fisioterapia" } },
+        usedSession: { id: 992, patient_id: 101, starts_at: "2026-11-04T11:30:00-03:00", status: "done", absence_reason: "Justificativa posterior do agendamento" },
       }]);
       return configureResponse(url);
     });

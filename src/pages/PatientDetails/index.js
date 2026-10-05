@@ -57,6 +57,14 @@ import {
 } from "../../utils/birthDate";
 import { getPatientDisplayName } from "../../utils/patientSearch";
 import {
+  civilDateInSaoPaulo,
+  civilDateToMarker,
+  formatCivilDate,
+  markerToCivilDate,
+  todayInSaoPaulo,
+} from "../../utils/canonicalDateTime";
+import { formatAgendaDate, formatAgendaTime } from "../../utils/agendaDateTime";
+import {
   addSignedClinicalAddendum,
   finalizeClinicalRecord,
   getClinicalSigningIdentity,
@@ -599,14 +607,16 @@ function formatDateTime(value) {
   });
 }
 
-function formatTime(value) {
-  if (!value) return "--:--";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "--:--";
-  return date.toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function formatPackageHistoryDate(value) {
+  if (!value) return "--/--/----";
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(String(value))
+    ? formatCivilDate(value)
+    : formatAgendaDate(value);
+  return dateOnly || "--/--/----";
+}
+
+function formatPackageHistoryTime(value) {
+  return formatAgendaTime(value) || "--:--";
 }
 
 function formatSessionStatus(status, fallback = valueOrDash(status)) {
@@ -640,9 +650,9 @@ function formatReplacementSessionDateTime(value) {
     return "Data e horário não informados";
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return `${formatDate(value)} (horário não informado)`;
+    return `${formatPackageHistoryDate(value)} (horário não informado)`;
   }
-  return `${formatDate(value)} às ${formatTime(value)}`;
+  return `${formatPackageHistoryDate(value)} às ${formatPackageHistoryTime(value)}`;
 }
 
 function formatReplacementSource(credit) {
@@ -653,35 +663,37 @@ function formatReplacementSource(credit) {
 }
 
 function startOfMonth(date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+  const month = date instanceof Date
+    ? markerToCivilDate(date).slice(0, 7)
+    : civilDateInSaoPaulo(date).slice(0, 7);
+  return civilDateToMarker(`${month}-01`);
 }
 
 function addMonths(date, amount) {
-  return new Date(date.getFullYear(), date.getMonth() + amount, 1, 0, 0, 0, 0);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + amount, 1));
 }
 
 function formatDateParam(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return markerToCivilDate(date);
 }
 
 function getMonthKey(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const dateOnly = value instanceof Date
+    ? markerToCivilDate(value)
+    : civilDateInSaoPaulo(value);
+  return dateOnly ? dateOnly.slice(0, 7) : null;
 }
 
 function formatMonthLabel(date) {
   return date.toLocaleDateString("pt-BR", {
     month: "short",
     year: "numeric",
+    timeZone: "UTC",
   });
 }
 
 function buildFrequencyMonths(rangeMonths) {
-  const currentMonth = startOfMonth(new Date());
+  const currentMonth = civilDateToMarker(`${todayInSaoPaulo().slice(0, 7)}-01`);
   return Array.from({ length: rangeMonths }, (_, index) => {
     const start = addMonths(currentMonth, index - rangeMonths + 1);
     const end = addMonths(start, 1);
@@ -712,7 +724,7 @@ function buildFrequencySummary(sessions, rangeMonths, policy = DEFAULT_OPERATION
   (sessions || []).forEach((session) => {
     const startsAt = session?.starts_at ? new Date(session.starts_at) : null;
     if (!startsAt || Number.isNaN(startsAt.getTime())) return;
-    const month = monthMap.get(getMonthKey(startsAt));
+    const month = monthMap.get(getMonthKey(session.starts_at));
     if (!month) return;
 
     const status = String(session.status || "scheduled");
@@ -1178,7 +1190,7 @@ export default function PatientDetails() {
     }
 
     let active = true;
-    const currentMonth = startOfMonth(new Date());
+    const currentMonth = startOfMonth(civilDateToMarker(todayInSaoPaulo()));
     const sessionsFrom = addMonths(currentMonth, -5);
     const sessionsTo = addMonths(currentMonth, 1);
     setScheduleLoad({ patientId: id, status: "loading", error: "" });
@@ -1446,8 +1458,8 @@ export default function PatientDetails() {
         id: session.id || `unit-${session.unit_id}`,
         unitId: session.unit_id || null,
         starts_at: session.starts_at,
-        dateLabel: hasScheduledDate ? formatDate(session.starts_at) : "—",
-        timeLabel: hasScheduledDate ? formatTime(session.starts_at) : "—",
+        dateLabel: hasScheduledDate ? formatPackageHistoryDate(session.starts_at) : "—",
+        timeLabel: hasScheduledDate ? formatPackageHistoryTime(session.starts_at) : "—",
         serviceName: packageServiceName
           || session.Service?.name
           || session.service?.name
@@ -3010,7 +3022,7 @@ export default function PatientDetails() {
                               </div>
                             )}
                           </td>
-                          <td>{formatDate(item.referenceDate)}</td>
+                          <td>{formatPackageHistoryDate(item.referenceDate)}</td>
                           <td>{item.totalSessions}</td>
                           <td>{item.scheduledCount}</td>
                           <td>{item.doneCount}</td>

@@ -705,6 +705,35 @@ describe("Agendamentos - editar agendamento", () => {
         to: "2035-04-04",
       }),
     ));
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/sessions",
+      { params: { from: "2035-04-04", to: "2035-04-05" } },
+    ));
+  });
+
+  it("agrupa no dia civil da Agenda uma sessão próxima da meia-noite UTC", async () => {
+    sessionsMockData = [{
+      ...baseSession,
+      id: 111,
+      patient_id: 77,
+      Patient: { id: 77, full_name: "Paciente Limite" },
+      starts_at: "2026-06-30T02:00:00.000Z",
+      ends_at: "2026-06-30T03:00:00.000Z",
+    }];
+
+    renderAgendamentos("/agendamentos?date=2026-06-29&view=day");
+
+    expect(await screen.findByText("Paciente Limite")).toBeInTheDocument();
+    expect(screen.getByText("23:00")).toBeInTheDocument();
+  });
+
+  it("consulta o mês civil com início inclusivo e fim exclusivo", async () => {
+    renderAgendamentos("/agendamentos?date=2026-06-01&view=month");
+
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/sessions",
+      { params: { from: "2026-06-01", to: "2026-07-01" } },
+    ));
   });
 
   it("consome o pedido global de agendar reposição no formulário existente", async () => {
@@ -1022,11 +1051,11 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.dragStart(source, { dataTransfer });
     fireEvent.drop(target, { dataTransfer });
 
-    const expectedStart = new Date("2026-06-29T10:00:00").toISOString();
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/sessions",
       expect.objectContaining({
-        starts_at: expectedStart,
+        starts_at: "2026-06-29T13:00:00.000Z",
+        ends_at: "2026-06-29T14:00:00.000Z",
         rescheduled_from_id: 10,
       }),
     ));
