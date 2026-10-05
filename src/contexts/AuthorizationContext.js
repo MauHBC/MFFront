@@ -22,7 +22,10 @@ const AuthorizationContext = createContext({
   reload: () => {},
 });
 const TEAM_POWER = "access_profiles.manage";
-const AUTHORIZATION_CATALOG_VERSION = 7;
+const SUPPORTED_AUTHORIZATION_CATALOG_VERSIONS = Object.freeze([7, 8]);
+const CAPABILITY_MINIMUM_CATALOG_VERSION = Object.freeze({
+  "schedule.package.share": 8,
+});
 const ACCESS_LEVELS = Object.freeze({ none: 0, view: 1, edit: 2, manage: 3 });
 const MODULE_KEYS = Object.freeze([
   "dashboard",
@@ -46,7 +49,7 @@ const hasValidOwnScopeContract = (context) => {
 };
 
 export function isValidAuthorizationContext(context) {
-  if (context?.catalog_version !== AUTHORIZATION_CATALOG_VERSION) return false;
+  if (!SUPPORTED_AUTHORIZATION_CATALOG_VERSIONS.includes(context?.catalog_version)) return false;
   if (!["authorized", "no_permissions"].includes(context?.authorization_state)) return false;
   if (typeof context?.is_administrator !== "boolean") return false;
   if (!Array.isArray(context?.modules) || context.modules.length !== MODULE_KEYS.length) return false;
@@ -80,8 +83,10 @@ export function contextCanAccessModule(context, moduleKey, minimumAccessLevel = 
 }
 
 export function contextHasCapability(context, capability) {
+  const minimumCatalogVersion = CAPABILITY_MINIMUM_CATALOG_VERSION[capability] || 0;
   return isValidAuthorizationContext(context)
     && context.authorization_state === "authorized"
+    && context.catalog_version >= minimumCatalogVersion
     && context.capabilities.includes(capability);
 }
 

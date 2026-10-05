@@ -24,6 +24,12 @@ import {
   shadows,
   spacing,
 } from "../../styles/tokens";
+import {
+  addCivilDays,
+  civilDateInSaoPaulo,
+  getCivilMonthRange,
+  todayInSaoPaulo,
+} from "../../utils/canonicalDateTime";
 
 const ACTIVE_SESSION_STATUSES = new Set(["scheduled", "done", "no_show"]);
 const CANCELED_SESSION_STATUSES = new Set(["canceled"]);
@@ -31,30 +37,15 @@ const SCHEDULED_SESSION_STATUSES = new Set(["scheduled"]);
 const DONE_SESSION_STATUSES = new Set(["done"]);
 const NO_SHOW_SESSION_STATUSES = new Set(["no_show"]);
 
-const startOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
-
-const endOfMonth = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
-
-const formatDateParam = (date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const formatMonthParam = (date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
-};
+const currentMonthParam = () => todayInSaoPaulo().slice(0, 7);
 
 const getMonthlyRange = (monthValue) => {
-  const [year, month] = String(monthValue || "").split("-").map(Number);
-  const baseDate = Number.isFinite(year) && Number.isFinite(month)
-    ? new Date(year, month - 1, 1)
-    : new Date();
-
-  return { from: startOfMonth(baseDate), to: endOfMonth(baseDate) };
+  const civilRange = getCivilMonthRange(monthValue) || getCivilMonthRange(currentMonthParam());
+  return {
+    from: civilRange.start,
+    toInclusive: civilRange.end,
+    toExclusive: addCivilDays(civilRange.end, 1),
+  };
 };
 
 const toDate = (value) => {
@@ -63,10 +54,10 @@ const toDate = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
-const isDateInRange = (value, from, to) => {
-  const parsed = toDate(value);
-  if (!parsed) return false;
-  return parsed >= from && parsed <= to;
+const isDateInRange = (value, from, toExclusive) => {
+  const dateOnly = civilDateInSaoPaulo(value);
+  if (!dateOnly) return false;
+  return dateOnly >= from && dateOnly < toExclusive;
 };
 
 const isDateOnlyInRange = (value, start, end) => {
@@ -130,7 +121,7 @@ export default function Dashboard() {
   const canReadSchedule = canAccessModule("schedule");
   const canReadPatients = canAccessModule("patients");
   const canReadFinance = canAccessModule("finance");
-  const [selectedMonth, setSelectedMonth] = useState(formatMonthParam(new Date()));
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthParam());
   const [professionalId, setProfessionalId] = useState("all");
   const [serviceId, setServiceId] = useState("all");
   const [sessions, setSessions] = useState([]);
@@ -154,16 +145,17 @@ export default function Dashboard() {
 
     try {
       const sessionParams = {
-        from: formatDateParam(range.from),
-        to: formatDateParam(range.to),
+        from: range.from,
+        to: range.toExclusive,
       };
 
       if (professionalId !== "all") sessionParams.professional_user_id = professionalId;
       if (serviceId !== "all") sessionParams.service_id = serviceId;
 
+      const today = todayInSaoPaulo();
       const todayParams = {
-        from: formatDateParam(new Date()),
-        to: formatDateParam(new Date()),
+        from: today,
+        to: addCivilDays(today, 1),
       };
 
       if (professionalId !== "all") todayParams.professional_user_id = professionalId;
@@ -171,8 +163,8 @@ export default function Dashboard() {
 
       const pendingParams = {
         status: "scheduled",
-        from: formatDateParam(range.from),
-        to: formatDateParam(range.to),
+        from: range.from,
+        to: range.toExclusive,
       };
 
       if (professionalId !== "all") pendingParams.professional_user_id = professionalId;
@@ -226,7 +218,7 @@ export default function Dashboard() {
     canReadSchedule,
     professionalId,
     range.from,
-    range.to,
+    range.toExclusive,
     selectedMonth,
     serviceId,
   ]);
@@ -258,10 +250,10 @@ export default function Dashboard() {
   const filteredPendingSessions = useMemo(
     () => pendingSessions.filter((session) => (
       session?.status === "scheduled"
-      && isDateInRange(session?.starts_at, range.from, range.to)
+      && isDateInRange(session?.starts_at, range.from, range.toExclusive)
       && toDate(session?.starts_at) <= new Date()
     )),
-    [pendingSessions, range.from, range.to],
+    [pendingSessions, range.from, range.toExclusive],
   );
 
   const alertCounts = useMemo(() => {
@@ -282,8 +274,8 @@ export default function Dashboard() {
   }, [operationalAlerts]);
 
   const financialSummary = useMemo(() => {
-    const periodStart = formatDateParam(range.from);
-    const periodEnd = formatDateParam(range.to);
+    const periodStart = range.from;
+    const periodEnd = range.toInclusive;
 
     const eligibleEntries = financialEntries.filter((entry) => (
       entry?.type === "income"
@@ -307,7 +299,7 @@ export default function Dashboard() {
       receivedCents,
       receivableCents,
     };
-  }, [financialEntries, financialPayments, range.from, range.to]);
+  }, [financialEntries, financialPayments, range.from, range.toInclusive]);
 
   const professionalRows = useMemo(() => {
     const groups = new Map();
@@ -364,7 +356,7 @@ export default function Dashboard() {
               aria-label="Período mensal"
               type="month"
               value={selectedMonth}
-              onChange={(event) => setSelectedMonth(event.target.value || formatMonthParam(new Date()))}
+              onChange={(event) => setSelectedMonth(event.target.value || currentMonthParam())}
             />
           </Field>
 

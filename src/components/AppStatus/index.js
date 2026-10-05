@@ -38,3 +38,15 @@ export const NeutralPill = styled.span`
   background: ${alpha.neutral014};
   color: ${colors.neutralText};
 `;
+
+export const PackagePill = styled.span`
+  ${pillBase}
+  align-items: center;
+  align-self: flex-start;
+  background: ${colors.packageBackground};
+  border: 1px solid ${colors.packageBorder};
+  color: ${colors.packageText};
+  display: inline-flex;
+  line-height: 1.2;
+  width: fit-content;
+`;

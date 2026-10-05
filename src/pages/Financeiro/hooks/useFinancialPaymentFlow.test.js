@@ -143,7 +143,7 @@ describe("useFinancialPaymentFlow - idempotência da confirmação", () => {
     expect(payload.amount_cents).toBe(200000);
     expect(payload.discount_cents).toBe(11084);
     expect(payload.note).toBeNull();
-    expect(payload.paid_at).toBe(new Date("2026-09-10T09:00:00").toISOString());
+    expect(payload.paid_at).toBe("2026-09-10T12:00:00.000Z");
     expect(payload.adjustment_targets).toEqual(entries.map((item) => ({
       entry_id: item.entryId, open_amount_cents: item.openCents,
     })));

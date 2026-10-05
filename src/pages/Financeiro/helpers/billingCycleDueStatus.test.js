@@ -129,9 +129,9 @@ describe("billingCycleDueStatus", () => {
     });
   });
 
-  it("formata e captura a data local sem round-trip por ISO", () => {
-    const lateLocalDate = new Date(2026, 7, 27, 23, 30, 0);
-    expect(getLocalTodayDateOnly(lateLocalDate)).toBe("2026-08-27");
+  it("projeta hoje pelo calendário financeiro de São Paulo", () => {
+    const instantNearUtcMidnight = new Date("2026-08-28T01:30:00.000Z");
+    expect(getLocalTodayDateOnly(instantNearUtcMidnight)).toBe("2026-08-27");
     expect(normalizeDateOnly("2026-08-27T00:00:00.000Z")).toBe("2026-08-27");
     expect(formatBillingDueDate("2026-08-27")).toBe("27/08/2026");
   });

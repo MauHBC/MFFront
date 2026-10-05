@@ -1,3 +1,5 @@
+import { financialTodayDate } from "./financialDateTime";
+
 const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 
@@ -23,10 +25,8 @@ export const normalizeDateOnly = (value) => {
 
   return `${year}-${pad(month)}-${pad(day)}`;
 };
-
 export const getLocalTodayDateOnly = (today = new Date()) => {
-  if (!(today instanceof Date) || Number.isNaN(today.getTime())) return "";
-  return `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+  return financialTodayDate(today);
 };
 
 export const formatBillingDueDate = (value) => {

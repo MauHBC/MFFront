@@ -5,6 +5,7 @@ import styled from "styled-components";
 import AnnualFinancialResultChart from "./AnnualFinancialResultChart";
 import FinancialReceivedPaidSection from "./FinancialReceivedPaidSection";
 import { useAuthorization } from "../../../contexts/AuthorizationContext";
+import { financialCivilMonthFromInstant } from "../helpers/financialDateTime";
 
 const MONTH_NAMES = [
   "Janeiro",
@@ -106,11 +107,12 @@ export default function FinancialOverviewSection({
     error || (!hasSummary ? "Não foi possível carregar as contas deste período." : "");
   const validCurrentDate =
     currentDate instanceof Date && !Number.isNaN(currentDate.getTime()) ? currentDate : new Date();
+  const currentMonth = financialCivilMonthFromInstant(validCurrentDate);
   const monthPresentations = (overview.months || []).map((item) => ({
     ...item,
     isCurrent:
-      String(overviewYear) === String(validCurrentDate.getFullYear()) &&
-      Number(String(item.month || "").slice(5, 7)) === validCurrentDate.getMonth() + 1,
+      String(overviewYear) === currentMonth.slice(0, 4)
+      && String(item.month || "") === currentMonth,
   }));
   const summaryGroups = [
     {

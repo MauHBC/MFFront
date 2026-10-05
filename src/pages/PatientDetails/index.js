@@ -44,6 +44,7 @@ import {
   ModuleTitle,
 } from "../../components/AppModuleShell";
 import { PrimaryButton as SharedPrimaryButton } from "../../components/AppButton";
+import { PackagePill } from "../../components/AppStatus";
 import { alpha, colors, fontSizes, radii, spacing } from "../../styles/tokens";
 import {
   calculateAgeFromBirthDate,
@@ -55,6 +56,14 @@ import {
   maskBirthDateInput,
 } from "../../utils/birthDate";
 import { getPatientDisplayName } from "../../utils/patientSearch";
+import {
+  civilDateInSaoPaulo,
+  civilDateToMarker,
+  formatCivilDate,
+  markerToCivilDate,
+  todayInSaoPaulo,
+} from "../../utils/canonicalDateTime";
+import { formatAgendaDate, formatAgendaTime } from "../../utils/agendaDateTime";
 import {
   addSignedClinicalAddendum,
   finalizeClinicalRecord,
@@ -227,6 +236,130 @@ const ENDED_SESSION_STATUSES = new Set(["done", "no_show", "canceled"]);
 const DEFAULT_OPERATIONAL_POLICY = {
   monthly_reschedule_limit: 2,
   monthly_absence_limit: 2,
+};
+
+const isPositiveSafeInteger = (value) => (
+	  Number.isSafeInteger(value) && value > 0
+);
+
+const isNullablePositiveSafeInteger = (value) => (
+  value === null || isPositiveSafeInteger(value)
+);
+
+const PACKAGE_HISTORY_PACKAGE_STATUSES = new Set(["active", "closed"]);
+const PACKAGE_HISTORY_UNIT_STATES = new Set([
+  "available",
+  "reserved",
+  "consumed",
+  "closed",
+]);
+const hasOwnHistoryField = (value, field) => (
+  !!value && Object.prototype.hasOwnProperty.call(value, field)
+);
+const isParseableHistoryDate = (value) => (
+  typeof value === "string"
+  && value.trim().length > 0
+  && Number.isFinite(new Date(value).getTime())
+);
+
+const validatePackageUnitHistoryResponse = (value) => {
+  const isValid = Array.isArray(value) && value.every((pkg) => {
+	    const quantity = pkg?.quantity;
+	    const scheduledCount = pkg?.scheduled_count;
+    const sessions = pkg?.sessions;
+    if (
+      !isPositiveSafeInteger(pkg?.id)
+      || !pkg?.service
+      || !isPositiveSafeInteger(pkg.service.id)
+	      || typeof pkg.service.name !== "string"
+	      || !pkg.service.name.trim()
+	      || typeof pkg.service.code !== "string"
+	      || !pkg.service.code.trim()
+      || !Number.isSafeInteger(quantity)
+      || quantity <= 0
+      || !Number.isSafeInteger(scheduledCount)
+      || scheduledCount < 0
+      || scheduledCount > quantity
+	      || !isParseableHistoryDate(pkg.contracted_at)
+	      || !isParseableHistoryDate(pkg.reference_date)
+	      || !PACKAGE_HISTORY_PACKAGE_STATUSES.has(pkg.status)
+      || !Array.isArray(sessions)
+      || sessions.length !== quantity
+    ) return false;
+
+    const unitIds = new Set();
+	    const positions = new Set();
+	    return sessions.every((session, sessionIndex) => {
+	      const unitId = session?.unit_id;
+	      const position = session?.position;
+      const attendedPatient = session?.attended_patient;
+      const currentSessionId = session?.current_session_id;
+      const sessionId = session?.id;
+	      const replacement = session?.replacement;
+      const hasSessionDetails = sessionId !== null;
+      const hasValidAttendedPatient = attendedPatient
+        && isPositiveSafeInteger(attendedPatient.id)
+	        && typeof attendedPatient.name === "string"
+	        && attendedPatient.name.trim().length > 0
+        && typeof attendedPatient.can_view_profile === "boolean";
+	      const hasValidReplacement = replacement === null || (
+	        replacement
+	        && typeof replacement === "object"
+	        && isPositiveSafeInteger(replacement.id)
+	        && replacement.status === "pending"
+	        && isParseableHistoryDate(replacement.expires_at)
+	      );
+      const hasValidSessionDetails = hasSessionDetails
+        ? (
+	          isParseableHistoryDate(session.starts_at)
+          && hasValidAttendedPatient
+          && (currentSessionId === null || Number(currentSessionId) === Number(sessionId))
+        )
+        : (
+          session.starts_at === null
+          && attendedPatient === null
+	          && session.professional_name === null
+	          && session.status === (replacement ? "replacement_pending" : session.unit_state)
+        );
+      if (
+        !isPositiveSafeInteger(unitId)
+        || unitIds.has(unitId)
+	        || !isPositiveSafeInteger(position)
+	        || positions.has(position)
+	        || position !== sessionIndex + 1
+	        || !PACKAGE_HISTORY_UNIT_STATES.has(session.unit_state)
+	        || !hasOwnHistoryField(session, "current_session_id")
+        || !isNullablePositiveSafeInteger(currentSessionId)
+	        || !hasOwnHistoryField(session, "id")
+        || !isNullablePositiveSafeInteger(sessionId)
+	        || !hasOwnHistoryField(session, "starts_at")
+	        || !hasOwnHistoryField(session, "professional_name")
+	        || !(session.professional_name === null
+	          || typeof session.professional_name === "string")
+	        || !hasOwnHistoryField(session, "attended_patient")
+	        || !hasOwnHistoryField(session, "replacement")
+	        || typeof session.status !== "string"
+	        || !session.status.trim()
+	        || (["available", "closed"].includes(session.unit_state)
+	          && currentSessionId !== null)
+	        || (["reserved", "consumed"].includes(session.unit_state)
+	          && currentSessionId === null)
+	        || (replacement !== null && (
+	          session.unit_state !== "available"
+	          || currentSessionId !== null
+	        ))
+	        || (session.status === "replacement_pending" && replacement === null)
+	        || !hasValidReplacement
+        || !hasValidSessionDetails
+      ) return false;
+      unitIds.add(unitId);
+	      positions.add(position);
+      return true;
+    });
+  });
+
+  if (!isValid) throw new Error("PACKAGE_UNIT_HISTORY_RESPONSE_INVALID");
+  return value;
 };
 
 const CLINICAL_REFERENCE_TYPES = [
@@ -474,14 +607,16 @@ function formatDateTime(value) {
   });
 }
 
-function formatTime(value) {
-  if (!value) return "--:--";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "--:--";
-  return date.toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function formatPackageHistoryDate(value) {
+  if (!value) return "--/--/----";
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(String(value))
+    ? formatCivilDate(value)
+    : formatAgendaDate(value);
+  return dateOnly || "--/--/----";
+}
+
+function formatPackageHistoryTime(value) {
+  return formatAgendaTime(value) || "--:--";
 }
 
 function formatSessionStatus(status, fallback = valueOrDash(status)) {
@@ -491,6 +626,11 @@ function formatSessionStatus(status, fallback = valueOrDash(status)) {
     no_show: "Falta",
     canceled: "Cancelada",
     suspended: "Suspensa",
+    available: "Disponível",
+    reserved: "Reservada",
+    consumed: "Consumida",
+    closed: "Encerrada",
+    replacement_pending: "Reposição disponível",
   };
   return map[status] || fallback;
 }
@@ -510,9 +650,9 @@ function formatReplacementSessionDateTime(value) {
     return "Data e horário não informados";
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return `${formatDate(value)} (horário não informado)`;
+    return `${formatPackageHistoryDate(value)} (horário não informado)`;
   }
-  return `${formatDate(value)} às ${formatTime(value)}`;
+  return `${formatPackageHistoryDate(value)} às ${formatPackageHistoryTime(value)}`;
 }
 
 function formatReplacementSource(credit) {
@@ -523,35 +663,37 @@ function formatReplacementSource(credit) {
 }
 
 function startOfMonth(date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+  const month = date instanceof Date
+    ? markerToCivilDate(date).slice(0, 7)
+    : civilDateInSaoPaulo(date).slice(0, 7);
+  return civilDateToMarker(`${month}-01`);
 }
 
 function addMonths(date, amount) {
-  return new Date(date.getFullYear(), date.getMonth() + amount, 1, 0, 0, 0, 0);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + amount, 1));
 }
 
 function formatDateParam(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return markerToCivilDate(date);
 }
 
 function getMonthKey(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const dateOnly = value instanceof Date
+    ? markerToCivilDate(value)
+    : civilDateInSaoPaulo(value);
+  return dateOnly ? dateOnly.slice(0, 7) : null;
 }
 
 function formatMonthLabel(date) {
   return date.toLocaleDateString("pt-BR", {
     month: "short",
     year: "numeric",
+    timeZone: "UTC",
   });
 }
 
 function buildFrequencyMonths(rangeMonths) {
-  const currentMonth = startOfMonth(new Date());
+  const currentMonth = civilDateToMarker(`${todayInSaoPaulo().slice(0, 7)}-01`);
   return Array.from({ length: rangeMonths }, (_, index) => {
     const start = addMonths(currentMonth, index - rangeMonths + 1);
     const end = addMonths(start, 1);
@@ -582,7 +724,7 @@ function buildFrequencySummary(sessions, rangeMonths, policy = DEFAULT_OPERATION
   (sessions || []).forEach((session) => {
     const startsAt = session?.starts_at ? new Date(session.starts_at) : null;
     if (!startsAt || Number.isNaN(startsAt.getTime())) return;
-    const month = monthMap.get(getMonthKey(startsAt));
+    const month = monthMap.get(getMonthKey(session.starts_at));
     if (!month) return;
 
     const status = String(session.status || "scheduled");
@@ -818,7 +960,9 @@ export default function PatientDetails() {
   const canViewDocuments = canReadClinicalRecords || canIssueDocuments;
   const canEditClinicalPatientData = authorization.canAccessModule("patients", "manage")
     && canWriteClinicalRecords;
+  const canViewPatientProfiles = authorization.canAccessModule("patients", "view");
   const canViewSchedule = authorization.canAccessModule("schedule", "view");
+  const usesPackageUnitHistoryContract = authorization.context?.catalog_version === 8;
   const [activeTab, setActiveTab] = useState(() => getStoredPatientDetailsTab(id, sessionScope));
   const [activeProntuarioSection, setActiveProntuarioSection] = useState(
     PRONTUARIO_SECTIONS.records,
@@ -869,6 +1013,7 @@ export default function PatientDetails() {
   const [frequencySessions, setFrequencySessions] = useState([]);
   const [perSessionSessions, setPerSessionSessions] = useState([]);
   const [perSessionSeries, setPerSessionSeries] = useState([]);
+  const [ownedPackageHistory, setOwnedPackageHistory] = useState([]);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [replacementCredits, setReplacementCredits] = useState([]);
   const [externalProfessionals, setExternalProfessionals] = useState([]);
@@ -929,6 +1074,7 @@ export default function PatientDetails() {
     setClinicalReferenceEditReturn(null);
     setClinicalReferenceModal(null);
     setClinicalReferenceForm(buildClinicalReferenceForm());
+    setSelectedPackage(null);
   }, [id]);
 
   useEffect(() => {
@@ -1035,6 +1181,7 @@ export default function PatientDetails() {
     setFrequencySessions([]);
     setPerSessionSessions([]);
     setPerSessionSeries([]);
+    setOwnedPackageHistory([]);
     setReplacementCredits([]);
     setOperationalPolicy(DEFAULT_OPERATIONAL_POLICY);
     if (!id || !canViewSchedule) {
@@ -1043,11 +1190,11 @@ export default function PatientDetails() {
     }
 
     let active = true;
-    const currentMonth = startOfMonth(new Date());
+    const currentMonth = startOfMonth(civilDateToMarker(todayInSaoPaulo()));
     const sessionsFrom = addMonths(currentMonth, -5);
     const sessionsTo = addMonths(currentMonth, 1);
     setScheduleLoad({ patientId: id, status: "loading", error: "" });
-    Promise.all([
+    const scheduleRequests = [
       axios.get("/sessions", {
         params: {
           patient_id: id,
@@ -1059,15 +1206,23 @@ export default function PatientDetails() {
       axios.get("/session-series", { params: { patient_id: id } }),
       axios.get("/session-replacement-credits", { params: { patient_id: id } }),
       axios.get("/unit-scheduling-policy"),
-    ])
+    ];
+    if (usesPackageUnitHistoryContract) {
+      scheduleRequests.push(axios.get(`/patients/${id}/package-history`));
+    }
+    Promise.all(scheduleRequests)
       .then(([
         sessionsResponse,
         allSessionsResponse,
         sessionSeriesResponse,
         replacementCreditsResponse,
         operationalPolicyResponse,
+        packageHistoryResponse,
       ]) => {
         if (!active) return;
+        const packageHistory = usesPackageUnitHistoryContract
+          ? validatePackageUnitHistoryResponse(packageHistoryResponse?.data)
+          : [];
         setFrequencySessions(Array.isArray(sessionsResponse.data) ? sessionsResponse.data : []);
         setPerSessionSessions(Array.isArray(allSessionsResponse.data)
           ? allSessionsResponse.data : []);
@@ -1079,6 +1234,7 @@ export default function PatientDetails() {
           ...DEFAULT_OPERATIONAL_POLICY,
           ...(operationalPolicyResponse.data || {}),
         });
+        setOwnedPackageHistory(packageHistory);
         setScheduleLoad({ patientId: id, status: "ready", error: "" });
       })
       .catch((error) => {
@@ -1089,7 +1245,7 @@ export default function PatientDetails() {
         toast.error(message);
       });
     return () => { active = false; };
-  }, [canViewSchedule, id]);
+  }, [canViewSchedule, id, usesPackageUnitHistoryContract]);
 
   useEffect(() => {
     if (patient && !editingSection) {
@@ -1252,11 +1408,23 @@ export default function PatientDetails() {
   const perSessionItems = useMemo(() => {
     const eligibleSessions = perSessionSessions
       .filter((session) => (session.billing_mode || "per_session") === "per_session")
+      .filter((session) => {
+        if (!usesPackageUnitHistoryContract) return true;
+        const packageOwnerId = session?.PackageUnit?.Package?.patient_id
+          || session?.PackageUnit?.Package?.Patient?.id;
+        return !packageOwnerId || String(packageOwnerId) !== String(id);
+      })
       .sort((first, second) => new Date(first.starts_at || 0) - new Date(second.starts_at || 0));
     const sessionsBySeriesId = new Map();
     const singleSessions = [];
 
     eligibleSessions.forEach((session) => {
+      const packageOwnerId = session?.PackageUnit?.Package?.patient_id
+        || session?.PackageUnit?.Package?.Patient?.id;
+      if (packageOwnerId && String(packageOwnerId) !== String(session.patient_id)) {
+        singleSessions.push(session);
+        return;
+      }
       const seriesId = Number(session.series_id || session.series?.id || 0);
       if (seriesId) {
         const list = sessionsBySeriesId.get(seriesId) || [];
@@ -1267,20 +1435,77 @@ export default function PatientDetails() {
       singleSessions.push(session);
     });
 
-    const buildSessionDetail = (session) => {
+    const buildSessionDetail = (session, packageServiceName = "") => {
+      const packageOwner = session?.PackageUnit?.Package?.Patient;
+      const packageOwnerId = packageOwner?.id || session?.PackageUnit?.Package?.patient_id;
+      const attendedPatient = session.attended_patient || session.Patient;
+      const attendedPatientId = attendedPatient?.id || null;
+      const hasScheduledDate = Boolean(session.starts_at);
+      const isUnscheduledPackageRight = session.status === "available"
+        && session.unit_state === "available"
+        && session.current_session_id === null;
+      let statusLabel = isUnscheduledPackageRight
+        ? "Não agendada"
+        : formatSessionStatus(session.status || session.unit_state || "available");
+      if (session.replacement?.status === "pending" && session.replacement.expires_at) {
+        statusLabel = `Reposição até ${formatDate(session.replacement.expires_at)}`;
+      } else if (session.status === "canceled" && session.unit_state === "available") {
+        statusLabel = "Cancelada · disponível";
+      } else if (session.status === "canceled" && session.unit_state === "closed") {
+        statusLabel = "Cancelada · encerrada";
+      }
       return {
-        id: session.id,
+        id: session.id || `unit-${session.unit_id}`,
+        unitId: session.unit_id || null,
         starts_at: session.starts_at,
-        dateLabel: formatDate(session.starts_at),
-        timeLabel: formatTime(session.starts_at),
-        serviceName: session.Service?.name || session.service?.name || valueOrDash(session.service_type),
-        professionalName: session.professional?.name || "-",
-        status: session.status || "scheduled",
-        statusLabel: formatSessionStatus(session.status || "scheduled"),
+        dateLabel: hasScheduledDate ? formatPackageHistoryDate(session.starts_at) : "—",
+        timeLabel: hasScheduledDate ? formatPackageHistoryTime(session.starts_at) : "—",
+        serviceName: packageServiceName
+          || session.Service?.name
+          || session.service?.name
+          || valueOrDash(session.service_type),
+        professionalName: session.professional_name || session.professional?.name || "—",
+        attendedPatientName: isUnscheduledPackageRight
+          ? "—"
+          : (attendedPatient?.name || getPatientDisplayName(attendedPatient) || "—"),
+        attendedPatientId: isUnscheduledPackageRight ? null : attendedPatientId,
+        canViewAttendedPatientProfile: !isUnscheduledPackageRight && (
+          session.attended_patient
+            ? session.attended_patient.can_view_profile === true
+            : String(attendedPatientId) === String(id)
+        ),
+        packageOwnerName: packageOwnerId && String(packageOwnerId) !== String(session.patient_id)
+          ? getPatientDisplayName(packageOwner)
+          : "",
+        status: session.status || session.unit_state || "available",
+        statusLabel,
       };
     };
 
-    const packageItems = Array.from(sessionsBySeriesId.entries()).map(([seriesId, sessions]) => {
+    const foundationPackageItems = ownedPackageHistory.map((pkg) => {
+      const sessionDetails = (pkg.sessions || []).map((session) => (
+        buildSessionDetail(session, pkg.service?.name || "Pacote de sessões")
+      ));
+      const doneCount = sessionDetails.filter((session) => session.status === "done").length;
+      const noShowCount = sessionDetails.filter((session) => session.status === "no_show").length;
+      const scheduledCount = Number(pkg.scheduled_count ?? 0);
+      const canceledCount = sessionDetails.filter((session) => session.status === "canceled").length;
+      return {
+        id: `package-${pkg.id}`,
+        kind: "package",
+        sourceId: pkg.id,
+        serviceName: pkg.service?.name || "Pacote de sessões",
+        referenceDate: pkg.reference_date || pkg.contracted_at || pkg.sessions?.[0]?.starts_at || null,
+        totalSessions: Number(pkg.quantity || 0),
+        doneCount,
+        noShowCount,
+        scheduledCount,
+        canceledCount,
+        sessions: sessionDetails,
+      };
+    });
+
+    const legacyPackageItems = Array.from(sessionsBySeriesId.entries()).map(([seriesId, sessions]) => {
       const series = perSessionSeriesById.get(Number(seriesId)) || sessions[0]?.series || {};
       const sessionDetails = sessions.map(buildSessionDetail);
       const totalSessions = Number(series.occurrence_count || 0)
@@ -1328,7 +1553,7 @@ export default function PatientDetails() {
       };
     });
 
-    return [...packageItems, ...singleItems]
+    return [...foundationPackageItems, ...legacyPackageItems, ...singleItems]
       .sort((first, second) => {
         const firstDate = new Date(first.referenceDate || 0).getTime();
         const secondDate = new Date(second.referenceDate || 0).getTime();
@@ -1337,6 +1562,9 @@ export default function PatientDetails() {
   }, [
     perSessionSeriesById,
     perSessionSessions,
+    ownedPackageHistory,
+    id,
+    usesPackageUnitHistoryContract,
   ]);
 
   const isTreatmentGoalOtherSelected = editForm.treatment_goal_options.includes(
@@ -2769,6 +2997,7 @@ export default function PatientDetails() {
                         <th>Serviço</th>
                         <th>Data inicial</th>
                         <th>Total</th>
+                        <th>Agendadas</th>
                         <th>Realizadas</th>
                         <th>Faltas</th>
                         <th>Canceladas</th>
@@ -2785,9 +3014,17 @@ export default function PatientDetails() {
                           </td>
                           <td>
                             <strong>{item.serviceName}</strong>
+                            {item.kind === "single" && item.sessions[0]?.packageOwnerName && (
+                              <div>
+                                <PackagePill>
+                                  Pacote de {item.sessions[0].packageOwnerName}
+                                </PackagePill>
+                              </div>
+                            )}
                           </td>
-                          <td>{formatDate(item.referenceDate)}</td>
+                          <td>{formatPackageHistoryDate(item.referenceDate)}</td>
                           <td>{item.totalSessions}</td>
+                          <td>{item.scheduledCount}</td>
                           <td>{item.doneCount}</td>
                           <td>{item.noShowCount}</td>
                           <td>{item.canceledCount}</td>
@@ -4823,6 +5060,7 @@ export default function PatientDetails() {
                       <th>Horário</th>
                       <th>Profissional</th>
                       <th>Status</th>
+                      <th>Paciente atendido</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4833,6 +5071,18 @@ export default function PatientDetails() {
                         <td>{session.professionalName}</td>
                         <td>
                           <StatusPill>{session.statusLabel}</StatusPill>
+                        </td>
+                        <td>
+                          {canViewPatientProfiles
+                            && session.canViewAttendedPatientProfile
+                            && session.attendedPatientId ? (
+                              <AttendedPatientLink
+                                to={`/pacientes/${session.attendedPatientId}`}
+                                onClick={closePackageModal}
+                              >
+                                {session.attendedPatientName}
+                              </AttendedPatientLink>
+                            ) : session.attendedPatientName}
                         </td>
                       </tr>
                     ))}
@@ -5173,7 +5423,7 @@ const PackageTableWrap = styled.div`
 const PackageTable = styled.table`
   width: 100%;
   border-collapse: collapse;
-  min-width: 780px;
+  min-width: 860px;
 
   th,
   td {
@@ -6488,6 +6738,17 @@ const PackageSessionTable = styled.table`
   td {
     color: #1b1b1b;
     font-size: 0.9rem;
+  }
+`;
+
+const AttendedPatientLink = styled(Link)`
+  color: inherit;
+  text-decoration: none;
+
+  &:hover {
+    color: #4f6b45;
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 `;
 

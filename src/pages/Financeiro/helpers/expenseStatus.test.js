@@ -14,17 +14,13 @@ describe("expenseStatus", () => {
   });
 
   it("calcula vencido, hoje e futuro sem deslocar data", () => {
-    const now = new Date();
-    const today = [
-      now.getFullYear(),
-      String(now.getMonth() + 1).padStart(2, "0"),
-      String(now.getDate()).padStart(2, "0"),
-    ].join("-");
-    const past = `${now.getFullYear() - 1}${today.slice(4)}`;
-    const future = `${now.getFullYear() + 1}${today.slice(4)}`;
+    const now = new Date("2027-01-01T01:30:00.000Z");
+    const today = "2026-12-31";
+    const past = "2026-12-30";
+    const future = "2027-01-01";
 
-    expect(getClinicExpenseStatus({ due_date: past })).toBe("overdue");
-    expect(getClinicExpenseStatus({ due_date: today })).toBe("pending");
-    expect(getClinicExpenseStatus({ due_date: future })).toBe("pending");
+    expect(getClinicExpenseStatus({ due_date: past }, now)).toBe("overdue");
+    expect(getClinicExpenseStatus({ due_date: today }, now)).toBe("pending");
+    expect(getClinicExpenseStatus({ due_date: future }, now)).toBe("pending");
   });
 });

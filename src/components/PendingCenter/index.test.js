@@ -120,6 +120,56 @@ beforeEach(() => {
   ));
 });
 
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+it("envia ao Backend o instante atual exato como limite das sessões pendentes", async () => {
+  const now = new Date("2026-10-01T01:30:45.123Z");
+  jest.useFakeTimers().setSystemTime(now);
+  mockSources();
+
+  renderPendingCenter();
+
+  await waitFor(() => {
+    expect(axios.get).toHaveBeenCalledWith("/sessions", {
+      params: { status: "scheduled", to: now.toISOString() },
+    });
+    expect(axios.get).toHaveBeenCalledWith("/operational-alerts", {
+      params: { month: "2026-09" },
+    });
+  });
+});
+
+it("agrupa e abre pendências pelo dia civil da Agenda em São Paulo", async () => {
+  jest.useFakeTimers().setSystemTime(new Date("2026-10-04T05:00:00.000Z"));
+  mockSources([], [{
+    id: 501,
+    status: "scheduled",
+    starts_at: "2026-10-04T02:30:00.000Z",
+    ends_at: "2026-10-04T03:30:00.000Z",
+  }]);
+
+  const { history } = renderPendingCenter();
+
+  const trigger = await screen.findByTitle("Central de pendências");
+  await waitFor(() => expect(trigger).toHaveAttribute(
+    "aria-label",
+    "Central de pendências. 1 pendências.",
+  ));
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("button", { name: /Atendimentos pendentes.*1/ }));
+
+  expect(screen.getByText(/sábado.*03\/10/i)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Abrir na agenda" }));
+
+  expect(history.location.pathname).toBe("/agendamentos");
+  expect(history.location.state[PENDING_CENTER_ACTION_STATE_KEY]).toEqual({
+    type: "open-day",
+    value: "2026-10-03",
+  });
+});
+
 it("membership sem perfil não carrega recursos clínicos nem exibe a Central", async () => {
   useAuthorization.mockReturnValue(authorizationContext({ schedule: false }));
   mockSources();

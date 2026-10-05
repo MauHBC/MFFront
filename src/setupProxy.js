@@ -1,10 +1,11 @@
 const { createProxyMiddleware } = require("http-proxy-middleware");
+const { proxyTargetForEnvironment } = require("../scripts/run-local-development.cjs");
 
-module.exports = function setupProxy(app) {
+function setupProxy(app) {
   app.use(
     "/api",
     createProxyMiddleware({
-      target: "http://127.0.0.1:3006",
+      target: proxyTargetForEnvironment(process.env),
       changeOrigin: false,
       xfwd: true,
       onProxyReq(proxyReq, req) {
@@ -17,4 +18,8 @@ module.exports = function setupProxy(app) {
       },
     }),
   );
-};
+}
+
+setupProxy.proxyTargetForEnvironment = proxyTargetForEnvironment;
+
+module.exports = setupProxy;

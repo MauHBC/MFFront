@@ -132,6 +132,7 @@ function configureBootstrap() {
     if (url === "/session-series") return response([]);
     if (url === "/session-replacement-credits") return response([]);
     if (url === "/unit-scheduling-policy") return response({});
+    if (/^\/patients\/\d+\/package-history$/.test(String(url))) return response([]);
     throw new Error(`Unexpected GET ${url}`);
   });
   axios.post.mockImplementation((url, payload) => response({

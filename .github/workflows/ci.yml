@@ -39,6 +39,18 @@ jobs:
         run: npm run lint
       - name: Check text encoding
         run: npm run check:mojibake
+      - name: Run temporal contract tests in UTC
+        run: npm run test:temporal
+        env:
+          TZ: UTC
+      - name: Run temporal contract tests in America/Sao_Paulo
+        run: npm run test:temporal
+        env:
+          TZ: America/Sao_Paulo
+      - name: Run temporal contract tests in Pacific/Kiritimati
+        run: npm run test:temporal
+        env:
+          TZ: Pacific/Kiritimati
       - name: Run canonical test suite
         run: npm test -- --watchAll=false --runInBand
       - name: Build application

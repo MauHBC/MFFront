@@ -131,7 +131,7 @@ const expectSingleSessionHeader = (dialog) => {
   expect(within(body).queryByText("Sessões", { exact: true })).not.toBeInTheDocument();
   expect(tables[0].querySelectorAll("thead")).toHaveLength(1);
   expect(within(dialog).getAllByRole("columnheader").map((header) => header.textContent))
-    .toEqual(["Data", "Profissional", "Status"]);
+    .toEqual(["Data", "Paciente atendido", "Profissional", "Status"]);
   within(dialog).getAllByRole("columnheader").forEach((header) => {
     expect(header).toHaveAttribute("scope", "col");
   });
@@ -603,7 +603,7 @@ describe("Detalhes da cobrança e sessões canônicas da mensalidade", () => {
     const rows = within(dialog).getAllByRole("row");
     expect(rows).toHaveLength(3);
     expect(within(rows[0]).getAllByRole("columnheader").map((cell) => cell.textContent))
-      .toEqual(["Data", "Profissional", "Status"]);
+      .toEqual(["Data", "Paciente atendido", "Profissional", "Status"]);
     expectSingleSessionHeader(dialog);
     expect(rows[1]).toHaveTextContent("08/09/2026");
     expect(rows[1]).toHaveTextContent("Profissional da sessão 901");
@@ -731,6 +731,27 @@ describe("Detalhes da cobrança e sessões canônicas da mensalidade", () => {
         expect(within(dialog).queryByText(/contratadas|vinculadas|agendadas/)).not.toBeInTheDocument();
       }
     });
+
+  test("pacote mantém o comprador no cabeçalho e identifica o paciente atendido por sessão", async () => {
+    const attendedPatient = { id: 31, full_name: "João Atendido" };
+    const sharedPackage = {
+      ...pkg,
+      sessions: [{
+        ...pkg.sessions[0],
+        patient_id: attendedPatient.id,
+        Patient: attendedPatient,
+      }],
+    };
+    detail = makeDetail([sharedPackage]);
+    open("?month=2026-09&patient_id=30");
+    const dialog = await openChargeDetails("Fisioterapia");
+
+    expect(within(dialog).getByText(patient.full_name)).toBeVisible();
+    const sessionRow = within(dialog).getByText(attendedPatient.full_name).closest("tr");
+    expect(sessionRow).toHaveTextContent(attendedPatient.full_name);
+    expect(sessionRow).not.toHaveTextContent(patient.full_name);
+    expectSingleSessionHeader(dialog);
+  });
 
   test("pacote separa quantidade contratada canônica de vínculos e estados operacionais reais", async () => {
     const sessions = ["scheduled", "done", "no_show", "canceled"].map((status, index) => ({

@@ -1,7 +1,7 @@
 /* eslint-env jest */
 import "@testing-library/jest-dom";
 import {
-  act, fireEvent, render, screen, waitFor,
+  act, cleanup, fireEvent, render, screen, waitFor, within,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -18,6 +18,27 @@ import { PENDING_CENTER_ACTION_STATE_KEY } from "../../components/PendingCenter"
 
 let mockProfessionalAssigned = true;
 let mockAuthorization = null;
+let controlledFakeTimersEnabled = false;
+
+const NativeDate = Date;
+const DEFAULT_AGENDA_TEST_NOW = new NativeDate("2026-06-29T09:00:00.000Z");
+let agendaTestNow = DEFAULT_AGENDA_TEST_NOW;
+
+class FixedAgendaDate extends NativeDate {
+  constructor(...args) {
+    super(...(args.length > 0 ? args : [agendaTestNow.valueOf()]));
+  }
+
+  static now() {
+    return agendaTestNow.valueOf();
+  }
+}
+
+const enableControlledFakeTimers = () => {
+  global.Date = NativeDate;
+  jest.useFakeTimers().setSystemTime(agendaTestNow);
+  controlledFakeTimersEnabled = true;
+};
 
 jest.mock("../../contexts/AuthorizationContext", () => ({
   useAuthorization: () => mockAuthorization,
@@ -120,6 +141,39 @@ const doneSession = {
   },
 };
 
+const packageSession = {
+  ...baseSession,
+  PackageUnit: {
+    id: 501,
+    package_id: 701,
+    position: 1,
+    state: "reserved",
+    Package: {
+      id: 701,
+      patient_id: 20,
+      service_id: 40,
+      quantity: 3,
+      status: "active",
+      Patient: {
+        id: 20,
+        full_name: "Paciente Teste",
+      },
+    },
+  },
+};
+
+const absoluteBaseSession = {
+  ...baseSession,
+  starts_at: "2026-06-29T10:00:00.000Z",
+  ends_at: "2026-06-29T11:00:00.000Z",
+};
+
+const absolutePackageSession = {
+  ...packageSession,
+  starts_at: absoluteBaseSession.starts_at,
+  ends_at: absoluteBaseSession.ends_at,
+};
+
 const suspendedSession = {
   ...baseSession,
   id: 14,
@@ -137,17 +191,131 @@ const renderAgendamentos = (initialEntry = "/agendamentos") => render(
   </MemoryRouter>,
 );
 
-const buildPreviewOccurrence = (index, date) => ({
-  index,
-  date,
-  start_time: "10:00",
-  end_time: "11:00",
-  starts_at: `${date}T13:00:00.000Z`,
-  ends_at: `${date}T14:00:00.000Z`,
-  status: "AVAILABLE",
-  matched_events: [],
-  can_override_block: false,
+const buildAvailabilityValidation = ({
+  canConfirm = true,
+  blockingCode = null,
+  blockingReason = null,
+} = {}) => ({
+  complete: true,
+  patient_conflict_checked: true,
+  can_confirm: canConfirm,
+  blocking_code: blockingCode,
+  blocking_reason: blockingReason,
 });
+
+const buildOperationalAvailability = ({
+  hasBlockingEvents = false,
+  hasWarningEvents = false,
+  matchedEvents = [],
+  blockingReason = null,
+  allowAdminOverrideBlock = false,
+} = {}) => {
+  let severity = "info";
+  if (hasWarningEvents) severity = "warn";
+  if (hasBlockingEvents) severity = "block";
+  return {
+    allowed: !hasBlockingEvents,
+    severity,
+    matched_events: matchedEvents,
+    requires_confirmation: hasWarningEvents,
+    has_blocking_events: hasBlockingEvents,
+    has_warning_events: hasWarningEvents,
+    blocking_reason: blockingReason,
+    policy: { allow_admin_override_block: allowAdminOverrideBlock },
+  };
+};
+
+const buildPreviewOccurrence = (index, date) => {
+  const availability = buildOperationalAvailability();
+  return {
+    index,
+    date,
+    start_time: "10:00",
+    end_time: "11:00",
+    starts_at: `${date}T13:00:00.000Z`,
+    ends_at: `${date}T14:00:00.000Z`,
+    status: "AVAILABLE",
+    matched_events: [],
+    requires_confirmation: false,
+    blocking_reason: null,
+    can_create: true,
+    availability,
+    can_override_block: false,
+    blocking_code: null,
+    validation: buildAvailabilityValidation(),
+  };
+};
+
+const buildLegacyPreviewOccurrence = (index, date) => {
+  const occurrence = buildPreviewOccurrence(index, date);
+  delete occurrence.validation;
+  return occurrence;
+};
+
+const buildPreviewSummary = ({
+  total,
+  available,
+  info = 0,
+  warn,
+  blocked,
+  overrideableBlocked = 0,
+}) => ({
+  total,
+  available,
+  info,
+  warn,
+  blocked,
+  overrideable_blocked: overrideableBlocked,
+  creatable: available + info,
+  creatable_with_warning_confirmation: available + info + warn,
+  creatable_with_override: available + info + warn + overrideableBlocked,
+});
+
+const buildSingleAvailabilityResponse = ({
+  canConfirm = true,
+  blockingCode = null,
+  blockingReason = null,
+  canOverrideBlock = false,
+  hasBlockingEvents = false,
+} = {}) => ({
+  data: {
+    ...buildOperationalAvailability({
+      hasBlockingEvents,
+      blockingReason,
+      allowAdminOverrideBlock: canOverrideBlock,
+    }),
+    has_blocking_events: hasBlockingEvents,
+    requires_confirmation: false,
+    matched_events: [],
+    can_override_block: canOverrideBlock,
+	    blocking_code: blockingCode,
+    blocking_reason: blockingReason,
+    validation: buildAvailabilityValidation({ canConfirm, blockingCode, blockingReason }),
+  },
+});
+
+const buildLegacySingleAvailabilityResponse = ({
+  canOverrideBlock = false,
+  hasBlockingEvents = false,
+} = {}) => ({
+  data: {
+    has_blocking_events: hasBlockingEvents,
+    requires_confirmation: false,
+    matched_events: [],
+    severity: "info",
+    can_override_block: canOverrideBlock,
+  },
+});
+
+const createDeferred = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+};
 
 const submitAndConfirmReview = async () => {
   fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
@@ -174,6 +342,88 @@ const selectAssignedProfessional = async (container) => {
   expect(select.value).toBe("30");
 };
 
+const openNewSingleReview = async (container, {
+  date = "2026-07-20",
+  hour = "10",
+} = {}) => {
+  await screen.findByText("Paciente Teste");
+  fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+  fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+    target: { value: "Paciente Teste" },
+  });
+  const patientSuggestions = await screen.findAllByText("Paciente Teste");
+  fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+  await selectAssignedProfessional(container);
+  fireEvent.change(container.querySelector('select[name="service_id"]'), {
+    target: { value: "40" },
+  });
+  fireEvent.change(container.querySelector('input[type="date"]'), {
+    target: { value: date },
+  });
+  const hourSelect = Array.from(container.querySelectorAll("select"))
+    .find((select) => Array.from(select.options).some((option) => option.value === hour));
+  fireEvent.change(hourSelect, { target: { value: hour } });
+  fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+};
+
+const openNewRecurringReview = async (container, {
+  count = "2",
+  date = "2026-07-06",
+  hour = "10",
+} = {}) => {
+  await screen.findByText("Paciente Teste");
+  fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+  fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+    target: { value: "Paciente Teste" },
+  });
+  const patientSuggestions = await screen.findAllByText("Paciente Teste");
+  fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+  await selectAssignedProfessional(container);
+  fireEvent.change(container.querySelector('select[name="service_id"]'), {
+    target: { value: "40" },
+  });
+  fireEvent.change(container.querySelector('input[name="session_price"]'), {
+    target: { value: "100,00" },
+  });
+  fireEvent.change(container.querySelector('input[type="date"]'), {
+    target: { value: date },
+  });
+  const hourSelect = Array.from(container.querySelectorAll("select"))
+    .find((select) => Array.from(select.options).some((option) => option.value === hour));
+  fireEvent.change(hourSelect, { target: { value: hour } });
+  fireEvent.click(screen.getByRole("button", { name: "+ Adicionar" }));
+  fireEvent.change(screen.getByPlaceholderText("Ex.: 10"), {
+    target: { value: count },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+};
+
+const openPackageShareReview = async (container) => {
+  await screen.findByText("Paciente Teste");
+  fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+  fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+    target: { value: "Paciente Teste" },
+  });
+  const patientSuggestions = await screen.findAllByText("Paciente Teste");
+  fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+  await selectAssignedProfessional(container);
+  fireEvent.click(screen.getByLabelText("Usar pacote de outro paciente"));
+  const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+  fireEvent.change(ownerInput, { target: { value: "Maurício" } });
+  fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+  fireEvent.change(container.querySelector('select[name="service_id"]'), {
+    target: { value: "41" },
+  });
+  fireEvent.change(container.querySelector('input[type="date"]'), {
+    target: { value: "2026-10-20" },
+  });
+  const hourSelect = Array.from(container.querySelectorAll("select"))
+    .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+  fireEvent.change(hourSelect, { target: { value: "10" } });
+  fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+  await screen.findByText("Qual pacote vamos usar?");
+};
+
 const openScheduledSessionEdit = async (container) => {
   expect(await screen.findByText("Paciente Teste")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Dia" }));
@@ -191,7 +441,9 @@ describe("Agendamentos - editar agendamento", () => {
   let sessionsMockData;
 
   beforeEach(() => {
-    jest.useFakeTimers().setSystemTime(new Date("2026-06-29T06:00:00"));
+    controlledFakeTimersEnabled = false;
+    agendaTestNow = DEFAULT_AGENDA_TEST_NOW;
+    global.Date = FixedAgendaDate;
     jest.clearAllMocks();
     getUserFacingApiError.mockImplementation((error, fallback) => fallback);
     sanitizeUserFacingErrorMessage.mockImplementation((message, fallback) => message || fallback);
@@ -199,7 +451,11 @@ describe("Agendamentos - editar agendamento", () => {
     mockProfessionalAssigned = true;
     mockAuthorization = {
       status: "ready",
-      context: { is_administrator: true, authorization_source: "membership" },
+      context: {
+        catalog_version: 8,
+        is_administrator: true,
+        authorization_source: "membership",
+      },
       hasCapability: jest.fn(() => true),
     };
 
@@ -228,6 +484,7 @@ describe("Agendamentos - editar agendamento", () => {
             { id: 24, full_name: "Paciente Suspenso" },
             { id: 25, full_name: "Paciente Com Plano" },
             { id: 26, full_name: "Paciente Sem Vinculo" },
+            { id: 88, full_name: "Maurício Titular" },
           ],
         });
       }
@@ -315,15 +572,15 @@ describe("Agendamentos - editar agendamento", () => {
     axios.post.mockResolvedValue({ data: {} });
     axios.patch.mockResolvedValue({ data: {} });
 
-    checkSchedulingAvailability.mockResolvedValue({
-      data: {
-        has_blocking_events: false,
-        matched_events: [],
-        severity: "info",
-      },
-    });
+	  checkSchedulingAvailability.mockResolvedValue(buildSingleAvailabilityResponse());
     listSpecialSchedulingEvents.mockResolvedValue({ data: [] });
-    previewSchedulingOccurrences.mockResolvedValue({ data: { occurrences_preview: [] } });
+	  previewSchedulingOccurrences.mockResolvedValue({
+	    data: {
+	      occurrences_preview: [],
+	      summary: buildPreviewSummary({ total: 0, available: 0, warn: 0, blocked: 0 }),
+	      validation: buildAvailabilityValidation(),
+	    },
+	  });
     listPatientPlans.mockResolvedValue({
       data: [{
         id: 1,
@@ -347,6 +604,14 @@ describe("Agendamentos - editar agendamento", () => {
     expect(axios.get).toHaveBeenCalledWith("/schedule/references/professionals");
     expect(axios.get.mock.calls.some(([url]) => url === "/patients")).toBe(false);
     expect(axios.get.mock.calls.some(([url]) => url === "/users")).toBe(false);
+  });
+
+  it("mantem Paciente somente leitura em sessao comum", async () => {
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    expect(screen.queryByRole("searchbox", { name: "Paciente" }))
+      .not.toBeInTheDocument();
+    expect(screen.getAllByText("Paciente Teste").length).toBeGreaterThan(0);
   });
 
   it("renderiza a Agenda dentro do App Shell", async () => {
@@ -439,6 +704,35 @@ describe("Agendamentos - editar agendamento", () => {
         from: "2035-04-04",
         to: "2035-04-04",
       }),
+    ));
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/sessions",
+      { params: { from: "2035-04-04", to: "2035-04-05" } },
+    ));
+  });
+
+  it("agrupa no dia civil da Agenda uma sessão próxima da meia-noite UTC", async () => {
+    sessionsMockData = [{
+      ...baseSession,
+      id: 111,
+      patient_id: 77,
+      Patient: { id: 77, full_name: "Paciente Limite" },
+      starts_at: "2026-06-30T02:00:00.000Z",
+      ends_at: "2026-06-30T03:00:00.000Z",
+    }];
+
+    renderAgendamentos("/agendamentos?date=2026-06-29&view=day");
+
+    expect(await screen.findByText("Paciente Limite")).toBeInTheDocument();
+    expect(screen.getByText("23:00")).toBeInTheDocument();
+  });
+
+  it("consulta o mês civil com início inclusivo e fim exclusivo", async () => {
+    renderAgendamentos("/agendamentos?date=2026-06-01&view=month");
+
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/sessions",
+      { params: { from: "2026-06-01", to: "2026-07-01" } },
     ));
   });
 
@@ -540,10 +834,16 @@ describe("Agendamentos - editar agendamento", () => {
   });
 
   afterEach(() => {
-    jest.useRealTimers();
+    cleanup();
+    if (controlledFakeTimersEnabled) {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+    global.Date = NativeDate;
   });
 
   it("usa uma unica remarcacao formal ao editar horario", async () => {
+    sessionsMockData = [absoluteBaseSession, canceledSession, noShowSession];
     const { container } = renderAgendamentos();
     await openScheduledSessionEdit(container);
     const hourSelect = Array.from(container.querySelectorAll("select"))
@@ -558,8 +858,8 @@ describe("Agendamentos - editar agendamento", () => {
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/sessions",
       expect.objectContaining({
-        starts_at: "2026-06-29T10:00",
-        ends_at: "2026-06-29T11:00",
+        starts_at: "2026-06-29T13:00:00.000Z",
+        ends_at: "2026-06-29T14:00:00.000Z",
         notes: "ajuste administrativo",
         status: "scheduled",
         rescheduled_from_id: 10,
@@ -574,7 +874,35 @@ describe("Agendamentos - editar agendamento", () => {
     expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(1);
   });
 
+  it("reconhece alterar e voltar ao horario original como edicao nao temporal", async () => {
+    sessionsMockData = [absoluteBaseSession, canceledSession, noShowSession];
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+
+    expect(hourSelect).toHaveValue("07");
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    expect(screen.getByLabelText("Tem justificativa")).toBeInTheDocument();
+    fireEvent.change(hourSelect, { target: { value: "07" } });
+    expect(screen.queryByLabelText("Tem justificativa")).not.toBeInTheDocument();
+    fireEvent.change(container.querySelector('textarea[name="notes"]'), {
+      target: { value: "horário original restaurado" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.put).toHaveBeenCalledWith(
+      "/sessions/10",
+      expect.objectContaining({
+        starts_at: absoluteBaseSession.starts_at,
+        ends_at: absoluteBaseSession.ends_at,
+      }),
+    ));
+    expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(0);
+  });
+
   it("mantem PUT quando somente a observacao muda", async () => {
+    sessionsMockData = [absoluteBaseSession, canceledSession, noShowSession];
     const { container } = renderAgendamentos();
     await openScheduledSessionEdit(container);
     fireEvent.change(container.querySelector('textarea[name="notes"]'), {
@@ -585,8 +913,8 @@ describe("Agendamentos - editar agendamento", () => {
     await waitFor(() => expect(axios.put).toHaveBeenCalledWith(
       "/sessions/10",
       expect.objectContaining({
-        starts_at: "2026-06-29T07:00",
-        ends_at: "2026-06-29T08:00",
+        starts_at: absoluteBaseSession.starts_at,
+        ends_at: absoluteBaseSession.ends_at,
         notes: "observacao sem mudanca temporal",
       }),
     ));
@@ -626,6 +954,7 @@ describe("Agendamentos - editar agendamento", () => {
   });
 
   it("mantem PUT quando somente o profissional muda", async () => {
+    sessionsMockData = [absoluteBaseSession, canceledSession, noShowSession];
     const { container } = renderAgendamentos();
     await openScheduledSessionEdit(container);
     fireEvent.change(container.querySelector('select[name="professional_user_id"]'), {
@@ -640,14 +969,15 @@ describe("Agendamentos - editar agendamento", () => {
       "/sessions/10",
       expect.objectContaining({
         professional_user_id: 31,
-        starts_at: "2026-06-29T07:00",
-        ends_at: "2026-06-29T08:00",
+        starts_at: absoluteBaseSession.starts_at,
+        ends_at: absoluteBaseSession.ends_at,
       }),
     ));
     expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(0);
   });
 
   it("combina horario profissional e observacao em uma unica remarcacao", async () => {
+    sessionsMockData = [absoluteBaseSession, canceledSession, noShowSession];
     const { container } = renderAgendamentos();
     await openScheduledSessionEdit(container);
     const hourSelect = Array.from(container.querySelectorAll("select"))
@@ -664,8 +994,8 @@ describe("Agendamentos - editar agendamento", () => {
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/sessions",
       expect.objectContaining({
-        starts_at: "2026-06-29T10:00",
-        ends_at: "2026-06-29T11:00",
+        starts_at: "2026-06-29T13:00:00.000Z",
+        ends_at: "2026-06-29T14:00:00.000Z",
         professional_user_id: 31,
         notes: "excecao com outro profissional",
         rescheduled_from_id: 10,
@@ -721,11 +1051,11 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.dragStart(source, { dataTransfer });
     fireEvent.drop(target, { dataTransfer });
 
-    const expectedStart = new Date("2026-06-29T10:00:00").toISOString();
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/sessions",
       expect.objectContaining({
-        starts_at: expectedStart,
+        starts_at: "2026-06-29T13:00:00.000Z",
+        ends_at: "2026-06-29T14:00:00.000Z",
         rescheduled_from_id: 10,
       }),
     ));
@@ -931,7 +1261,7 @@ describe("Agendamentos - editar agendamento", () => {
   const financialPreview = (release = 10000, extra = {}) => ({
     eligible: true, preview_fingerprint: "server-preview", blockers: [],
     patient: { id: 20, name: "Paciente Teste" },
-    session: { id: 10, starts_at: baseSession.starts_at },
+    session: { id: 10, patient_id: 20, starts_at: baseSession.starts_at },
     entry: { id: 90, amount_cents: 10000, paid_cents: release, open_cents: 10000 - release },
     package: { series_id: 1, amount_before_cents: 40000, amount_after_cents: 30000 },
     release_amount_cents: release, credit_after_cents: release,
@@ -953,12 +1283,20 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.click(Array.from(card.querySelectorAll("button")).find((button) => button.textContent.includes("Agendado")));
     fireEvent.click(await screen.findByRole("button", { name: "Cancelamento/falta" }));
     await screen.findByRole("heading", { name: "Cancelamento/falta" });
+    enableControlledFakeTimers();
     if (justify) fireEvent.click(screen.getByText("Tem justificativa"));
     if (fillReason) fireEvent.change(screen.getByPlaceholderText("Descreva o motivo"), { target: { value: "Pedido definitivo" } });
     return rendered;
   };
   const confirmCancellationButton = () => screen.getByRole("button", { name: "Confirmar cancelamento" });
+  const flushFinancialPreviewDebounce = async () => {
+    await act(async () => {
+      jest.advanceTimersByTime(250);
+      await Promise.resolve();
+    });
+  };
   const readyToConfirmCancellation = async () => {
+    await flushFinancialPreviewDebounce();
     await waitFor(() => expect(confirmCancellationButton()).toBeEnabled());
     return confirmCancellationButton();
   };
@@ -992,6 +1330,39 @@ describe("Agendamentos - editar agendamento", () => {
       reason: "Pedido definitivo", preview_fingerprint: "server-preview",
       late_policy_exception_justified: true, late_policy_exception_reason: "Pedido definitivo",
     }, { headers: { "Idempotency-Key": expect.any(String) } });
+    expect(cancellationCalls("cancel-with-credit")).toHaveLength(1);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it("valida separadamente atendido e titular financeiro ao cancelar sessão compartilhada", async () => {
+    sessionsMockData = [{
+      ...packageSession,
+      patient_id: 20,
+      Patient: { id: 20, full_name: "Paciente Teste" },
+      PackageUnit: {
+        ...packageSession.PackageUnit,
+        Package: {
+          ...packageSession.PackageUnit.Package,
+          patient_id: 88,
+          Patient: { id: 88, full_name: "Maurício Titular" },
+        },
+      },
+    }];
+    axios.post.mockImplementation((url) => Promise.resolve({
+      data: url.endsWith("cancellation-preview")
+        ? financialPreview(10000, {
+          patient: { id: 88, name: "Maurício Titular" },
+          session: { id: 10, patient_id: 20, starts_at: baseSession.starts_at },
+        })
+        : { id: 2, entry_id: 90, patient_id: 88 },
+    }));
+
+    await openFinancialAbsence();
+    await readyToConfirmCancellation();
+    fireEvent.click(confirmCancellationButton());
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sessão cancelada."));
+    expect(cancellationCalls("cancellation-preview")).toHaveLength(1);
     expect(cancellationCalls("cancel-with-credit")).toHaveLength(1);
     expect(axios.put).not.toHaveBeenCalled();
   });
@@ -1089,8 +1460,9 @@ describe("Agendamentos - editar agendamento", () => {
     await readyToConfirmCancellation();
     fireEvent.click(confirmCancellationButton());
     await screen.findByText("O agendamento mudou. Confira as informações atualizadas e confirme novamente.");
+	    await flushFinancialPreviewDebounce();
     await waitFor(() => expect(cancellationCalls("cancellation-preview")).toHaveLength(2));
-    await readyToConfirmCancellation();
+	    await waitFor(() => expect(confirmCancellationButton()).toBeEnabled());
     expect(screen.getByLabelText("Outros agendamentos afetados")).toHaveTextContent(/Paciente atualizado.*06\/11\/2026.*10:00/);
     expect(cancellationCalls("cancel-with-credit")).toHaveLength(1);
     expect(screen.getByText("O que aconteceu?")).toBeInTheDocument();
@@ -1127,6 +1499,7 @@ describe("Agendamentos - editar agendamento", () => {
   it.each([403, 500])("falha %s da prévia permite retry técnico mas nunca cancela automaticamente", async (status) => {
     axios.post.mockRejectedValue(apiFailure(status, "BLOCKED"));
     await openFinancialAbsence();
+    await flushFinancialPreviewDebounce();
     await screen.findByRole("alert");
     expect(axios.put).not.toHaveBeenCalled();
     expect(cancellationCalls("cancel-with-credit")).toHaveLength(0);
@@ -1145,6 +1518,7 @@ describe("Agendamentos - editar agendamento", () => {
   it("origem sem obrigação financeira reconhecida em background aguarda clique para cancelar operacionalmente", async () => {
     axios.post.mockRejectedValue(apiFailure(409, "FINANCIAL_CANCELLATION_NOT_APPLICABLE"));
     await openFinancialAbsence();
+    await flushFinancialPreviewDebounce();
     await waitFor(() => expect(cancellationCalls("cancellation-preview")).toHaveLength(1));
     await readyToConfirmCancellation();
     expect(axios.put).not.toHaveBeenCalled();
@@ -1158,6 +1532,7 @@ describe("Agendamentos - editar agendamento", () => {
       eligible: false, blockers: [{ code: "CLINICAL_RECORD", message: "Sessão com registro clínico." }],
     }) });
     await openFinancialAbsence();
+    await flushFinancialPreviewDebounce();
     await screen.findByText("Sessão com registro clínico.");
     expect(confirmCancellationButton()).toBeDisabled();
     expect(screen.getByText("O que aconteceu?")).toBeInTheDocument();
@@ -1403,8 +1778,8 @@ describe("Agendamentos - editar agendamento", () => {
       service_id: 41,
       service_type: "physio",
       session_replacement_credit_id: 901,
-      starts_at: "2026-07-01T11:00",
-      ends_at: "2026-07-01T12:00",
+      starts_at: "2026-07-01T14:00:00.000Z",
+      ends_at: "2026-07-01T15:00:00.000Z",
       notes: "Outra observação",
       assign_patient_care: !assigned,
     })));
@@ -1487,6 +1862,10 @@ describe("Agendamentos - editar agendamento", () => {
     expect(await screen.findByRole("heading", { name: "Revisar agendamento" }))
       .toBeInTheDocument();
     expect(screen.getByText("1 sessão selecionada")).toBeInTheDocument();
+    expect(screen.getByText("Agendamento único")).toBeInTheDocument();
+    expect(screen.getByText("Selecionadas 1")).toBeInTheDocument();
+    expect(screen.getByText("Alertas 0")).toBeInTheDocument();
+    expect(screen.getByText("Bloqueadas 0")).toBeInTheDocument();
     expect(axios.post.mock.calls.some(([url]) => url === "/sessions")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
 
@@ -1495,8 +1874,8 @@ describe("Agendamentos - editar agendamento", () => {
       expect.objectContaining({
         patient_id: 25,
         service_id: 40,
-        starts_at: "2026-06-30T10:00",
-        ends_at: "2026-06-30T11:00",
+        starts_at: "2026-06-30T13:00:00.000Z",
+        ends_at: "2026-06-30T14:00:00.000Z",
         billing_mode: "per_session",
         session_replacement_credit_id: null,
         assign_patient_care: false,
@@ -2080,7 +2459,8 @@ describe("Agendamentos - editar agendamento", () => {
           buildPreviewOccurrence(3, "2026-07-20"),
           buildPreviewOccurrence(4, "2026-07-23"),
         ],
-        summary: { total: 4, available: 4, warn: 0, blocked: 0 },
+        summary: buildPreviewSummary({ total: 4, available: 4, warn: 0, blocked: 0 }),
+        validation: buildAvailabilityValidation(),
       },
     });
     axios.post.mockResolvedValue({ data: { total_created: 4 } });
@@ -2111,7 +2491,7 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(hourSelect, { target: { value: "10" } });
 
     fireEvent.click(screen.getByRole("button", { name: "+ Adicionar" }));
-    expect(screen.getByText("Valor por sessão")).toBeInTheDocument();
+    expect(screen.getByText("Valor da sessão")).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText("Ex.: 10"), {
       target: { value: "4" },
     });
@@ -2122,6 +2502,8 @@ describe("Agendamentos - editar agendamento", () => {
 
     await waitFor(() => expect(previewSchedulingOccurrences).toHaveBeenCalledWith(
       expect.objectContaining({
+        starts_at: "2026-07-06T13:00:00.000Z",
+        duration_minutes: 60,
         repeat_interval: 2,
         occurrence_count: 4,
 	        weekdays: [1, 4],
@@ -2143,8 +2525,10 @@ describe("Agendamentos - editar agendamento", () => {
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/session-series",
       expect.objectContaining({
-	        repeat_interval: 2,
-	        occurrence_count: 4,
+        starts_at: "2026-07-06T13:00:00.000Z",
+        duration_minutes: 60,
+        repeat_interval: 2,
+        occurrence_count: 4,
         billing_mode: "per_session",
         price_override_cents: 10000,
         assign_patient_care: true,
@@ -2155,6 +2539,333 @@ describe("Agendamentos - editar agendamento", () => {
     expect(seriesPayload).toHaveProperty("patient_credit_id", null);
     expect(seriesPayload).not.toHaveProperty("patient_plan_id");
     expect(seriesPayload).not.toHaveProperty("included_cycle_weeks");
+  });
+
+  it("mantem conflito do paciente bloqueado na previa recorrente", async () => {
+    previewSchedulingOccurrences.mockResolvedValue({
+      data: {
+        occurrences_preview: [
+          buildPreviewOccurrence(1, "2026-07-06"),
+          {
+            ...buildPreviewOccurrence(2, "2026-07-13"),
+            status: "BLOCK",
+            can_override_block: false,
+	            can_create: false,
+            blocking_code: "PATIENT_SCHEDULE_CONFLICT",
+            blocking_reason: "Paciente já agendado nesse horário",
+	            availability: buildOperationalAvailability({
+	              hasBlockingEvents: true,
+	              blockingReason: "Paciente já agendado nesse horário",
+	            }),
+            validation: buildAvailabilityValidation({
+              canConfirm: false,
+              blockingCode: "PATIENT_SCHEDULE_CONFLICT",
+              blockingReason: "Paciente já agendado nesse horário",
+            }),
+          },
+        ],
+        summary: buildPreviewSummary({ total: 2, available: 1, warn: 0, blocked: 1 }),
+        validation: buildAvailabilityValidation({
+          canConfirm: false,
+          blockingCode: "PATIENT_SCHEDULE_CONFLICT",
+          blockingReason: "Paciente já agendado nesse horário",
+        }),
+      },
+    });
+
+    const { container } = renderAgendamentos();
+    await openNewRecurringReview(container);
+
+    const conflictMessage = await screen.findByText("Paciente já agendado nesse horário");
+    const conflictRow = conflictMessage.parentElement?.parentElement
+      ?.parentElement?.parentElement;
+    expect(conflictRow).toBeTruthy();
+    expect(within(conflictRow).getByRole("checkbox")).not.toBeChecked();
+    expect(within(conflictRow).getByRole("checkbox")).toBeDisabled();
+    expect(screen.queryByText("Bloqueado")).not.toBeInTheDocument();
+  });
+
+  it("falha fechada quando a previa recorrente nao comprova validacao completa", async () => {
+    previewSchedulingOccurrences.mockResolvedValue({
+      data: {
+        occurrences_preview: [{
+          ...buildPreviewOccurrence(1, "2026-07-06"),
+          ends_at: null,
+        }],
+        summary: buildPreviewSummary({ total: 1, available: 1, warn: 0, blocked: 0 }),
+        validation: buildAvailabilityValidation(),
+      },
+    });
+
+    const { container } = renderAgendamentos();
+    await openNewRecurringReview(container);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Não foi possível gerar a pré-visualização das ocorrências.",
+    ));
+    expect(screen.queryByRole("heading", { name: "Revisar agendamento" }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText("Disponível")).not.toBeInTheDocument();
+  });
+
+  it("invalida a previa recorrente quando o conflito surge na confirmacao", async () => {
+    previewSchedulingOccurrences.mockResolvedValue({
+      data: {
+        occurrences_preview: [
+          buildPreviewOccurrence(1, "2026-07-06"),
+          buildPreviewOccurrence(2, "2026-07-13"),
+        ],
+        summary: buildPreviewSummary({ total: 2, available: 2, warn: 0, blocked: 0 }),
+        validation: buildAvailabilityValidation(),
+      },
+    });
+    const conflictError = new Error("Este paciente já possui um atendimento nesse horário.");
+    conflictError.response = {
+      status: 409,
+      data: {
+        code: "PATIENT_SCHEDULE_CONFLICT",
+        error: "Este paciente já possui um atendimento nesse horário.",
+        conflicts: [{ starts_at: "2026-07-13T13:00:00.000Z" }],
+      },
+    };
+    axios.post.mockRejectedValue(conflictError);
+
+    const { container } = renderAgendamentos();
+    await openNewRecurringReview(container);
+    expect(await screen.findAllByText("Disponível")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+
+    const conflictMessage = await screen.findByText("Paciente já agendado nesse horário");
+    const conflictRow = conflictMessage.parentElement?.parentElement
+      ?.parentElement?.parentElement;
+    expect(conflictRow).toBeTruthy();
+    expect(within(conflictRow).getByRole("checkbox")).toBeDisabled();
+    expect(screen.getAllByRole("checkbox").some(
+      (checkbox) => checkbox.checked && checkbox.disabled,
+    )).toBe(true);
+    expect(screen.getByRole("button", { name: "Confirmar agendamento" })).toBeDisabled();
+    expect(axios.post.mock.calls.filter(([url]) => url === "/session-series")).toHaveLength(1);
+  });
+
+  it("invalida escolhas e overrides quando a confirmacao devolve nova previa", async () => {
+    previewSchedulingOccurrences.mockResolvedValue({
+      data: {
+        occurrences_preview: [
+          buildPreviewOccurrence(1, "2026-07-06"),
+          buildPreviewOccurrence(2, "2026-07-13"),
+        ],
+        summary: buildPreviewSummary({ total: 2, available: 2, warn: 0, blocked: 0 }),
+        validation: buildAvailabilityValidation(),
+      },
+    });
+    const changedError = new Error("A disponibilidade mudou. Revise novamente.");
+    changedError.response = {
+      status: 409,
+      data: {
+        code: "SCHEDULING_AVAILABILITY_CHANGED",
+        error: "A disponibilidade mudou. Revise novamente.",
+        occurrences_preview: [
+          buildPreviewOccurrence(1, "2026-07-06"),
+          {
+            ...buildPreviewOccurrence(2, "2026-07-13"),
+            status: "WARN_CONFIRM",
+	            matched_events: [{ id: 901, name: "Alerta operacional" }],
+	            requires_confirmation: true,
+	            availability: buildOperationalAvailability({
+	              hasWarningEvents: true,
+	              matchedEvents: [{ id: 901, name: "Alerta operacional" }],
+	            }),
+          },
+        ],
+        summary: buildPreviewSummary({ total: 2, available: 1, warn: 1, blocked: 0 }),
+        validation: buildAvailabilityValidation(),
+      },
+    };
+    axios.post.mockRejectedValue(changedError);
+
+    const { container } = renderAgendamentos();
+    await openNewRecurringReview(container);
+    expect(await screen.findAllByText("Disponível")).toHaveLength(2);
+    expect(screen.getAllByRole("checkbox").filter((checkbox) => checkbox.checked))
+      .toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+
+    expect(await screen.findByText("Alerta")).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox").filter((checkbox) => checkbox.checked))
+      .toHaveLength(0);
+    expect(screen.getAllByRole("checkbox").filter((checkbox) => checkbox.disabled).length)
+      .toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole("button", { name: "Confirmar agendamento" })).toBeDisabled();
+    expect(axios.post.mock.calls.filter(([url]) => url === "/session-series")).toHaveLength(1);
+  });
+
+  it("falha fechada quando a confirmacao devolve previa recorrente nao-array", async () => {
+    previewSchedulingOccurrences.mockResolvedValue({
+      data: {
+        occurrences_preview: [
+          buildPreviewOccurrence(1, "2026-07-06"),
+          buildPreviewOccurrence(2, "2026-07-13"),
+        ],
+        summary: buildPreviewSummary({ total: 2, available: 2, warn: 0, blocked: 0 }),
+        validation: buildAvailabilityValidation(),
+      },
+    });
+    const malformedError = new Error("A disponibilidade mudou. Revise novamente.");
+    malformedError.response = {
+      status: 409,
+      data: {
+        code: "SCHEDULING_AVAILABILITY_CHANGED",
+        error: "A disponibilidade mudou. Revise novamente.",
+        occurrences_preview: {},
+        summary: buildPreviewSummary({ total: 1, available: 1, warn: 0, blocked: 0 }),
+        validation: buildAvailabilityValidation(),
+      },
+    };
+    axios.post.mockRejectedValue(malformedError);
+
+    const { container } = renderAgendamentos();
+    await openNewRecurringReview(container);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirmar agendamento" }));
+
+    expect(await screen.findAllByText("A disponibilidade mudou. Revise novamente."))
+      .toHaveLength(2);
+    expect(screen.getAllByRole("checkbox").filter((checkbox) => checkbox.checked))
+      .toHaveLength(0);
+    expect(screen.getAllByRole("checkbox").filter((checkbox) => checkbox.disabled).length)
+      .toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole("button", { name: "Confirmar agendamento" })).toBeDisabled();
+    expect(axios.post.mock.calls.filter(([url]) => url === "/session-series")).toHaveLength(1);
+  });
+
+  it("falha fechada para validacao agregada recorrente contraditoria", async () => {
+    previewSchedulingOccurrences.mockResolvedValue({
+      data: {
+        occurrences_preview: [
+          buildPreviewOccurrence(1, "2026-07-06"),
+          buildPreviewOccurrence(2, "2026-07-13"),
+        ],
+        summary: buildPreviewSummary({ total: 2, available: 2, warn: 0, blocked: 0 }),
+        validation: buildAvailabilityValidation({
+          canConfirm: false,
+          blockingCode: "PATIENT_SCHEDULE_CONFLICT",
+          blockingReason: "Paciente já agendado nesse horário",
+        }),
+      },
+    });
+
+    const { container } = renderAgendamentos();
+    await openNewRecurringReview(container);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Não foi possível gerar a pré-visualização das ocorrências.",
+    ));
+    expect(screen.queryByRole("heading", { name: "Revisar agendamento" }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText("Disponível")).not.toBeInTheDocument();
+  });
+
+  it("falha fechada quando o codigo da ocorrencia diverge da validacao recorrente", async () => {
+    previewSchedulingOccurrences.mockResolvedValue({
+      data: {
+        occurrences_preview: [{
+          ...buildPreviewOccurrence(1, "2026-07-06"),
+          status: "BLOCK",
+          can_override_block: true,
+	          can_create: false,
+          blocking_code: "PATIENT_SCHEDULE_CONFLICT",
+          blocking_reason: "Paciente já agendado nesse horário",
+	          availability: buildOperationalAvailability({
+	            hasBlockingEvents: true,
+	            blockingReason: "Paciente já agendado nesse horário",
+	            allowAdminOverrideBlock: true,
+	          }),
+        }],
+        summary: buildPreviewSummary({
+          total: 1,
+          available: 0,
+          warn: 0,
+          blocked: 1,
+          overrideableBlocked: 1,
+        }),
+        validation: buildAvailabilityValidation(),
+      },
+    });
+
+    const { container } = renderAgendamentos();
+    await openNewRecurringReview(container);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Não foi possível gerar a pré-visualização das ocorrências.",
+    ));
+    expect(screen.queryByRole("heading", { name: "Revisar agendamento" }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText("Paciente já agendado nesse horário"))
+      .not.toBeInTheDocument();
+  });
+
+  it("falha fechada quando o resumo recorrente diverge das ocorrencias", async () => {
+    previewSchedulingOccurrences.mockResolvedValue({
+      data: {
+        occurrences_preview: [
+          buildPreviewOccurrence(1, "2026-07-06"),
+          buildPreviewOccurrence(2, "2026-07-13"),
+        ],
+        summary: buildPreviewSummary({ total: 2, available: 1, warn: 0, blocked: 0 }),
+        validation: buildAvailabilityValidation(),
+      },
+    });
+
+    const { container } = renderAgendamentos();
+    await openNewRecurringReview(container);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Não foi possível gerar a pré-visualização das ocorrências.",
+    ));
+    expect(screen.queryByRole("heading", { name: "Revisar agendamento" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("falha fechada quando a disponibilidade aninhada recorrente esta incompleta", async () => {
+    const occurrence = buildPreviewOccurrence(1, "2026-07-06");
+    delete occurrence.availability.has_warning_events;
+    previewSchedulingOccurrences.mockResolvedValue({
+      data: {
+        occurrences_preview: [occurrence],
+        summary: buildPreviewSummary({ total: 1, available: 1, warn: 0, blocked: 0 }),
+        validation: buildAvailabilityValidation(),
+      },
+    });
+
+    const { container } = renderAgendamentos();
+    await openNewRecurringReview(container);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Não foi possível gerar a pré-visualização das ocorrências.",
+    ));
+    expect(screen.queryByRole("heading", { name: "Revisar agendamento" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("falha fechada para indices recorrentes duplicados", async () => {
+    previewSchedulingOccurrences.mockResolvedValue({
+      data: {
+        occurrences_preview: [
+          buildPreviewOccurrence(1, "2026-07-06"),
+          { ...buildPreviewOccurrence(2, "2026-07-13"), index: 1 },
+        ],
+        summary: buildPreviewSummary({ total: 2, available: 2, warn: 0, blocked: 0 }),
+        validation: buildAvailabilityValidation(),
+      },
+    });
+
+    const { container } = renderAgendamentos();
+    await openNewRecurringReview(container);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Não foi possível gerar a pré-visualização das ocorrências.",
+    ));
+    expect(screen.queryByRole("heading", { name: "Revisar agendamento" }))
+      .not.toBeInTheDocument();
   });
 
   it("usa quantidade de meses como janela de vigencia no modo Por meses", async () => {
@@ -2196,5 +2907,1386 @@ describe("Agendamentos - editar agendamento", () => {
         billing_mode: "per_session",
       }),
     ));
+  });
+
+  it("mantem o agendamento comum no catalogo 7 sem exigir o contrato de conflito do catalogo 8", async () => {
+    mockAuthorization = {
+      ...mockAuthorization,
+      context: { ...mockAuthorization.context, catalog_version: 7 },
+      hasCapability: jest.fn(() => true),
+    };
+    checkSchedulingAvailability.mockResolvedValue(buildLegacySingleAvailabilityResponse());
+
+    const { container } = renderAgendamentos();
+    await openNewSingleReview(container);
+
+    expect(await screen.findByText("Sem bloqueio operacional")).toBeInTheDocument();
+    expect(screen.queryByText("Disponível")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Usar pacote de outro paciente")).not.toBeInTheDocument();
+    expect(checkSchedulingAvailability.mock.calls.some(
+      ([payload]) => Object.prototype.hasOwnProperty.call(payload, "patient_id"),
+    )).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 20,
+        force_override: false,
+        override_reason: null,
+      }),
+    ));
+  });
+
+  it("mantem a revisao recorrente do catalogo 7 identificada como checagem operacional", async () => {
+    mockAuthorization = {
+      ...mockAuthorization,
+      context: { ...mockAuthorization.context, catalog_version: 7 },
+    };
+    previewSchedulingOccurrences.mockResolvedValue({
+      data: {
+        occurrences_preview: [
+          buildLegacyPreviewOccurrence(1, "2026-07-06"),
+          buildLegacyPreviewOccurrence(2, "2026-07-13"),
+        ],
+        summary: { total: 2, available: 2, warn: 0, blocked: 0 },
+      },
+    });
+
+    const { container } = renderAgendamentos();
+    await openNewRecurringReview(container);
+
+    expect(await screen.findAllByText("Sem bloqueio operacional")).toHaveLength(2);
+    expect(screen.queryByText("Disponível")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmar agendamento" })).toBeEnabled();
+  });
+
+	  it("bloqueia na revisao o conflito conhecido do paciente", async () => {
+	    checkSchedulingAvailability.mockImplementation((payload) => Promise.resolve(
+	      payload?.patient_id
+	        ? buildSingleAvailabilityResponse({
+	          canConfirm: false,
+	          blockingCode: "PATIENT_SCHEDULE_CONFLICT",
+	          blockingReason: "Paciente já agendado nesse horário",
+	          canOverrideBlock: false,
+	          hasBlockingEvents: true,
+	        })
+	        : buildSingleAvailabilityResponse(),
+	    ));
+
+	    const { container } = renderAgendamentos();
+	    await openNewSingleReview(container);
+
+	    expect(await screen.findByText("Paciente já agendado nesse horário"))
+	      .toBeInTheDocument();
+	    expect(screen.queryByText("Disponível")).not.toBeInTheDocument();
+	  expect(screen.getAllByRole("checkbox").some((checkbox) => checkbox.disabled)).toBe(true);
+	    expect(screen.getByRole("button", { name: "Confirmar agendamento" }))
+	      .toBeDisabled();
+	    expect(screen.queryByText("Motivo do override (obrigatório)"))
+	      .not.toBeInTheDocument();
+	    expect(checkSchedulingAvailability).toHaveBeenCalledWith(expect.objectContaining({
+	      patient_id: 20,
+	      professional_user_id: 30,
+	      service_id: 40,
+	    }));
+	  });
+
+  it("falha fechada para conflito unitario contraditorio no catalogo 8", async () => {
+    checkSchedulingAvailability.mockImplementation((payload) => Promise.resolve(
+      payload?.patient_id
+        ? buildSingleAvailabilityResponse({
+          canConfirm: true,
+          blockingCode: "PATIENT_SCHEDULE_CONFLICT",
+          blockingReason: "Paciente já agendado nesse horário",
+          canOverrideBlock: false,
+          hasBlockingEvents: true,
+        })
+        : buildSingleAvailabilityResponse(),
+    ));
+
+    const { container } = renderAgendamentos();
+    await openNewSingleReview(container);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Não foi possível validar disponibilidade.",
+    ));
+    expect(screen.queryByRole("heading", { name: "Revisar agendamento" }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText("Disponível")).not.toBeInTheDocument();
+    expect(axios.post.mock.calls.some(([url]) => url === "/sessions")).toBe(false);
+  });
+
+  it("falha fechada quando o codigo unitario diverge da validacao no catalogo 8", async () => {
+    checkSchedulingAvailability.mockImplementation((payload) => {
+      if (!payload?.patient_id) return Promise.resolve(buildSingleAvailabilityResponse());
+      const response = buildSingleAvailabilityResponse();
+      response.data.blocking_code = "SCHEDULING_BLOCKED";
+      response.data.blocking_reason = "Bloqueio divergente";
+      return Promise.resolve(response);
+    });
+
+    const { container } = renderAgendamentos();
+    await openNewSingleReview(container);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Não foi possível validar disponibilidade.",
+    ));
+    expect(screen.queryByRole("heading", { name: "Revisar agendamento" }))
+      .not.toBeInTheDocument();
+    expect(axios.post.mock.calls.some(([url]) => url === "/sessions")).toBe(false);
+  });
+
+  it("falha fechada quando allowed contradiz o bloqueio unitario", async () => {
+    checkSchedulingAvailability.mockImplementation((payload) => {
+      if (!payload?.patient_id) return Promise.resolve(buildSingleAvailabilityResponse());
+      const response = buildSingleAvailabilityResponse();
+      response.data.allowed = false;
+      return Promise.resolve(response);
+    });
+
+    const { container } = renderAgendamentos();
+    await openNewSingleReview(container);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Não foi possível validar disponibilidade.",
+    ));
+    expect(screen.queryByRole("heading", { name: "Revisar agendamento" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("propaga o override unitario somente apos selecao explicita e motivo", async () => {
+    checkSchedulingAvailability.mockImplementation((payload) => Promise.resolve(
+      payload?.patient_id
+        ? buildSingleAvailabilityResponse({
+          canConfirm: true,
+          blockingCode: "SCHEDULING_BLOCKED",
+          blockingReason: "Bloqueio operacional com exceção autorizada",
+          canOverrideBlock: true,
+          hasBlockingEvents: true,
+        })
+        : buildSingleAvailabilityResponse(),
+    ));
+
+    const { container } = renderAgendamentos();
+    await openNewSingleReview(container);
+
+    expect(await screen.findByText("Bloqueado")).toBeInTheDocument();
+    const occurrenceCheckbox = screen.getAllByRole("checkbox").at(-1);
+    expect(occurrenceCheckbox).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Confirmar agendamento" })).toBeDisabled();
+
+    fireEvent.click(occurrenceCheckbox);
+    expect(screen.getByText("Motivo do override (obrigatório)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    expect(toast.error).toHaveBeenCalledWith(
+      "Informe o motivo para override em ocorrencias bloqueadas.",
+    );
+    expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(0);
+
+    fireEvent.change(screen.getAllByRole("textbox").at(-1), {
+      target: { value: "Recepção confirmou a exceção operacional" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        force_override: true,
+        override_reason: "Recepção confirmou a exceção operacional",
+      }),
+    ));
+  });
+
+  it("mantem bloqueado o override unitario quando o Backend nao o autoriza", async () => {
+    checkSchedulingAvailability.mockImplementation((payload) => Promise.resolve(
+      payload?.patient_id
+        ? buildSingleAvailabilityResponse({
+          canConfirm: false,
+          blockingCode: "SCHEDULING_BLOCKED",
+          blockingReason: "Bloqueio operacional sem exceção",
+          canOverrideBlock: false,
+          hasBlockingEvents: true,
+        })
+        : buildSingleAvailabilityResponse(),
+    ));
+
+    const { container } = renderAgendamentos();
+    await openNewSingleReview(container);
+
+    expect(await screen.findByText("Bloqueado")).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox").at(-1)).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Confirmar agendamento" })).toBeDisabled();
+    expect(screen.queryByText("Motivo do override (obrigatório)"))
+      .not.toBeInTheDocument();
+  });
+
+  it("invalida o override unitario quando a data e reavaliada sem bloqueio", async () => {
+    let completeChecks = 0;
+    checkSchedulingAvailability.mockImplementation((payload) => {
+      if (!payload?.patient_id) return Promise.resolve(buildSingleAvailabilityResponse());
+      completeChecks += 1;
+      return Promise.resolve(completeChecks === 1
+        ? buildSingleAvailabilityResponse({
+          canConfirm: true,
+          blockingCode: "SCHEDULING_BLOCKED",
+          blockingReason: "Bloqueio operacional com exceção autorizada",
+          canOverrideBlock: true,
+          hasBlockingEvents: true,
+        })
+        : buildSingleAvailabilityResponse());
+    });
+
+    const { container } = renderAgendamentos();
+    await openNewSingleReview(container);
+    await screen.findByText("Bloqueado");
+    fireEvent.click(screen.getAllByRole("checkbox").at(-1));
+    fireEvent.change(screen.getAllByRole("textbox").at(-1), {
+      target: { value: "Exceção anterior" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    fireEvent.change(document.getElementById("recurrence-edit-date-1"), {
+      target: { value: "2026-07-21" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(await screen.findByText("Disponível · Alterada")).toBeInTheDocument();
+    expect(screen.queryByText("Motivo do override (obrigatório)"))
+      .not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        starts_at: "2026-07-21T13:00:00.000Z",
+        force_override: false,
+        override_reason: null,
+      }),
+    ));
+  });
+
+	  it("no catalogo 8 falha fechada para contrato incompleto e permite revisar novamente", async () => {
+	    let completeChecks = 0;
+	    checkSchedulingAvailability.mockImplementation((payload) => {
+	      if (!payload?.patient_id) return Promise.resolve(buildSingleAvailabilityResponse());
+	      completeChecks += 1;
+	      if (completeChecks === 1) {
+	        return Promise.resolve({
+	          data: {
+	            has_blocking_events: false,
+	            requires_confirmation: false,
+	            matched_events: [],
+	            severity: "info",
+	          },
+	        });
+	      }
+	      return Promise.resolve(buildSingleAvailabilityResponse());
+	    });
+
+	    const { container } = renderAgendamentos();
+	    await openNewSingleReview(container);
+	    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+	      "Não foi possível validar disponibilidade.",
+	    ));
+	    expect(screen.queryByRole("heading", { name: "Revisar agendamento" }))
+	      .not.toBeInTheDocument();
+
+	    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+	    expect(await screen.findByRole("heading", { name: "Revisar agendamento" }))
+	      .toBeInTheDocument();
+	    expect(screen.getByText("Disponível")).toBeInTheDocument();
+	    expect(screen.getByRole("button", { name: "Confirmar agendamento" }))
+	      .toBeEnabled();
+	  });
+
+	  it("transforma o conflito surgido na confirmacao em bloqueio da revisao", async () => {
+	    axios.post.mockRejectedValueOnce({
+	      response: {
+	        status: 409,
+	        data: {
+	          code: "PATIENT_SCHEDULE_CONFLICT",
+	          error: "Este paciente já possui um atendimento nesse horário.",
+	        },
+	      },
+	    });
+
+	    const { container } = renderAgendamentos();
+	    await openNewSingleReview(container);
+	    expect(await screen.findByText("Disponível")).toBeInTheDocument();
+	    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+
+	    expect(await screen.findByText("Paciente já agendado nesse horário"))
+	      .toBeInTheDocument();
+	    expect(screen.queryByText("Disponível")).not.toBeInTheDocument();
+	  expect(screen.getAllByRole("checkbox").some((checkbox) => checkbox.disabled)).toBe(true);
+	    expect(screen.getByRole("button", { name: "Confirmar agendamento" }))
+	      .toBeDisabled();
+	    expect(toast.error).toHaveBeenCalledWith(
+	      "Este paciente já possui um atendimento nesse horário.",
+	    );
+	    expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(1);
+	  });
+
+	  it("reavalia novo horario sem perder paciente profissional ou servico", async () => {
+	    const { container } = renderAgendamentos();
+	    await openNewSingleReview(container);
+	  expect(await screen.findByText("Disponível")).toBeInTheDocument();
+	    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+
+	    const dateInput = document.getElementById("recurrence-edit-date-1");
+	    fireEvent.change(dateInput, { target: { value: "2026-07-21" } });
+	    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+	    await waitFor(() => expect(checkSchedulingAvailability).toHaveBeenCalledWith(
+	      expect.objectContaining({
+	        patient_id: 20,
+	        professional_user_id: 30,
+	        service_id: 40,
+	        starts_at: "2026-07-21T13:00:00.000Z",
+	      }),
+	    ));
+	  expect(await screen.findByText("Disponível · Alterada")).toBeInTheDocument();
+	    expect(screen.getByText(/21\/07\/2026/)).toBeInTheDocument();
+	  });
+
+  it("mantem o novo agendamento compacto e escolhe na revisao um pacote disponivel", async () => {
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners") {
+        return Promise.resolve({ data: [{ id: 88, name: "Maurício Titular" }] });
+      }
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({ data: [
+          {
+            id: 701,
+            owner: { id: 88, name: "Maurício Titular" },
+            service: { id: 41, code: "physio", name: "Fisioterapia" },
+            contracted_at: "2026-09-05",
+            quantity: 3,
+            free_rights: 1,
+            relocatable_sessions: 0,
+            requires_scheduled_session: false,
+            eligible_scheduled_sessions: [],
+            review_token: "review-token-701",
+          },
+          {
+            id: 702,
+            owner: { id: 88, name: "Maurício Titular" },
+            service: { id: 41, code: "physio", name: "Fisioterapia" },
+            contracted_at: "2026-09-20",
+            quantity: 4,
+            free_rights: 2,
+            relocatable_sessions: 0,
+            requires_scheduled_session: false,
+            eligible_scheduled_sessions: [],
+            review_token: "review-token-702",
+          },
+          {
+            id: 999,
+            owner: { id: 88, name: "Maurício Titular" },
+            service: { id: 40, code: "spine_eval", name: "Avaliação Coluna" },
+            contracted_at: "2026-09-30",
+            quantity: 8,
+            free_rights: 8,
+            relocatable_sessions: 0,
+            requires_scheduled_session: false,
+            eligible_scheduled_sessions: [],
+            review_token: "review-token-999",
+          },
+        ] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    const sharing = screen.getByLabelText("Usar pacote de outro paciente");
+    expect(sharing).toBeVisible();
+    expect(sharing).toBeDisabled();
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
+    expect(screen.getAllByText("Valor da sessão")).toHaveLength(1);
+    expect(screen.queryByText("Pacote de outro paciente", { selector: "strong" }))
+      .not.toBeInTheDocument();
+
+    const noCharge = screen.getByLabelText("Sem cobrança");
+    expect(sharing).toBeEnabled();
+    fireEvent.click(noCharge);
+    expect(noCharge).toBeChecked();
+    expect(sharing).not.toBeChecked();
+    fireEvent.click(sharing);
+    expect(sharing).toBeChecked();
+    expect(noCharge).not.toBeChecked();
+
+    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+    expect(screen.getByText("De quem é o pacote?")).toBeInTheDocument();
+    expect(screen.queryByText("Qual pacote vamos usar?")).not.toBeInTheDocument();
+    fireEvent.change(ownerInput, { target: { value: "Maurício" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "41" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-07-20" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    fireEvent.change(container.querySelector('textarea[name="notes"]'), {
+      target: { value: "Observação administrativa" },
+    });
+    expect(ownerInput).toHaveValue("Maurício Titular");
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+    expect(await screen.findByText("Pacote de: Maurício Titular")).toBeInTheDocument();
+    expect(screen.getByText("Atendimento: Fisioterapia")).toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledWith(
+      "/package-sharing/owners/88/packages",
+      { params: { service_id: 41 } },
+    );
+    expect(screen.queryByText(/Avaliação Coluna/)).not.toBeInTheDocument();
+    expect(document.body.textContent.indexOf("Pacote de Fisioterapia · 20/09/2026"))
+      .toBeLessThan(document.body.textContent.indexOf("Pacote de Fisioterapia · 05/09/2026"));
+    expect(screen.getByText("4 sessões · 2 livres"))
+      .toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("undefined");
+    expect(screen.queryByText("Qual sessão do pacote será liberada?"))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText(/^Selecionadas /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Alertas /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Bloqueadas /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sessão selecionada/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Agendamento único")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/Pacote de Fisioterapia · 20\/09\/2026/));
+    expect(screen.queryByText(/Todas as sessões desse pacote/)).not.toBeInTheDocument();
+	  await waitFor(() => expect(checkSchedulingAvailability).toHaveBeenCalledWith(
+	    expect.objectContaining({
+	      patient_id: 20,
+	      shared_package_id: 702,
+	      shared_package_review_token: "review-token-702",
+	    }),
+	  ));
+	  await waitFor(() => expect(
+	    screen.getByRole("button", { name: "Confirmar", exact: true }),
+	  ).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar", exact: true }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 20,
+        service_id: 41,
+        is_no_charge: false,
+        shared_package_id: 702,
+        shared_package_source_session_id: null,
+        shared_package_review_token: "review-token-702",
+        idempotency_key: expect.stringMatching(/^package-share:/),
+      }),
+    ));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("billing_mode");
+    expect(payload).not.toHaveProperty("price_override_cents");
+  });
+
+  it("invalida a revisao de pacote aberta quando o catalogo deixa de ser 8", async () => {
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners") {
+        return Promise.resolve({ data: [{ id: 88, name: "Maurício Titular" }] });
+      }
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 88, name: "Maurício Titular" },
+          service: { id: 41, code: "physio", name: "Fisioterapia" },
+          contracted_at: "2026-09-05",
+          quantity: 3,
+          free_rights: 1,
+          relocatable_sessions: 0,
+          requires_scheduled_session: false,
+          eligible_scheduled_sessions: [],
+          review_token: "review-token-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const view = renderAgendamentos();
+    await openPackageShareReview(view.container);
+    fireEvent.click(screen.getByLabelText(/Pacote de Fisioterapia · 05\/09\/2026/));
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: "Confirmar", exact: true }),
+    ).toBeEnabled());
+
+    mockAuthorization = {
+      ...mockAuthorization,
+      context: { ...mockAuthorization.context, catalog_version: 7 },
+    };
+    view.rerender(
+      <MemoryRouter initialEntries={["/agendamentos"]}>
+        <Agendamentos />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(
+      screen.queryByRole("heading", { name: "Revisar agendamento" }),
+    ).not.toBeInTheDocument());
+    expect(screen.queryByLabelText("Usar pacote de outro paciente")).not.toBeInTheDocument();
+    expect(axios.post.mock.calls.some(([url]) => url === "/sessions")).toBe(false);
+  });
+
+	  it("mantem a revisao pendente e ignora resposta atrasada de outro pacote", async () => {
+	    const firstRequest = createDeferred();
+	    const secondRequest = createDeferred();
+	    const packages = [
+	      {
+	        id: 701,
+	        owner: { id: 88, name: "Maurício Titular" },
+	        service: { id: 41, code: "physio", name: "Fisioterapia" },
+	        contracted_at: "2026-09-05",
+	        quantity: 3,
+	        free_rights: 1,
+	        relocatable_sessions: 0,
+	        requires_scheduled_session: false,
+	        eligible_scheduled_sessions: [],
+	        review_token: "review-token-701",
+	      },
+	      {
+	        id: 702,
+	        owner: { id: 88, name: "Maurício Titular" },
+	        service: { id: 41, code: "physio", name: "Fisioterapia" },
+	        contracted_at: "2026-09-20",
+	        quantity: 3,
+	        free_rights: 1,
+	        relocatable_sessions: 0,
+	        requires_scheduled_session: false,
+	        eligible_scheduled_sessions: [],
+	        review_token: "review-token-702",
+	      },
+	    ];
+	    const originalGet = axios.get.getMockImplementation();
+	    axios.get.mockImplementation((url, config) => {
+	      if (url === "/package-sharing/owners") {
+	        return Promise.resolve({ data: [{ id: 88, name: "Maurício Titular" }] });
+	      }
+	      if (url === "/package-sharing/owners/88/packages") {
+	        return Promise.resolve({ data: packages });
+	      }
+	      return originalGet(url, config);
+	    });
+	    checkSchedulingAvailability.mockImplementation((payload) => {
+	      if (payload?.shared_package_id === 701) return firstRequest.promise;
+	      if (payload?.shared_package_id === 702) return secondRequest.promise;
+	      return Promise.resolve(buildSingleAvailabilityResponse());
+	    });
+
+	    const { container } = renderAgendamentos();
+	    await openPackageShareReview(container);
+	    fireEvent.click(screen.getByLabelText(/Pacote de Fisioterapia · 05\/09\/2026/));
+	    expect(await screen.findByText("Verificando disponibilidade..."))
+	      .toBeInTheDocument();
+	    expect(screen.getByRole("button", { name: "Confirmar", exact: true })).toBeDisabled();
+	    fireEvent.click(screen.getByLabelText(/Pacote de Fisioterapia · 20\/09\/2026/));
+
+	    await act(async () => {
+	      secondRequest.resolve(buildSingleAvailabilityResponse());
+	      await secondRequest.promise;
+	    });
+	    expect(await screen.findByText("Disponível")).toBeInTheDocument();
+	    expect(screen.getByLabelText(/Pacote de Fisioterapia · 20\/09\/2026/)).toBeChecked();
+	    expect(screen.getByRole("button", { name: "Confirmar", exact: true })).toBeEnabled();
+
+	    await act(async () => {
+	      firstRequest.resolve(buildSingleAvailabilityResponse({
+	        canConfirm: false,
+	        blockingCode: "PATIENT_SCHEDULE_CONFLICT",
+	        blockingReason: "Paciente já agendado nesse horário",
+	      }));
+	      await firstRequest.promise;
+	    });
+	    expect(screen.getByText("Disponível")).toBeInTheDocument();
+	    expect(screen.queryByText("Paciente já agendado nesse horário"))
+	      .not.toBeInTheDocument();
+	    expect(screen.getByLabelText(/Pacote de Fisioterapia · 20\/09\/2026/)).toBeChecked();
+	  });
+
+	  it("falha fechada na revalidacao do pacote e permite tentar novamente", async () => {
+	    const retryRequest = createDeferred();
+	    const packageOption = {
+	      id: 701,
+	      owner: { id: 88, name: "Maurício Titular" },
+	      service: { id: 41, code: "physio", name: "Fisioterapia" },
+	      contracted_at: "2026-09-05",
+	      quantity: 3,
+	      free_rights: 1,
+	      relocatable_sessions: 0,
+	      requires_scheduled_session: false,
+	      eligible_scheduled_sessions: [],
+	      review_token: "review-token-701",
+	    };
+	    const originalGet = axios.get.getMockImplementation();
+	    axios.get.mockImplementation((url, config) => {
+	      if (url === "/package-sharing/owners") {
+	        return Promise.resolve({ data: [{ id: 88, name: "Maurício Titular" }] });
+	      }
+	      if (url === "/package-sharing/owners/88/packages") {
+	        return Promise.resolve({ data: [packageOption] });
+	      }
+	      return originalGet(url, config);
+	    });
+	    let packageChecks = 0;
+	    checkSchedulingAvailability.mockImplementation((payload) => {
+	      if (!payload?.shared_package_id) return Promise.resolve(buildSingleAvailabilityResponse());
+	      packageChecks += 1;
+	      if (packageChecks === 1) {
+	        return Promise.resolve({ data: { matched_events: [] } });
+	      }
+	      return retryRequest.promise;
+	    });
+
+	    const { container } = renderAgendamentos();
+	    await openPackageShareReview(container);
+	    fireEvent.click(screen.getByLabelText(/Pacote de Fisioterapia · 05\/09\/2026/));
+	    expect(await screen.findByText(
+	      "Não foi possível verificar a disponibilidade. Tente novamente.",
+	    )).toBeInTheDocument();
+	    expect(screen.getByRole("button", { name: "Confirmar", exact: true })).toBeDisabled();
+
+	    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+	    expect(await screen.findByText("Verificando disponibilidade..."))
+	      .toBeInTheDocument();
+	    expect(screen.getByRole("button", { name: "Confirmar", exact: true })).toBeDisabled();
+	    await act(async () => {
+	      retryRequest.resolve(buildSingleAvailabilityResponse());
+	      await retryRequest.promise;
+	    });
+	    expect(await screen.findByText("Disponível")).toBeInTheDocument();
+	    expect(screen.getByRole("button", { name: "Confirmar", exact: true })).toBeEnabled();
+	  });
+
+	  it("atualiza opcoes stale e limpa somente a escolha incompatível", async () => {
+	    const initialPackage = {
+	      id: 701,
+	      owner: { id: 88, name: "Maurício Titular" },
+	      service: { id: 41, code: "physio", name: "Fisioterapia" },
+	      contracted_at: "2026-09-05",
+	      quantity: 3,
+	      free_rights: 1,
+	      relocatable_sessions: 0,
+	      requires_scheduled_session: false,
+	      eligible_scheduled_sessions: [],
+	      review_token: "review-token-701",
+	    };
+	    const refreshedPackage = {
+	      ...initialPackage,
+	      id: 702,
+	      contracted_at: "2026-09-20",
+	      review_token: "review-token-702",
+	    };
+	    const originalGet = axios.get.getMockImplementation();
+	    let packageLoads = 0;
+	    axios.get.mockImplementation((url, config) => {
+	      if (url === "/package-sharing/owners") {
+	        return Promise.resolve({ data: [{ id: 88, name: "Maurício Titular" }] });
+	      }
+	      if (url === "/package-sharing/owners/88/packages") {
+	        packageLoads += 1;
+	        return Promise.resolve({ data: packageLoads === 1 ? [initialPackage] : [refreshedPackage] });
+	      }
+	      return originalGet(url, config);
+	    });
+	    checkSchedulingAvailability.mockImplementation((payload) => {
+	      if (!payload?.shared_package_id) return Promise.resolve(buildSingleAvailabilityResponse());
+	      const error = new Error("A sessão escolhida mudou. Revise novamente.");
+	      error.response = {
+	        status: 409,
+	        data: {
+	          code: "PACKAGE_SHARE_SOURCE_CHANGED",
+	          error: "A sessão escolhida mudou. Revise novamente.",
+	        },
+	      };
+	      return Promise.reject(error);
+	    });
+
+	    const { container } = renderAgendamentos();
+	    await openPackageShareReview(container);
+	    fireEvent.click(screen.getByLabelText(/Pacote de Fisioterapia · 05\/09\/2026/));
+
+	    expect(await screen.findByText("As opções mudaram. Escolha o pacote novamente"))
+	      .toBeInTheDocument();
+	    expect(screen.queryByLabelText(/Pacote de Fisioterapia · 05\/09\/2026/))
+	      .not.toBeInTheDocument();
+	    expect(screen.getByLabelText(/Pacote de Fisioterapia · 20\/09\/2026/))
+	      .not.toBeChecked();
+	    expect(screen.getByText("Paciente: Paciente Teste")).toBeInTheDocument();
+	    expect(screen.getByText("Pacote de: Maurício Titular")).toBeInTheDocument();
+	    expect(screen.getByText(/20\/10\/2026/)).toBeInTheDocument();
+	    expect(screen.getByRole("button", { name: "Confirmar", exact: true })).toBeDisabled();
+	    expect(packageLoads).toBe(2);
+	  });
+
+  it("exige na revisao a sessao futura quando o pacote esta totalmente reservado", async () => {
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners") {
+        return Promise.resolve({ data: [{ id: 88, name: "Maurício Titular" }] });
+      }
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 88, name: "Maurício Titular" },
+          service: { id: 41, code: "physio", name: "Fisioterapia" },
+          contracted_at: "2026-09-05",
+          quantity: 2,
+          free_rights: 0,
+          relocatable_sessions: 2,
+          requires_scheduled_session: true,
+          eligible_scheduled_sessions: [
+            {
+              id: 801,
+              starts_at: "2026-10-12T09:00:00",
+              patient_name: "Maurício Titular",
+              professional_name: "Profissional A",
+            },
+            {
+              id: 802,
+              starts_at: "2026-10-14T09:00:00",
+              patient_name: "João Atendido",
+              professional_name: "Profissional B",
+            },
+          ],
+          review_token: "review-token-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
+    fireEvent.click(screen.getByLabelText("Usar pacote de outro paciente"));
+    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+    fireEvent.change(ownerInput, { target: { value: "Maurício" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "41" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-10-20" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+    await screen.findByText("Qual pacote vamos usar?");
+    expect(screen.getByText("2 sessões · 2 agendadas")).toBeInTheDocument();
+    expect(screen.queryByText("Qual sessão do pacote será liberada?"))
+      .not.toBeInTheDocument();
+    expect(screen.queryByLabelText("12/10/2026 às 09h · Maurício Titular · Profissional A"))
+      .not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/Pacote de Fisioterapia · 05\/09\/2026/));
+
+    expect(screen.getByText("Qual sessão do pacote será liberada?"))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/Todas as sessões desse pacote/)).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("undefined");
+    expect(screen.getByLabelText("14/10/2026 às 09h · João Atendido · Profissional B"))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmar", exact: true })).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("12/10/2026 às 09h · Maurício Titular · Profissional A"));
+    expect(screen.getByLabelText("12/10/2026 às 09h · Maurício Titular · Profissional A"))
+      .toBeChecked();
+	  await waitFor(() => expect(checkSchedulingAvailability).toHaveBeenCalledWith(
+	    expect.objectContaining({
+	      patient_id: 20,
+	      starts_at: "2026-10-20T13:00:00.000Z",
+	      ends_at: "2026-10-20T14:00:00.000Z",
+	      shared_package_id: 701,
+	      shared_package_source_session_id: 801,
+	      shared_package_review_token: "review-token-701",
+	    }),
+	  ));
+	  await waitFor(() => expect(
+	    screen.getByRole("button", { name: "Confirmar", exact: true }),
+	  ).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar", exact: true }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 20,
+        starts_at: "2026-10-20T13:00:00.000Z",
+        ends_at: "2026-10-20T14:00:00.000Z",
+        shared_package_id: 701,
+        shared_package_source_session_id: 801,
+        shared_package_review_token: "review-token-701",
+      }),
+    ));
+  });
+
+  it("rejeita o contexto comercial quando ele não é a coleção canônica de pacotes", async () => {
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners") {
+        return Promise.resolve({ data: [{ id: 88, name: "Maurício Titular" }] });
+      }
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({
+          data: {
+            managed: false,
+            identity: {
+              id: 1,
+              name: "Administrador Pacotes",
+              email: "admin.pacotes@example.test",
+            },
+          },
+        });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
+    fireEvent.click(screen.getByLabelText("Usar pacote de outro paciente"));
+    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+    fireEvent.change(ownerInput, { target: { value: "Maurício" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "41" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-10-20" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Não foi possível buscar os pacotes desse paciente.",
+    ));
+    expect(screen.queryByText("Qual pacote vamos usar?")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("undefined");
+  });
+
+  it("mostra ausencia elegivel de forma humana e oculta a opcao sem capacidade", async () => {
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners") {
+        return Promise.resolve({ data: [{ id: 88, name: "Maurício Titular" }] });
+      }
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({ data: [] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container, unmount } = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    fireEvent.change(await screen.findByPlaceholderText("Buscar paciente"), {
+      target: { value: "Paciente Teste" },
+    });
+    const patientSuggestions = await screen.findAllByText("Paciente Teste");
+    fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await selectAssignedProfessional(container);
+    fireEvent.click(screen.getByLabelText("Usar pacote de outro paciente"));
+    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+    fireEvent.change(ownerInput, { target: { value: "Maurício" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+    fireEvent.change(container.querySelector('select[name="service_id"]'), {
+      target: { value: "41" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-10-20" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+    expect(await screen.findByText("Maurício não tem pacote disponível para Fisioterapia."))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmar", exact: true })).toBeDisabled();
+    unmount();
+
+    mockAuthorization = {
+      ...mockAuthorization,
+      hasCapability: jest.fn((capability) => capability !== "schedule.package.share"),
+    };
+    renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    fireEvent.click(screen.getByRole("button", { name: "Novo agendamento" }));
+    expect(screen.queryByLabelText("Usar pacote de outro paciente"))
+      .not.toBeInTheDocument();
+  });
+
+  it("troca o paciente de uma sessao de pacote pelo mesmo comando e unidade", async () => {
+    sessionsMockData = [absolutePackageSession];
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners/20/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 20, name: "Paciente Teste" },
+          service: { id: 40, code: "spine_eval", name: "Avaliacao Coluna" },
+          contracted_at: "2026-06-01",
+          quantity: 3,
+          free_rights: 1,
+          relocatable_sessions: 0,
+          requires_scheduled_session: false,
+          eligible_scheduled_sessions: [],
+          source_session_eligible: true,
+          review_token: "review-token-edit-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/package-sharing/owners/20/packages",
+      { params: { service_id: 40, source_session_id: 10 } },
+    ));
+    const patientSearch = await screen.findByRole("searchbox", { name: "Paciente" });
+    expect(patientSearch).toHaveValue("Paciente Teste");
+    expect(screen.queryByText("Usar esta sessão para outro paciente"))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText("Trocar paciente")).not.toBeInTheDocument();
+    fireEvent.change(patientSearch, { target: { value: "Paciente Cancelado" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Paciente Cancelado/ }));
+
+    const professionalSelect = container.querySelector('select[name="professional_user_id"]');
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/schedule/references/professionals",
+      { params: { patient_id: 21 } },
+    ));
+    await waitFor(() => expect(
+      Array.from(professionalSelect.options).some((option) => option.value === "31"),
+    ).toBe(true));
+    fireEvent.change(professionalSelect, {
+      target: { value: "31" },
+    });
+    fireEvent.change(container.querySelector('input[type="date"]'), {
+      target: { value: "2026-06-30" },
+    });
+    const hourSelect = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hourSelect, { target: { value: "10" } });
+    const latePolicyException = screen.getByLabelText("Tem justificativa");
+    expect(latePolicyException).toBeInTheDocument();
+    fireEvent.click(latePolicyException);
+    fireEvent.change(screen.getByPlaceholderText("Motivo"), {
+      target: { value: "Alteração de horário autorizada" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 21,
+        professional_user_id: 31,
+        service_id: 40,
+        starts_at: "2026-06-30T13:00:00.000Z",
+        ends_at: "2026-06-30T14:00:00.000Z",
+        shared_package_id: 701,
+        shared_package_source_session_id: 10,
+        shared_package_review_token: "review-token-edit-701",
+        shared_package_preserve_source_unit: true,
+        idempotency_key: expect.stringMatching(/^package-share:/),
+        late_policy_exception_justified: true,
+        late_policy_exception_reason: "Alteração de horário autorizada",
+      }),
+    ));
+    expect(axios.put).not.toHaveBeenCalledWith(
+      "/sessions/10",
+      expect.objectContaining({ patient_id: 21 }),
+    );
+  });
+
+  it("mantem data e horario ao trocar somente quem sera atendido", async () => {
+    sessionsMockData = [absolutePackageSession];
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners/20/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 20, name: "Paciente Teste" },
+          service: { id: 40, code: "spine_eval", name: "Avaliacao Coluna" },
+          contracted_at: "2026-06-01",
+          quantity: 3,
+          free_rights: 1,
+          relocatable_sessions: 0,
+          requires_scheduled_session: false,
+          eligible_scheduled_sessions: [],
+          source_session_eligible: true,
+          review_token: "review-token-edit-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    expect(container.querySelector('input[type="date"]')).toHaveValue("2026-06-29");
+    const displayedHour = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    expect(displayedHour).toHaveValue("07");
+    expect(screen.queryByText("Pacote de Paciente Teste")).not.toBeInTheDocument();
+    const patientSearch = await screen.findByRole("searchbox", { name: "Paciente" });
+    fireEvent.change(patientSearch, { target: { value: "Paciente Cancelado" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Paciente Cancelado/ }));
+    expect(screen.queryByLabelText("Tem justificativa")).not.toBeInTheDocument();
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/schedule/references/professionals",
+      { params: { patient_id: 21 } },
+    ));
+    const professionalSelect = container.querySelector('select[name="professional_user_id"]');
+    await waitFor(() => expect(professionalSelect).toHaveValue("30"));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 21,
+        professional_user_id: 30,
+        starts_at: absolutePackageSession.starts_at,
+        ends_at: absolutePackageSession.ends_at,
+        shared_package_id: 701,
+        shared_package_source_session_id: 10,
+        shared_package_preserve_source_unit: true,
+      }),
+    ));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("rescheduled_from_id");
+    expect(payload.late_policy_exception_justified).toBe(false);
+    expect(axios.put).not.toHaveBeenCalledWith(
+      "/sessions/10",
+      expect.objectContaining({ patient_id: 21 }),
+    );
+  });
+
+  it("preserva os instantes ao trocar paciente de sessao passada ainda aberta", async () => {
+    agendaTestNow = new NativeDate("2026-06-29T12:00:00.000Z");
+    sessionsMockData = [absolutePackageSession];
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners/20/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 20, name: "Paciente Teste" },
+          service: { id: 40, code: "spine_eval", name: "Avaliacao Coluna" },
+          contracted_at: "2026-06-01",
+          quantity: 3,
+          free_rights: 1,
+          relocatable_sessions: 0,
+          requires_scheduled_session: false,
+          eligible_scheduled_sessions: [],
+          source_session_eligible: true,
+          review_token: "review-token-edit-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    const patientSearch = await screen.findByRole("searchbox", { name: "Paciente" });
+    fireEvent.change(patientSearch, { target: { value: "Paciente Cancelado" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Paciente Cancelado/ }));
+    expect(screen.queryByLabelText("Tem justificativa")).not.toBeInTheDocument();
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/schedule/references/professionals",
+      { params: { patient_id: 21 } },
+    ));
+    await waitFor(() => expect(
+      container.querySelector('select[name="professional_user_id"]'),
+    ).toHaveValue("30"));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: 21,
+        starts_at: absolutePackageSession.starts_at,
+        ends_at: absolutePackageSession.ends_at,
+        shared_package_id: 701,
+        shared_package_source_session_id: 10,
+        shared_package_preserve_source_unit: true,
+      }),
+    ));
+    expect(axios.post.mock.calls.find(([url]) => url === "/sessions")[1])
+      .not.toHaveProperty("rescheduled_from_id");
+  });
+
+  it.each([
+    ["outro paciente", 21, "Paciente Cancelado"],
+    ["o titular", 88, "Maurício Titular"],
+  ])("permite trocar paciente compartilhado por %s", async (_label, targetId, targetName) => {
+    const sharedSession = {
+      ...packageSession,
+      patient_id: 20,
+      Patient: { id: 20, full_name: "Paciente Teste" },
+      PackageUnit: {
+        ...packageSession.PackageUnit,
+        Package: {
+          ...packageSession.PackageUnit.Package,
+          patient_id: 88,
+          Patient: { id: 88, full_name: "Maurício Titular" },
+        },
+      },
+    };
+    sessionsMockData = [sharedSession];
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 88, name: "Maurício Titular" },
+          service: { id: 40, code: "spine_eval", name: "Avaliacao Coluna" },
+          contracted_at: "2026-06-01",
+          quantity: 3,
+          free_rights: 0,
+          relocatable_sessions: 1,
+          requires_scheduled_session: true,
+          eligible_scheduled_sessions: [{
+            id: 10,
+            starts_at: baseSession.starts_at,
+            patient_name: "Paciente Teste",
+            professional_name: "Profissional Teste",
+          }],
+          source_session_eligible: true,
+          review_token: "review-token-edit-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    const patientSearch = await screen.findByRole("searchbox", { name: "Paciente" });
+    fireEvent.change(patientSearch, { target: { value: targetName } });
+    fireEvent.click(await screen.findByRole("button", { name: targetName }));
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/schedule/references/professionals",
+      { params: { patient_id: targetId } },
+    ));
+    await waitFor(() => expect(
+      container.querySelector('select[name="professional_user_id"]'),
+    ).toHaveValue("30"));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/sessions",
+      expect.objectContaining({
+        patient_id: targetId,
+        shared_package_id: 701,
+        shared_package_source_session_id: 10,
+        shared_package_preserve_source_unit: true,
+      }),
+    ));
+    expect(axios.put).not.toHaveBeenCalledWith(
+      "/sessions/10",
+      expect.objectContaining({ patient_id: targetId }),
+    );
+  });
+
+  it("restaura o paciente original quando a permissao some durante a edicao", async () => {
+    sessionsMockData = [{
+      ...packageSession,
+      patient_id: 20,
+      Patient: { id: 20, full_name: "Paciente Teste" },
+      PackageUnit: {
+        ...packageSession.PackageUnit,
+        Package: {
+          ...packageSession.PackageUnit.Package,
+          patient_id: 88,
+          Patient: { id: 88, full_name: "Maurício Titular" },
+        },
+      },
+    }];
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 88, name: "Maurício Titular" },
+          service: { id: 40, code: "spine_eval", name: "Avaliacao Coluna" },
+          contracted_at: "2026-06-01",
+          quantity: 3,
+          free_rights: 0,
+          relocatable_sessions: 1,
+          requires_scheduled_session: true,
+          eligible_scheduled_sessions: [{
+            id: 10,
+            starts_at: baseSession.starts_at,
+            patient_name: "Paciente Teste",
+            professional_name: "Profissional Teste",
+          }],
+          source_session_eligible: true,
+          review_token: "review-token-edit-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const view = renderAgendamentos();
+    await openScheduledSessionEdit(view.container);
+    const patientSearch = await screen.findByRole("searchbox", { name: "Paciente" });
+    fireEvent.change(patientSearch, { target: { value: "Paciente Cancelado" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Paciente Cancelado/ }));
+    fireEvent.change(view.container.querySelector('textarea[name="notes"]'), {
+      target: { value: "Ajuste administrativo sem troca de paciente" },
+    });
+
+    mockAuthorization = {
+      ...mockAuthorization,
+      hasCapability: jest.fn((capability) => capability !== "schedule.package.share"),
+    };
+    view.rerender(
+      <MemoryRouter initialEntries={["/agendamentos"]}>
+        <Agendamentos />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.queryByRole("searchbox", { name: "Paciente" }))
+      .not.toBeInTheDocument());
+    expect(screen.getAllByText("Paciente Teste").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(axios.put).toHaveBeenCalledWith(
+      "/sessions/10",
+      expect.objectContaining({
+        patient_id: 20,
+        notes: "Ajuste administrativo sem troca de paciente",
+      }),
+    ));
+    expect(axios.post.mock.calls.some(([url]) => url === "/sessions")).toBe(false);
+  });
+
+  it("identifica pacote compartilhado e limita a troca por elegibilidade e permissao", async () => {
+    const sharedSession = {
+      ...packageSession,
+      patient_id: 20,
+      Patient: { id: 20, full_name: "Paciente Teste" },
+      PackageUnit: {
+        ...packageSession.PackageUnit,
+        Package: {
+          ...packageSession.PackageUnit.Package,
+          patient_id: 88,
+          Patient: { id: 88, full_name: "Maurício Titular" },
+        },
+      },
+    };
+    sessionsMockData = [sharedSession];
+    const originalGet = axios.get.getMockImplementation();
+    let sourceEligible = true;
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/package-sharing/owners/88/packages") {
+        return Promise.resolve({ data: [{
+          id: 701,
+          owner: { id: 88, name: "Maurício Titular" },
+          service: { id: 40, code: "spine_eval", name: "Avaliacao Coluna" },
+          contracted_at: "2026-06-01",
+          quantity: 3,
+          free_rights: 0,
+          relocatable_sessions: 1,
+          requires_scheduled_session: true,
+          eligible_scheduled_sessions: [{
+            id: 10,
+            starts_at: baseSession.starts_at,
+            patient_name: "Paciente Teste",
+            professional_name: "Profissional Teste",
+          }],
+          source_session_eligible: sourceEligible,
+          review_token: "review-token-edit-701",
+        }] });
+      }
+      return originalGet(url, config);
+    });
+
+    const first = renderAgendamentos();
+    await screen.findByText("Paciente Teste");
+    expect(screen.queryByText("Pacote de Maurício Titular")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mês" }));
+    expect(screen.queryByText("Pacote de Maurício Titular")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Semana" }));
+
+    const compactGridCard = await waitFor(() => {
+      const element = first.container.querySelector('[data-id="10"]');
+      expect(element).toBeTruthy();
+      return element;
+    });
+    expect(compactGridCard).not.toHaveTextContent("Pacote de Maurício Titular");
+    fireEvent.click(compactGridCard);
+    const detailsTitle = await screen.findByText("Detalhes do horário");
+    expect(screen.getByText("Pacote de Maurício Titular")).toBeInTheDocument();
+    fireEvent.click(detailsTitle.parentElement.parentElement.querySelector("button"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Dia" }));
+    const dayCard = await waitFor(() => {
+      const element = first.container.querySelector('[data-id="10"]');
+      expect(element).toBeTruthy();
+      return element;
+    });
+    expect(dayCard).toHaveTextContent("Pacote de Maurício Titular");
+    fireEvent.click(dayCard.querySelector("button[aria-label]"));
+    fireEvent.click(await screen.findByRole("button", { name: "Editar agendamento" }));
+    await screen.findByText("Motivo da alteração");
+    expect((await screen.findAllByText("Pacote de Maurício Titular")).length)
+      .toBeGreaterThan(0);
+    await waitFor(() => expect(axios.get).toHaveBeenCalledWith(
+      "/package-sharing/owners/88/packages",
+      { params: { service_id: 40, source_session_id: 10 } },
+    ));
+    const patientSearch = await screen.findByRole("searchbox", { name: "Paciente" });
+    const editForm = patientSearch.closest("form");
+    expect(patientSearch).toHaveValue("Paciente Teste");
+    fireEvent.change(patientSearch, { target: { value: "Maurício" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+    expect(within(editForm).queryByText("Pacote de Maurício Titular")).not.toBeInTheDocument();
+    fireEvent.change(patientSearch, { target: { value: "Paciente Cancelado" } });
+    fireEvent.click(await screen.findByRole("button", { name: /Paciente Cancelado/ }));
+    expect(within(editForm).getByText("Pacote de Maurício Titular")).toBeInTheDocument();
+    expect(screen.queryByText("Trocar paciente")).not.toBeInTheDocument();
+    first.unmount();
+
+    sourceEligible = false;
+    const second = renderAgendamentos();
+    await openScheduledSessionEdit(second.container);
+    await waitFor(() => expect(axios.get.mock.calls.filter(
+      ([url]) => url === "/package-sharing/owners/88/packages",
+    )).toHaveLength(2));
+    expect(screen.queryByRole("searchbox", { name: "Paciente" }))
+      .not.toBeInTheDocument();
+    second.unmount();
+
+    mockAuthorization = {
+      ...mockAuthorization,
+      hasCapability: jest.fn((capability) => capability !== "schedule.package.share"),
+    };
+    const third = renderAgendamentos();
+    await openScheduledSessionEdit(third.container);
+    expect(screen.queryByRole("searchbox", { name: "Paciente" }))
+      .not.toBeInTheDocument();
+    expect(axios.get.mock.calls.filter(
+      ([url]) => url === "/package-sharing/owners/88/packages",
+    )).toHaveLength(2);
   });
 });

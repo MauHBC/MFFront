@@ -92,6 +92,11 @@ e horário, independentemente de a origem ser uma série com vários dias ou
 várias séries singleton. Sessões materializadas não formam essa lista e uma
 remarcação individual não a altera. Respostas antigas continuam compatíveis por
 `pattern_summary` e, na ausência dele, por `weekdays` + `time`.
+O formulário de alteração também inicializa suas linhas por essa grade
+autoritativa e preserva o horário civil completo `HH:mm`; não o infere da
+primeira sessão nem arredonda minutos. “Hoje”, “amanhã”, início de vigência e
+instantes do histórico funcional usam o calendário operacional
+`America/Sao_Paulo`, independentemente do fuso do navegador ou do processo.
 
 Quando `agenda_summary.configuration_transition` estiver presente, a aba Agenda
 mantém a grade efetiva como configuração principal, troca seu badge por “Ativa

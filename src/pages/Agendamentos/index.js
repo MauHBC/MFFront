@@ -29,6 +29,7 @@ import { PageWrapper, PageContent } from "../../components/AppLayout";
 import AppShell from "../../components/AppShell";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import { SessionStatusButton } from "../../components/AppSessionStatus";
+import { PackagePill } from "../../components/AppStatus";
 import PatientSearchField from "../../components/PatientSearchField";
 import { disabledFieldStyles } from "../../components/AppForm";
 import {
@@ -41,6 +42,28 @@ import {
   getPatientSearchText,
   normalizeSearchText,
 } from "../../utils/patientSearch";
+import {
+  formatAgendaDate,
+  formatAgendaDateInput,
+  formatAgendaDateTimeInput,
+  formatAgendaHourInput,
+  formatAgendaMinuteInput,
+  formatAgendaShortDate,
+  formatAgendaTime,
+  getAgendaIsoWeekday,
+  isAgendaWeekendInstant,
+  parseAgendaDateTime,
+  resolveAgendaFormInterval,
+} from "../../utils/agendaDateTime";
+import {
+  addCivilDays,
+  addCivilMonths,
+  civilDateToMarker,
+  formatCivilDate,
+  getCivilMonthRange,
+  markerToCivilDate,
+  normalizeCivilDate,
+} from "../../utils/canonicalDateTime";
 import { alpha, colors } from "../../styles/tokens";
 import {
   PENDING_CENTER_ACTION_STATE_KEY,
@@ -429,13 +452,7 @@ const formatOccurrenceDate = (dateOnly, startsAt) => {
     }
   }
   if (!startsAt) return "";
-  const date = new Date(startsAt);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  return formatAgendaDate(startsAt);
 };
 
 const OCCURRENCE_WEEKDAY_LABELS = [
@@ -452,11 +469,12 @@ const formatOccurrenceCompactLabel = (occurrence) => {
   const dateLabel = formatOccurrenceDate(occurrence?.date, occurrence?.starts_at);
   const startTime = String(occurrence?.start_time || "").slice(0, 5);
   const hourLabel = startTime ? `${startTime.replace(":", "h")}` : "--h--";
-  const referenceDate = occurrence?.starts_at
-    ? new Date(occurrence.starts_at)
-    : new Date(`${occurrence?.date || ""}T00:00:00`);
-  const weekdayLabel = referenceDate && !Number.isNaN(referenceDate.getTime())
-    ? OCCURRENCE_WEEKDAY_LABELS[referenceDate.getDay()]
+  const isoWeekday = occurrence?.starts_at
+    ? getAgendaIsoWeekday(occurrence.starts_at)
+    : getAgendaIsoWeekday(occurrence?.date ? `${occurrence.date}T12:00` : null);
+  const weekdayIndex = isoWeekday === 7 ? 0 : isoWeekday;
+  const weekdayLabel = Number.isInteger(weekdayIndex)
+    ? OCCURRENCE_WEEKDAY_LABELS[weekdayIndex]
     : "";
   return [dateLabel, hourLabel, weekdayLabel].filter(Boolean).join(" · ");
 };
@@ -464,31 +482,28 @@ const formatOccurrenceCompactLabel = (occurrence) => {
 const getOccurrenceTimeValue = (occurrence) => {
   if (occurrence?.start_time) return String(occurrence.start_time).slice(0, 5);
   if (!occurrence?.starts_at) return "";
-  const date = new Date(occurrence.starts_at);
-  if (Number.isNaN(date.getTime())) return "";
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
-  return `${hour}:${minute}`;
+  return formatAgendaTime(occurrence.starts_at);
 };
 
-const getOccurrenceDurationMinutes = (occurrence) => {
+const getOccurrenceDurationMilliseconds = (occurrence) => {
   const startsAt = new Date(occurrence?.starts_at);
   const endsAt = new Date(occurrence?.ends_at);
   if (!Number.isNaN(startsAt.getTime()) && !Number.isNaN(endsAt.getTime())) {
-    const diff = Math.round((endsAt.getTime() - startsAt.getTime()) / 60000);
+    const diff = endsAt.getTime() - startsAt.getTime();
     if (diff > 0) return diff;
   }
-  return 60;
+  return 60 * 60000;
 };
+
+const getOccurrenceDurationMinutes = (occurrence) =>
+  Math.round(getOccurrenceDurationMilliseconds(occurrence) / 60000);
 
 const buildEditedOccurrenceTimes = (occurrence, dateValue, timeValue) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateValue || ""))) return null;
   if (!/^\d{2}:\d{2}$/.test(String(timeValue || ""))) return null;
-  const [year, month, day] = String(dateValue).split("-").map(Number);
-  const [hour, minute] = String(timeValue).split(":").map(Number);
-  const startsAt = new Date(year, month - 1, day, hour, minute, 0, 0);
-  if (Number.isNaN(startsAt.getTime())) return null;
-  const endsAt = new Date(startsAt.getTime() + getOccurrenceDurationMinutes(occurrence) * 60000);
+  const startsAt = parseAgendaDateTime(`${dateValue}T${timeValue}`);
+  if (!startsAt) return null;
+  const endsAt = new Date(startsAt.getTime() + getOccurrenceDurationMilliseconds(occurrence));
   return {
     starts_at: startsAt.toISOString(),
     ends_at: endsAt.toISOString(),
@@ -534,7 +549,369 @@ const OCCURRENCE_STATUS_LABELS = {
   INFO: "Info",
   WARN_CONFIRM: "Alerta",
   BLOCK: "Bloqueado",
+  CHECKING: "Verificando disponibilidade...",
+  PENDING: "Escolha a sessão do pacote",
+  ERROR: "Não foi possível verificar",
 };
+const LEGACY_OPERATIONAL_AVAILABILITY_SCOPE = "operational_events_only";
+
+const PATIENT_SCHEDULE_CONFLICT_MESSAGE = "Paciente já agendado nesse horário";
+const PACKAGE_SHARE_PERMISSION_ERROR_MESSAGE =
+  "Você não tem permissão para compartilhar pacotes.";
+const SINGLE_AVAILABILITY_ERROR_MESSAGE =
+  "Não foi possível verificar a disponibilidade. Tente novamente.";
+const PACKAGE_SHARE_REVIEW_ERROR_CODES = new Set([
+  "SCHEDULING_PREVIEW_SELECTION_INVALID",
+  "PACKAGE_SHARE_SELECTION_INVALID",
+  "PACKAGE_SHARE_UNAVAILABLE",
+  "PACKAGE_SHARE_SERVICE_MISMATCH",
+  "PACKAGE_SHARE_REVIEW_CHANGED",
+  "PACKAGE_SHARE_SOURCE_REQUIRED",
+  "PACKAGE_SHARE_SOURCE_CHANGED",
+  "PACKAGE_SHARE_SOURCE_PROTECTED",
+  "PACKAGE_SHARE_SOURCE_UNEXPECTED",
+]);
+
+const hasCompletePatientAvailabilityValidation = (validation) => (
+  validation
+  && typeof validation === "object"
+  && validation.complete === true
+  && validation.patient_conflict_checked === true
+  && typeof validation.can_confirm === "boolean"
+  && (validation.blocking_code === null || typeof validation.blocking_code === "string")
+  && (validation.blocking_reason === null || typeof validation.blocking_reason === "string")
+);
+
+const COMPLETE_AVAILABILITY_SEVERITIES = new Set(["info", "warn", "block"]);
+const COMPLETE_AVAILABILITY_BLOCKING_CODES = new Set([
+  null,
+  "PATIENT_SCHEDULE_CONFLICT",
+  "SCHEDULING_BLOCKED",
+]);
+const hasOwnProperty = (value, property) => (
+  !!value && Object.prototype.hasOwnProperty.call(value, property)
+);
+const isNullableString = (value) => value === null || typeof value === "string";
+
+const hasCompleteOperationalAvailability = (value) => (
+  value
+  && typeof value === "object"
+  && typeof value.allowed === "boolean"
+  && COMPLETE_AVAILABILITY_SEVERITIES.has(value.severity)
+  && Array.isArray(value.matched_events)
+  && typeof value.requires_confirmation === "boolean"
+  && typeof value.has_blocking_events === "boolean"
+  && typeof value.has_warning_events === "boolean"
+  && hasOwnProperty(value, "blocking_reason")
+  && isNullableString(value.blocking_reason)
+  && value.policy
+  && typeof value.policy === "object"
+  && typeof value.policy.allow_admin_override_block === "boolean"
+  && value.allowed === !value.has_blocking_events
+  && (!value.has_blocking_events || value.severity === "block")
+  && (value.has_blocking_events || !value.has_warning_events || value.severity === "warn")
+  && (value.has_blocking_events || value.has_warning_events || value.severity === "info")
+);
+
+const hasLegacySingleSchedulingAvailabilityContract = (value) => (
+  value
+  && typeof value === "object"
+  && typeof value.has_blocking_events === "boolean"
+  && typeof value.requires_confirmation === "boolean"
+  && typeof value.can_override_block === "boolean"
+  && Array.isArray(value.matched_events)
+);
+
+const validateSingleSchedulingAvailability = (value, { requireCompleteValidation }) => {
+  const validation = value?.validation;
+  const blockingCode = value?.blocking_code;
+  const blockingReason = value?.blocking_reason;
+  const validationBlockingCode = validation?.blocking_code;
+  const validationBlockingReason = validation?.blocking_reason;
+  const hasPatientConflict = blockingCode === "PATIENT_SCHEDULE_CONFLICT";
+  const hasSchedulingBlock = blockingCode === "SCHEDULING_BLOCKED";
+  const hasNoBlock = blockingCode === null;
+  const hasConsistentCompleteValidation = !requireCompleteValidation || (
+    hasCompleteOperationalAvailability(value)
+    && hasOwnProperty(value, "blocking_code")
+    && hasCompletePatientAvailabilityValidation(validation)
+    && blockingCode === validationBlockingCode
+    && blockingReason === validationBlockingReason
+    && COMPLETE_AVAILABILITY_BLOCKING_CODES.has(blockingCode)
+    && (!value.can_override_block || value.policy.allow_admin_override_block)
+    && (hasPatientConflict || value.requires_confirmation === value.has_warning_events)
+    && (
+      !hasPatientConflict
+      || (
+      validation.can_confirm === false
+	      && value.has_blocking_events === true
+	      && value.allowed === false
+	      && value.severity === "block"
+	      && value.requires_confirmation === false
+	      && value.can_override_block === false
+	      && typeof blockingReason === "string"
+	      && blockingReason.length > 0
+	    )
+    )
+    && (
+      !hasSchedulingBlock
+      || (
+	        value.has_blocking_events === true
+	        && value.allowed === false
+	        && value.severity === "block"
+	        && validation.can_confirm === value.can_override_block
+	        && typeof blockingReason === "string"
+	        && blockingReason.length > 0
+      )
+    )
+    && (
+      !hasNoBlock
+      || (
+        validation.can_confirm === true
+	        && value.has_blocking_events === false
+	        && value.allowed === true
+	        && value.can_override_block === false
+	        && blockingReason === null
+      )
+    )
+  );
+  const hasCompleteContract = hasLegacySingleSchedulingAvailabilityContract(value)
+    && hasConsistentCompleteValidation;
+
+  if (!hasCompleteContract) {
+    throw new Error("SCHEDULING_AVAILABILITY_RESPONSE_INVALID");
+  }
+  return value;
+};
+
+const validateRecurringSchedulingAvailability = (value, { requireCompleteValidation }) => {
+  const hasValidRange = (occurrence) => {
+    const startsAt = new Date(occurrence?.starts_at).getTime();
+    const endsAt = new Date(occurrence?.ends_at).getTime();
+    return Number.isFinite(startsAt) && Number.isFinite(endsAt) && endsAt > startsAt;
+  };
+  const firstBlockingValidation = Array.isArray(value?.occurrences_preview)
+    ? value.occurrences_preview
+      .map((occurrence) => occurrence?.validation)
+      .find((validation) => validation?.complete === true && validation.can_confirm === false)
+    : null;
+  const hasConsistentAggregateValidation = !requireCompleteValidation || (
+    value?.validation?.can_confirm === !firstBlockingValidation
+    && value?.validation?.blocking_code === (firstBlockingValidation?.blocking_code || null)
+    && value?.validation?.blocking_reason === (firstBlockingValidation?.blocking_reason || null)
+  );
+  const occurrences = Array.isArray(value?.occurrences_preview)
+    ? value.occurrences_preview
+    : [];
+  const countByStatus = (status) => occurrences.filter(
+    (occurrence) => occurrence?.status === status,
+  ).length;
+  const overrideableBlockedCount = occurrences.filter(
+    (occurrence) => occurrence?.status === "BLOCK" && occurrence.can_override_block === true,
+  ).length;
+  const availableCount = countByStatus("AVAILABLE");
+  const infoCount = countByStatus("INFO");
+  const warningCount = countByStatus("WARN_CONFIRM");
+  const blockedCount = countByStatus("BLOCK");
+  const hasConsistentSummary = !requireCompleteValidation || (
+    Number.isSafeInteger(value?.summary?.total)
+    && value.summary.total === occurrences.length
+    && Number.isSafeInteger(value?.summary?.available)
+    && value.summary.available === availableCount
+    && Number.isSafeInteger(value?.summary?.info)
+    && value.summary.info === infoCount
+    && Number.isSafeInteger(value?.summary?.warn)
+    && value.summary.warn === warningCount
+    && Number.isSafeInteger(value?.summary?.blocked)
+    && value.summary.blocked === blockedCount
+    && Number.isSafeInteger(value?.summary?.overrideable_blocked)
+    && value.summary.overrideable_blocked === overrideableBlockedCount
+    && Number.isSafeInteger(value?.summary?.creatable)
+    && value.summary.creatable === availableCount + infoCount
+    && Number.isSafeInteger(value?.summary?.creatable_with_warning_confirmation)
+    && value.summary.creatable_with_warning_confirmation
+      === availableCount + infoCount + warningCount
+    && Number.isSafeInteger(value?.summary?.creatable_with_override)
+    && value.summary.creatable_with_override
+      === availableCount + infoCount + warningCount + overrideableBlockedCount
+  );
+  const hasCompleteContract = value
+    && typeof value === "object"
+    && Array.isArray(value.occurrences_preview)
+    && (!requireCompleteValidation || value.occurrences_preview.length > 0)
+    && value.summary
+    && typeof value.summary === "object"
+    && (!requireCompleteValidation || hasCompletePatientAvailabilityValidation(value.validation))
+    && hasConsistentAggregateValidation
+    && hasConsistentSummary
+    && value.occurrences_preview.every((occurrence, occurrencePosition) => {
+      const availability = occurrence?.availability;
+      const blockingCode = occurrence?.blocking_code;
+      const blockingReason = occurrence?.blocking_reason;
+      const validation = occurrence?.validation;
+	      let expectedStatus = "AVAILABLE";
+	      if (availability?.matched_events?.length > 0) expectedStatus = "INFO";
+	      if (availability?.requires_confirmation) expectedStatus = "WARN_CONFIRM";
+	      if (availability?.has_blocking_events) expectedStatus = "BLOCK";
+      const hasPatientConflict = blockingCode === "PATIENT_SCHEDULE_CONFLICT";
+      const hasSchedulingBlock = blockingCode === "SCHEDULING_BLOCKED";
+      const hasNoBlock = blockingCode === null;
+      const hasCompleteOccurrence = !requireCompleteValidation || (
+        Number.isSafeInteger(occurrence.index)
+        && occurrence.index === occurrencePosition + 1
+        && typeof occurrence.date === "string"
+        && /^\d{4}-\d{2}-\d{2}$/.test(occurrence.date)
+        && typeof occurrence.start_time === "string"
+        && /^\d{2}:\d{2}$/.test(occurrence.start_time)
+        && typeof occurrence.end_time === "string"
+        && /^\d{2}:\d{2}$/.test(occurrence.end_time)
+        && typeof occurrence.requires_confirmation === "boolean"
+        && typeof occurrence.can_create === "boolean"
+        && hasOwnProperty(occurrence, "blocking_reason")
+        && isNullableString(blockingReason)
+        && hasOwnProperty(occurrence, "blocking_code")
+        && hasCompleteOperationalAvailability(availability)
+        && hasCompletePatientAvailabilityValidation(validation)
+        && occurrence.status === expectedStatus
+        && occurrence.requires_confirmation === availability.requires_confirmation
+        && occurrence.can_create === !availability.has_blocking_events
+        && blockingReason === availability.blocking_reason
+        && JSON.stringify(occurrence.matched_events)
+          === JSON.stringify(availability.matched_events)
+        && blockingCode === validation.blocking_code
+        && blockingReason === validation.blocking_reason
+        && COMPLETE_AVAILABILITY_BLOCKING_CODES.has(blockingCode)
+        && (!occurrence.can_override_block
+          || availability.policy.allow_admin_override_block)
+        && (hasPatientConflict
+          || availability.requires_confirmation === availability.has_warning_events)
+        && (
+          !hasPatientConflict
+          || (
+            validation.can_confirm === false
+            && occurrence.status === "BLOCK"
+            && occurrence.can_override_block === false
+            && occurrence.can_create === false
+            && availability.allowed === false
+            && availability.severity === "block"
+            && availability.requires_confirmation === false
+            && typeof blockingReason === "string"
+            && blockingReason.length > 0
+          )
+        )
+        && (
+          !hasSchedulingBlock
+          || (
+            occurrence.status === "BLOCK"
+            && occurrence.can_create === false
+            && validation.can_confirm === occurrence.can_override_block
+            && typeof blockingReason === "string"
+            && blockingReason.length > 0
+          )
+        )
+        && (
+          !hasNoBlock
+          || (
+            validation.can_confirm === true
+            && occurrence.can_override_block === false
+            && availability.has_blocking_events === false
+            && blockingReason === null
+          )
+        )
+      );
+      return (
+      occurrence
+      && typeof occurrence === "object"
+	    && (requireCompleteValidation
+	      ? Number.isSafeInteger(occurrence.index) && occurrence.index > 0
+	      : Number.isSafeInteger(Number(occurrence.index)) && Number(occurrence.index) > 0)
+      && hasValidRange(occurrence)
+      && ["AVAILABLE", "INFO", "WARN_CONFIRM", "BLOCK"].includes(occurrence.status)
+      && Array.isArray(occurrence.matched_events)
+      && typeof occurrence.can_override_block === "boolean"
+	    && hasCompleteOccurrence
+      );
+    });
+
+  if (!hasCompleteContract) {
+    throw new Error("SCHEDULING_OCCURRENCES_PREVIEW_RESPONSE_INVALID");
+  }
+  return value;
+};
+
+const isReviewOccurrenceSelectable = (occurrence) => (
+  occurrence?.status === "AVAILABLE"
+  || occurrence?.status === "INFO"
+  || occurrence?.status === "WARN_CONFIRM"
+  || (occurrence?.status === "BLOCK" && occurrence?.can_override_block)
+);
+
+const shouldAutoSelectReviewOccurrence = (occurrence) => (
+  isReviewOccurrenceSelectable(occurrence)
+  && !(occurrence?.status === "BLOCK" && occurrence?.can_override_block)
+);
+
+const reviewOccurrenceStatusLabel = (occurrence) => {
+  const blockingCode = occurrence?.blocking_code || occurrence?.validation?.blocking_code;
+  if (blockingCode === "PATIENT_SCHEDULE_CONFLICT") {
+    return occurrence?.blocking_reason
+      || occurrence?.validation?.blocking_reason
+      || PATIENT_SCHEDULE_CONFLICT_MESSAGE;
+  }
+  if (occurrence?.status === "ERROR") {
+    return occurrence.availability_error || SINGLE_AVAILABILITY_ERROR_MESSAGE;
+  }
+  if (occurrence?.availability_message) return occurrence.availability_message;
+  if (
+    occurrence?.status === "AVAILABLE"
+    && occurrence?.availability_scope === LEGACY_OPERATIONAL_AVAILABILITY_SCOPE
+  ) {
+    return "Sem bloqueio operacional";
+  }
+  return OCCURRENCE_STATUS_LABELS[occurrence?.status] || occurrence?.status;
+};
+
+const buildSingleOccurrenceSummary = (occurrence) => ({
+  total: 1,
+  available: occurrence?.status === "AVAILABLE" ? 1 : 0,
+  info: occurrence?.status === "INFO" ? 1 : 0,
+  warn: occurrence?.status === "WARN_CONFIRM" ? 1 : 0,
+  blocked: occurrence?.status === "BLOCK" ? 1 : 0,
+});
+
+const buildRecurringOccurrenceSummary = (occurrences) => occurrences.reduce((summary, item) => {
+  const nextSummary = { ...summary };
+  if (item?.status === "AVAILABLE") nextSummary.available += 1;
+  if (item?.status === "INFO") nextSummary.info += 1;
+  if (item?.status === "WARN_CONFIRM") nextSummary.warn += 1;
+  if (item?.status === "BLOCK") nextSummary.blocked += 1;
+  if (item?.status === "BLOCK" && item?.can_override_block) {
+    nextSummary.overrideable_blocked += 1;
+  }
+  return nextSummary;
+}, {
+  total: occurrences.length,
+  available: 0,
+  info: 0,
+  warn: 0,
+  blocked: 0,
+  overrideable_blocked: 0,
+});
+
+const dateTimeComparisonKey = (value) => {
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? String(timestamp) : null;
+};
+
+const markOccurrenceAvailabilityPending = (occurrence, status = "CHECKING") => ({
+  ...occurrence,
+  status,
+  can_override_block: false,
+  blocking_code: null,
+  blocking_reason: null,
+  availability_error: null,
+  availability_message: status === "PENDING" ? "Escolha a sessão do pacote" : null,
+});
 
 const emptyForm = {
   patient_id: "",
@@ -560,6 +937,18 @@ const emptyForm = {
   patient_credit_id: "",
   billing_mode: "",
   package_update_scope: "single",
+  shared_package_owner_id: "",
+  shared_package_id: "",
+  shared_package_source_session_id: "",
+  shared_package_review_token: "",
+  package_share_idempotency_key: "",
+};
+
+const emptyEditPackageShare = {
+  status: "idle",
+  active: false,
+  package: null,
+  patientQuery: "",
 };
 
 const hasFilledText = (value) => String(value || "").trim() !== "";
@@ -783,85 +1172,70 @@ const resolveSchedulingErrorMessage = (error) => {
   return safeErrorMessage;
 };
 
-const toIsoWeekday = (date) => {
-  const day = date.getDay();
-  return day === 0 ? 7 : day;
-};
-
-const isWeekendDate = (value) => {
-  if (!value) return false;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-  return date.getDay() === 0 || date.getDay() === 6;
-};
-
-const toSelectableWeekday = (date, allowWeekendScheduling = false) => {
-  const weekday = toIsoWeekday(date);
-  return weekday >= 1 && weekday <= (allowWeekendScheduling ? 7 : 5) ? weekday : null;
-};
-
 const formatDateTime = (value) => {
   if (!value) return "Sem data";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Sem data";
-  return date.toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+  const date = formatAgendaDate(value);
+  const time = formatAgendaTime(value);
+  return date && time ? `${date} ${time}` : "Sem data";
+};
+
+const firstName = (value) => String(value || "Paciente").trim().split(/\s+/)[0] || "Paciente";
+
+const validatePackageShareOptions = (value) => {
+  if (!Array.isArray(value)) throw new Error("PACKAGE_SHARE_READ_MODEL_INVALID");
+  value.forEach((pkg) => {
+    const quantity = Number(pkg?.quantity);
+    const freeRights = Number(pkg?.free_rights);
+    const relocatableSessions = Number(pkg?.relocatable_sessions);
+    const sessions = pkg?.eligible_scheduled_sessions;
+    const expectedRequiresSession = freeRights === 0 && relocatableSessions > 0;
+    const invalidSession = Array.isArray(sessions) && sessions.some((session) => (
+      !Number.isSafeInteger(Number(session?.id))
+      || Number(session.id) <= 0
+      || Number.isNaN(new Date(session?.starts_at).getTime())
+      || !String(session?.patient_name || "").trim()
+      || !String(session?.professional_name || "").trim()
+    ));
+    if (!Number.isSafeInteger(quantity) || quantity <= 0
+      || !Number.isSafeInteger(freeRights) || freeRights < 0
+      || !Number.isSafeInteger(relocatableSessions) || relocatableSessions < 0
+      || !Array.isArray(sessions)
+      || invalidSession
+      || freeRights + relocatableSessions > quantity
+      || (freeRights > 0 && (relocatableSessions !== 0 || sessions.length !== 0))
+      || (freeRights === 0 && relocatableSessions !== sessions.length)
+      || (Object.prototype.hasOwnProperty.call(pkg || {}, "source_session_eligible")
+        && typeof pkg.source_session_eligible !== "boolean")
+      || Boolean(pkg?.requires_scheduled_session) !== expectedRequiresSession) {
+      throw new Error("PACKAGE_SHARE_READ_MODEL_INVALID");
+    }
   });
+  return value;
 };
 
 const formatDateParam = (value) => {
   if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  if (value instanceof Date) return markerToCivilDate(value);
+  const text = String(value).trim();
+  const civilPrefix = normalizeCivilDate(text.slice(0, 10));
+  if (civilPrefix && (!text.includes("T") || !/(?:Z|[+-]\d{2}:\d{2})$/.test(text))) {
+    return civilPrefix;
+  }
+  return formatAgendaDateInput(value);
 };
 
 const toDateInputValue = (value) => {
   if (!value) return "";
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return value;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return formatDateParam(value);
 };
 
 const toMonthInputValue = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
+  const dateOnly = toDateInputValue(value);
+  return dateOnly ? dateOnly.slice(0, 7) : "";
 };
 
 const parseDateInputValue = (value) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
-  const [yearString, monthString, dayString] = String(value).split("-");
-  const year = Number(yearString);
-  const monthIndex = Number(monthString) - 1;
-  const day = Number(dayString);
-  const date = new Date(year, monthIndex, day);
-  if (
-    Number.isNaN(date.getTime())
-    || date.getFullYear() !== year
-    || date.getMonth() !== monthIndex
-    || date.getDate() !== day
-  ) {
-    return null;
-  }
-  date.setHours(0, 0, 0, 0);
-  return date;
+  return civilDateToMarker(value);
 };
 
 const buildMonthlyValidityRange = (value, months = 1) => {
@@ -874,102 +1248,68 @@ const buildMonthlyValidityRange = (value, months = 1) => {
   }
 
   const safeMonths = Math.min(12, Math.max(1, Number(months) || 1));
-  const firstDayAfterPeriod = new Date(
-    startDate.getFullYear(),
-    startDate.getMonth() + safeMonths,
-    1,
-  );
-  const daysInTargetMonth = new Date(
-    firstDayAfterPeriod.getFullYear(),
-    firstDayAfterPeriod.getMonth() + 1,
-    0,
-  ).getDate();
-  const targetMonthSameDay = new Date(
-    firstDayAfterPeriod.getFullYear(),
-    firstDayAfterPeriod.getMonth(),
-    Math.min(startDate.getDate(), daysInTargetMonth),
-  );
-  const endDate = new Date(targetMonthSameDay);
-  endDate.setDate(endDate.getDate() - 1);
+  const start = markerToCivilDate(startDate);
+  const end = addCivilDays(addCivilMonths(start, safeMonths), -1);
 
   return {
-    start: formatDateParam(startDate),
-    end: formatDateParam(endDate),
+    start,
+    end,
   };
 };
 
 const formatDate = (value) => {
   if (!value) return "";
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const parsedDate = parseDateInputValue(value);
-    if (!parsedDate) return "";
-    return parsedDate.toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  const dateOnly = typeof value === "string" ? normalizeCivilDate(value) : "";
+  if (dateOnly) return formatCivilDate(dateOnly);
+  if (value instanceof Date) return formatCivilDate(markerToCivilDate(value));
+  return formatAgendaDate(value);
 };
 
 const formatShortDate = (value) => {
-  if (!value) return "";
-  const dateOnlyMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (dateOnlyMatch) {
-    return `${dateOnlyMatch[3]}/${dateOnlyMatch[2]}/${dateOnlyMatch[1].slice(2)}`;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "2-digit",
-  });
+  return formatAgendaShortDate(value);
 };
 
-const formatTime = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+const formatTime = (value) => formatAgendaTime(value);
+
+const formatPackageSession = (value) => {
+  const day = formatAgendaDate(value);
+  const time = formatAgendaTime(value);
+  if (!day || !time) return "Sem data";
+  return `${day} às ${time.replace(":00", "h")}`;
 };
 
 const formatWeekRange = (start, end) => {
   if (!start || !end) return "";
-  const sameMonth = start.getMonth() === end.getMonth();
-  const sameYear = start.getFullYear() === end.getFullYear();
+  const sameMonth = start.getUTCMonth() === end.getUTCMonth();
+  const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
   if (sameMonth && sameYear) {
-    const monthName = start.toLocaleDateString("pt-BR", { month: "long" });
-    return `${start.getDate()} a ${end.getDate()} de ${monthName} de ${start.getFullYear()}`;
+    const monthName = start.toLocaleDateString("pt-BR", { month: "long", timeZone: "UTC" });
+    return `${start.getUTCDate()} a ${end.getUTCDate()} de ${monthName} de ${start.getUTCFullYear()}`;
   }
-  const startLabel = start.toLocaleDateString("pt-BR", { day: "numeric", month: "long" });
+  const startLabel = start.toLocaleDateString("pt-BR", {
+    day: "numeric", month: "long", timeZone: "UTC",
+  });
   const endLabel = end.toLocaleDateString("pt-BR", {
     day: "numeric",
     month: "long",
+    timeZone: "UTC",
   });
   if (!sameYear) {
     const startWithYear = start.toLocaleDateString("pt-BR", {
       day: "numeric",
       month: "long",
       year: "numeric",
+      timeZone: "UTC",
     });
     const endWithYear = end.toLocaleDateString("pt-BR", {
       day: "numeric",
       month: "long",
       year: "numeric",
+      timeZone: "UTC",
     });
     return `${startWithYear} a ${endWithYear}`;
   }
-  return `${startLabel} a ${endLabel} de ${end.getFullYear()}`;
+  return `${startLabel} a ${endLabel} de ${end.getUTCFullYear()}`;
 };
 
 const formatDayPeriodLabel = (date) => {
@@ -978,6 +1318,7 @@ const formatDayPeriodLabel = (date) => {
     day: "numeric",
     month: "long",
     year: "numeric",
+    timeZone: "UTC",
   });
 };
 
@@ -986,30 +1327,11 @@ const formatMonthPeriodLabel = (date) => {
   return date.toLocaleDateString("pt-BR", {
     month: "long",
     year: "numeric",
+    timeZone: "UTC",
   });
 };
 
-const toInputValue = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const offset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-};
-
-const getHourInputValue = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return String(date.getHours()).padStart(2, "0");
-};
-
-const getMinuteInputValue = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return String(date.getMinutes()).padStart(2, "0");
-};
+const toInputValue = (value) => formatAgendaDateTimeInput(value);
 
 const buildDateTimeInputValue = (dateValue, hourValue, minuteValue = "00") => {
   if (!dateValue || !hourValue) return "";
@@ -1024,14 +1346,8 @@ const buildDateTimeInputValue = (dateValue, hourValue, minuteValue = "00") => {
 };
 
 const getMonthDateRange = (value) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return { start: "", end: "" };
-  const start = new Date(date.getFullYear(), date.getMonth(), 1);
-  const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-  return {
-    start: toDateInputValue(start),
-    end: toDateInputValue(end),
-  };
+  const month = formatAgendaDateInput(value).slice(0, 7);
+  return getCivilMonthRange(month) || { start: "", end: "" };
 };
 
 const isDateWithinInputRange = (value, start, end) => {
@@ -1043,90 +1359,120 @@ const isDateWithinInputRange = (value, start, end) => {
 };
 
 const getMonthRangeForDate = (value) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return { start: null, endExclusive: null };
+  const monthRange = getMonthDateRange(value);
+  if (!monthRange.start || !monthRange.end) return { start: null, endExclusive: null };
   return {
-    start: new Date(date.getFullYear(), date.getMonth(), 1),
-    endExclusive: new Date(date.getFullYear(), date.getMonth() + 1, 1),
+    start: civilDateToMarker(monthRange.start),
+    endExclusive: civilDateToMarker(addCivilDays(monthRange.end, 1)),
   };
 };
 
 const isSessionInMonth = (session, monthDate) => {
-  const sessionDate = new Date(session?.starts_at);
-  const referenceDate = new Date(monthDate);
-  if (Number.isNaN(sessionDate.getTime()) || Number.isNaN(referenceDate.getTime())) return false;
-  return (
-    sessionDate.getFullYear() === referenceDate.getFullYear() &&
-    sessionDate.getMonth() === referenceDate.getMonth()
-  );
+  const sessionMonth = formatAgendaDateInput(session?.starts_at).slice(0, 7);
+  const referenceMonth = formatAgendaDateInput(monthDate).slice(0, 7);
+  return Boolean(sessionMonth && sessionMonth === referenceMonth);
 };
 
 const getSessionPatientId = (session) =>
   session?.patient_id || session?.patient?.id || session?.Patient?.id || null;
 
+const positiveIdentifier = (value) => {
+  const normalized = Number(value);
+  return Number.isSafeInteger(normalized) && normalized > 0 ? normalized : null;
+};
+
+const getSessionCancellationIdentity = (session) => {
+  const attendedPatientId = positiveIdentifier(getSessionPatientId(session));
+  if (!attendedPatientId) return null;
+  const unit = session?.PackageUnit;
+  const packageUnitId = positiveIdentifier(session?.package_unit_id || unit?.id);
+  if (!packageUnitId && !unit) {
+    return {
+      attended_patient_id: attendedPatientId,
+      financial_patient_id: attendedPatientId,
+      package_owner_id: null,
+    };
+  }
+  const pkg = unit?.Package;
+  const embeddedUnitId = positiveIdentifier(unit?.id);
+  const unitPackageId = positiveIdentifier(unit?.package_id);
+  const packageId = positiveIdentifier(pkg?.id);
+  const packageOwnerId = positiveIdentifier(pkg?.Patient?.id || pkg?.patient_id);
+  if (!packageUnitId || !embeddedUnitId || packageUnitId !== embeddedUnitId
+    || !unitPackageId || !packageId || unitPackageId !== packageId || !packageOwnerId) {
+    return null;
+  }
+  const sessionClinicId = positiveIdentifier(session?.clinic_id);
+  const unitClinicId = positiveIdentifier(unit?.clinic_id);
+  const packageClinicId = positiveIdentifier(pkg?.clinic_id);
+  if ((unitClinicId && sessionClinicId && unitClinicId !== sessionClinicId)
+    || (packageClinicId && sessionClinicId && packageClinicId !== sessionClinicId)) {
+    return null;
+  }
+  return {
+    attended_patient_id: attendedPatientId,
+    financial_patient_id: packageOwnerId,
+    package_owner_id: packageOwnerId,
+  };
+};
+
 const sameDay = (a, b) => {
-  if (!a || !b) return false;
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+  const first = a instanceof Date ? markerToCivilDate(a) : formatAgendaDateInput(a);
+  const second = b instanceof Date ? markerToCivilDate(b) : formatAgendaDateInput(b);
+  return Boolean(first && first === second);
 };
 
 const startOfDay = (date) => {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  if (date instanceof Date) return civilDateToMarker(markerToCivilDate(date));
+  return civilDateToMarker(formatAgendaDateInput(date));
 };
 
 const startOfNextDay = (date) => {
-  const d = startOfDay(date);
-  d.setDate(d.getDate() + 1);
-  return d;
-};
-
-const endOfDay = (date) => {
-  const d = new Date(date);
-  d.setHours(23, 59, 59, 999);
-  return d;
+  const dateOnly = date instanceof Date ? markerToCivilDate(date) : formatAgendaDateInput(date);
+  return civilDateToMarker(addCivilDays(dateOnly, 1));
 };
 
 const getWeekDays = (baseDate, includeWeekend = false) => {
   const start = startOfDay(baseDate);
-  const day = start.getDay();
+  const day = start.getUTCDay();
   const diff = day === 0 ? -6 : 1 - day;
-  start.setDate(start.getDate() + diff);
+  start.setUTCDate(start.getUTCDate() + diff);
   return Array.from({ length: includeWeekend ? 7 : 5 }).map((_, index) => {
     const d = new Date(start);
-    d.setDate(start.getDate() + index);
+    d.setUTCDate(start.getUTCDate() + index);
     return d;
   });
 };
 
 const getMonthDays = (baseDate) => {
-  const first = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
-  const last = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0);
+  const first = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth(), 1));
+  const last = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth() + 1, 0));
   const days = [];
   const start = new Date(first);
-  const offset = start.getDay() === 0 ? -6 : 1 - start.getDay();
-  start.setDate(start.getDate() + offset);
-  while (start <= last || start.getDay() !== 1) {
+  const offset = start.getUTCDay() === 0 ? -6 : 1 - start.getUTCDay();
+  start.setUTCDate(start.getUTCDate() + offset);
+  while (start <= last || start.getUTCDay() !== 1) {
     days.push(new Date(start));
-    start.setDate(start.getDate() + 1);
+    start.setUTCDate(start.getUTCDate() + 1);
   }
   return days;
 };
 
 const getVisibleDateRange = (view, baseDate, includeWeekend = false) => {
   if (view === "month") {
-    const firstDayOfMonth = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
-    const lastDayOfMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0);
+    const firstDayOfMonth = new Date(Date.UTC(
+      baseDate.getUTCFullYear(), baseDate.getUTCMonth(), 1,
+    ));
+    const lastDayOfMonth = new Date(Date.UTC(
+      baseDate.getUTCFullYear(), baseDate.getUTCMonth() + 1, 0,
+    ));
     return {
       sessionsFrom: startOfDay(firstDayOfMonth),
       // The sessions API treats the date-only `to` boundary as exclusive.
       sessionsTo: startOfNextDay(lastDayOfMonth),
       specialEventsFrom: startOfDay(firstDayOfMonth),
-      specialEventsTo: endOfDay(lastDayOfMonth),
+      // Special events use an inclusive DATEONLY `to`, unlike sessions.
+      specialEventsTo: startOfDay(lastDayOfMonth),
     };
   }
 
@@ -1136,7 +1482,7 @@ const getVisibleDateRange = (view, baseDate, includeWeekend = false) => {
       sessionsFrom: startOfDay(weekDays[0]),
       sessionsTo: startOfNextDay(weekDays[weekDays.length - 1]),
       specialEventsFrom: startOfDay(weekDays[0]),
-      specialEventsTo: endOfDay(weekDays[weekDays.length - 1]),
+      specialEventsTo: startOfDay(weekDays[weekDays.length - 1]),
     };
   }
 
@@ -1144,22 +1490,42 @@ const getVisibleDateRange = (view, baseDate, includeWeekend = false) => {
     sessionsFrom: startOfDay(baseDate),
     sessionsTo: startOfNextDay(baseDate),
     specialEventsFrom: startOfDay(baseDate),
-    specialEventsTo: endOfDay(baseDate),
+    specialEventsTo: startOfDay(baseDate),
   };
 };
 
 const recurrenceConfirmationLabel = (preview, isPackageReplacement) => {
   if (preview.is_submitting) return "Salvando...";
+  if (preview.package_share_review) return "Confirmar";
   if (isPackageReplacement && preview.single_payload?.session_replacement_credit_id) return "Confirmar";
   if (preview.single_payload?.assign_patient_care) return "Atribuir e agendar";
   if (preview.series_payload?.assign_patient_care) return "Atribuir e agendar";
   return "Confirmar agendamento";
 };
 
+const getPackageOwnerName = (session) => {
+  const owner = session?.PackageUnit?.Package?.Patient;
+  return owner?.nickname || owner?.full_name || "";
+};
+
+const getSharedPackageOwnerName = (session) => {
+  const ownerName = getPackageOwnerName(session);
+  const owner = session?.PackageUnit?.Package?.Patient;
+  const ownerId = owner?.id || session?.PackageUnit?.Package?.patient_id;
+  const attendedPatientId = session?.patient_id || session?.Patient?.id;
+  if (!ownerId || String(ownerId) === String(attendedPatientId)) return "";
+  return ownerName || "Paciente";
+};
+
 export default function Agendamentos() {
   const routeLocation = useLocation();
   const routeHistory = useHistory();
   const authorization = useAuthorization();
+  const authorizationCatalogVersion = authorization.context?.catalog_version;
+  const usesCompleteSchedulingAvailabilityContract = authorizationCatalogVersion === 8;
+  const canSharePackages = authorization.status === "ready"
+    && usesCompleteSchedulingAvailabilityContract
+    && authorization.hasCapability("schedule.package.share");
   const canResolveSessionFinancial = authorization.canAccessModule?.("finance", "manage") === true
     && authorization.canAccessModule?.("schedule", "manage") === true
     && authorization.hasCapability("finance.settle");
@@ -1215,6 +1581,11 @@ export default function Agendamentos() {
   const [form, setForm] = useState(emptyForm);
   const [filterPatientQuery, setFilterPatientQuery] = useState("");
   const [formPatientQuery, setFormPatientQuery] = useState("");
+  const [packageOwnerQuery, setPackageOwnerQuery] = useState("");
+  const [packageOwners, setPackageOwners] = useState([]);
+  const [sharedPackages, setSharedPackages] = useState([]);
+  const [isPackageShareLoading, setIsPackageShareLoading] = useState(false);
+  const [editPackageShare, setEditPackageShare] = useState(emptyEditPackageShare);
   const [absenceModal, setAbsenceModal] = useState(emptyAbsenceModal);
   useEffect(() => {
     absenceRequestVersion.current += 1;
@@ -1241,7 +1612,9 @@ export default function Agendamentos() {
   const [groupContext, setGroupContext] = useState(null);
   const [view, setView] = useState("week");
   const [showCanceledAndNoShowInDayView, setShowCanceledAndNoShowInDayView] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(() => (
+    civilDateToMarker(formatAgendaDateInput(new Date()))
+  ));
   const [filters, setFilters] = useState({
     status: "",
     patient_id: "",
@@ -1256,6 +1629,7 @@ export default function Agendamentos() {
   const [repeatMonths, setRepeatMonths] = useState("1");
   const [formAvailability, setFormAvailability] = useState(null);
   const [recurrencePreview, setRecurrencePreview] = useState(null);
+  const singleReviewAvailabilityRequestIdRef = useRef(0);
   const [deleteModal, setDeleteModal] = useState(emptyDeleteModal);
   const [isDeletePreviewing, setIsDeletePreviewing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -1557,15 +1931,26 @@ export default function Agendamentos() {
       session_replacement_credit_id: "",
       cycle_reschedule_exception_justified: false,
       cycle_reschedule_exception_reason: "",
+      shared_package_owner_id: "",
+      shared_package_id: "",
+      shared_package_source_session_id: "",
+      shared_package_review_token: "",
+      package_share_idempotency_key: "",
     }));
     setFormPatientQuery(getPatientName(patient));
+    setPackageOwnerQuery("");
+    setSharedPackages([]);
   }, [editingId]);
 
   useEffect(() => {
     const patientId = Number(form.patient_id);
     const requestId = patientProfessionalsRequestIdRef.current + 1;
     patientProfessionalsRequestIdRef.current = requestId;
-    if (!Number.isSafeInteger(patientId) || patientId <= 0 || editingId) {
+    if (
+      !Number.isSafeInteger(patientId)
+      || patientId <= 0
+      || (editingId && !editPackageShare.active)
+    ) {
       setPatientProfessionals([]);
       setIsPatientProfessionalsLoading(false);
       setPatientProfessionalsError(false);
@@ -1594,7 +1979,7 @@ export default function Agendamentos() {
         patientProfessionalsRequestIdRef.current += 1;
       }
     };
-  }, [editingId, form.patient_id]);
+  }, [editPackageShare.active, editingId, form.patient_id]);
 
   const clinicalRecordsModule = authorization.context?.modules?.find(
     (module) => module.module_key === "clinical_records",
@@ -1608,10 +1993,11 @@ export default function Agendamentos() {
       )
     );
   const professionalOptions = useMemo(() => {
-    const source = !editingId && form.patient_id ? patientProfessionals : professionals;
+    const usesPatientAssignments = (!editingId || editPackageShare.active) && form.patient_id;
+    const source = usesPatientAssignments ? patientProfessionals : professionals;
     return source
       .filter((professional) => (
-        editingId
+        (editingId && !editPackageShare.active)
         || professional.is_assigned === true
         || (
           canAssignPatientCare
@@ -1625,20 +2011,27 @@ export default function Agendamentos() {
         clinic_professional_id: professional.clinic_professional_id,
         is_assigned: professional.is_assigned,
       }));
-  }, [canAssignPatientCare, editingId, form.patient_id, patientProfessionals, professionals]);
+  }, [
+    canAssignPatientCare,
+    editPackageShare.active,
+    editingId,
+    form.patient_id,
+    patientProfessionals,
+    professionals,
+  ]);
   const selectedProfessional = useMemo(
     () => professionalOptions.find(
       (professional) => String(professional.id) === String(form.professional_user_id),
     ) || null,
     [form.professional_user_id, professionalOptions],
   );
-  const requiresExplicitCareAssignment = !editingId
+  const requiresExplicitCareAssignment = (!editingId || editPackageShare.active)
     && !!selectedProfessional
     && selectedProfessional.is_assigned !== true;
 
   useEffect(() => {
     if (
-      editingId
+      (editingId && !editPackageShare.active)
       || form.professional_user_id
       || isPatientProfessionalsLoading
       || patientProfessionalsError
@@ -1653,6 +2046,7 @@ export default function Agendamentos() {
       }));
     }
   }, [
+    editPackageShare.active,
     editingId,
     form.professional_user_id,
     isPatientProfessionalsLoading,
@@ -1887,9 +2281,8 @@ export default function Agendamentos() {
   const sessionsByDay = useMemo(() => {
     const map = new Map();
     filteredSessions.forEach((session) => {
-      const date = session.starts_at ? new Date(session.starts_at) : null;
-      if (!date || Number.isNaN(date.getTime())) return;
-      const key = startOfDay(date).toISOString();
+      const key = formatAgendaDateInput(session?.starts_at);
+      if (!key) return;
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(session);
     });
@@ -1905,9 +2298,8 @@ export default function Agendamentos() {
   const weekSessionsByDay = useMemo(() => {
     const map = new Map();
     weekFilteredSessions.forEach((session) => {
-      const date = session.starts_at ? new Date(session.starts_at) : null;
-      if (!date || Number.isNaN(date.getTime())) return;
-      const key = startOfDay(date).toISOString();
+      const key = formatAgendaDateInput(session?.starts_at);
+      if (!key) return;
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(session);
     });
@@ -1918,15 +2310,15 @@ export default function Agendamentos() {
     const map = new Map();
     specialEvents.forEach((event) => {
       if (!event?.start_date || !event?.end_date) return;
-      const startDate = new Date(`${event.start_date}T00:00:00`);
-      const endDate = new Date(`${event.end_date}T00:00:00`);
-      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return;
+      const startDate = civilDateToMarker(event.start_date);
+      const endDate = civilDateToMarker(event.end_date);
+      if (!startDate || !endDate) return;
       if (startDate > endDate) return;
 
       const severity = eventSeverity(event);
       const cursor = new Date(startDate);
       while (cursor <= endDate) {
-        const key = startOfDay(cursor).toISOString();
+        const key = markerToCivilDate(cursor);
         if (!map.has(key)) {
           map.set(key, { events: [], severity: "info" });
         }
@@ -1935,14 +2327,14 @@ export default function Agendamentos() {
         if (severityWeight(severity) > severityWeight(base.severity)) {
           base.severity = severity;
         }
-        cursor.setDate(cursor.getDate() + 1);
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
       }
     });
     return map;
   }, [specialEvents]);
 
   const daySessions = useMemo(() => {
-    const key = startOfDay(selectedDate).toISOString();
+    const key = markerToCivilDate(selectedDate);
     return sessionsByDay.get(key) || [];
   }, [selectedDate, sessionsByDay]);
 
@@ -1958,21 +2350,17 @@ export default function Agendamentos() {
 
     visibleDaySessions.forEach((session) => {
       if (!session?.starts_at) return;
-      const startsAt = new Date(session.starts_at);
-      if (Number.isNaN(startsAt.getTime())) return;
+      const hour = Number(formatAgendaHourInput(session.starts_at));
+      const minute = Number(formatAgendaMinuteInput(session.starts_at));
+      if (!Number.isInteger(hour) || !Number.isInteger(minute)) return;
 
-      const minutes = startsAt.getHours() * 60 + startsAt.getMinutes();
-      const timeKey = `${String(startsAt.getHours()).padStart(2, "0")}:${String(
-        startsAt.getMinutes(),
-      ).padStart(2, "0")}`;
+      const minutes = hour * 60 + minute;
+      const timeKey = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 
       if (!timeMap.has(timeKey)) {
         timeMap.set(timeKey, {
           key: timeKey,
-          label: startsAt.toLocaleTimeString("pt-BR", {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
+          label: formatAgendaTime(session.starts_at),
           sortMinutes: minutes,
           serviceMap: new Map(),
         });
@@ -2032,20 +2420,19 @@ export default function Agendamentos() {
   }, [compareServiceGroups, compareSessionsByPatientThenId, visibleDaySessions, getSessionServiceCode, serviceColor, serviceName]);
 
   const selectedDaySpecialEvents = useMemo(() => {
-    const key = startOfDay(selectedDate).toISOString();
+    const key = markerToCivilDate(selectedDate);
     return specialEventsByDay.get(key)?.events || [];
   }, [selectedDate, specialEventsByDay]);
 
   const selectedDaySpecialSummary = useMemo(() => {
-    const key = startOfDay(selectedDate).toISOString();
+    const key = markerToCivilDate(selectedDate);
     return specialEventsByDay.get(key) || null;
   }, [selectedDate, specialEventsByDay]);
 
   const formLocalSpecialSummary = useMemo(() => {
     if (!form.starts_at) return null;
-    const date = new Date(form.starts_at);
-    if (Number.isNaN(date.getTime())) return null;
-    const key = startOfDay(date).toISOString();
+    const key = formatAgendaDateInput(form.starts_at);
+    if (!key) return null;
     return specialEventsByDay.get(key) || null;
   }, [form.starts_at, specialEventsByDay]);
 
@@ -2054,9 +2441,8 @@ export default function Agendamentos() {
       const groups = new Map();
       dayList.forEach((session) => {
         if (!session.starts_at) return;
-        const sessionDate = new Date(session.starts_at);
-        if (Number.isNaN(sessionDate.getTime())) return;
-        if (sessionDate.getHours() !== hour) return;
+        const sessionHour = Number(formatAgendaHourInput(session.starts_at));
+        if (!Number.isInteger(sessionHour) || sessionHour !== hour) return;
         const service =
           (session.service_id && servicesById.get(session.service_id)) ||
           (session.service_type && servicesByCode.get(session.service_type)) ||
@@ -2105,7 +2491,7 @@ export default function Agendamentos() {
   const weekSlotGroupsByKey = useMemo(() => {
     const map = new Map();
     weekDays.forEach((day) => {
-      const dayKey = startOfDay(day).toISOString();
+      const dayKey = markerToCivilDate(day);
       const dayList = weekSessionsByDay.get(dayKey) || [];
       for (let hour = START_HOUR; hour <= END_HOUR; hour += 1) {
         map.set(`${dayKey}-${hour}`, buildSlotGroupsForDayHour(dayList, hour));
@@ -2116,7 +2502,7 @@ export default function Agendamentos() {
 
   const getSlotGroups = useCallback(
     (day, hour) => {
-      const key = startOfDay(day).toISOString();
+      const key = markerToCivilDate(day);
       const precomputed = weekSlotGroupsByKey.get(`${key}-${hour}`);
       if (precomputed) return precomputed;
       return buildSlotGroupsForDayHour(weekSessionsByDay.get(key) || [], hour);
@@ -2126,9 +2512,234 @@ export default function Agendamentos() {
 
   const groupSessions = useMemo(() => {
     if (!groupContext?.date) return [];
-    const hour = groupContext.date.getHours();
+    const hour = Number(formatAgendaHourInput(groupContext.date));
     return getSlotGroups(groupContext.date, hour);
   }, [getSlotGroups, groupContext]);
+
+  const clearPackageShare = useCallback(() => {
+    setPackageOwnerQuery("");
+    setPackageOwners([]);
+    setSharedPackages([]);
+    setForm((prev) => ({
+      ...prev,
+      shared_package_owner_id: "",
+      shared_package_id: "",
+      shared_package_source_session_id: "",
+      shared_package_review_token: "",
+      package_share_idempotency_key: "",
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (canSharePackages) return;
+    singleReviewAvailabilityRequestIdRef.current += 1;
+    setPackageOwnerQuery("");
+    setPackageOwners([]);
+    setSharedPackages([]);
+    setRecurrencePreview((previous) => (
+      previous?.package_share_review ? null : previous
+    ));
+    if (!editingId) {
+      setForm((previous) => {
+        const hasPackageShareState = !!(
+          previous.shared_package_owner_id
+          || previous.shared_package_id
+          || previous.shared_package_source_session_id
+          || previous.shared_package_review_token
+        );
+        if (!hasPackageShareState) return previous;
+        return {
+          ...previous,
+          shared_package_owner_id: "",
+          shared_package_id: "",
+          shared_package_source_session_id: "",
+          shared_package_review_token: "",
+          package_share_idempotency_key: "",
+        };
+      });
+    }
+  }, [canSharePackages, editingId]);
+
+  const startPackageShare = useCallback(async () => {
+    if (!canSharePackages) {
+      toast.error(PACKAGE_SHARE_PERMISSION_ERROR_MESSAGE);
+      return;
+    }
+    setIsPackageShareLoading(true);
+    setRepeatEnabled(false);
+    setForm((prev) => ({
+      ...prev,
+      shared_package_owner_id: "pending",
+      shared_package_id: "",
+      shared_package_source_session_id: "",
+      shared_package_review_token: "",
+      package_share_idempotency_key: "",
+      session_replacement_credit_id: "",
+      patient_credit_id: "",
+      session_price: "",
+      session_price_manually_changed: false,
+      is_no_charge: false,
+    }));
+    try {
+      const response = await axios.get("/package-sharing/owners");
+      setPackageOwners(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      clearPackageShare();
+      toast.error(getUserFacingApiError(error, "Não foi possível buscar os pacotes."));
+    } finally {
+      setIsPackageShareLoading(false);
+    }
+  }, [canSharePackages, clearPackageShare]);
+
+  const handleSelectPackageOwner = useCallback((owner) => {
+    const ownerId = String(owner.id);
+    setPackageOwnerQuery(owner.name || getPatientName(owner));
+    setSharedPackages([]);
+    setForm((prev) => ({
+      ...prev,
+      shared_package_owner_id: ownerId,
+      shared_package_id: "",
+      shared_package_source_session_id: "",
+      shared_package_review_token: "",
+      package_share_idempotency_key: "",
+    }));
+  }, []);
+
+  const handleSelectSharedPackage = useCallback((packageId) => {
+    const selected = sharedPackages.find((item) => String(item.id) === packageId);
+    if (!selected) return;
+    const requestId = singleReviewAvailabilityRequestIdRef.current + 1;
+    singleReviewAvailabilityRequestIdRef.current = requestId;
+    const idempotencyKey = `package-share:${uuidv4()}`;
+    setForm((prev) => ({
+      ...prev,
+      shared_package_id: packageId,
+      shared_package_source_session_id: "",
+      shared_package_review_token: selected.review_token || "",
+      package_share_idempotency_key: idempotencyKey,
+      session_price: "",
+      session_price_manually_changed: false,
+      is_no_charge: false,
+    }));
+    setRecurrencePreview((previous) => {
+      if (!previous?.package_share_review) return previous;
+      const requiresSource = !!selected.requires_scheduled_session;
+      const nextPayload = {
+        ...previous.single_payload,
+        shared_package_id: Number(selected.id),
+        shared_package_source_session_id: null,
+        shared_package_review_token: selected.review_token,
+        idempotency_key: idempotencyKey,
+      };
+      const currentOccurrence = previous.occurrences?.[0];
+      const pendingOccurrence = markOccurrenceAvailabilityPending(
+        currentOccurrence,
+        requiresSource ? "PENDING" : "CHECKING",
+      );
+      return {
+        ...previous,
+        single_payload: nextPayload,
+        occurrences: [pendingOccurrence],
+        summary: buildSingleOccurrenceSummary(pendingOccurrence),
+        selected_indexes: [],
+        confirm_warning_indexes: [],
+        force_override_indexes: [],
+        single_availability_request: requiresSource ? null : {
+          id: requestId,
+          payload: nextPayload,
+          owner_id: positiveIdentifier(previous.package_share_review.owner_id),
+          service_id: positiveIdentifier(nextPayload.service_id),
+          duration_minutes: getOccurrenceDurationMinutes(currentOccurrence),
+          index: currentOccurrence?.index || 1,
+          manually_edited: !!currentOccurrence?.manually_edited,
+        },
+        package_share_review: {
+          ...previous.package_share_review,
+          selected_package_id: String(selected.id),
+          selected_source_session_id: "",
+        },
+      };
+    });
+  }, [sharedPackages]);
+
+  const handleSelectSharedPackageSource = useCallback((sessionId) => {
+    const requestId = singleReviewAvailabilityRequestIdRef.current + 1;
+    singleReviewAvailabilityRequestIdRef.current = requestId;
+    setForm((prev) => ({ ...prev, shared_package_source_session_id: sessionId }));
+    setRecurrencePreview((previous) => {
+      if (!previous?.package_share_review) return previous;
+      const nextPayload = {
+        ...previous.single_payload,
+        shared_package_source_session_id: Number(sessionId),
+      };
+      const currentOccurrence = previous.occurrences?.[0];
+      const pendingOccurrence = markOccurrenceAvailabilityPending(currentOccurrence);
+      return {
+        ...previous,
+        single_payload: nextPayload,
+        occurrences: [pendingOccurrence],
+        summary: buildSingleOccurrenceSummary(pendingOccurrence),
+        selected_indexes: [],
+        confirm_warning_indexes: [],
+        force_override_indexes: [],
+        single_availability_request: {
+          id: requestId,
+          payload: nextPayload,
+          owner_id: positiveIdentifier(previous.package_share_review.owner_id),
+          service_id: positiveIdentifier(nextPayload.service_id),
+          duration_minutes: getOccurrenceDurationMinutes(currentOccurrence),
+          index: currentOccurrence?.index || 1,
+          manually_edited: !!currentOccurrence?.manually_edited,
+        },
+        package_share_review: {
+          ...previous.package_share_review,
+          selected_source_session_id: String(sessionId),
+        },
+      };
+    });
+  }, []);
+
+  const handleNoChargeChange = useCallback((event) => {
+    const { checked } = event.target;
+    if (checked) {
+      setPackageOwnerQuery("");
+      setPackageOwners([]);
+      setSharedPackages([]);
+    }
+    setForm((prev) => ({
+      ...prev,
+      is_no_charge: checked,
+      ...(checked ? {
+        shared_package_owner_id: "",
+        shared_package_id: "",
+        shared_package_source_session_id: "",
+        shared_package_review_token: "",
+        package_share_idempotency_key: "",
+      } : {}),
+    }));
+  }, []);
+
+  useEffect(() => {
+    const query = packageOwnerQuery.trim();
+    if (form.shared_package_owner_id !== "pending" || !query) return undefined;
+    let active = true;
+    const timeout = setTimeout(async () => {
+      try {
+        const response = await axios.get(
+          `/package-sharing/owners?q=${encodeURIComponent(query)}`,
+        );
+        if (active) setPackageOwners(Array.isArray(response.data) ? response.data : []);
+      } catch (error) {
+        if (active) {
+          toast.error(getUserFacingApiError(error, "Não foi possível buscar os pacotes."));
+        }
+      }
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
+  }, [form.shared_package_owner_id, packageOwnerQuery]);
 
   const handleFormChange = useCallback((event) => {
     const { name, type, value, checked } = event.target;
@@ -2165,42 +2776,72 @@ export default function Agendamentos() {
       setForm((prev) => ({ ...prev, starts_at: "", ends_at: "" }));
       return;
     }
-    const startDate = new Date(nextStartsAt);
-    if (Number.isNaN(startDate.getTime())) {
+    const startDate = parseAgendaDateTime(nextStartsAt);
+    if (!startDate) {
       setForm((prev) => ({ ...prev, starts_at: nextStartsAt, ends_at: "" }));
       return;
     }
-    const nextEndsAt = new Date(startDate);
-    nextEndsAt.setHours(nextEndsAt.getHours() + 1);
+    const sourceSession = editingId
+      ? filteredSessions.find((session) => String(session.id) === String(editingId))
+      : null;
+    const originalStart = parseAgendaDateTime(sourceSession?.starts_at);
+    const originalEnd = parseAgendaDateTime(sourceSession?.ends_at);
+    const currentStart = parseAgendaDateTime(form.starts_at);
+    const currentEnd = parseAgendaDateTime(form.ends_at);
+    const originalDuration = originalStart && originalEnd
+      ? originalEnd.getTime() - originalStart.getTime()
+      : NaN;
+    const currentDuration = currentStart && currentEnd
+      ? currentEnd.getTime() - currentStart.getTime()
+      : NaN;
+    let durationMilliseconds = 60 * 60000;
+    if (originalDuration > 0) {
+      durationMilliseconds = originalDuration;
+    } else if (currentDuration > 0) {
+      durationMilliseconds = currentDuration;
+    }
+    const nextEndsAt = new Date(startDate.getTime() + durationMilliseconds);
     setForm((prev) => ({
       ...prev,
       starts_at: nextStartsAt,
-      ends_at: toInputValue(nextEndsAt),
+      ends_at: formatAgendaDateTimeInput(nextEndsAt),
     }));
     if (repeatEnabled && repeatWeekdays.length === 0) {
-      const weekday = toSelectableWeekday(startDate, allowWeekendScheduling);
-      if (weekday) setRepeatWeekdays([weekday]);
+      const weekday = getAgendaIsoWeekday(startDate);
+      const selectableWeekday = weekday >= 1 && weekday <= (allowWeekendScheduling ? 7 : 5)
+        ? weekday
+        : null;
+      if (selectableWeekday) setRepeatWeekdays([selectableWeekday]);
     }
-  }, [allowBrokenTimeScheduling, allowWeekendScheduling, repeatEnabled, repeatWeekdays.length]);
+  }, [
+    allowBrokenTimeScheduling,
+    allowWeekendScheduling,
+    editingId,
+    filteredSessions,
+    form.ends_at,
+    form.starts_at,
+    repeatEnabled,
+    repeatWeekdays.length,
+  ]);
 
   const handleStartDateChange = useCallback((event) => {
     const dateValue = event.target.value;
-    const hourValue = getHourInputValue(form.starts_at) || String(START_HOUR).padStart(2, "0");
-    const minuteValue = allowBrokenTimeScheduling ? getMinuteInputValue(form.starts_at) || "00" : "00";
+    const hourValue = formatAgendaHourInput(form.starts_at) || String(START_HOUR).padStart(2, "0");
+    const minuteValue = allowBrokenTimeScheduling ? formatAgendaMinuteInput(form.starts_at) || "00" : "00";
     updateStartDateTime(dateValue, hourValue, minuteValue);
   }, [allowBrokenTimeScheduling, form.starts_at, updateStartDateTime]);
 
   const handleStartHourChange = useCallback((event) => {
     const hourValue = event.target.value;
-    const dateValue = toDateInputValue(form.starts_at) || toDateInputValue(selectedDate);
-    const minuteValue = allowBrokenTimeScheduling ? getMinuteInputValue(form.starts_at) || "00" : "00";
+    const dateValue = formatAgendaDateInput(form.starts_at) || toDateInputValue(selectedDate);
+    const minuteValue = allowBrokenTimeScheduling ? formatAgendaMinuteInput(form.starts_at) || "00" : "00";
     updateStartDateTime(dateValue, hourValue, minuteValue);
   }, [allowBrokenTimeScheduling, form.starts_at, selectedDate, updateStartDateTime]);
 
   const handleStartMinuteChange = useCallback((event) => {
     const minuteValue = event.target.value;
-    const dateValue = toDateInputValue(form.starts_at) || toDateInputValue(selectedDate);
-    const hourValue = getHourInputValue(form.starts_at) || String(START_HOUR).padStart(2, "0");
+    const dateValue = formatAgendaDateInput(form.starts_at) || toDateInputValue(selectedDate);
+    const hourValue = formatAgendaHourInput(form.starts_at) || String(START_HOUR).padStart(2, "0");
     updateStartDateTime(dateValue, hourValue, minuteValue);
   }, [form.starts_at, selectedDate, updateStartDateTime]);
 
@@ -2215,8 +2856,16 @@ export default function Agendamentos() {
       return undefined;
     }
 
-    const startsAtDate = new Date(form.starts_at);
-    if (Number.isNaN(startsAtDate.getTime())) {
+    const sourceSession = editingId
+      ? filteredSessions.find((session) => String(session.id) === String(editingId))
+      : null;
+    const interval = resolveAgendaFormInterval({
+      startInput: form.starts_at,
+      endInput: form.ends_at,
+      originalStart: sourceSession?.starts_at || null,
+      originalEnd: sourceSession?.ends_at || null,
+    });
+    if (!interval.valid) {
       setFormAvailability(null);
       return undefined;
     }
@@ -2225,8 +2874,8 @@ export default function Agendamentos() {
     const timerId = window.setTimeout(async () => {
       try {
         const response = await checkSchedulingAvailability({
-          starts_at: form.starts_at,
-          ends_at: form.ends_at || null,
+          starts_at: interval.starts_at,
+          ends_at: interval.ends_at,
           professional_user_id: form.professional_user_id
             ? Number(form.professional_user_id)
             : null,
@@ -2257,15 +2906,18 @@ export default function Agendamentos() {
     };
   }, [
     drawerMode,
+    editingId,
     form.ends_at,
     form.professional_user_id,
     form.service_id,
     form.service_type,
     form.starts_at,
+    filteredSessions,
     isDrawerOpen,
   ]);
 
   const closeRecurrencePreview = useCallback(() => {
+    singleReviewAvailabilityRequestIdRef.current += 1;
     setRecurrencePreview(null);
   }, []);
 
@@ -2279,19 +2931,36 @@ export default function Agendamentos() {
     const endsAt = payload.ends_at
       ? new Date(payload.ends_at)
       : new Date(startsAt.getTime() + durationMinutes * 60000);
-    const availabilityResponse = await checkSchedulingAvailability({
+    const availabilityPayload = {
       starts_at: startsAt.toISOString(),
       ends_at: endsAt.toISOString(),
       professional_user_id: payload.professional_user_id,
       service_id: payload.service_id,
       service_type: payload.service_type,
+    };
+    if (usesCompleteSchedulingAvailabilityContract) {
+      availabilityPayload.patient_id = payload.patient_id;
+    }
+    if (positiveIdentifier(payload.shared_package_id)) {
+      availabilityPayload.shared_package_id = Number(payload.shared_package_id);
+    }
+    if (positiveIdentifier(payload.shared_package_source_session_id)) {
+      availabilityPayload.shared_package_source_session_id =
+        Number(payload.shared_package_source_session_id);
+    }
+    if (String(payload.shared_package_review_token || "").trim()) {
+      availabilityPayload.shared_package_review_token = payload.shared_package_review_token;
+    }
+    const availabilityResponse = await checkSchedulingAvailability(availabilityPayload);
+    const availability = validateSingleSchedulingAvailability(availabilityResponse?.data, {
+      requireCompleteValidation: usesCompleteSchedulingAvailabilityContract,
     });
-    const availability = availabilityResponse?.data || {};
-    const matchedEvents = Array.isArray(availability.matched_events)
-      ? availability.matched_events
-      : [];
+    const { validation, matched_events: matchedEvents } = availability;
     let status = "AVAILABLE";
-    if (availability.has_blocking_events) {
+    if (
+      (usesCompleteSchedulingAvailabilityContract && !validation.can_confirm)
+      || availability.has_blocking_events
+    ) {
       status = "BLOCK";
     } else if (availability.requires_confirmation) {
       status = "WARN_CONFIRM";
@@ -2304,21 +2973,204 @@ export default function Agendamentos() {
       starts_at: startsAt.toISOString(),
       ends_at: endsAt.toISOString(),
       start_time: getOccurrenceTimeValue({ starts_at: startsAt.toISOString() }),
-      date: formatDateParam(startsAt),
+      date: formatAgendaDateInput(startsAt),
       status,
-      can_override_block: false,
+      can_override_block: status === "BLOCK"
+        && validation?.blocking_code !== "PATIENT_SCHEDULE_CONFLICT"
+        && !!availability.can_override_block,
+      blocking_code: validation?.blocking_code || null,
+      blocking_reason: validation?.blocking_reason || availability.blocking_reason || null,
+      availability_error: null,
+      availability_message: null,
       matched_events: matchedEvents,
       manually_edited: manuallyEdited,
+      availability_scope: usesCompleteSchedulingAvailabilityContract
+        ? "patient_conflict_checked"
+        : LEGACY_OPERATIONAL_AVAILABILITY_SCOPE,
       professional_user_id: payload.professional_user_id,
       service_id: payload.service_id,
       service_type: payload.service_type,
     };
+  }, [usesCompleteSchedulingAvailabilityContract]);
+
+  const singleAvailabilityRequest = recurrencePreview?.single_availability_request || null;
+  useEffect(() => {
+    if (!singleAvailabilityRequest || recurrencePreview?.review_type !== "single") {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const applyResult = async () => {
+      try {
+        const nextOccurrence = await buildSingleReviewOccurrence({
+          payload: singleAvailabilityRequest.payload,
+          durationMinutes: singleAvailabilityRequest.duration_minutes,
+          index: singleAvailabilityRequest.index,
+          manuallyEdited: singleAvailabilityRequest.manually_edited,
+        });
+        if (
+          cancelled
+          || singleReviewAvailabilityRequestIdRef.current !== singleAvailabilityRequest.id
+        ) return;
+        const selectedIndexes = shouldAutoSelectReviewOccurrence(nextOccurrence)
+          ? [nextOccurrence.index]
+          : [];
+        setRecurrencePreview((previous) => {
+          if (
+            previous?.single_availability_request?.id !== singleAvailabilityRequest.id
+          ) return previous;
+          return {
+            ...previous,
+            occurrences: [nextOccurrence],
+            summary: buildSingleOccurrenceSummary(nextOccurrence),
+            selected_indexes: selectedIndexes,
+            confirm_warning_indexes:
+              nextOccurrence.status === "WARN_CONFIRM" ? selectedIndexes : [],
+            force_override_indexes: [],
+            single_availability_request: null,
+          };
+        });
+      } catch (error) {
+        if (
+          cancelled
+          || singleReviewAvailabilityRequestIdRef.current !== singleAvailabilityRequest.id
+        ) return;
+        const errorCode = error?.response?.data?.code || "";
+        if (
+          PACKAGE_SHARE_REVIEW_ERROR_CODES.has(errorCode)
+          && singleAvailabilityRequest.owner_id
+          && singleAvailabilityRequest.service_id
+        ) {
+          let refreshedPackages = [];
+          let refreshSucceeded = false;
+          try {
+            const packagesResponse = await axios.get(
+              `/package-sharing/owners/${singleAvailabilityRequest.owner_id}/packages`,
+              { params: { service_id: singleAvailabilityRequest.service_id } },
+            );
+            refreshedPackages = validatePackageShareOptions(packagesResponse.data)
+              .filter((pkg) => Number(pkg?.service?.id) === singleAvailabilityRequest.service_id)
+              .sort((left, right) => {
+                const dateDifference = new Date(right.contracted_at).getTime()
+                  - new Date(left.contracted_at).getTime();
+                return Number.isFinite(dateDifference) && dateDifference !== 0
+                  ? dateDifference
+                  : Number(right.id) - Number(left.id);
+              });
+            refreshSucceeded = true;
+          } catch {
+            refreshedPackages = [];
+          }
+          if (
+            cancelled
+            || singleReviewAvailabilityRequestIdRef.current !== singleAvailabilityRequest.id
+          ) return;
+          setSharedPackages(refreshedPackages);
+          setForm((previous) => ({
+            ...previous,
+            shared_package_id: "",
+            shared_package_source_session_id: "",
+            shared_package_review_token: "",
+            package_share_idempotency_key: "",
+          }));
+          setRecurrencePreview((previous) => {
+            if (
+              previous?.single_availability_request?.id !== singleAvailabilityRequest.id
+            ) return previous;
+            const pendingOccurrence = {
+              ...markOccurrenceAvailabilityPending(previous.occurrences?.[0], "PENDING"),
+              availability_message: refreshSucceeded
+                ? "As opções mudaram. Escolha o pacote novamente"
+                : "Não foi possível atualizar os pacotes. Volte e revise novamente",
+            };
+            return {
+              ...previous,
+              single_payload: {
+                ...previous.single_payload,
+                shared_package_id: undefined,
+                shared_package_source_session_id: undefined,
+                shared_package_review_token: undefined,
+                idempotency_key: undefined,
+              },
+              occurrences: [pendingOccurrence],
+              summary: buildSingleOccurrenceSummary(pendingOccurrence),
+              selected_indexes: [],
+              confirm_warning_indexes: [],
+              force_override_indexes: [],
+              single_availability_request: null,
+              package_share_review: {
+                ...previous.package_share_review,
+                packages: refreshedPackages,
+                selected_package_id: "",
+                selected_source_session_id: "",
+              },
+            };
+          });
+          return;
+        }
+        setRecurrencePreview((previous) => {
+          if (
+            previous?.single_availability_request?.id !== singleAvailabilityRequest.id
+          ) return previous;
+          const failedOccurrence = {
+            ...previous.occurrences?.[0],
+            status: "ERROR",
+            can_override_block: false,
+            blocking_code: null,
+            blocking_reason: null,
+            availability_error: SINGLE_AVAILABILITY_ERROR_MESSAGE,
+          };
+          return {
+            ...previous,
+            occurrences: [failedOccurrence],
+            summary: buildSingleOccurrenceSummary(failedOccurrence),
+            selected_indexes: [],
+            confirm_warning_indexes: [],
+            force_override_indexes: [],
+            single_availability_request: null,
+          };
+        });
+      }
+    };
+
+    applyResult();
+    return () => {
+      cancelled = true;
+    };
+  }, [buildSingleReviewOccurrence, recurrencePreview?.review_type, singleAvailabilityRequest]);
+
+  const handleRetrySingleAvailability = useCallback(() => {
+    const requestId = singleReviewAvailabilityRequestIdRef.current + 1;
+    singleReviewAvailabilityRequestIdRef.current = requestId;
+    setRecurrencePreview((previous) => {
+      if (previous?.review_type !== "single" || !previous.single_payload) return previous;
+      const currentOccurrence = previous.occurrences?.[0];
+      const pendingOccurrence = markOccurrenceAvailabilityPending(currentOccurrence);
+      return {
+        ...previous,
+        occurrences: [pendingOccurrence],
+        summary: buildSingleOccurrenceSummary(pendingOccurrence),
+        selected_indexes: [],
+        confirm_warning_indexes: [],
+        force_override_indexes: [],
+        single_availability_request: {
+          id: requestId,
+          payload: previous.single_payload,
+          owner_id: positiveIdentifier(previous.package_share_review?.owner_id),
+          service_id: positiveIdentifier(previous.single_payload.service_id),
+          duration_minutes: getOccurrenceDurationMinutes(currentOccurrence),
+          index: currentOccurrence?.index || 1,
+          manually_edited: !!currentOccurrence?.manually_edited,
+        },
+      };
+    });
   }, []);
 
   const handleTogglePreviewOccurrence = useCallback((occurrence) => {
     if (!occurrence?.index) return;
+    if (!isReviewOccurrenceSelectable(occurrence)) return;
     setRecurrencePreview((previous) => {
-      if (!previous) return previous;
+      if (!previous || previous.requires_revalidation) return previous;
       const { index } = occurrence;
       const isSelected = previous.selected_indexes.includes(index);
       const selectedIndexes = isSelected
@@ -2359,7 +3211,9 @@ export default function Agendamentos() {
       return {
         ...previous,
         editing_index: occurrence.index,
-        edit_date: toDateInputValue(occurrence.starts_at || occurrence.date),
+        edit_date: occurrence.starts_at
+          ? formatAgendaDateInput(occurrence.starts_at)
+          : occurrence.date,
         edit_time: getOccurrenceTimeValue(occurrence),
         edit_error: "",
       };
@@ -2408,70 +3262,73 @@ export default function Agendamentos() {
         }
         : item);
     const sortedDraftOccurrences = sortOccurrencesByDateTime(draftOccurrences);
+    const nextSinglePayload = recurrencePreview.review_type === "single"
+      ? {
+        ...recurrencePreview.single_payload,
+        starts_at: editedTimes.starts_at,
+        ends_at: editedTimes.ends_at,
+      }
+      : null;
+    const requestId = recurrencePreview.review_type === "single"
+      ? singleReviewAvailabilityRequestIdRef.current + 1
+      : null;
+    if (requestId) singleReviewAvailabilityRequestIdRef.current = requestId;
 
-	    setRecurrencePreview((previous) =>
-	      previous
-	        ? {
-	          ...previous,
-	          is_editing_occurrence: true,
-	          edit_error: "",
-	        }
-	        : previous);
+    if (nextSinglePayload) {
+      setRecurrencePreview((previous) => {
+        if (!previous) return previous;
+        const pendingOccurrence = markOccurrenceAvailabilityPending(
+          sortedDraftOccurrences.find((item) => item.index === occurrence.index),
+        );
+        return {
+          ...previous,
+          single_payload: nextSinglePayload,
+          occurrences: [pendingOccurrence],
+          summary: buildSingleOccurrenceSummary(pendingOccurrence),
+          selected_indexes: [],
+          confirm_warning_indexes: [],
+          force_override_indexes: [],
+          single_availability_request: {
+            id: requestId,
+            payload: nextSinglePayload,
+            owner_id: positiveIdentifier(previous.package_share_review?.owner_id),
+            service_id: positiveIdentifier(nextSinglePayload.service_id),
+            duration_minutes: getOccurrenceDurationMinutes(occurrence),
+            index: occurrence.index,
+            manually_edited: true,
+          },
+          editing_index: null,
+          edit_date: "",
+          edit_time: "",
+          edit_error: "",
+          is_editing_occurrence: false,
+        };
+      });
+      return;
+    }
 
-	    try {
-	      if (recurrencePreview.review_type === "single") {
-	        const nextPayload = {
-	          ...recurrencePreview.single_payload,
-	          starts_at: editedTimes.starts_at,
-	          ends_at: editedTimes.ends_at,
-	        };
-	        const nextOccurrence = await buildSingleReviewOccurrence({
-	          payload: nextPayload,
-	          durationMinutes: getOccurrenceDurationMinutes(occurrence),
-	          index: occurrence.index,
-	          manuallyEdited: true,
-	        });
-	        const selectedIndexes =
-	          nextOccurrence.status === "BLOCK" && !nextOccurrence.can_override_block
-	            ? []
-	            : [nextOccurrence.index];
-	        setRecurrencePreview((previous) =>
-	          previous
-	            ? {
-	              ...previous,
-	              single_payload: nextPayload,
-	              occurrences: [nextOccurrence],
-	              summary: {
-	                total: 1,
-	                available: nextOccurrence.status === "AVAILABLE" ? 1 : 0,
-	                info: nextOccurrence.status === "INFO" ? 1 : 0,
-	                warn: nextOccurrence.status === "WARN_CONFIRM" ? 1 : 0,
-	                blocked: nextOccurrence.status === "BLOCK" ? 1 : 0,
-	              },
-	              selected_indexes: selectedIndexes,
-	              confirm_warning_indexes:
-	                nextOccurrence.status === "WARN_CONFIRM" ? selectedIndexes : [],
-	              force_override_indexes: [],
-	              editing_index: null,
-	              edit_date: "",
-	              edit_time: "",
-	              edit_error: "",
-	              is_editing_occurrence: false,
-	            }
-	            : previous);
-	        return;
-	      }
-	      const response = await previewSchedulingOccurrences({
-	        ...recurrencePreview.series_payload,
-	        occurrences: sortedDraftOccurrences.map((item) =>
+    setRecurrencePreview((previous) => previous ? {
+      ...previous,
+      is_editing_occurrence: true,
+      edit_error: "",
+    } : previous);
+
+    try {
+      const response = await previewSchedulingOccurrences({
+        ...recurrencePreview.series_payload,
+        occurrences: sortedDraftOccurrences.map((item) =>
           toOccurrencePreviewPayload(item, recurrencePreview.series_payload)),
       });
-      const nextOccurrences = Array.isArray(response?.data?.occurrences_preview)
-        ? response.data.occurrences_preview.map((item, index) => ({
-          ...item,
-          manually_edited: !!sortedDraftOccurrences[index]?.manually_edited,
-        }))
-        : [];
+      const preview = validateRecurringSchedulingAvailability(response?.data, {
+        requireCompleteValidation: usesCompleteSchedulingAvailabilityContract,
+      });
+      const nextOccurrences = preview.occurrences_preview.map((item, index) => ({
+        ...item,
+        manually_edited: !!sortedDraftOccurrences[index]?.manually_edited,
+        availability_scope: usesCompleteSchedulingAvailabilityContract
+          ? "patient_conflict_checked"
+          : LEGACY_OPERATIONAL_AVAILABILITY_SCOPE,
+      }));
       const validIndexes = new Set(nextOccurrences.map((item) => item.index));
       const previousSelectedSet = new Set(recurrencePreview.selected_indexes || []);
       const selectedByStartsAt = new Set(
@@ -2503,7 +3360,7 @@ export default function Agendamentos() {
           ? {
             ...previous,
             occurrences: nextOccurrences,
-            summary: response?.data?.summary || previous.summary,
+            summary: preview.summary,
             selected_indexes: selectedIndexes,
             confirm_warning_indexes: confirmWarningIndexes,
             force_override_indexes: forceOverrideIndexes,
@@ -2512,21 +3369,36 @@ export default function Agendamentos() {
             edit_time: "",
             edit_error: "",
             is_editing_occurrence: false,
+            requires_revalidation: false,
           }
           : previous);
     } catch (error) {
-      setRecurrencePreview((previous) =>
-        previous
-          ? {
-            ...previous,
-            edit_error:
-              error?.response?.data?.error ||
-              "Não foi possível recalcular esta ocorrência.",
-            is_editing_occurrence: false,
-          }
-          : previous);
+      setRecurrencePreview((previous) => {
+        if (!previous) return previous;
+        const availabilityError = error?.response?.data?.error
+          || "Não foi possível recalcular esta ocorrência.";
+        const failedOccurrences = previous.occurrences.map((item) => ({
+          ...item,
+          status: "ERROR",
+          can_override_block: false,
+          blocking_code: null,
+          blocking_reason: null,
+          availability_error: availabilityError,
+        }));
+        return {
+          ...previous,
+          occurrences: failedOccurrences,
+          summary: buildRecurringOccurrenceSummary(failedOccurrences),
+          selected_indexes: [],
+          confirm_warning_indexes: [],
+          force_override_indexes: [],
+          edit_error: availabilityError,
+          is_editing_occurrence: false,
+          requires_revalidation: true,
+        };
+      });
     }
-	  }, [buildSingleReviewOccurrence, recurrencePreview]);
+  }, [recurrencePreview, usesCompleteSchedulingAvailabilityContract]);
 
   const handleFilterChange = useCallback((event) => {
     const { name, value } = event.target;
@@ -2552,11 +3424,11 @@ export default function Agendamentos() {
   const handleAddMoreSessions = useCallback(() => {
     setRepeatEnabled(true);
     if (repeatWeekdays.length === 0 && form.starts_at) {
-      const start = new Date(form.starts_at);
-      if (!Number.isNaN(start.getTime())) {
-        const weekday = toSelectableWeekday(start, allowWeekendScheduling);
-        if (weekday) setRepeatWeekdays([weekday]);
-      }
+      const weekday = getAgendaIsoWeekday(form.starts_at);
+      const selectableWeekday = weekday >= 1 && weekday <= (allowWeekendScheduling ? 7 : 5)
+        ? weekday
+        : null;
+      if (selectableWeekday) setRepeatWeekdays([selectableWeekday]);
     }
   }, [allowWeekendScheduling, form.starts_at, repeatWeekdays.length]);
 
@@ -2613,10 +3485,16 @@ export default function Agendamentos() {
   }, [discardDrawerClose]);
 
   const resetForm = useCallback(() => {
+    singleReviewAvailabilityRequestIdRef.current += 1;
     setEditingId(null);
     setEditingIntent("create");
     setForm(emptyForm);
     setFormPatientQuery("");
+    setPackageOwnerQuery("");
+    setPackageOwners([]);
+    setSharedPackages([]);
+    setIsPackageShareLoading(false);
+    setEditPackageShare(emptyEditPackageShare);
     setReplacementCreditsForPatient([]);
     setRepeatEnabled(false);
     setRepeatWeekdays([]);
@@ -2632,6 +3510,11 @@ export default function Agendamentos() {
 
 	  const handleConfirmRecurrenceCreation = useCallback(async () => {
 	    if (!recurrencePreview?.series_payload && !recurrencePreview?.single_payload) return;
+		    if (recurrencePreview.package_share_review && !canSharePackages) {
+      setRecurrencePreview(null);
+      toast.error(PACKAGE_SHARE_PERMISSION_ERROR_MESSAGE);
+      return;
+    }
 
 	    const selectedOccurrences = sortOccurrencesByDateTime(
 	      (recurrencePreview.occurrences || []).filter((occurrence) =>
@@ -2660,6 +3543,22 @@ export default function Agendamentos() {
       return;
     }
 
+    const packageReview = recurrencePreview.package_share_review;
+    const reviewPackage = packageReview?.packages?.find(
+      (pkg) => String(pkg.id) === String(packageReview.selected_package_id),
+    );
+    if (packageReview && !reviewPackage) {
+      toast.error("Escolha qual pacote vamos usar.");
+      return;
+    }
+    if (
+      reviewPackage?.requires_scheduled_session
+      && !packageReview.selected_source_session_id
+    ) {
+      toast.error("Escolha qual sessão do pacote será liberada.");
+      return;
+    }
+
 	    setRecurrencePreview((previous) =>
 	      previous ? { ...previous, is_submitting: true } : previous,
 	    );
@@ -2677,8 +3576,8 @@ export default function Agendamentos() {
 	            ? selectedOccurrence.ends_at || null
 	            : recurrencePreview.single_payload.ends_at || null,
 	          confirm_schedule_warning: confirmWarningIndexes.length > 0,
-	          force_override: false,
-	          override_reason: null,
+	          force_override: forceOverrideIndexes.length > 0,
+	          override_reason: requiresOverrideReason ? overrideReason : null,
 	        });
 	        toast.success("Agendamento criado.");
 	        setRecurrencePreview(null);
@@ -2719,25 +3618,221 @@ export default function Agendamentos() {
       await loadPendingSessions();
     } catch (error) {
       const responseData = error?.response?.data || {};
-      if (Array.isArray(responseData?.occurrences_preview)) {
+      if (
+        responseData?.code === "PATIENT_SCHEDULE_CONFLICT"
+        && recurrencePreview.review_type === "single"
+      ) {
+        singleReviewAvailabilityRequestIdRef.current += 1;
         setRecurrencePreview((previous) => {
           if (!previous) return previous;
-          const validIndexes = new Set(
-            responseData.occurrences_preview.map((occurrence) => occurrence.index),
-          );
+          const conflictOccurrence = {
+            ...previous.occurrences?.[0],
+            status: "BLOCK",
+            can_override_block: false,
+            blocking_code: "PATIENT_SCHEDULE_CONFLICT",
+            blocking_reason: PATIENT_SCHEDULE_CONFLICT_MESSAGE,
+            availability_error: null,
+          };
           return {
             ...previous,
-            occurrences: responseData.occurrences_preview,
-            summary: responseData.summary || previous.summary,
-            selected_indexes: previous.selected_indexes.filter((index) =>
-              validIndexes.has(index),
-            ),
-            confirm_warning_indexes: previous.confirm_warning_indexes.filter((index) =>
-              validIndexes.has(index),
-            ),
-            force_override_indexes: previous.force_override_indexes.filter((index) =>
-              validIndexes.has(index),
-            ),
+            occurrences: [conflictOccurrence],
+            summary: buildSingleOccurrenceSummary(conflictOccurrence),
+            selected_indexes: [],
+            confirm_warning_indexes: [],
+            force_override_indexes: [],
+            single_availability_request: null,
+            is_submitting: false,
+          };
+        });
+        toast.error(resolveSchedulingErrorMessage(error));
+        return;
+      }
+      if (
+        responseData?.code === "PATIENT_SCHEDULE_CONFLICT"
+        && recurrencePreview.review_type !== "single"
+      ) {
+        const conflicts = Array.isArray(responseData.conflicts) ? responseData.conflicts : [];
+        const conflictKeys = new Set(
+          conflicts.map((conflict) => dateTimeComparisonKey(conflict?.starts_at)).filter(Boolean),
+        );
+        const occurrenceKeys = new Set(
+          recurrencePreview.occurrences
+            .map((occurrence) => dateTimeComparisonKey(occurrence?.starts_at))
+            .filter(Boolean),
+        );
+        const canMapEveryConflict = conflicts.length > 0
+          && conflictKeys.size > 0
+          && conflicts.every((conflict) => {
+            const key = dateTimeComparisonKey(conflict?.starts_at);
+            return key && occurrenceKeys.has(key);
+          });
+
+        setRecurrencePreview((previous) => {
+          if (!previous) return previous;
+          const nextOccurrences = previous.occurrences.map((occurrence) => {
+            const isConflicting = canMapEveryConflict
+              && conflictKeys.has(dateTimeComparisonKey(occurrence.starts_at));
+            if (isConflicting) {
+              return {
+                ...occurrence,
+                status: "BLOCK",
+                can_override_block: false,
+                blocking_code: "PATIENT_SCHEDULE_CONFLICT",
+                blocking_reason: PATIENT_SCHEDULE_CONFLICT_MESSAGE,
+                availability_error: null,
+                validation: {
+                  complete: true,
+                  patient_conflict_checked: true,
+                  can_confirm: false,
+                  blocking_code: "PATIENT_SCHEDULE_CONFLICT",
+                  blocking_reason: PATIENT_SCHEDULE_CONFLICT_MESSAGE,
+                },
+              };
+            }
+            if (canMapEveryConflict) return occurrence;
+            return {
+              ...occurrence,
+              status: "ERROR",
+              can_override_block: false,
+              blocking_code: null,
+              blocking_reason: null,
+              availability_error: "A disponibilidade mudou. Revise novamente.",
+            };
+          });
+          const selectableIndexes = new Set(
+            nextOccurrences
+              .filter((occurrence) => isReviewOccurrenceSelectable(occurrence))
+              .map((occurrence) => occurrence.index),
+          );
+          const remainingSelectedIndexes = canMapEveryConflict
+            ? previous.selected_indexes.filter((index) => selectableIndexes.has(index))
+            : [];
+          return {
+            ...previous,
+            occurrences: nextOccurrences,
+            summary: buildRecurringOccurrenceSummary(nextOccurrences),
+            selected_indexes: remainingSelectedIndexes,
+            confirm_warning_indexes: previous.confirm_warning_indexes
+              .filter((index) => remainingSelectedIndexes.includes(index)),
+            force_override_indexes: previous.force_override_indexes
+              .filter((index) => remainingSelectedIndexes.includes(index)),
+            is_submitting: false,
+            requires_revalidation: true,
+          };
+        });
+        toast.error(resolveSchedulingErrorMessage(error));
+        return;
+      }
+      if (
+        PACKAGE_SHARE_REVIEW_ERROR_CODES.has(responseData?.code)
+        && form.shared_package_owner_id
+        && form.shared_package_owner_id !== "pending"
+      ) {
+        let refreshedPackages = [];
+        try {
+          const packagesResponse = await axios.get(
+            `/package-sharing/owners/${form.shared_package_owner_id}/packages`,
+            { params: { service_id: Number(form.service_id) } },
+          );
+          refreshedPackages = validatePackageShareOptions(packagesResponse.data);
+          setSharedPackages(refreshedPackages);
+        } catch {
+          setSharedPackages([]);
+        }
+        setForm((previous) => ({
+          ...previous,
+          shared_package_id: "",
+          shared_package_source_session_id: "",
+          shared_package_review_token: "",
+          package_share_idempotency_key: "",
+        }));
+        setRecurrencePreview((previous) => {
+          if (!previous) return previous;
+          const pendingOccurrence = {
+            ...markOccurrenceAvailabilityPending(previous.occurrences?.[0], "PENDING"),
+            availability_message: "As opções mudaram. Escolha o pacote novamente",
+          };
+          return {
+            ...previous,
+            is_submitting: false,
+            single_payload: {
+              ...previous.single_payload,
+              shared_package_id: undefined,
+              shared_package_source_session_id: undefined,
+              shared_package_review_token: undefined,
+              idempotency_key: undefined,
+            },
+            occurrences: [pendingOccurrence],
+            summary: buildSingleOccurrenceSummary(pendingOccurrence),
+            selected_indexes: [],
+            confirm_warning_indexes: [],
+            force_override_indexes: [],
+            single_availability_request: null,
+            package_share_review: {
+              ...previous.package_share_review,
+              packages: refreshedPackages,
+              selected_package_id: "",
+              selected_source_session_id: "",
+            },
+          };
+        });
+        toast.error(resolveSchedulingErrorMessage(error));
+        return;
+      }
+	      const hasChangedRecurringPreview = recurrencePreview.review_type !== "single"
+	        && (
+	          responseData?.code === "SCHEDULING_AVAILABILITY_CHANGED"
+	          || Object.prototype.hasOwnProperty.call(responseData, "occurrences_preview")
+	        );
+	      if (hasChangedRecurringPreview) {
+        let changedPreview;
+        try {
+          changedPreview = validateRecurringSchedulingAvailability(responseData, {
+            requireCompleteValidation: usesCompleteSchedulingAvailabilityContract,
+          });
+        } catch {
+          setRecurrencePreview((previous) => {
+            if (!previous) return previous;
+            const failedOccurrences = previous.occurrences.map((occurrence) => ({
+              ...occurrence,
+              status: "ERROR",
+              can_override_block: false,
+              blocking_code: null,
+              blocking_reason: null,
+              availability_error: "A disponibilidade mudou. Revise novamente.",
+            }));
+            return {
+              ...previous,
+              occurrences: failedOccurrences,
+              summary: buildRecurringOccurrenceSummary(failedOccurrences),
+              selected_indexes: [],
+              confirm_warning_indexes: [],
+              force_override_indexes: [],
+              override_reason: "",
+              requires_revalidation: true,
+              is_submitting: false,
+            };
+          });
+          toast.error(resolveSchedulingErrorMessage(error));
+          return;
+        }
+        const nextOccurrences = changedPreview.occurrences_preview.map((occurrence) => ({
+          ...occurrence,
+          availability_scope: usesCompleteSchedulingAvailabilityContract
+            ? "patient_conflict_checked"
+            : LEGACY_OPERATIONAL_AVAILABILITY_SCOPE,
+        }));
+        setRecurrencePreview((previous) => {
+          if (!previous) return previous;
+          return {
+            ...previous,
+            occurrences: nextOccurrences,
+            summary: changedPreview.summary,
+            selected_indexes: [],
+            confirm_warning_indexes: [],
+            force_override_indexes: [],
+            override_reason: "",
+            requires_revalidation: true,
             is_submitting: false,
           };
         });
@@ -2749,32 +3844,37 @@ export default function Agendamentos() {
       );
     }
   }, [
-	    closeDrawer,
-	    loadOperationalAlerts,
-	    loadPendingSessions,
-	    loadReplacementCreditsForPatient,
-	    reloadVisibleSessions,
-	    recurrencePreview,
-	    resetForm,
-	    selectedMonthKey,
-	  ]);
+    canSharePackages,
+    closeDrawer,
+    form.service_id,
+    form.shared_package_owner_id,
+    loadOperationalAlerts,
+    loadPendingSessions,
+    loadReplacementCreditsForPatient,
+    reloadVisibleSessions,
+    recurrencePreview,
+    resetForm,
+    selectedMonthKey,
+    usesCompleteSchedulingAvailabilityContract,
+  ]);
 
-	  const handleCreateAt = useCallback(
-	    (date) => {
-      if (!allowWeekendScheduling && isWeekendDate(date)) {
+  const handleCreateAt = useCallback(
+    (date) => {
+      if (!allowWeekendScheduling && isAgendaWeekendInstant(date)) {
         toast.error("Agendamentos aos sábados e domingos estão desativados nas regras operacionais da clínica.");
         return;
       }
-	      if (
-	        !allowBrokenTimeScheduling
-	        && (date.getMinutes() !== 0 || date.getSeconds() !== 0 || date.getMilliseconds() !== 0)
-	      ) {
-	        toast.error("Esta clínica permite agendamentos apenas em horários cheios.");
-	        return;
-	      }
-	      resetForm();
-	      const endsAt = new Date(date);
-      endsAt.setHours(endsAt.getHours() + 1);
+      if (
+        !allowBrokenTimeScheduling
+        && (formatAgendaMinuteInput(date) !== "00"
+          || date.getUTCSeconds() !== 0
+          || date.getUTCMilliseconds() !== 0)
+      ) {
+        toast.error("Esta clínica permite agendamentos apenas em horários cheios.");
+        return;
+      }
+      resetForm();
+      const endsAt = new Date(date.getTime() + 60 * 60 * 1000);
       setDrawerMode("form");
       setGroupContext(null);
       setForm((prev) => ({
@@ -2784,52 +3884,52 @@ export default function Agendamentos() {
       }));
       setIsDrawerOpen(true);
     },
-		    [allowBrokenTimeScheduling, allowWeekendScheduling, resetForm],
-	  );
+    [allowBrokenTimeScheduling, allowWeekendScheduling, resetForm],
+  );
 
-	  const handleScheduleReplacement = useCallback((alert) => {
-	    const replacementCredit = buildReplacementCreditFromAlert(alert);
-	    if (!replacementCredit.id || !replacementCredit.patient_id) {
-	      toast.error("Reposição inválida para agendamento.");
-	      return;
-	    }
+  const handleScheduleReplacement = useCallback((alert) => {
+    const replacementCredit = buildReplacementCreditFromAlert(alert);
+    if (!replacementCredit.id || !replacementCredit.patient_id) {
+      toast.error("Reposição inválida para agendamento.");
+      return;
+    }
 
-	    const serviceId = replacementCredit.source_service_id
-	      ? String(replacementCredit.source_service_id)
-	      : "";
-	    const serviceType = replacementCredit.source_service_type || "";
-	    if (!serviceId && !serviceType) {
-	      toast.error("Não foi possível identificar o serviço da reposição.");
-	      return;
-	    }
+    const serviceId = replacementCredit.source_service_id
+      ? String(replacementCredit.source_service_id)
+      : "";
+    const serviceType = replacementCredit.source_service_type || "";
+    if (!serviceId && !serviceType) {
+      toast.error("Não foi possível identificar o serviço da reposição.");
+      return;
+    }
 
-	    resetForm();
-	    const defaultStart = new Date(selectedDate);
-	    defaultStart.setHours(START_HOUR, 0, 0, 0);
-	    const defaultEnd = new Date(defaultStart);
-	    defaultEnd.setHours(defaultEnd.getHours() + 1);
+    resetForm();
+    const defaultStart = parseAgendaDateTime(
+      `${markerToCivilDate(selectedDate)}T${String(START_HOUR).padStart(2, "0")}:00`,
+    );
+    const defaultEnd = new Date(defaultStart.getTime() + 60 * 60 * 1000);
 
-	    setDrawerMode("form");
-	    setGroupContext(null);
-	    setEditingId(null);
+    setDrawerMode("form");
+    setGroupContext(null);
+    setEditingId(null);
     setEditingIntent("create");
     setRepeatEnabled(false);
     setReplacementCreditsForPatient([replacementCredit]);
     setFormPatientQuery(replacementCredit.patient_name || "Paciente");
-	    setForm({
-	      ...emptyForm,
-	      patient_id: String(replacementCredit.patient_id),
-	      service_id: serviceId,
-	      service_type: serviceType,
-	      status: "scheduled",
-	      starts_at: toInputValue(defaultStart),
-	      ends_at: toInputValue(defaultEnd),
-	      billing_mode: replacementCredit.source_billing_mode || "per_session",
-	      session_replacement_credit_id: String(replacementCredit.id),
-	      patient_credit_id: "",
-	    });
-	    setIsDrawerOpen(true);
-	  }, [resetForm, selectedDate]);
+    setForm({
+      ...emptyForm,
+      patient_id: String(replacementCredit.patient_id),
+      service_id: serviceId,
+      service_type: serviceType,
+      status: "scheduled",
+      starts_at: toInputValue(defaultStart),
+      ends_at: toInputValue(defaultEnd),
+      billing_mode: replacementCredit.source_billing_mode || "per_session",
+      session_replacement_credit_id: String(replacementCredit.id),
+      patient_credit_id: "",
+    });
+    setIsDrawerOpen(true);
+  }, [resetForm, selectedDate]);
 
   useEffect(() => {
     const action = routeLocation.state?.[PENDING_CENTER_ACTION_STATE_KEY];
@@ -2845,8 +3945,10 @@ export default function Agendamentos() {
     });
 
     if (action.type === "open-day") {
-      const pendingDate = new Date(action.value);
-      if (Number.isNaN(pendingDate.getTime())) return;
+      const actionDate = normalizeCivilDate(String(action.value || "").slice(0, 10))
+        || formatAgendaDateInput(action.value);
+      const pendingDate = civilDateToMarker(actionDate);
+      if (!pendingDate) return;
       setSelectedDate(pendingDate);
       setView("day");
       closeDrawer();
@@ -2967,6 +4069,7 @@ export default function Agendamentos() {
       setEditingId(session.id);
       setEditingIntent(intent);
       setPackageScopePreview({ sessionId: null, loading: false, data: null });
+      setEditPackageShare(emptyEditPackageShare);
       setRepeatEnabled(false);
       setRepeatWeekdays([]);
       setRepeatMode("count");
@@ -2981,8 +4084,8 @@ export default function Agendamentos() {
         service_id: serviceIdValue,
         status: session.status || "scheduled",
         is_initial: !!session.is_initial,
-        starts_at: toInputValue(session.starts_at),
-        ends_at: toInputValue(session.ends_at),
+        starts_at: formatAgendaDateTimeInput(session.starts_at),
+        ends_at: formatAgendaDateTimeInput(session.ends_at),
         notes: "",
         absence_reason: session.absence_reason || "",
         late_policy_exception_justified: false,
@@ -2995,6 +4098,11 @@ export default function Agendamentos() {
         patient_credit_id: session.patient_credit_id ? String(session.patient_credit_id) : "",
         billing_mode: session.billing_mode || "per_session",
         package_update_scope: "single",
+        shared_package_owner_id: "",
+        shared_package_id: "",
+        shared_package_source_session_id: "",
+        shared_package_review_token: "",
+        package_share_idempotency_key: "",
       });
       setFormPatientQuery(patientName);
       setIsDrawerOpen(true);
@@ -3627,8 +4735,17 @@ export default function Agendamentos() {
       late_policy_exception_reason: absenceModal.reason.trim(),
     } : {}),
   }), [absenceModal.reason, absenceModal.latePolicyExceptionJustified]);
-  const absencePatientId = getSessionPatientId(absenceModal.session);
-  const financialCommandKey = JSON.stringify([absenceModal.id, absencePatientId, absenceCommand]);
+  const absencePatientIdentity = useMemo(
+    () => getSessionCancellationIdentity(absenceModal.session),
+    [absenceModal.session],
+  );
+  const financialCommandKey = JSON.stringify([
+    absenceModal.id,
+    absencePatientIdentity?.attended_patient_id,
+    absencePatientIdentity?.financial_patient_id,
+    absencePatientIdentity?.package_owner_id,
+    absenceCommand,
+  ]);
   const matchingFinancialPreview = absenceModal.financialPreviewKey === financialCommandKey;
   const useJointCancellation = requiresTechnicalCancellationPreview
     && !(matchingFinancialPreview && absenceModal.financialNotApplicable);
@@ -3662,7 +4779,11 @@ export default function Agendamentos() {
         const { data } = await previewSessionCancellation(absenceModal.id, absenceCommand);
         if (!active || requestVersion !== absenceRequestVersion.current) return;
         const additionalSessions = (data?.affected_sessions || []).filter((session) => Number(session.id) !== Number(absenceModal.id));
-        if (!validCancellationPreview(data, { session_id: absenceModal.id, patient_id: absencePatientId })
+        if (!validCancellationPreview(data, {
+          session_id: absenceModal.id,
+          attended_patient_id: absencePatientIdentity?.attended_patient_id,
+          financial_patient_id: absencePatientIdentity?.financial_patient_id,
+        })
           || (additionalSessions.length > 0 && !data.patient?.name?.trim())) {
           throw new Error("Invalid session cancellation preview");
         }
@@ -3684,7 +4805,7 @@ export default function Agendamentos() {
     }, 250);
     return () => { active = false; clearTimeout(timer); };
   }, [requiresTechnicalCancellationPreview, absenceCommand, financialCommandKey, absenceModal.id,
-    absencePatientId, absenceModal.financialPreviewRevision, authorization.context]);
+    absencePatientIdentity, absenceModal.financialPreviewRevision, authorization.context]);
 
   const handleConfirmAbsence = useCallback(async () => {
     if (!absenceModal.id || !absenceModal.status || absenceModal.isSaving || absenceModal.isChangingStatus || financialAbsenceInFlight.current) return;
@@ -3727,7 +4848,7 @@ export default function Agendamentos() {
       const { data } = await confirmSessionCancellation(absenceModal.id, attempt.body, attempt.key);
       if (requestVersion !== absenceRequestVersion.current) return;
       if (Number(data?.entry_id) !== Number(absenceModal.financialPreview.entry.id)
-        || Number(data?.patient_id) !== Number(getSessionPatientId(absenceModal.session))) {
+        || Number(data?.patient_id) !== Number(absencePatientIdentity?.financial_patient_id)) {
         throw new Error("Invalid session cancellation confirmation");
       }
       setAbsenceModal(emptyAbsenceModal);
@@ -3758,7 +4879,7 @@ export default function Agendamentos() {
       }
     }
   }, [absenceModal, absenceCommand, requiresTechnicalCancellationPreview, financialPreviewReady,
-    canRetryFinancialPreview, useJointCancellation, updateSessionStatus, reloadVisibleSessions,
+    canRetryFinancialPreview, useJointCancellation, absencePatientIdentity, updateSessionStatus, reloadVisibleSessions,
     loadPendingSessions, loadOperationalAlerts, selectedMonthKey]);
 
   const handleOpenAttendanceCall = useCallback(({ timeGroup }) => {
@@ -3882,6 +5003,8 @@ export default function Agendamentos() {
 	    ) || null,
 	    [form.session_replacement_credit_id, replacementCreditsForPatient],
 	  );
+	  const isPackageShareFlow = !editingId && !!form.shared_package_owner_id;
+	  const isEditingPackageReallocation = !!editingId && editPackageShare.active;
 		  const isSchedulingReplacement = !editingId && !!selectedReplacementCredit;
   const isPackageReplacement = isSchedulingReplacement
     && !!selectedReplacementCredit.package_unit_id;
@@ -3927,6 +5050,7 @@ export default function Agendamentos() {
     () =>
       !editingId
       && !isSchedulingReplacement
+      && !isPackageShareFlow
       && !form.is_no_charge
       && !!form.session_price_manually_changed
       && Number.isFinite(sessionPriceCents)
@@ -3936,6 +5060,7 @@ export default function Agendamentos() {
       form.is_no_charge,
       form.session_price_manually_changed,
       isSchedulingReplacement,
+      isPackageShareFlow,
       sessionPriceCents,
     ],
   );
@@ -3956,8 +5081,9 @@ export default function Agendamentos() {
 	    return "O total será mostrado antes de confirmar.";
   }, [repeatCount, repeatEnabled, repeatMode, visibleSessionPriceCents]);
 
-  const valueFieldLabel = repeatEnabled ? "Valor por sessão" : "Valor da sessão";
-  const shouldDisableSessionPriceInput = !!form.is_no_charge || !form.service_id;
+  const shouldDisableSessionPriceInput = !!form.is_no_charge
+    || isPackageShareFlow
+    || !form.service_id;
 
 	  const getReplacementCreditOptionLabel = useCallback(
     (credit) => {
@@ -3996,19 +5122,29 @@ export default function Agendamentos() {
     async (event) => {
       event.preventDefault();
       if (submitLockRef.current || isSaving) return;
+      const hasPackageShareSubmission = isPackageShareFlow
+        || isEditingPackageReallocation
+        || !!form.shared_package_id
+        || !!form.shared_package_source_session_id
+        || !!form.shared_package_review_token;
+      if (hasPackageShareSubmission && !canSharePackages) {
+        toast.error(PACKAGE_SHARE_PERMISSION_ERROR_MESSAGE);
+        return;
+      }
       if (!form.patient_id) {
         toast.error("Selecione o paciente.");
         return;
       }
-      if (!editingId && isPatientProfessionalsLoading) {
+      if ((!editingId || isEditingPackageReallocation) && isPatientProfessionalsLoading) {
         toast.error("Aguarde a validação dos profissionais responsáveis.");
         return;
       }
-      if (!editingId && patientProfessionalsError) {
+      if ((!editingId || isEditingPackageReallocation) && patientProfessionalsError) {
         toast.error("Não foi possível validar os profissionais responsáveis.");
         return;
       }
-      if (!form.professional_user_id || (!editingId && !selectedProfessional)) {
+      if (!form.professional_user_id
+        || ((!editingId || isEditingPackageReallocation) && !selectedProfessional)) {
         toast.error("Selecione um profissional responsável válido.");
         return;
       }
@@ -4024,13 +5160,25 @@ export default function Agendamentos() {
         toast.error("Selecione o serviço.");
         return;
       }
-	      if (editingId && !normalizeText(form.notes)) {
+	      if (isPackageShareFlow && form.shared_package_owner_id === "pending") {
+	        toast.error("Selecione de quem é o pacote.");
+	        return;
+	      }
+	      if (isEditingPackageReallocation && (
+	        !form.patient_id
+	        || String(form.patient_id) === String(editPackageShare.package?.current_patient_id)
+	      )) {
+	        toast.error("Escolha quem será atendido.");
+	        return;
+	      }
+	      if (editingId && !isEditingPackageReallocation && !normalizeText(form.notes)) {
 	        setShowEditReasonError(true);
 	        return;
 	      }
       if (
         !editingId
         && !isSchedulingReplacement
+        && !isPackageShareFlow
         && !form.is_no_charge
         && form.session_price_manually_changed
         && (!Number.isFinite(sessionPriceCents) || sessionPriceCents <= 0)
@@ -4038,60 +5186,55 @@ export default function Agendamentos() {
         toast.error("Informe um valor por sessão válido.");
         return;
       }
-	      const startsAtDate = new Date(form.starts_at);
-      if (Number.isNaN(startsAtDate.getTime())) {
-        toast.error("Data de início inválida.");
+      const editingOriginalSession = editingId
+        ? filteredSessions.find((session) => String(session.id) === String(editingId))
+        : null;
+      const resolvedFormInterval = resolveAgendaFormInterval({
+        startInput: form.starts_at,
+        endInput: form.ends_at,
+        originalStart: editingOriginalSession?.starts_at || null,
+        originalEnd: editingOriginalSession?.ends_at || null,
+      });
+      if (!resolvedFormInterval.valid) {
+        toast.error(resolvedFormInterval.startDate
+          ? "Data de término inválida."
+          : "Data de início inválida.");
         return;
       }
-      if (!allowWeekendScheduling && isWeekendDate(startsAtDate)) {
+      const startsAtDate = resolvedFormInterval.startDate;
+      const endsAtDate = resolvedFormInterval.endDate;
+      const agendaWeekday = getAgendaIsoWeekday(startsAtDate);
+      if (!allowWeekendScheduling && (agendaWeekday === 6 || agendaWeekday === 7)) {
         toast.error("Agendamentos aos sábados e domingos estão desativados nas regras operacionais da clínica.");
         return;
       }
 
       if (
         !allowBrokenTimeScheduling
-        && (startsAtDate.getMinutes() !== 0 || startsAtDate.getSeconds() !== 0 || startsAtDate.getMilliseconds() !== 0)
+        && formatAgendaMinuteInput(startsAtDate) !== "00"
       ) {
         toast.error("Esta clínica permite agendamentos apenas em horários cheios.");
         return;
       }
 
-	      const editingOriginalSession = editingId
-	        ? filteredSessions.find((session) => String(session.id) === String(editingId))
-	        : null;
-	      const selectedPackageUpdateScope =
-	        form.package_update_scope === "series" ? "series" : "single";
-	      const originalStart = editingOriginalSession?.starts_at
-	        ? new Date(editingOriginalSession.starts_at).getTime()
-	        : NaN;
-	      const nextStart = form.starts_at ? new Date(form.starts_at).getTime() : NaN;
-	      const originalEnd = editingOriginalSession?.ends_at
-	        ? new Date(editingOriginalSession.ends_at).getTime()
-	        : null;
-	      const nextEnd = form.ends_at ? new Date(form.ends_at).getTime() : null;
-	      const editingScheduleWasChanged =
-	        !!editingOriginalSession
-	        && (
-	          (
-	            Number.isFinite(originalStart)
-	            && Number.isFinite(nextStart)
-	            && originalStart !== nextStart
-	          )
-	          || originalEnd !== nextEnd
-	        );
-	      const packageScopeProfessionalChanged =
-	        !!editingOriginalSession
-	        && String(editingOriginalSession.professional_user_id || "") !== String(form.professional_user_id || "");
-	      const packageScopeTimeChanged =
-	        editingScheduleWasChanged;
-	      const packageScopeApplies =
-	        !!editingOriginalSession
-	        && isPackageSeriesSession(editingOriginalSession)
-	        && editingIntent === "edit";
-	      const packageScopeDateWasChanged =
-	        packageScopeApplies
-	        && editingScheduleWasChanged
-	        && toDateInputValue(editingOriginalSession?.starts_at) !== toDateInputValue(form.starts_at);
+      const selectedPackageUpdateScope =
+        form.package_update_scope === "series" ? "series" : "single";
+      const editingScheduleWasChanged =
+        !!editingOriginalSession
+        && resolvedFormInterval.changed;
+      const packageScopeProfessionalChanged =
+        !!editingOriginalSession
+        && String(editingOriginalSession.professional_user_id || "") !== String(form.professional_user_id || "");
+      const packageScopeTimeChanged = editingScheduleWasChanged;
+      const packageScopeApplies =
+        !!editingOriginalSession
+        && isPackageSeriesSession(editingOriginalSession)
+        && editingIntent === "edit";
+      const packageScopeDateWasChanged =
+        packageScopeApplies
+        && editingScheduleWasChanged
+        && formatAgendaDateInput(editingOriginalSession?.starts_at)
+          !== formatAgendaDateInput(form.starts_at);
       const shouldUsePackageScopeUpdate =
         packageScopeApplies
         && selectedPackageUpdateScope === "series"
@@ -4102,17 +5245,15 @@ export default function Agendamentos() {
         return;
       }
 
-	      if (showReplacementCycleWarning && !form.cycle_reschedule_exception_justified) {
-	        toast.error("Confirme o agendamento da reposição fora do ciclo do plano mensal.");
-	        return;
-	      }
-
-	      const isRecurring = repeatEnabled && !editingId && !isSchedulingReplacement;
-      const endsAtDate = form.ends_at ? new Date(form.ends_at) : null;
-      if (form.ends_at && (!endsAtDate || Number.isNaN(endsAtDate.getTime()))) {
-        toast.error("Data de término inválida.");
+      if (showReplacementCycleWarning && !form.cycle_reschedule_exception_justified) {
+        toast.error("Confirme o agendamento da reposição fora do ciclo do plano mensal.");
         return;
       }
+
+      const isRecurring = repeatEnabled
+        && !editingId
+        && !isSchedulingReplacement
+        && !isPackageShareFlow;
       if (endsAtDate && endsAtDate <= startsAtDate) {
         toast.error("O horário final deve ser posterior ao início.");
         return;
@@ -4172,7 +5313,7 @@ export default function Agendamentos() {
         && editReason;
 
       const billingModePayload = {};
-      if (!editingId && !isSchedulingReplacement) {
+      if (!editingId && !isSchedulingReplacement && !isPackageShareFlow) {
         billingModePayload.billing_mode = "per_session";
       } else if (isSchedulingReplacement && !usesMembershipSessionContract) {
         billingModePayload.billing_mode =
@@ -4192,8 +5333,8 @@ export default function Agendamentos() {
         ...(!usesMembershipSessionContract
           ? { is_initial: editingId ? !!form.is_initial : false }
           : {}),
-        starts_at: form.starts_at,
-        ends_at: form.ends_at || null,
+        starts_at: resolvedFormInterval.starts_at,
+        ends_at: resolvedFormInterval.ends_at,
         notes: editReason,
         absence_reason: normalizeText(form.absence_reason),
         late_policy_exception_justified: !!form.late_policy_exception_justified,
@@ -4220,7 +5361,7 @@ export default function Agendamentos() {
           : {}),
         ...billingModePayload,
       };
-      if (!editingId) {
+      if (!editingId || isEditingPackageReallocation) {
         payload.assign_patient_care = requiresExplicitCareAssignment;
         if (selectedProfessional?.clinic_professional_id) {
           payload.clinic_professional_id = Number(selectedProfessional.clinic_professional_id);
@@ -4233,27 +5374,27 @@ export default function Agendamentos() {
       if (isRecurring) {
         let untilDate = null;
         const recurrenceStartsAt = new Date(startsAtDate);
+        const recurrenceStartDate = formatAgendaDateInput(startsAtDate);
         const repeatInterval = repeatCadence === "alternate" ? 2 : 1;
         if (repeatMode === "weeks") {
           const weeks = Math.max(1, Number(repeatWeeks) || 1);
-          const endDate = new Date(startsAtDate);
-          endDate.setHours(0, 0, 0, 0);
-          endDate.setDate(endDate.getDate() + weeks * 7 - 1);
+          const endDate = parseDateInputValue(recurrenceStartDate);
+          endDate.setUTCDate(endDate.getUTCDate() + weeks * 7 - 1);
           untilDate = formatDateParam(endDate);
         }
         if (repeatMode === "month") {
-          const monthlyValidity = buildMonthlyValidityRange(startsAtDate, repeatMonths);
+          const monthlyValidity = buildMonthlyValidityRange(recurrenceStartDate, repeatMonths);
           if (!monthlyValidity.end) {
             releaseSubmitState();
             toast.error("Não foi possível calcular a vigência mensal.");
             return;
           }
-          recurrenceStartsAt.setSeconds(0, 0);
+          recurrenceStartsAt.setUTCSeconds(0, 0);
           untilDate = monthlyValidity.end;
         }
         const weekdays = repeatWeekdays.length
           ? repeatWeekdays
-          : [toIsoWeekday(recurrenceStartsAt)];
+          : [getAgendaIsoWeekday(recurrenceStartsAt)];
 
         const seriesPayload = {
           patient_id: payload.patient_id,
@@ -4316,10 +5457,16 @@ export default function Agendamentos() {
 
         try {
           const previewResponse = await previewSchedulingOccurrences(seriesPayload);
-          const occurrences = Array.isArray(previewResponse?.data?.occurrences_preview)
-            ? previewResponse.data.occurrences_preview
-            : [];
-          const summary = previewResponse?.data?.summary || {};
+          const preview = validateRecurringSchedulingAvailability(previewResponse?.data, {
+            requireCompleteValidation: usesCompleteSchedulingAvailabilityContract,
+          });
+          const occurrences = preview.occurrences_preview.map((occurrence) => ({
+            ...occurrence,
+            availability_scope: usesCompleteSchedulingAvailabilityContract
+              ? "patient_conflict_checked"
+              : LEGACY_OPERATIONAL_AVAILABILITY_SCOPE,
+          }));
+          const { summary } = preview;
 
           const selectedIndexes = occurrences
             .filter(
@@ -4348,6 +5495,7 @@ export default function Agendamentos() {
             edit_time: "",
             edit_error: "",
             is_editing_occurrence: false,
+            requires_revalidation: false,
           });
         } catch (error) {
           const message =
@@ -4360,8 +5508,35 @@ export default function Agendamentos() {
 	        return;
 	      }
 
-	      if (!editingId) {
+      if (!editingId) {
+        let packageOptionsLoaded = !isPackageShareFlow;
 	        try {
+	          let packageOptions = [];
+	          if (isPackageShareFlow) {
+	            setIsPackageShareLoading(true);
+	            const packagesResponse = await axios.get(
+	              `/package-sharing/owners/${form.shared_package_owner_id}/packages`,
+	              { params: { service_id: Number(payload.service_id) } },
+	            );
+	            packageOptions = validatePackageShareOptions(packagesResponse.data)
+	              .filter((pkg) => Number(pkg?.service?.id) === Number(payload.service_id))
+	              .sort((left, right) => {
+	                const dateDifference = new Date(right.contracted_at).getTime()
+	                  - new Date(left.contracted_at).getTime();
+	                return Number.isFinite(dateDifference) && dateDifference !== 0
+	                  ? dateDifference
+	                  : Number(right.id) - Number(left.id);
+	              });
+            packageOptionsLoaded = true;
+	            setSharedPackages(packageOptions);
+	            setForm((previous) => ({
+	              ...previous,
+	              shared_package_id: "",
+	              shared_package_source_session_id: "",
+	              shared_package_review_token: "",
+	              package_share_idempotency_key: "",
+	            }));
+	          }
 	          let occurrence = await buildSingleReviewOccurrence({
 	            payload,
 	            durationMinutes,
@@ -4374,29 +5549,34 @@ export default function Agendamentos() {
 	              matched_events: formLocalSpecialSummary?.events || occurrence.matched_events || [],
 	            };
 	          }
-	          const selectedIndexes =
-	            occurrence.status === "BLOCK" && !occurrence.can_override_block
-	              ? []
-	              : [occurrence.index];
+          const selectedIndexes = shouldAutoSelectReviewOccurrence(occurrence)
+            ? [occurrence.index]
+            : [];
 	          setRecurrencePreview({
 	            open: true,
 	            review_type: "single",
-		            is_submitting: false,
-		            single_payload: payload,
-		            series_payload: null,
-		            price_unit_cents: payload.is_no_charge ? null : visibleSessionPriceCents,
-		            is_no_charge: !!payload.is_no_charge,
-		            repeat_mode: "single",
+            is_submitting: false,
+            single_payload: payload,
+            series_payload: null,
+	            price_unit_cents: isPackageShareFlow || payload.is_no_charge
+	              ? null
+	              : visibleSessionPriceCents,
+	            is_no_charge: !!payload.is_no_charge,
+            package_share_review: isPackageShareFlow ? {
+              owner_id: Number(form.shared_package_owner_id),
+	              patient_name: formPatientQuery || "Paciente",
+	              owner_name: packageOwnerQuery || "Paciente",
+	              service_name: servicesById.get(String(payload.service_id))?.name
+	                || serviceName(payload.service_type),
+	              packages: packageOptions,
+	              selected_package_id: "",
+	              selected_source_session_id: "",
+	            } : null,
+            repeat_mode: "single",
 	            repeat_cadence: null,
 	            repeat_months: null,
 	            occurrences: [occurrence],
-	            summary: {
-	              total: 1,
-	              available: occurrence.status === "AVAILABLE" ? 1 : 0,
-	              info: occurrence.status === "INFO" ? 1 : 0,
-	              warn: occurrence.status === "WARN_CONFIRM" ? 1 : 0,
-	              blocked: occurrence.status === "BLOCK" ? 1 : 0,
-	            },
+	            summary: buildSingleOccurrenceSummary(occurrence),
 	            selected_indexes: selectedIndexes,
 	            confirm_warning_indexes:
 	              occurrence.status === "WARN_CONFIRM" ? selectedIndexes : [],
@@ -4407,13 +5587,17 @@ export default function Agendamentos() {
 	            edit_time: "",
 	            edit_error: "",
 	            is_editing_occurrence: false,
+            single_availability_request: null,
 	          });
 	        } catch (error) {
 	          const message =
 	            error?.response?.data?.error ||
-	            "Não foi possível validar disponibilidade.";
+	            (isPackageShareFlow && !packageOptionsLoaded
+	              ? "Não foi possível buscar os pacotes desse paciente."
+	              : "Não foi possível validar disponibilidade.");
 	          toast.error(message);
 	        } finally {
+	          setIsPackageShareLoading(false);
 	          releaseSubmitState();
 	        }
 	        return;
@@ -4484,7 +5668,20 @@ export default function Agendamentos() {
           force_override: forceOverride,
           override_reason: overrideReason,
         };
-	        if (editingId) {
+	        if (isEditingPackageReallocation) {
+	          const response = await axios.post("/sessions", {
+	            ...payload,
+	            ...schedulingPayload,
+	            status: "scheduled",
+	            shared_package_id: Number(editPackageShare.package.id),
+	            shared_package_source_session_id: Number(editingId),
+	            shared_package_review_token: editPackageShare.package.review_token,
+	            shared_package_preserve_source_unit: true,
+	            idempotency_key: form.package_share_idempotency_key,
+	          });
+	          showAbsenceMonthlyPolicyNotice(response?.data);
+	          toast.success("Paciente do agendamento alterado.");
+	        } else if (editingId) {
 		          const originalSession = editingOriginalSession;
 	          const isReschedule = originalSession && editingScheduleWasChanged;
 
@@ -4544,11 +5741,14 @@ export default function Agendamentos() {
     },
 	    [
 	      canAssignPatientCare,
+		      canSharePackages,
 		      closeDrawer,
 		      allowBrokenTimeScheduling,
 		      allowWeekendScheduling,
 	      buildSingleReviewOccurrence,
 	      editingId,
+	      editPackageShare,
+	      isEditingPackageReallocation,
       editingIntent,
 	      filteredSessions,
 		      form,
@@ -4556,6 +5756,7 @@ export default function Agendamentos() {
 		      isPatientProfessionalsLoading,
 		      isSaving,
 		      isSchedulingReplacement,
+	      isPackageShareFlow,
 	      loadPendingSessions,
       loadOperationalAlerts,
       loadReplacementCreditsForPatient,
@@ -4574,10 +5775,15 @@ export default function Agendamentos() {
 	      selectedProfessional,
 				      selectedMonthKey,
 				      selectedReplacementBillingMode,
+	      formPatientQuery,
+	      packageOwnerQuery,
+	      serviceName,
+	      servicesById,
 				      showReplacementCycleWarning,
       shouldSendPriceOverride,
 	      submitLockRef,
       usesMembershipSessionContract,
+      usesCompleteSchedulingAvailabilityContract,
       visibleSessionPriceCents,
 	    ],
 	  );
@@ -4619,33 +5825,33 @@ export default function Agendamentos() {
 
   const visibleMonthDays = useMemo(() => {
     if (allowWeekendScheduling) return monthDays;
-    return monthDays.filter((day) => day.getDay() !== 0 && day.getDay() !== 6);
+    return monthDays.filter((day) => day.getUTCDay() !== 0 && day.getUTCDay() !== 6);
   }, [allowWeekendScheduling, monthDays]);
 
   const handlePrev = useCallback(() => {
     const next = new Date(selectedDate);
     if (view === "month") {
-      next.setDate(1);
-      next.setMonth(next.getMonth() - 1);
+      next.setUTCDate(1);
+      next.setUTCMonth(next.getUTCMonth() - 1);
     }
-    if (view === "week") next.setDate(next.getDate() - 7);
-    if (view === "day") next.setDate(next.getDate() - 1);
+    if (view === "week") next.setUTCDate(next.getUTCDate() - 7);
+    if (view === "day") next.setUTCDate(next.getUTCDate() - 1);
     setSelectedDate(next);
   }, [selectedDate, view]);
 
   const handleNext = useCallback(() => {
     const next = new Date(selectedDate);
     if (view === "month") {
-      next.setDate(1);
-      next.setMonth(next.getMonth() + 1);
+      next.setUTCDate(1);
+      next.setUTCMonth(next.getUTCMonth() + 1);
     }
-    if (view === "week") next.setDate(next.getDate() + 7);
-    if (view === "day") next.setDate(next.getDate() + 1);
+    if (view === "week") next.setUTCDate(next.getUTCDate() + 7);
+    if (view === "day") next.setUTCDate(next.getUTCDate() + 1);
     setSelectedDate(next);
   }, [selectedDate, view]);
 
   const handleToday = useCallback(() => {
-    setSelectedDate(new Date());
+    setSelectedDate(civilDateToMarker(formatAgendaDateInput(new Date())));
   }, []);
 
   const formAvailabilityEvents = useMemo(
@@ -4718,6 +5924,22 @@ export default function Agendamentos() {
     );
   }, [recurrencePreview, recurrenceSelectedSet]);
 
+  const selectedReviewPackage = useMemo(() => {
+    const review = recurrencePreview?.package_share_review;
+    if (!review) return null;
+    return (review.packages || []).find(
+      (pkg) => String(pkg.id) === String(review.selected_package_id),
+    ) || null;
+  }, [recurrencePreview]);
+
+  const selectedReviewSourceSession = useMemo(() => {
+    const review = recurrencePreview?.package_share_review;
+    if (!review || !selectedReviewPackage) return null;
+    return (selectedReviewPackage.eligible_scheduled_sessions || []).find(
+      (session) => String(session.id) === String(review.selected_source_session_id),
+    ) || null;
+  }, [recurrencePreview, selectedReviewPackage]);
+
 	  const recurrencePreviewPriceSummary = useMemo(() => {
     if (recurrencePreview?.is_no_charge) return null;
 	    const priceCents = Number(recurrencePreview?.price_unit_cents || 0);
@@ -4782,15 +6004,134 @@ export default function Agendamentos() {
     () => filteredSessions.find((session) => String(session.id) === String(editingId)) || null,
     [editingId, filteredSessions],
   );
+	const editingPackageId = editingSession?.PackageUnit?.Package?.id;
+	const editingPackageOwnerId = editingSession?.PackageUnit?.Package?.Patient?.id
+	  || editingSession?.PackageUnit?.Package?.patient_id;
+	const editingPackageServiceId = editingSession?.service_id
+	  || editingSession?.PackageUnit?.Package?.service_id;
+	const editingSourceSessionId = editingSession?.id;
+	const editingCurrentPatientId = editingSession?.patient_id;
+	const editingCurrentPatientName = editingSession
+	  ? getSessionPatientName(editingSession)
+	  : "";
+
+  useEffect(() => {
+	    if (!canSharePackages && editingId && editingCurrentPatientId) {
+      setForm((previous) => {
+        const hasPackageShareState = !!(
+          previous.shared_package_id
+          || previous.shared_package_source_session_id
+          || previous.shared_package_review_token
+        );
+        if (!hasPackageShareState) return previous;
+        return {
+          ...previous,
+          patient_id: String(editingCurrentPatientId),
+          shared_package_owner_id: "",
+          shared_package_id: "",
+          shared_package_source_session_id: "",
+          shared_package_review_token: "",
+          package_share_idempotency_key: "",
+        };
+      });
+      setFormPatientQuery(editingCurrentPatientName);
+    }
+    if (
+      !canSharePackages
+      || !editingPackageId
+      || !editingPackageOwnerId
+      || !editingPackageServiceId
+      || !editingSourceSessionId
+    ) {
+      setEditPackageShare(emptyEditPackageShare);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setEditPackageShare((previous) => ({
+      ...emptyEditPackageShare,
+      status: "loading",
+      active: previous.active && String(editingId) === String(editingSourceSessionId),
+    }));
+    axios.get(`/package-sharing/owners/${editingPackageOwnerId}/packages`, {
+      params: {
+        service_id: Number(editingPackageServiceId),
+        source_session_id: Number(editingSourceSessionId),
+      },
+    }).then((response) => {
+      if (cancelled) return;
+      const options = validatePackageShareOptions(response.data);
+      const eligiblePackage = options.find((pkg) => (
+        String(pkg.id) === String(editingPackageId)
+        && pkg.source_session_eligible === true
+      ));
+      setEditPackageShare(eligiblePackage ? {
+        status: "eligible",
+        active: false,
+        package: {
+          ...eligiblePackage,
+          current_patient_id: Number(editingCurrentPatientId),
+        },
+        patientQuery: editingCurrentPatientName,
+      } : emptyEditPackageShare);
+    }).catch(() => {
+      if (!cancelled) setEditPackageShare(emptyEditPackageShare);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    canSharePackages,
+    editingId,
+    editingCurrentPatientId,
+    editingCurrentPatientName,
+    editingPackageId,
+    editingPackageOwnerId,
+    editingPackageServiceId,
+    editingSourceSessionId,
+  ]);
+
+  const selectEditPackagePatient = useCallback((patient) => {
+    if (editPackageShare.status !== "eligible" || !editPackageShare.package) return;
+    const patientChanged = String(patient.id)
+      !== String(editPackageShare.package.current_patient_id);
+    setEditPackageShare((previous) => ({
+      ...previous,
+      active: patientChanged,
+      patientQuery: getPatientName(patient),
+    }));
+    setForm((previous) => ({
+      ...previous,
+      patient_id: String(patient.id),
+      patient_credit_id: "",
+      session_replacement_credit_id: "",
+      shared_package_id: patientChanged ? String(editPackageShare.package.id) : "",
+      shared_package_source_session_id: patientChanged ? String(editingId) : "",
+      shared_package_review_token: patientChanged
+        ? editPackageShare.package.review_token
+        : "",
+      package_share_idempotency_key: patientChanged ? `package-share:${uuidv4()}` : "",
+      package_update_scope: "single",
+    }));
+    setFormPatientQuery(getPatientName(patient));
+    setShowEditReasonError(false);
+  }, [editPackageShare, editingId]);
 
   const editingBillingSummary = useMemo(
     () => getSessionBillingSummary(editingSession, serviceName),
     [editingSession, serviceName],
   );
-	  const isEditingInfo = !!editingId && editingIntent === "edit";
-	  const isReschedulingSession = !!editingId && editingIntent === "reschedule";
+  const editingPackageOwnerName = getPackageOwnerName(editingSession);
+	const editingSharedPackageOwnerName = editingPackageOwnerId
+	  && form.patient_id
+	  && String(editingPackageOwnerId) !== String(form.patient_id)
+	  ? editingPackageOwnerName
+	  : "";
+  const isEditingInfo = !!editingId && editingIntent === "edit";
+  const isReschedulingSession = !!editingId && editingIntent === "reschedule";
   const showPackageUpdateScope =
     !!editingSession
+    && !editPackageShare.active
     && isPackageSeriesSession(editingSession)
     && (isEditingInfo || isReschedulingSession);
 
@@ -4857,16 +6198,20 @@ export default function Agendamentos() {
 
 	  const packageScopeDateChanged = useMemo(() => {
 	    if (!showPackageUpdateScope) return false;
-	    return toDateInputValue(editingSession?.starts_at) !== toDateInputValue(form.starts_at);
+	    return formatAgendaDateInput(editingSession?.starts_at)
+	      !== formatAgendaDateInput(form.starts_at);
 	  }, [editingSession, form.starts_at, showPackageUpdateScope]);
 
   const editingScheduleChanged = useMemo(() => {
     if (!editingSession?.starts_at || !form.starts_at) return false;
-    const originalStart = new Date(editingSession.starts_at).getTime();
-    const nextStart = new Date(form.starts_at).getTime();
-    if (!Number.isFinite(originalStart) || !Number.isFinite(nextStart)) return false;
-    return originalStart !== nextStart;
-  }, [editingSession, form.starts_at]);
+    const interval = resolveAgendaFormInterval({
+      startInput: form.starts_at,
+      endInput: form.ends_at,
+      originalStart: editingSession.starts_at,
+      originalEnd: editingSession.ends_at || null,
+    });
+    return interval.valid && interval.changed;
+  }, [editingSession, form.ends_at, form.starts_at]);
 
 	  const isEditingScheduledReschedule =
 	    !!editingSession
@@ -4990,7 +6335,6 @@ export default function Agendamentos() {
   } else if (view === "month") {
     temporalPeriodLabel = formatMonthPeriodLabel(selectedDate);
   }
-
   return (
     <AppShell pageTitle="Agenda">
       <PageWrapper $paddingTop="0" $paddingBottom="60px">
@@ -5141,31 +6485,31 @@ export default function Agendamentos() {
                   <div />
                   {weekDays.map((day) => (
                     <WeekHeaderCell
-                      key={day.toISOString()}
+                      key={markerToCivilDate(day)}
                       onClick={() => {
                         setSelectedDate(day);
                         setView("day");
                       }}
                     >
-                      <span>{day.toLocaleDateString("pt-BR", { weekday: "short" })}</span>
-                      <strong>{day.getDate()}</strong>
-                      {specialEventsByDay.get(startOfDay(day).toISOString()) && (
+                      <span>{day.toLocaleDateString("pt-BR", { weekday: "short", timeZone: "UTC" })}</span>
+                      <strong>{day.getUTCDate()}</strong>
+                      {specialEventsByDay.get(markerToCivilDate(day)) && (
                         <DaySpecialBadge
                           $severity={
-                            specialEventsByDay.get(startOfDay(day).toISOString()).severity
+                            specialEventsByDay.get(markerToCivilDate(day)).severity
                           }
                           title={buildSpecialEventsTooltip(
-                            specialEventsByDay.get(startOfDay(day).toISOString()).events,
+                            specialEventsByDay.get(markerToCivilDate(day)).events,
                           )}
                         >
                           <span>
                             {daySummaryLabel(
-                              specialEventsByDay.get(startOfDay(day).toISOString()),
+                              specialEventsByDay.get(markerToCivilDate(day)),
                             )}
                           </span>
                           <strong>
                             {
-                              specialEventsByDay.get(startOfDay(day).toISOString()).events
+                              specialEventsByDay.get(markerToCivilDate(day)).events
                                 .length
                             }
                           </strong>
@@ -5254,8 +6598,9 @@ export default function Agendamentos() {
                               )}
                             </TimeCell>
                             {weekDays.map((day) => {
-                              const slotDate = new Date(day);
-                              slotDate.setHours(hour, 0, 0, 0);
+                              const slotDate = parseAgendaDateTime(
+                                `${markerToCivilDate(day)}T${String(hour).padStart(2, "0")}:00`,
+                              );
                               const groups = getSlotGroups(day, hour);
                               const allItems = groups.flatMap((group) => {
                                 const color =
@@ -5266,11 +6611,11 @@ export default function Agendamentos() {
                               const visibleItems = isHourExpanded
                                 ? allItems
                                 : allItems.slice(0, MAX_WEEK_SLOT_VISIBLE);
-	                              const hiddenCount = allItems.length - MAX_WEEK_SLOT_VISIBLE;
-	                              return (
-	                                <SlotCell
-                                  key={`${day.toISOString()}-${hour}`}
-	                                  data-testid={`week-slot-${formatDateParam(day)}-${hour}`}
+                              const hiddenCount = allItems.length - MAX_WEEK_SLOT_VISIBLE;
+                              return (
+                                <SlotCell
+                                  key={`${markerToCivilDate(day)}-${hour}`}
+                                  data-testid={`week-slot-${formatDateParam(day)}-${hour}`}
                                   $striped={hour % 2 === 0}
                                   onClick={() => handleCreateAt(slotDate)}
                                   onDragOver={handleDragOver}
@@ -5278,7 +6623,7 @@ export default function Agendamentos() {
                                 >
                                   {visibleItems.map(({ session, group, color }) => (
                                     <WeekSlotSessionPill
-                                      key={`${session.id}-${day.toISOString()}-${hour}`}
+                                      key={`${session.id}-${markerToCivilDate(day)}-${hour}`}
                                       session={session}
                                       group={group}
                                       color={color}
@@ -5286,38 +6631,38 @@ export default function Agendamentos() {
                                       patientName={getSessionPatientName(session)}
                                       isHistory={isHistoricalSessionStatus(session.status)}
                                       attentionLevel={getSessionPatientAttentionLevel(session)}
-	                                      onDragStart={handleDragStart}
+                                      onDragStart={handleDragStart}
                                       onOpen={(event) => {
                                         event.stopPropagation();
                                         handleOpenGroup(slotDate);
                                       }}
                                     />
                                   ))}
-	                                  {hiddenCount > 0 && (
-	                                    <OverflowIndicatorBadge
-	                                      type="button"
-	                                      $expanded={isHourExpanded}
-	                                      title={
-	                                        isHourExpanded
-	                                          ? "Ver menos agendamentos neste horário"
-	                                          : `${hiddenCount} paciente(s) a mais neste horário`
-	                                      }
-	                                      aria-label={
-	                                        isHourExpanded
-	                                          ? "Ver menos agendamentos neste horário"
-	                                          : `Ver mais ${hiddenCount} agendamento(s) neste horário`
-	                                      }
-	                                      onClick={(event) => {
-	                                        event.stopPropagation();
-	                                        toggleExpandedHour(hour);
-	                                      }}
-	                                    >
-	                                      <span>{isHourExpanded ? "Ver menos" : `+${hiddenCount} mais`}</span>
-	                                      <WeekOverflowArrow aria-hidden="true">
-	                                        {isHourExpanded ? "▲" : "▼"}
-	                                      </WeekOverflowArrow>
-	                                    </OverflowIndicatorBadge>
-	                                  )}
+                                  {hiddenCount > 0 && (
+                                    <OverflowIndicatorBadge
+                                      type="button"
+                                      $expanded={isHourExpanded}
+                                      title={
+                                        isHourExpanded
+                                          ? "Ver menos agendamentos neste horário"
+                                          : `${hiddenCount} paciente(s) a mais neste horário`
+                                      }
+                                      aria-label={
+                                        isHourExpanded
+                                          ? "Ver menos agendamentos neste horário"
+                                          : `Ver mais ${hiddenCount} agendamento(s) neste horário`
+                                      }
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        toggleExpandedHour(hour);
+                                      }}
+                                    >
+                                      <span>{isHourExpanded ? "Ver menos" : `+${hiddenCount} mais`}</span>
+                                      <WeekOverflowArrow aria-hidden="true">
+                                        {isHourExpanded ? "▲" : "▼"}
+                                      </WeekOverflowArrow>
+                                    </OverflowIndicatorBadge>
+                                  )}
                                 </SlotCell>
                               );
                             })}
@@ -5441,6 +6786,11 @@ export default function Agendamentos() {
 		                                            )}
 		                                            <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
 		                                            <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
+			                                            {getSharedPackageOwnerName(session) && (
+			                                              <PackagePill>
+			                                                Pacote de {getSharedPackageOwnerName(session)}
+			                                              </PackagePill>
+			                                            )}
 		                                          </DaySessionPatient>
                                           <DaySessionActions>
                                             <DayDropdownWrapper>
@@ -5581,6 +6931,11 @@ export default function Agendamentos() {
 			                                                )}
 			                                                <CompactSessionType>{sessionMetaParts.type}</CompactSessionType>
 			                                                <CompactSessionCounter>{sessionMetaParts.counter}</CompactSessionCounter>
+				                                                {getSharedPackageOwnerName(session) && (
+				                                                  <PackagePill>
+				                                                    Pacote de {getSharedPackageOwnerName(session)}
+				                                                  </PackagePill>
+				                                                )}
 			                                              </DaySessionPatient>
 	                                              <DaySessionActions>
 	                                                <DayDropdownWrapper>
@@ -5694,12 +7049,12 @@ export default function Agendamentos() {
                     <MonthHeader key={label}>{label}</MonthHeader>
                   ))}
                   {visibleMonthDays.map((day) => {
-                    const key = startOfDay(day).toISOString();
+                    const key = markerToCivilDate(day);
                     return (
                       <MonthAgendaCell
-                        key={day.toISOString()}
+                        key={key}
                         day={day}
-                        isCurrentMonth={day.getMonth() === selectedDate.getMonth()}
+                        isCurrentMonth={day.getUTCMonth() === selectedDate.getUTCMonth()}
                         isActive={sameDay(day, selectedDate)}
                         daySummary={monthServicesByDay.get(key)}
                         specialSummary={specialEventsByDay.get(key)}
@@ -5748,8 +7103,7 @@ export default function Agendamentos() {
                     onClick={() => {
                       if (!groupContext?.date) return;
                       resetForm();
-                      const endsAt = new Date(groupContext.date);
-                      endsAt.setHours(endsAt.getHours() + 1);
+                      const endsAt = new Date(groupContext.date.getTime() + 60 * 60 * 1000);
                       setDrawerMode("form");
                       setGroupContext(null);
                       setForm((prev) => ({
@@ -5823,6 +7177,11 @@ export default function Agendamentos() {
                                   {groupSessionMeta}
                                 </PatientPlanSummary>
                               )}
+	                              {getSharedPackageOwnerName(session) && (
+	                                <PackagePill>
+	                                  Pacote de {getSharedPackageOwnerName(session)}
+	                                </PackagePill>
+	                              )}
                               <PatientInfoMeta>
                                 <PatientInfoProfessional>
                                   {session?.professional?.name || "Profissional"}
@@ -5931,9 +7290,43 @@ export default function Agendamentos() {
               <Form onSubmit={handleSubmit}>
                 <FormGrid>
 			                  {editingId ? (
-		                    <Field className="span-2">
-		                      Paciente
-		                      <ReadonlyText>{formPatientQuery || "Paciente"}</ReadonlyText>
+		                    <Field as="div" className="span-2">
+		                      {editPackageShare.status === "eligible" ? (
+		                        <PatientSearchField
+		                          mode="select"
+		                          label="Paciente"
+		                          inputId="edit-session-patient"
+		                          patients={patientOptions}
+		                          selectedPatientId={form.patient_id}
+		                          value={editPackageShare.patientQuery}
+		                          onChange={(nextValue) => {
+		                            setEditPackageShare((previous) => ({
+		                              ...previous,
+		                              active: false,
+		                              patientQuery: nextValue,
+		                            }));
+		                            setForm((previous) => ({
+		                              ...previous,
+		                              patient_id: "",
+		                              shared_package_id: "",
+		                              shared_package_source_session_id: "",
+		                              shared_package_review_token: "",
+		                              package_share_idempotency_key: "",
+		                            }));
+		                          }}
+		                          onSelect={selectEditPackagePatient}
+		                        />
+		                      ) : (
+		                        <>
+		                          Paciente
+		                          <ReadonlyText>{formPatientQuery || "Paciente"}</ReadonlyText>
+		                        </>
+		                      )}
+	                      {editingSharedPackageOwnerName && (
+	                        <PackagePill>
+	                          Pacote de {editingSharedPackageOwnerName}
+	                        </PackagePill>
+	                      )}
 	                    </Field>
 	                  ) : (
                     <PatientSearchField
@@ -5954,7 +7347,14 @@ export default function Agendamentos() {
                             session_replacement_credit_id: "",
                             cycle_reschedule_exception_justified: false,
                             cycle_reschedule_exception_reason: "",
+                            shared_package_owner_id: "",
+                            shared_package_id: "",
+                            shared_package_source_session_id: "",
+                            shared_package_review_token: "",
+                            package_share_idempotency_key: "",
                           }));
+                          setPackageOwnerQuery("");
+                          setSharedPackages([]);
                         }
                       }}
                       onSelect={handleSelectPatient}
@@ -5962,11 +7362,12 @@ export default function Agendamentos() {
                   )}
 	                  <Field className="span-2">
 	                    Tipo de atendimento
-			                    {editingId ? (
+			                    {editingId && (
 		                      <ReadonlyText>
 			                        {getSessionServiceLabel(editingSession, serviceName) || "Atendimento"}
 		                      </ReadonlyText>
-	                    ) : (
+	                    )}
+	                    {!editingId && (
 	                      <SelectionFieldShell>
 	                        <SelectionNativeField
 	                          name="service_id"
@@ -5993,7 +7394,12 @@ export default function Agendamentos() {
 	                              session_replacement_credit_id: "",
 	                              cycle_reschedule_exception_justified: false,
 	                              cycle_reschedule_exception_reason: "",
+	                              shared_package_id: "",
+	                              shared_package_source_session_id: "",
+	                              shared_package_review_token: "",
+	                              package_share_idempotency_key: "",
 	                            }));
+	                            setSharedPackages([]);
 	                          }}
 	                        >
 	                          <option value="" disabled hidden>
@@ -6058,7 +7464,7 @@ export default function Agendamentos() {
 		                        Data *
 		                        <input
 		                          type="date"
-		                          value={toDateInputValue(form.starts_at)}
+		                          value={formatAgendaDateInput(form.starts_at)}
 		                          onChange={handleStartDateChange}
 		                        />
 		                      </Field>
@@ -6066,7 +7472,7 @@ export default function Agendamentos() {
 		                        Horário *
 			                        <TimeInputGrid>
 			                          <select
-			                            value={getHourInputValue(form.starts_at)}
+		                            value={formatAgendaHourInput(form.starts_at)}
 			                            onChange={handleStartHourChange}
 			                          >
 			                            <option value="" disabled>Selecione</option>
@@ -6078,7 +7484,7 @@ export default function Agendamentos() {
 			                          </select>
 			                          {allowBrokenTimeScheduling && (
 			                            <select
-			                              value={getMinuteInputValue(form.starts_at) || "00"}
+		                              value={formatAgendaMinuteInput(form.starts_at) || "00"}
 			                              onChange={handleStartMinuteChange}
 			                            >
 			                              {APPOINTMENT_MINUTE_OPTIONS.map((option) => (
@@ -6199,7 +7605,7 @@ export default function Agendamentos() {
                         Data *
                         <input
                           type="date"
-                          value={toDateInputValue(form.starts_at)}
+	                          value={formatAgendaDateInput(form.starts_at)}
                           onChange={handleStartDateChange}
                         />
                       </Field>
@@ -6207,7 +7613,7 @@ export default function Agendamentos() {
                         Horário *
 	                        <TimeInputGrid>
 	                          <select
-	                            value={getHourInputValue(form.starts_at)}
+	                            value={formatAgendaHourInput(form.starts_at)}
 	                            onChange={handleStartHourChange}
 	                          >
 	                            <option value="" disabled>Selecione</option>
@@ -6219,7 +7625,7 @@ export default function Agendamentos() {
 	                          </select>
 	                          {allowBrokenTimeScheduling && (
 	                            <select
-	                              value={getMinuteInputValue(form.starts_at) || "00"}
+	                              value={formatAgendaMinuteInput(form.starts_at) || "00"}
 	                              onChange={handleStartMinuteChange}
 	                            >
 	                              {APPOINTMENT_MINUTE_OPTIONS.map((option) => (
@@ -6239,7 +7645,7 @@ export default function Agendamentos() {
                       <span>A agenda esta bloqueada por feriado.</span>
                     </ScheduleContextCard>
                   )}
-	                  {!editingId && !isSchedulingReplacement && (
+	                  {!editingId && !isSchedulingReplacement && !isPackageShareFlow && (
 	                    <RepeatCard className="span-2">
 	                      <RepeatHeader>
 	                        <strong>Mais sessões</strong>
@@ -6413,31 +7819,14 @@ export default function Agendamentos() {
 	                  {!editingId && !isSchedulingReplacement && (
 	                    <ValueCard className="span-2">
 	                      <ValueHeader>
-	                        <strong>Valor</strong>
-	                        {!form.is_no_charge && selectedServicePriceCents && (
+	                        <strong>Valor da sessão</strong>
+	                        {!form.is_no_charge && !isPackageShareFlow && selectedServicePriceCents && (
 	                          <span>Padrão: {formatCurrencyCents(selectedServicePriceCents)}</span>
 	                        )}
 	                      </ValueHeader>
-		                      {form.is_no_charge ? (
-		                        <NoChargeOption>
-		                          <input
-		                            type="checkbox"
-		                            name="is_no_charge"
-		                            checked={!!form.is_no_charge}
-		                            onChange={handleFormChange}
-		                          />
-		                          <span>Sem cobrança</span>
-		                        </NoChargeOption>
-		                      ) : (
-		                        <>
+		                      {!form.is_no_charge && !isPackageShareFlow && (
 		                          <ValueGrid $singleColumn={!formPriceTotalLabel}>
 		                            <ValueField $disabled={shouldDisableSessionPriceInput}>
-		                              <ValueFieldHeader>
-		                                <span>{valueFieldLabel}</span>
-		                                {!selectedServicePriceCents && form.service_id && (
-		                                  <small>Sem preço padrão</small>
-		                                )}
-		                              </ValueFieldHeader>
 		                              <CurrencyInputShell $disabled={shouldDisableSessionPriceInput}>
 		                                <CurrencyPrefix>R$</CurrencyPrefix>
 		                                <input
@@ -6460,16 +7849,62 @@ export default function Agendamentos() {
 		                              </ValueTotal>
 		                            )}
 		                          </ValueGrid>
+		                      )}
+		                      <ValueOptions>
 		                          <NoChargeOption>
 		                            <input
 		                              type="checkbox"
 		                              name="is_no_charge"
 		                              checked={!!form.is_no_charge}
-		                              onChange={handleFormChange}
+		                              onChange={handleNoChargeChange}
 		                            />
 		                            <span>Sem cobrança</span>
 		                          </NoChargeOption>
-		                        </>
+		                          {canSharePackages && (
+		                            <NoChargeOption>
+		                              <input
+		                                type="checkbox"
+		                                checked={isPackageShareFlow}
+		                                disabled={!form.patient_id}
+		                                onChange={(event) => {
+		                                  if (event.target.checked) startPackageShare();
+		                                  else clearPackageShare();
+		                                }}
+		                              />
+		                              <span>Usar pacote de outro paciente</span>
+		                            </NoChargeOption>
+		                          )}
+		                      </ValueOptions>
+		                      {isPackageShareFlow && (
+		                        <CompactPackageOwner>
+		                          <PatientSearchField
+		                            mode="select"
+		                            label="De quem é o pacote?"
+		                            patients={packageOwners
+		                              .filter((owner) => String(owner.id) !== String(form.patient_id))
+		                              .map((owner) => ({ ...owner, full_name: owner.name }))}
+		                            selectedPatientId={form.shared_package_owner_id === "pending"
+		                              ? ""
+		                              : form.shared_package_owner_id}
+		                            value={packageOwnerQuery}
+		                            onChange={(nextValue) => {
+		                              setPackageOwnerQuery(nextValue);
+		                              if (form.shared_package_owner_id !== "pending") {
+		                                setSharedPackages([]);
+		                                setForm((prev) => ({
+		                                  ...prev,
+		                                  shared_package_owner_id: "pending",
+		                                  shared_package_id: "",
+		                                  shared_package_source_session_id: "",
+		                                  shared_package_review_token: "",
+		                                  package_share_idempotency_key: "",
+		                                }));
+		                              }
+		                            }}
+		                            onSelect={handleSelectPackageOwner}
+		                          />
+		                          {isPackageShareLoading && <small>Buscando pacientes...</small>}
+		                        </CompactPackageOwner>
 		                      )}
 	                    </ValueCard>
 	                  )}
@@ -6556,11 +7991,22 @@ export default function Agendamentos() {
 	              </ModalHeader>
 	              <RecurrencePreviewBody>
 		                <RecurrenceReviewSummary>
-		                  <small>Resumo do agendamento</small>
-		                  <strong>
-		                    {recurrenceSelectedOccurrences.length}{" "}
-		                    {recurrenceSelectedOccurrences.length === 1 ? "sessão selecionada" : "sessões selecionadas"}
-		                  </strong>
+		                  {!recurrencePreview?.package_share_review && (
+		                    <>
+		                      <small>Resumo do agendamento</small>
+		                      <strong>
+		                        {recurrenceSelectedOccurrences.length}{" "}
+		                        {recurrenceSelectedOccurrences.length === 1 ? "sessão selecionada" : "sessões selecionadas"}
+		                      </strong>
+		                    </>
+		                  )}
+		                  {recurrencePreview?.package_share_review && (
+		                    <PackageShareReview>
+		                      <span>Paciente: {recurrencePreview.package_share_review.patient_name}</span>
+		                      <span>Pacote de: {recurrencePreview.package_share_review.owner_name}</span>
+		                      <span>Atendimento: {recurrencePreview.package_share_review.service_name}</span>
+		                    </PackageShareReview>
+		                  )}
 		                  {recurrencePreviewPriceSummary && (
 		                    <span>
 		                      {recurrencePreviewPriceSummary.unit} por sessão
@@ -6571,15 +8017,87 @@ export default function Agendamentos() {
 			                  {recurrencePreview?.is_no_charge && (
 			                    <span>Sem cobrança</span>
 			                  )}
-			                  {recurrencePreviewSummaryLabel && (
+			                  {!recurrencePreview?.package_share_review && recurrencePreviewSummaryLabel && (
 			                    <span>{recurrencePreviewSummaryLabel}</span>
 			                  )}
 		                </RecurrenceReviewSummary>
-		                <RecurrenceSummaryPills>
-		                  <span>Selecionadas {recurrenceSelectedOccurrences.length}</span>
-		                  <span>Alertas {recurrencePreview?.summary?.warn || 0}</span>
-		                  <span>Bloqueadas {recurrencePreview?.summary?.blocked || 0}</span>
-		                </RecurrenceSummaryPills>
+		                {recurrencePreview.package_share_review && (
+		                  <PackageReviewSection>
+		                    <h4>Qual pacote vamos usar?</h4>
+		                    {recurrencePreview.package_share_review.packages.length === 0 ? (
+		                      <PackageEmptyMessage role="status">
+		                        {firstName(recurrencePreview.package_share_review.owner_name)} não tem pacote disponível para {recurrencePreview.package_share_review.service_name}.
+		                      </PackageEmptyMessage>
+		                    ) : (
+		                      <PackageReviewOptions>
+		                        {recurrencePreview.package_share_review.packages.map((pkg) => {
+		                          const isSelected = String(pkg.id)
+		                            === String(recurrencePreview.package_share_review.selected_package_id);
+		                          return (
+		                            <PackageReviewOption key={pkg.id} $selected={isSelected}>
+		                              <PackageReviewChoice>
+		                                <input
+		                                  type="radio"
+		                                  name="shared-package-review"
+		                                  value={pkg.id}
+		                                  checked={isSelected}
+		                                  disabled={
+		                                    recurrencePreview.is_submitting
+		                                    || recurrencePreview.is_editing_occurrence
+		                                  }
+		                                  onChange={() => handleSelectSharedPackage(String(pkg.id))}
+		                                />
+		                                <PackageReviewOptionBody>
+	                                  <strong>
+	                                    Pacote de {pkg.service.name} · {formatDate(pkg.contracted_at)}
+	                                  </strong>
+		                                  <span>
+		                                    {pkg.quantity} sessões · {pkg.free_rights > 0
+		                                      ? `${pkg.free_rights} livres`
+		                                      : `${pkg.relocatable_sessions} agendadas`}
+		                                  </span>
+		                                </PackageReviewOptionBody>
+		                              </PackageReviewChoice>
+		                              {isSelected && pkg.requires_scheduled_session && (
+		                                <PackageSourceChoice>
+	                                  <strong>Qual sessão do pacote será liberada?</strong>
+		                                  {pkg.eligible_scheduled_sessions.map((session) => (
+		                                    <PackageSourceOption key={session.id}>
+		                                      <input
+		                                        type="radio"
+		                                        name="shared-package-source-session"
+		                                        value={session.id}
+		                                        checked={String(recurrencePreview.package_share_review.selected_source_session_id)
+		                                          === String(session.id)}
+		                                        disabled={
+		                                          recurrencePreview.is_submitting
+		                                          || recurrencePreview.is_editing_occurrence
+		                                        }
+		                                        onChange={() => handleSelectSharedPackageSource(String(session.id))}
+		                                      />
+		                                      <span>
+		                                        {formatPackageSession(session.starts_at)}
+		                                        {" · "}{session.patient_name}
+		                                        {" · "}{session.professional_name}
+		                                      </span>
+		                                    </PackageSourceOption>
+		                                  ))}
+		                                </PackageSourceChoice>
+		                              )}
+		                            </PackageReviewOption>
+		                          );
+		                        })}
+		                      </PackageReviewOptions>
+		                    )}
+		                  </PackageReviewSection>
+		                )}
+		                {!recurrencePreview.package_share_review && (
+		                  <RecurrenceSummaryPills>
+		                    <span>Selecionadas {recurrenceSelectedOccurrences.length}</span>
+		                    <span>Alertas {recurrencePreview?.summary?.warn || 0}</span>
+		                    <span>Bloqueadas {recurrencePreview?.summary?.blocked || 0}</span>
+		                  </RecurrenceSummaryPills>
+		                )}
 
 					                <RecurrenceSectionDivider>
 				                  <span>Agendamentos para confirmar</span>
@@ -6588,9 +8106,8 @@ export default function Agendamentos() {
                 <RecurrenceList>
 	                  {recurrencePreview.occurrences.map((occurrence) => {
 	                    const isSelected = recurrenceSelectedSet.has(occurrence.index);
-	                    const isBlocked = occurrence.status === "BLOCK";
-	                    const isSelectable =
-	                      !isBlocked || occurrence.can_override_block;
+	                    const isSelectable = !recurrencePreview.requires_revalidation
+	                      && isReviewOccurrenceSelectable(occurrence);
 	                    const selectedPosition = recurrenceSequenceMap.get(occurrence.index);
 	                    const isEditing = recurrencePreview.editing_index === occurrence.index;
 	                    return (
@@ -6617,8 +8134,7 @@ export default function Agendamentos() {
 		                                {formatOccurrenceCompactLabel(occurrence)}
 		                              </strong>
 		                              <span>
-	                                {OCCURRENCE_STATUS_LABELS[occurrence.status] ||
-	                                  occurrence.status}
+	                                {reviewOccurrenceStatusLabel(occurrence)}
 		                                {occurrence.manually_edited ? " · Alterada" : ""}
 		                              </span>
 		                            </div>
@@ -6627,15 +8143,34 @@ export default function Agendamentos() {
 		                                {selectedPosition}/{recurrenceSelectedOccurrences.length}
 		                              </RecurrenceSequenceBadge>
 		                            )}
-		                            {!isEditing && (
+		                            {!isEditing
+		                              && occurrence.status === "ERROR"
+		                              && recurrencePreview.review_type === "single" && (
 		                              <RecurrenceInlineButton
-	                                type="button"
-	                                onClick={() => handleStartEditPreviewOccurrence(occurrence)}
-	                                disabled={recurrencePreview.is_submitting}
-	                              >
-	                                Editar
-	                              </RecurrenceInlineButton>
-	                            )}
+		                                type="button"
+		                                onClick={handleRetrySingleAvailability}
+		                                disabled={recurrencePreview.is_submitting}
+		                              >
+		                                Tentar novamente
+		                              </RecurrenceInlineButton>
+		                            )}
+		                            {!isEditing
+		                              && (
+		                                occurrence.status !== "ERROR"
+		                                || recurrencePreview.review_type !== "single"
+		                              ) && (
+		                              <RecurrenceInlineButton
+		                                type="button"
+		                                onClick={() => handleStartEditPreviewOccurrence(occurrence)}
+		                                disabled={
+		                                  recurrencePreview.is_submitting
+		                                  || occurrence.status === "CHECKING"
+		                                  || occurrence.status === "PENDING"
+		                                }
+		                              >
+		                                Editar
+		                              </RecurrenceInlineButton>
+		                            )}
 	                          </RecurrenceOccurrenceHeader>
 	                          {isEditing && (
 	                            <RecurrenceEditBox>
@@ -6746,8 +8281,14 @@ export default function Agendamentos() {
 		                  disabled={
 		                    recurrencePreview.is_submitting ||
 		                    recurrencePreview.is_editing_occurrence ||
+		                    recurrencePreview.requires_revalidation ||
 		                    !!recurrencePreview.editing_index ||
-		                    recurrenceSelectedOccurrences.length === 0
+		                    recurrenceSelectedOccurrences.length === 0 ||
+		                    (recurrencePreview.package_share_review && (
+		                      !selectedReviewPackage ||
+		                      (selectedReviewPackage.requires_scheduled_session
+		                        && !selectedReviewSourceSession)
+		                    ))
 		                  }
 	                >
 	                  {recurrenceConfirmationLabel(recurrencePreview, isPackageReplacement)}
@@ -6957,9 +8498,7 @@ export default function Agendamentos() {
                   <div aria-label="Outros agendamentos afetados">
                     {absenceModal.financialPreview.affected_sessions.filter((session) => Number(session.id) !== Number(absenceModal.id)).map((session) => (
                       <p key={session.id}>
-                        Também será cancelado: {absenceModal.financialPreview.patient.name} — {new Date(session.starts_at).toLocaleString("pt-BR", {
-                          timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short",
-                        })}.
+                        Também será cancelado: {absenceModal.financialPreview.patient.name} — {formatDateTime(session.starts_at)}.
                       </p>
                     ))}
                   </div>
@@ -7628,7 +9167,7 @@ const MonthAgendaCell = React.memo(
         $active={isActive}
         onClick={onOpenDay}
       >
-        <strong>{day.getDate()}</strong>
+        <strong>{day.getUTCDate()}</strong>
         {specialSummary && (
           <SpecialDayFlag
             $severity={specialSummary.severity}
@@ -9546,6 +11085,68 @@ const RecurrenceReviewSummary = styled.div`
   }
 `;
 
+const PackageShareReview = styled.div`
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+`;
+
+const PackageReviewSection = styled.section`
+  display: grid;
+  gap: 10px;
+
+  h4 {
+    color: #1b1b1b;
+    font-size: 0.95rem;
+    margin: 0;
+  }
+`;
+
+const PackageReviewOptions = styled.div`
+  display: grid;
+  gap: 8px;
+`;
+
+const PackageReviewOption = styled.div`
+  background: ${({ $selected }) => ($selected ? "#f4f8ef" : "#fff")};
+  border: 1px solid ${({ $selected }) => ($selected ? "#6a795c" : "rgba(106, 121, 92, 0.2)")};
+  border-radius: 8px;
+  display: grid;
+`;
+
+const PackageReviewChoice = styled.label`
+  align-items: flex-start;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+
+  > input {
+    accent-color: #6a795c;
+    margin-top: 3px;
+  }
+`;
+
+const PackageReviewOptionBody = styled.span`
+  display: grid;
+  gap: 1px;
+
+  strong { color: #1b1b1b; font-size: 0.88rem; }
+  span { color: #4f5f45; font-size: 0.83rem; font-weight: 600; }
+  small { color: #6a795c; font-size: 0.79rem; font-weight: 600; }
+`;
+
+const PackageEmptyMessage = styled.p`
+  background: #f8faf5;
+  border: 1px solid rgba(106, 121, 92, 0.18);
+  border-radius: 10px;
+  color: #42523a;
+  font-size: 0.86rem;
+  font-weight: 700;
+  margin: 0;
+  padding: 12px;
+`;
+
 const RecurrenceSummaryPills = styled.div`
   display: flex;
   flex-wrap: wrap;
@@ -9631,13 +11232,17 @@ const RecurrenceRow = styled.div`
   border-radius: 10px;
   border: 1px solid
     ${(props) => {
-    if (props.$status === "BLOCK") return "rgba(199, 102, 102, 0.35)";
+    if (props.$status === "BLOCK" || props.$status === "ERROR") {
+      return "rgba(199, 102, 102, 0.35)";
+    }
     if (props.$status === "WARN_CONFIRM") return "rgba(196, 146, 73, 0.35)";
     if (props.$status === "INFO") return "rgba(106, 121, 92, 0.25)";
     return "rgba(106, 121, 92, 0.2)";
   }};
   background: ${(props) => {
-    if (props.$status === "BLOCK") return "rgba(199, 102, 102, 0.1)";
+    if (props.$status === "BLOCK" || props.$status === "ERROR") {
+      return "rgba(199, 102, 102, 0.1)";
+    }
     if (props.$status === "WARN_CONFIRM") return "rgba(214, 170, 104, 0.12)";
     if (props.$selected) return "rgba(162, 177, 144, 0.12)";
     return "#fff";
@@ -10536,6 +12141,26 @@ const ReplacementSelectionHint = styled.small`
   line-height: 1.4;
 `;
 
+const PackageSourceChoice = styled.div`
+  border-top: 1px solid rgba(106, 121, 92, 0.16);
+  margin: 0 10px 8px 32px;
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+
+  > strong { font-size: 0.88rem; color: #1b1b1b; }
+  > span { font-size: 0.82rem; color: #5d6b54; }
+
+`;
+
+const PackageSourceOption = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+`;
+
 const ValueCard = styled.div`
   border: 1px solid rgba(106, 121, 92, 0.16);
   border-radius: 12px;
@@ -10591,6 +12216,23 @@ const NoChargeOption = styled.label`
   }
 `;
 
+const ValueOptions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+`;
+
+const CompactPackageOwner = styled.div`
+  display: grid;
+  gap: 6px;
+
+  > small {
+    color: #6a795c;
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+`;
+
 const ValueField = styled.label`
   display: grid;
   gap: 6px;
@@ -10599,19 +12241,6 @@ const ValueField = styled.label`
   span {
     color: #1b1b1b;
     font-size: 0.85rem;
-    font-weight: 700;
-  }
-`;
-
-const ValueFieldHeader = styled.span`
-  align-items: baseline;
-  display: flex;
-  gap: 8px;
-  justify-content: space-between;
-
-  small {
-    color: #6a795c;
-    font-size: 0.76rem;
     font-weight: 700;
   }
 `;

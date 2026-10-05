@@ -941,7 +941,7 @@ describe("Planos no contêiner do App Shell", () => {
               sequence: 14,
               type: "schedule_change_applied",
               label: "Alteração de agenda aplicada",
-              occurred_at: "2026-08-21T00:05:00",
+              occurred_at: "2026-08-21T00:05:00-03:00",
               origin: "automatic",
               actor: { name: "Sistema" },
               changes: [
@@ -962,7 +962,7 @@ describe("Planos no contêiner do App Shell", () => {
               sequence: 13,
               type: "schedule_change_canceled",
               label: "Alteração futura da Agenda cancelada",
-              occurred_at: "2026-08-20T20:00:00",
+              occurred_at: "2026-08-20T20:00:00-03:00",
               origin: "manual",
               actor: { name: "MHBC" },
               changes: [
@@ -1553,6 +1553,10 @@ describe("Planos no contêiner do App Shell", () => {
         pattern_summary: "Seg às 08:00 · Qua às 08:00",
         weekdays: [1, 3],
         time: "08:00",
+        configuration_grid: [
+          { weekday: 1, time: "08:30", professional_user_id: 21 },
+          { weekday: 3, time: "09:15", professional_user_id: 21 },
+        ],
         professional_user_id: 21,
         professional_name: "Leonardo",
         future_sessions_count: 8,
@@ -1664,12 +1668,14 @@ describe("Planos no contêiner do App Shell", () => {
     const recurringSchedule = await screen.findByRole("list", {
       name: "Horários da agenda recorrente",
     });
-    expect(within(recurringSchedule).getByText("Seg 08h")).toBeInTheDocument();
-    expect(within(recurringSchedule).getByText("Qua 08h")).toBeInTheDocument();
+    expect(within(recurringSchedule).getByText("Seg 08:30")).toBeInTheDocument();
+    expect(within(recurringSchedule).getByText("Qua 09:15")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Alterar agenda/i }));
 
     const dialog = await screen.findByRole("dialog", { name: "Alterar agenda" });
     const professional = await within(dialog).findByLabelText("Profissional");
+    expect(within(dialog).getByLabelText("Horário de segunda")).toHaveValue("08:30");
+    expect(within(dialog).getByLabelText("Horário de quarta")).toHaveValue("09:15");
     fireEvent.change(within(dialog).getByLabelText("Nova agenda a partir de"), {
       target: { name: "effective_on", value: "2030-08-25" },
     });

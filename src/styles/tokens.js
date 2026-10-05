@@ -57,6 +57,9 @@ export const colors = {
   pausedText: "#7a5a1a",
   recurrenceText: "#8a6caf",
   recurrenceBackground: "#f7f3fc",
+  packageText: "#654895",
+  packageBackground: "#f1eafb",
+  packageBorder: "#d9c8ef",
 };
 
 export const alpha = {

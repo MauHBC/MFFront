@@ -10,6 +10,7 @@ import {
   findPlanHistoryEvent,
   formatAgendaPattern,
   formatCompactDate,
+  formatCompactInstantDate,
   formatPlanHistoryEventLabel,
   formatScheduleGrid,
   getPatientScheduleConflictIssues,
@@ -49,6 +50,11 @@ describe("patient plan detail presentation", () => {
       { weekday: 2, time: "09:00:00" },
     ])).toBe("Ter 09h · Qui 10:30");
     expect(formatCompactDate("2026-08-25")).toContain("25");
+  });
+
+  it("apresenta instantes do histórico no calendário operacional de São Paulo", () => {
+    expect(formatCompactInstantDate("2026-08-21T02:30:00.000Z"))
+      .toBe("20 ago");
   });
 
   it("mantém fallback antigo, mas expande dias agregados em linhas", () => {
@@ -601,7 +607,7 @@ describe("patient plan detail presentation", () => {
   it("resume o cancelamento de alteração da Agenda em uma única linha sem detalhes técnicos", () => {
     const presentation = buildPlanHistoryPresentation({
       type: "schedule_change_canceled",
-      occurred_at: "2026-08-20T20:00:00",
+      occurred_at: "2026-08-20T20:00:00-03:00",
       origin: "manual",
       actor: { name: "MHBC" },
       changes: [
@@ -638,7 +644,7 @@ describe("patient plan detail presentation", () => {
   it("apresenta a aplicação da Agenda como vigência em uma única linha", () => {
     const presentation = buildPlanHistoryPresentation({
       type: "schedule_change_applied",
-      occurred_at: "2026-08-21T00:05:00",
+      occurred_at: "2026-08-21T00:05:00-03:00",
       origin: "automatic",
       actor: { name: "Sistema" },
       changes: [
@@ -668,12 +674,12 @@ describe("patient plan detail presentation", () => {
   });
 
   it.each([
-    ["schedule_changed", "2026-08-20T20:00:00", "20 ago 2026, 20h · Agenda alterada"],
-    ["pause_started", "2026-08-20T15:59:00", "20 ago 2026, 15h59 · Pausa iniciada"],
-    ["plan_resumed", "2026-08-20T16:00:00", "20 ago 2026, 16h · Plano retomado"],
+    ["schedule_changed", "2026-08-20T20:00:00-03:00", "20 ago 2026, 20h · Agenda alterada"],
+    ["pause_started", "2026-08-20T15:59:00-03:00", "20 ago 2026, 15h59 · Pausa iniciada"],
+    ["plan_resumed", "2026-08-20T16:00:00-03:00", "20 ago 2026, 16h · Plano retomado"],
     [
       "commercial_change_requested",
-      "2026-07-23T10:38:00",
+      "2026-07-23T10:38:00-03:00",
       "23 jul 2026, 10h38 · Troca de plano agendada",
     ],
   ])("padroniza a primeira linha de %s sem ator", (type, occurredAt, expected) => {
@@ -776,6 +782,41 @@ describe("patient plan detail presentation", () => {
       code: "SCHEDULE_CHANGE_PREVIEW_STALE",
       message: "Não foi possível alterar a agenda agora. Atualize a página e tente novamente.",
     }));
+  });
+
+  it("projeta instantes de proteção e conflito no calendário da Agenda", () => {
+    expect(getScheduleChangeIssues({
+      protected_sessions: [{
+        id: 10,
+        starts_at: "2026-10-01T01:30:00.000Z",
+        reasons: ["has_evaluation"],
+      }],
+      conflicts: [
+        {
+          code: "PROFESSIONAL_SCHEDULE_CONFLICT",
+          starts_at: "2026-10-01T01:30:00.000Z",
+          time: "22:30",
+        },
+        {
+          code: "PATIENT_SCHEDULE_CONFLICT",
+          starts_at: "2026-10-01T01:30:00.000Z",
+          time: "22:30",
+        },
+        {
+          code: "SCHEDULING_UNAVAILABLE",
+          date: "2026-10-01",
+          starts_at: "2026-10-01T01:30:00.000Z",
+          time: "22:30",
+        },
+      ],
+    })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: "Sessão de 30 set 2026" }),
+      expect.objectContaining({ title: "30 set 2026 às 22:30" }),
+      expect.objectContaining({
+        details: ["Quarta às 22h30 já está ocupada por outro atendimento deste paciente."],
+      }),
+      expect.objectContaining({ title: "1 out 2026 às 22:30" }),
+    ]));
   });
 
   it("não transforma ocorrências puladas em impedimentos e preserva conflitos reais", () => {

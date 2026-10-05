@@ -60,6 +60,21 @@ import {
   getPatientSearchText,
   normalizeSearchText,
 } from "../../utils/patientSearch";
+import {
+  addCivilDays,
+  addCivilMonths,
+  formatCivilDate,
+  getCivilMonthRange,
+  getCivilYearRange,
+} from "../../utils/canonicalDateTime";
+import {
+  financialCivilDateRangeToInstants,
+  financialCivilDateFromInstant,
+  financialCivilMonthFromInstant,
+  financialPaidAtInstant,
+  financialTodayDate,
+  formatFinancialInstant,
+} from "./helpers/financialDateTime";
 import ClinicExpenseModal from "./components/ClinicExpenseModal";
 import ClinicExpenseCategoryModal from "./components/ClinicExpenseCategoryModal";
 import ClinicExpenseCategoriesSection from "./components/ClinicExpenseCategoriesSection";
@@ -119,6 +134,14 @@ const emptyPayment = {
   allocation_mode: "entry",
 };
 
+export const buildSessionsDateRangeParams = ({ start = "", end = "" } = {}) => {
+  const params = {};
+  if (start) params.from = start;
+  const toExclusive = end ? addCivilDays(end, 1) : "";
+  if (toExclusive) params.to = toExclusive;
+  return params;
+};
+
 const hasFilledText = (value) => String(value || "").trim() !== "";
 
 const STANDALONE_PAYMENT_ANCHOR_DESCRIPTION = "Recebimento por sessão (sistema)";
@@ -152,9 +175,10 @@ const formatCurrency = (cents) => {
 
 const formatDate = (value) => {
   if (!value) return "-";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "-";
-  return parsed.toLocaleDateString("pt-BR");
+  const civil = /^\d{4}-\d{2}-\d{2}$/.test(String(value))
+    ? formatCivilDate(value)
+    : formatFinancialInstant(value);
+  return civil || "-";
 };
 
 const parseCurrencyInputToNumber = (value) => {
@@ -205,11 +229,15 @@ const sanitizePositiveCurrencyInput = (value) => sanitizeCurrencyInput(value).re
 
 const formatMonthYear = (value) => {
   if (!value) return "";
-  const parsed = new Date(value);
+  const monthValue = /^\d{4}-\d{2}$/.test(String(value))
+    ? String(value)
+    : financialCivilMonthFromInstant(value);
+  const parsed = new Date(`${monthValue}-01T12:00:00.000Z`);
   if (Number.isNaN(parsed.getTime())) return "";
   const label = parsed.toLocaleDateString("pt-BR", {
     month: "long",
     year: "numeric",
+    timeZone: "UTC",
   });
   return label ? label.charAt(0).toUpperCase() + label.slice(1) : "";
 };
@@ -403,12 +431,10 @@ const ATTENDANCE_UI = {
   },
 };
 
-const toDateInputValue = (date) => date.toISOString().slice(0, 10);
+const toDateInputValue = (date) => financialCivilDateFromInstant(date);
 
 const toMonthInputValue = (date) => {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${date.getFullYear()}-${month}`;
+  return financialCivilMonthFromInstant(date);
 };
 
 const parseMonthInputValue = (value) => {
@@ -420,53 +446,23 @@ const parseMonthInputValue = (value) => {
   return { year, month };
 };
 
-const parseDateInputBoundary = (value, boundary = "start") => {
-  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const monthIndex = Number(match[2]) - 1;
-  const day = Number(match[3]);
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(monthIndex) ||
-    !Number.isInteger(day)
-  ) {
-    return null;
-  }
-  if (boundary === "end") {
-    return new Date(year, monthIndex, day, 23, 59, 59, 999);
-  }
-  return new Date(year, monthIndex, day, 0, 0, 0, 0);
-};
-
 const toDateTimeLocalInputValue = (value = new Date()) => {
-  const parsed = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  const pad = (item) => String(item).padStart(2, "0");
-  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+  return formatFinancialInstant(value, "yyyy-MM-dd'T'HH:mm");
 };
 
 const getMonthRangeFromInputValue = (value) => {
-  const parsed = parseMonthInputValue(value);
-  if (!parsed) return null;
-  const start = new Date(parsed.year, parsed.month - 1, 1);
-  const end = new Date(parsed.year, parsed.month, 0);
-  return {
-    start: toDateInputValue(start),
-    end: toDateInputValue(end),
-  };
+  return getCivilMonthRange(value);
 };
 
-const getYearRangeFromValue = (value) => {
-  const year = Number(String(value || "").trim());
-  if (!Number.isInteger(year) || year < 1900 || year > 9999) return null;
-  const start = new Date(year, 0, 1);
-  const end = new Date(year, 11, 31);
-  return {
-    start: toDateInputValue(start),
-    end: toDateInputValue(end),
-  };
+const getYearRangeFromValue = (value) => getCivilYearRange(value);
+
+export const shiftMonthInputValue = (value, amount) => {
+  const source = parseMonthInputValue(value) ? `${value}-01` : `${toMonthInputValue(new Date())}-01`;
+  const shifted = addCivilMonths(source, amount);
+  return shifted ? shifted.slice(0, 7) : source.slice(0, 7);
 };
+
+const currentCalendarYear = () => Number(financialTodayDate().slice(0, 4));
 
 const getAttendanceDetailPeriod = ({ periodMode, periodMonth, periodYear }) => {
   const mode = periodMode === "year" ? "year" : "month";
@@ -495,22 +491,17 @@ const isDateOnlyWithinRange = (value, start, end) => {
 
 const formatSessionDateTimeBR = (value) => {
   if (!value) return "-";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "-";
-  return parsed.toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatFinancialInstant(value, "dd/MM/yyyy HH:mm") || "-";
 };
 
 const formatSessionWeekdayBR = (value) => {
   if (!value) return "-";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "-";
-  const label = parsed.toLocaleDateString("pt-BR", { weekday: "long" });
+  const label = new Intl.DateTimeFormat("pt-BR", {
+    weekday: "long",
+    timeZone: "America/Sao_Paulo",
+  }).format(parsed);
   return label ? label.charAt(0).toUpperCase() + label.slice(1) : "-";
 };
 
@@ -530,14 +521,7 @@ const formatPackageSessionStatus = (status) => {
 };
 
 const getCurrentMonthRange = () => {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-  return {
-    start: toDateInputValue(start),
-    end: toDateInputValue(end),
-  };
+  return getCivilMonthRange(toMonthInputValue(new Date()));
 };
 
 const createEmptyClinicExpense = () => ({
@@ -701,7 +685,7 @@ export default function Financeiro() {
     toMonthInputValue(new Date()),
   );
   const [overviewPeriodYear, setOverviewPeriodYear] = useState(() =>
-    String(new Date().getFullYear()),
+    String(currentCalendarYear()),
   );
   const overviewMonthPickerRef = useRef(null);
   const [clinicExpensesPeriodMode, setClinicExpensesPeriodMode] = useState("month");
@@ -761,7 +745,7 @@ export default function Financeiro() {
     toMonthInputValue(new Date()),
   );
   const [attendancePeriodYear, setAttendancePeriodYear] = useState(() =>
-    String(new Date().getFullYear()),
+    String(currentCalendarYear()),
   );
   const attendanceMonthPickerRef = useRef(null);
   const attendanceDetailRequestRef = useRef(0);
@@ -786,7 +770,7 @@ export default function Financeiro() {
     toMonthInputValue(new Date()),
   );
   const [billingCyclesPeriodYear, setBillingCyclesPeriodYear] = useState(() =>
-    String(new Date().getFullYear()),
+    String(currentCalendarYear()),
   );
   const billingCyclesMonthPickerRef = useRef(null);
   const [billingCyclesDrilldownPatientId, setBillingCyclesDrilldownPatientId] = useState(null);
@@ -1215,11 +1199,11 @@ export default function Financeiro() {
     if (overviewPeriodMode === "year") return overviewPeriodYear;
     const parsed = parseMonthInputValue(overviewPeriodMonth);
     if (!parsed) return "";
-    return formatMonthYear(new Date(parsed.year, parsed.month - 1, 1));
+    return formatMonthYear(overviewPeriodMonth);
   }, [overviewPeriodMode, overviewPeriodMonth, overviewPeriodYear]);
 
   const overviewYearOptions = useMemo(() => {
-    const nowYear = new Date().getFullYear();
+    const nowYear = currentCalendarYear();
     const selectedYear = Number(overviewPeriodYear) || nowYear;
     return Array.from({ length: 11 }, (_, index) => String(selectedYear - 5 + index));
   }, [overviewPeriodYear]);
@@ -1228,7 +1212,7 @@ export default function Financeiro() {
     const parsed = parseMonthInputValue(clinicExpensesMonth);
     if (!parsed) return "";
     if (clinicExpensesPeriodMode === "year") return String(parsed.year);
-    return formatMonthYear(new Date(parsed.year, parsed.month - 1, 1));
+    return formatMonthYear(clinicExpensesMonth);
   }, [clinicExpensesMonth, clinicExpensesPeriodMode]);
 
   const creditBalanceByPatient = useMemo(() => {
@@ -1292,7 +1276,7 @@ export default function Financeiro() {
 
   const getClinicExpensesPeriodParams = useCallback((periodMode = clinicExpensesPeriodMode) => (
     periodMode === "year"
-      ? { year: String(parseMonthInputValue(clinicExpensesMonth)?.year || new Date().getFullYear()) }
+      ? { year: String(parseMonthInputValue(clinicExpensesMonth)?.year || currentCalendarYear()) }
       : { reference_month: clinicExpensesMonth }
   ), [clinicExpensesMonth, clinicExpensesPeriodMode]);
 
@@ -1536,12 +1520,13 @@ export default function Financeiro() {
   const loadAttendance = useCallback(async () => {
     try {
       setIsAttendanceLoading(true);
-      const params = {};
+      const params = buildSessionsDateRangeParams({
+        start: attendanceFilters.start,
+        end: attendanceFilters.end,
+      });
       if (attendanceFilters.status && attendanceFilters.status !== "all") {
         params.status = attendanceFilters.status;
       }
-      if (attendanceFilters.start) params.from = attendanceFilters.start;
-      if (attendanceFilters.end) params.to = attendanceFilters.end;
       const response = await axios.get("/sessions", { params });
       setAttendanceSessions(response.data || []);
       setHasAttendanceLoaded(true);
@@ -1930,17 +1915,12 @@ export default function Financeiro() {
     if (!Number.isFinite(direction) || direction === 0) return;
     if (overviewTab !== "summary" || overviewPeriodMode === "year") {
       setOverviewPeriodYear((previousYear) => (
-        String((Number(previousYear) || new Date().getFullYear()) + direction)
+        String((Number(previousYear) || currentCalendarYear()) + direction)
       ));
       return;
     }
     setOverviewPeriodMonth((prev) => {
-      const parsed = parseMonthInputValue(prev);
-      const baseDate = parsed
-        ? new Date(parsed.year, parsed.month - 1, 1)
-        : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-      const target = new Date(baseDate.getFullYear(), baseDate.getMonth() + direction, 1);
-      return toMonthInputValue(target);
+      return shiftMonthInputValue(prev, direction);
     });
   }, [overviewTab, overviewPeriodMode]);
 
@@ -1955,13 +1935,8 @@ export default function Financeiro() {
   const shiftClinicExpensesPeriod = useCallback((direction) => {
     if (!Number.isFinite(direction) || direction === 0) return;
     setClinicExpensesMonth((prev) => {
-      const parsed = parseMonthInputValue(prev);
-      const baseDate = parsed
-        ? new Date(parsed.year, parsed.month - 1, 1)
-        : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
       const offset = clinicExpensesPeriodMode === "year" ? direction * 12 : direction;
-      const target = new Date(baseDate.getFullYear(), baseDate.getMonth() + offset, 1);
-      return toMonthInputValue(target);
+      return shiftMonthInputValue(prev, offset);
     });
   }, [clinicExpensesPeriodMode]);
 
@@ -2455,19 +2430,14 @@ export default function Financeiro() {
         const baseYear = Number(String(prev || "").trim());
         const nextYear = Number.isInteger(baseYear)
           ? baseYear + direction
-          : new Date().getFullYear() + direction;
+          : currentCalendarYear() + direction;
         return String(nextYear);
       });
       return;
     }
 
     setAttendancePeriodMonth((prev) => {
-      const parsed = parseMonthInputValue(prev);
-      const baseDate = parsed
-        ? new Date(parsed.year, parsed.month - 1, 1)
-        : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-      const target = new Date(baseDate.getFullYear(), baseDate.getMonth() + direction, 1);
-      return toMonthInputValue(target);
+      return shiftMonthInputValue(prev, direction);
     });
   }, [attendancePeriodMode]);
 
@@ -2544,19 +2514,14 @@ export default function Financeiro() {
         const baseYear = Number(String(prev || "").trim());
         const nextYear = Number.isInteger(baseYear)
           ? baseYear + direction
-          : new Date().getFullYear() + direction;
+          : currentCalendarYear() + direction;
         return String(nextYear);
       });
       return;
     }
 
     setBillingCyclesPeriodMonth((prev) => {
-      const parsed = parseMonthInputValue(prev);
-      const baseDate = parsed
-        ? new Date(parsed.year, parsed.month - 1, 1)
-        : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-      const target = new Date(baseDate.getFullYear(), baseDate.getMonth() + direction, 1);
-      return toMonthInputValue(target);
+      return shiftMonthInputValue(prev, direction);
     });
   }, [billingCyclesPeriodMode]);
 
@@ -2589,9 +2554,10 @@ export default function Financeiro() {
     });
 
     try {
-      const params = {};
-      if (cycle.cycle_start) params.from = cycle.cycle_start;
-      if (cycle.cycle_end) params.to = cycle.cycle_end;
+      const params = buildSessionsDateRangeParams({
+        start: cycle.cycle_start,
+        end: cycle.cycle_end,
+      });
       const response = await axios.get("/sessions", { params });
       const sessions = (Array.isArray(response.data) ? response.data : [])
         .filter((session) => String(session.billing_cycle_id || "") === String(cycle.id))
@@ -3036,7 +3002,7 @@ export default function Financeiro() {
   const createStandalonePaymentAnchor = useCallback(
     async ({ patientId, referenceDate }) => {
       const normalizedReferenceDate =
-        String(referenceDate || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
+        String(referenceDate || "").slice(0, 10) || financialTodayDate();
       const response = await createFinancialEntry({
         type: "income",
         description: STANDALONE_PAYMENT_ANCHOR_DESCRIPTION,
@@ -3241,8 +3207,8 @@ export default function Financeiro() {
 
       const paidAtDateValue = String(paymentForm.paid_at || "").slice(0, 10);
       const paidAtIso = isSimplifiedInstallmentPayment && paymentModalContext?.installmentDueDate
-        ? new Date(`${String(paymentModalContext.installmentDueDate).slice(0, 10)}T09:00:00`).toISOString()
-        : new Date(`${paidAtDateValue}T09:00:00`).toISOString();
+        ? financialPaidAtInstant(String(paymentModalContext.installmentDueDate).slice(0, 10))
+        : financialPaidAtInstant(paidAtDateValue);
 
       if (isSessionBatchPayment) {
         const adjustmentReason = paymentForm.note.trim() || "Desconto aplicado no recebimento em lote";
@@ -3612,14 +3578,10 @@ export default function Financeiro() {
   ]);
 
   const attendanceSessionRows = useMemo(() => {
-    const startDate = attendanceFilters.start
-      ? new Date(`${attendanceFilters.start}T00:00:00`)
-      : null;
-    const endDate = attendanceFilters.end
-      ? new Date(`${attendanceFilters.end}T23:59:59`)
-      : null;
-    const hasStart = !!startDate && !Number.isNaN(startDate.getTime());
-    const hasEnd = !!endDate && !Number.isNaN(endDate.getTime());
+    const startDate = String(attendanceFilters.start || "").slice(0, 10);
+    const endDate = String(attendanceFilters.end || "").slice(0, 10);
+    const hasStart = /^\d{4}-\d{2}-\d{2}$/.test(startDate);
+    const hasEnd = /^\d{4}-\d{2}-\d{2}$/.test(endDate);
     const search = normalizeSearchText(attendanceFilters.search);
 
     const matchesSearch = (row) => {
@@ -3666,12 +3628,8 @@ export default function Financeiro() {
         if (String(item?.status || "").toLowerCase() === "canceled") return false;
         if (Number(item?.installment_number || 0) <= 1) return false;
         if (!item?.due_date) return false;
-        const dueDateValue =
-          typeof item.due_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.due_date)
-            ? `${item.due_date}T12:00:00`
-            : item.due_date;
-        const dueDate = new Date(dueDateValue);
-        if (Number.isNaN(dueDate.getTime())) return false;
+        const dueDate = String(item.due_date).slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return false;
         if (hasStart && dueDate < startDate) return false;
         if (hasEnd && dueDate > endDate) return false;
         return true;
@@ -4485,7 +4443,7 @@ export default function Financeiro() {
     if (attendancePeriodMode === "year") {
       periodLabel = attendancePeriodYear || "";
     } else if (parsedPeriodMonth) {
-      periodLabel = formatMonthYear(new Date(parsedPeriodMonth.year, parsedPeriodMonth.month - 1, 1));
+      periodLabel = formatMonthYear(`${parsedPeriodMonth.year}-${String(parsedPeriodMonth.month).padStart(2, "0")}`);
     }
 
     setCreditUseModalContext({
@@ -4699,11 +4657,11 @@ export default function Financeiro() {
     }
     const parsed = parseMonthInputValue(attendancePeriodMonth);
     if (!parsed) return "";
-    return formatMonthYear(new Date(parsed.year, parsed.month - 1, 1));
+    return formatMonthYear(attendancePeriodMonth);
   }, [attendancePeriodMode, attendancePeriodMonth, attendancePeriodYear]);
 
   const attendanceYearOptions = useMemo(() => {
-    const nowYear = new Date().getFullYear();
+    const nowYear = currentCalendarYear();
     const currentYear = Number(String(attendancePeriodYear || "").trim()) || nowYear;
     const years = [];
     for (let year = currentYear - 5; year <= currentYear + 5; year += 1) {
@@ -4718,11 +4676,11 @@ export default function Financeiro() {
     }
     const parsed = parseMonthInputValue(billingCyclesPeriodMonth);
     if (!parsed) return "";
-    return formatMonthYear(new Date(parsed.year, parsed.month - 1, 1));
+    return formatMonthYear(billingCyclesPeriodMonth);
   }, [billingCyclesPeriodMode, billingCyclesPeriodMonth, billingCyclesPeriodYear]);
 
   const billingCyclesYearOptions = useMemo(() => {
-    const nowYear = new Date().getFullYear();
+    const nowYear = currentCalendarYear();
     const currentYear = Number(String(billingCyclesPeriodYear || "").trim()) || nowYear;
     const years = [];
     for (let year = currentYear - 5; year <= currentYear + 5; year += 1) {
@@ -4936,6 +4894,10 @@ export default function Financeiro() {
 
   const filteredPayments = useMemo(() => {
     const search = normalizeSearchText(paymentFilters.search);
+    const dateRange = financialCivilDateRangeToInstants({
+      start: paymentFilters.start,
+      end: paymentFilters.end,
+    });
     return payments.filter((payment) => {
       if (paymentFilters.patient_id && Number(payment.patient_id) !== Number(paymentFilters.patient_id)) {
         return false;
@@ -4944,14 +4906,12 @@ export default function Financeiro() {
         return false;
       }
       if (paymentFilters.start) {
-        const startDate = parseDateInputBoundary(paymentFilters.start, "start");
         const paidAt = new Date(payment.paid_at || 0);
-        if (startDate && paidAt < startDate) return false;
+        if (dateRange.start && paidAt < dateRange.start) return false;
       }
       if (paymentFilters.end) {
-        const endDate = parseDateInputBoundary(paymentFilters.end, "end");
         const paidAt = new Date(payment.paid_at || 0);
-        if (endDate && paidAt > endDate) return false;
+        if (dateRange.endExclusive && paidAt >= dateRange.endExclusive) return false;
       }
       if (search) {
         const patient = payment.patient_id ? patientMap.get(payment.patient_id) : null;
@@ -5061,7 +5021,7 @@ export default function Financeiro() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `pagamentos_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `pagamentos_${financialTodayDate()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   }, [payments, entries, patientMap, paymentMethodMap]);
@@ -5960,7 +5920,7 @@ export default function Financeiro() {
                     const remaining = Math.max(0, Number(payment.amount_cents || 0) - allocated);
                     return (
                       <tr key={payment.id}>
-                        <td>{payment.paid_at ? new Date(payment.paid_at).toLocaleString() : "-"}</td>
+                        <td>{payment.paid_at ? formatFinancialInstant(payment.paid_at, "dd/MM/yyyy HH:mm") : "-"}</td>
                         <td>{patient ? getPatientDisplayName(patient) : "-"}</td>
                         <td>{formatCurrency(payment.amount_cents)}</td>
                         <td>{formatCurrency(allocated)}</td>
@@ -6006,7 +5966,7 @@ export default function Financeiro() {
                       (entry?.patient_id && patientMap.get(entry.patient_id));
                     return (
                       <tr key={`${allocation.payment_id}-${allocation.entry_id}`}>
-                        <td>{payment?.paid_at ? new Date(payment.paid_at).toLocaleString() : "-"}</td>
+                        <td>{payment?.paid_at ? formatFinancialInstant(payment.paid_at, "dd/MM/yyyy HH:mm") : "-"}</td>
                         <td>{patient ? getPatientDisplayName(patient) : "-"}</td>
                         <td>{entry?.description || "-"}</td>
                         <td>{formatCurrency(allocation.amount_cents)}</td>
@@ -6733,18 +6693,23 @@ export default function Financeiro() {
 	                              <thead>
 	                                <tr>
 	                                  <th scope="col">Data</th>
+	                                  <th scope="col">Paciente atendido</th>
 	                                  <th scope="col">Profissional</th>
 	                                  <th scope="col">Status</th>
 	                                </tr>
 	                              </thead>
 	                              <tbody>
 	                                {sessions.map((session) => {
+	                                  const attendedPatientName = session?.Patient
+	                                    ? getPatientDisplayName(session.Patient)
+	                                    : "—";
 		                                  const professionalName =
 		                                    session?.professional?.name || session?.professional?.email || "-";
 	
 	                                  return (
 	                                    <tr key={session.id}>
 	                                      <td>{formatSessionDateTimeBR(session.starts_at)}</td>
+	                                      <td>{attendedPatientName}</td>
 	                                      <td>{professionalName}</td>
 	                                      <td>
 	                                        <AttendanceStatusBadge $status={session.status}>
@@ -7784,9 +7749,10 @@ const RevenueChargeDetailSessionsTable = styled(SimpleTable)`
   border-collapse: separate;
   border-spacing: 0;
   th, td { overflow-wrap: anywhere; }
-  th:nth-child(1) { width: 34%; }
-  th:nth-child(2) { width: 36%; }
-  th:nth-child(3) { width: 30%; }
+  th:nth-child(1) { width: 24%; }
+  th:nth-child(2) { width: 28%; }
+  th:nth-child(3) { width: 28%; }
+  th:nth-child(4) { width: 20%; }
   @media (max-height: 600px), (max-width: 480px) {
     th, td { padding: 6px; }
   }

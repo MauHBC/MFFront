@@ -59,6 +59,14 @@ import {
   getPatientDisplayName,
 } from "../../utils/patientSearch";
 import {
+  addCivilDays,
+  civilDateToMarker,
+  formatInstantInSaoPaulo,
+  markerToCivilDate,
+  todayInSaoPaulo,
+} from "../../utils/canonicalDateTime";
+import { formatAgendaTime } from "../../utils/agendaDateTime";
+import {
   buildPlanChangePreviewPresentation,
   buildPlanCommercialDisplay,
 } from "../../utils/planChangePresentation";
@@ -235,15 +243,7 @@ const formatDateBR = (value) => {
 
 const formatDateTimeBR = (value) => {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return formatDateBR(value);
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return formatInstantInSaoPaulo(value, "dd/MM/yyyy HH:mm") || formatDateBR(value);
 };
 
 const daysInMonth = (year, month) => new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -279,27 +279,14 @@ const subtractOneDayDateOnly = (value) => {
   return date.toISOString().slice(0, 10);
 };
 
-const todayDateOnly = () => {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-};
+const todayDateOnly = () => todayInSaoPaulo();
 
-const tomorrowDateOnly = () => {
-  const date = new Date();
-  date.setDate(date.getDate() + 1);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
+const tomorrowDateOnly = () => addCivilDays(todayDateOnly(), 1);
 
 const isWeekendDateOnly = (value) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false;
-  const date = new Date(`${value}T12:00:00`);
-  const day = date.getDay();
+  const date = civilDateToMarker(value);
+  if (!date) return false;
+  const day = date.getUTCDay();
   return day === 0 || day === 6;
 };
 
@@ -307,14 +294,11 @@ const nextBusinessDateOnly = (fromDate = todayDateOnly()) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fromDate || ""))) {
     return todayDateOnly();
   }
-  const date = new Date(`${fromDate}T12:00:00`);
-  while ([0, 6].includes(date.getDay())) {
-    date.setDate(date.getDate() + 1);
+  const date = civilDateToMarker(fromDate);
+  while ([0, 6].includes(date.getUTCDay())) {
+    date.setUTCDate(date.getUTCDate() + 1);
   }
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return markerToCivilDate(date);
 };
 
 const normalizeWeekdays = (value) => {
@@ -461,14 +445,24 @@ const getPlanIncludedCycleWeeks = (pp) => {
 const getHourTimeValue = (value) => {
   if (!value) return "";
   if (/^\d{2}:\d{2}$/.test(String(value))) {
-    return `${String(value).slice(0, 2)}:00`;
+    return String(value);
   }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  return formatAgendaTime(value);
 };
 
 const getScheduleChangeInitialRows = (patientPlan, agendaSummary) => {
+  const authoritativeGrid = Array.isArray(agendaSummary?.configuration_grid)
+    ? agendaSummary.configuration_grid
+    : [];
+  if (authoritativeGrid.length > 0) {
+    return authoritativeGrid.map((row) => ({
+      weekday: Number(row.weekday),
+      time: getHourTimeValue(row.time) || "08:00",
+      professional_user_id: Number(
+        row.professional_user_id || agendaSummary?.professional_user_id || 0,
+      ),
+    }));
+  }
   const rows = getPlanSeriesList(patientPlan)
     .filter((series) => series?.lifecycle_status !== "ended" && !series?.ended_at)
     .flatMap((series) => normalizeWeekdays(series?.weekdays).map((weekday) => ({

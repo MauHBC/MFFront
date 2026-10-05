@@ -1,3 +1,10 @@
+import {
+  civilDateInSaoPaulo,
+  formatInstantInSaoPaulo,
+  normalizeCivilDate,
+  SAO_PAULO_TIME_ZONE,
+} from "../../utils/canonicalDateTime";
+
 const WEEKDAY_SHORT_LABELS = {
   0: "Dom",
   1: "Seg",
@@ -178,6 +185,7 @@ export const formatCompactInstantDate = (value, { includeYear = false } = {}) =>
     day: "numeric",
     month: "short",
     ...(includeYear ? { year: "numeric" } : {}),
+    timeZone: SAO_PAULO_TIME_ZONE,
   }).format(date).replace(/ de /g, " ").replace(/\./g, "");
 };
 
@@ -190,6 +198,7 @@ const formatHistoryInstant = (value) => {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: SAO_PAULO_TIME_ZONE,
   }).format(date).replace(/ de /g, " ").replace(/\./g, "");
 };
 
@@ -759,6 +768,19 @@ const formatConflictTime = (time) => {
   return minute === "00" ? `${normalizedHour}h` : `${normalizedHour}h${minute}`;
 };
 
+const resolveScheduleIssueDate = ({ date, starts_at: startsAt } = {}) => {
+  if (date !== null && date !== undefined && String(date).trim()) {
+    return normalizeCivilDate(date);
+  }
+  return civilDateInSaoPaulo(startsAt);
+};
+
+const resolveScheduleIssueTime = ({ time, starts_at: startsAt } = {}) => {
+  const suppliedTime = String(time || "").slice(0, 5);
+  if (/^\d{2}:\d{2}$/.test(suppliedTime)) return suppliedTime;
+  return formatInstantInSaoPaulo(startsAt, "HH:mm");
+};
+
 const resolveConflictWeekday = (conflict) => {
   const suppliedWeekday = Number(conflict.weekday);
   if (
@@ -770,8 +792,8 @@ const resolveConflictWeekday = (conflict) => {
   ) {
     return suppliedWeekday;
   }
-  const date = conflict.date || String(conflict.starts_at || "").slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const date = resolveScheduleIssueDate(conflict);
+  if (!date) return null;
   return new Date(`${date}T12:00:00Z`).getUTCDay();
 };
 
@@ -828,18 +850,19 @@ export const getScheduleChangeIssues = (payload = {}) => {
       const reasons = (Array.isArray(session.reasons) ? session.reasons : [])
         .map((reason) => PROTECTED_REASON_LABELS[reason] || "exige revisão")
         .join(", ");
+      const date = resolveScheduleIssueDate(session);
       return {
         key: `protected-${session.id || session.starts_at}`,
-        title: session.starts_at
-          ? `Sessão de ${formatCompactDate(String(session.starts_at).slice(0, 10), { includeYear: true })}`
+        title: date
+          ? `Sessão de ${formatCompactDate(date, { includeYear: true })}`
           : "Sessão protegida",
         detail: reasons || "Esta sessão precisa ser resolvida antes da alteração.",
       };
     }),
     ...patientConflictIssues,
     ...remainingConflicts.map((conflict, index) => {
-      const date = conflict.date || String(conflict.starts_at || "").slice(0, 10);
-      const time = conflict.time || String(conflict.starts_at || "").slice(11, 16);
+      const date = resolveScheduleIssueDate(conflict);
+      const time = resolveScheduleIssueTime(conflict);
       const when = [date ? formatCompactDate(date, { includeYear: true }) : null, time || null]
         .filter(Boolean)
         .join(" às ");

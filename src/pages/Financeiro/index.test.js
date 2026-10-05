@@ -7,7 +7,7 @@ import { Provider } from "react-redux";
 import { createStore } from "redux";
 import { toast } from "react-toastify";
 
-import Financeiro from "./index";
+import Financeiro, { buildSessionsDateRangeParams, shiftMonthInputValue } from "./index";
 import axios from "../../services/axios";
 import { getReceivedPaid, getDistributionConfiguration } from "../../services/financialReceivedPaid";
 import { previewFinancialCancellation, confirmFinancialCancellation } from "../../services/financialCancellation";
@@ -291,6 +291,18 @@ const expectChargeTableStructure = (serviceName, expectedCells) => {
 
 const RealDate = Date;
 const fixedFinanceiroTestDate = new RealDate("2026-06-15T12:00:00-03:00");
+
+it("converte o fim inclusivo dos filtros de sessões na fronteira exclusiva seguinte", () => {
+  expect(buildSessionsDateRangeParams({ start: "2026-06-01", end: "2026-06-30" }))
+    .toEqual({ from: "2026-06-01", to: "2026-07-01" });
+  expect(buildSessionsDateRangeParams({ start: "2028-02-01", end: "2028-02-29" }))
+    .toEqual({ from: "2028-02-01", to: "2028-03-01" });
+});
+
+it("mantém a competência válida nos limites do seletor financeiro", () => {
+  expect(shiftMonthInputValue("9999-12", 1)).toBe("9999-12");
+  expect(shiftMonthInputValue("1900-01", -1)).toBe("1900-01");
+});
 
 class FixedFinanceiroTestDate extends RealDate {
   constructor(...args) {
@@ -753,7 +765,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await userEvent.click(screen.getByRole("button", { name: "Anual" }));
     await screen.findByText("Contas do ano");
     expect(screen.getByLabelText("Selecionar ano do Resumo")).toHaveValue("2027");
-  });
+  }, 15000);
 
   it("usuário financeiro sem Administrador não vê nem consulta caixa e distribuição", async () => {
     mockAuthorization = { ...mockAuthorization, canAccessModule: () => true, hasCapability: () => true };
@@ -1003,7 +1015,9 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       expect(within(dialog).queryByText(label, { exact: true })).not.toBeInTheDocument();
     });
     const table = screen.getByRole("columnheader", { name: "Profissional" }).closest("table");
-    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Data", "Profissional", "Status"]);
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+      "Data", "Paciente atendido", "Profissional", "Status",
+    ]);
     expect(screen.queryByText("Cancelamento de cobrança")).not.toBeInTheDocument();
     expect(screen.queryByText(/Há alterações financeiras registradas/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ver histórico financeiro" })).not.toBeInTheDocument();

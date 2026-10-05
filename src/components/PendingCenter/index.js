@@ -15,6 +15,11 @@ import { toast } from "react-toastify";
 import axios, { getUserFacingApiError } from "../../services/axios";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
+  civilDateInSaoPaulo,
+  civilDateToMarker,
+  todayInSaoPaulo,
+} from "../../utils/canonicalDateTime";
+import {
   AppDrawer,
   DrawerBackdrop,
 } from "../AppDrawer";
@@ -100,8 +105,8 @@ const PENDING_CENTER_MAIN_SECTIONS = [
 ];
 
 const currentMonthKey = () => {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const today = todayInSaoPaulo();
+  return today.slice(0, 7);
 };
 
 const getOperationalAlertCategory = (alert) => {
@@ -314,12 +319,13 @@ const getPlanAlertDueText = (alert) => {
 };
 
 const formatPendingDayLabel = (value) => {
-  const date = value ? new Date(value) : null;
-  if (!date || Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("pt-BR", {
+  const marker = civilDateToMarker(value);
+  if (!marker) return "";
+  return marker.toLocaleDateString("pt-BR", {
     weekday: "long",
     day: "2-digit",
     month: "2-digit",
+    timeZone: "UTC",
   });
 };
 
@@ -500,14 +506,11 @@ export function PendingCenterProvider({ children, enabled = true }) {
   const pendingConfirmationGroups = useMemo(() => {
     const dayMap = new Map();
     pendingConfirmationSessions.forEach((session) => {
-      const startsAt = session?.starts_at ? new Date(session.starts_at) : null;
-      if (!startsAt || Number.isNaN(startsAt.getTime())) return;
-      const dayDate = new Date(startsAt);
-      dayDate.setHours(0, 0, 0, 0);
-      const key = dayDate.toISOString();
-      const group = dayMap.get(key) || { key, date: dayDate, sessionCount: 0 };
+      const date = civilDateInSaoPaulo(session?.starts_at);
+      if (!date) return;
+      const group = dayMap.get(date) || { key: date, date, sessionCount: 0 };
       group.sessionCount += 1;
-      dayMap.set(key, group);
+      dayMap.set(date, group);
     });
     return Array.from(dayMap.values());
   }, [pendingConfirmationSessions]);
@@ -772,7 +775,7 @@ export function PendingCenterDrawer() {
                           type="button"
                           onClick={() => openAgendaAction({
                             type: "open-day",
-                            value: group.date.toISOString(),
+                            value: group.date,
                           })}
                         >
                           Abrir na agenda

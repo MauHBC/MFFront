@@ -73,10 +73,23 @@ As regras autoritativas estão na
 - `PublicClinicContext` atende a landing; `ClinicContext` atende a aplicação
   autenticada. O domínio público não substitui o tenant da sessão.
 - Em produção, a API é `/api` same-origin e o bundle não contém localhost. Em
-  desenvolvimento, o frontend usa `http://localhost:3000` e o backend local
-  normalmente usa `http://localhost:3006`.
+  desenvolvimento, o contrato padrão usa Frontend em `127.0.0.1:3000` e Backend
+  em loopback na porta `3006`. A validação persistente preparada pode selecionar
+  somente `MOTRIA_LOCAL_STACK_SLOT=persistent-validation` em `.env.local`; esse
+  marcador ignorado pelo Git fixa `127.0.0.1:3000` e API
+  `127.0.0.1:3006`, sem aceitar endpoints livres. A validação combinada isolada
+  pode selecionar
+  somente o perfil fechado `MOTRIA_LOCAL_STACK_SLOT=combined-validation`, que
+  usa `127.0.0.1:3010` e API `127.0.0.1:3016`; o launcher continua recusando
+  endpoints remotos, portas avulsas, persistência de qualquer outro perfil em
+  `.env*` e slots desconhecidos.
 - `npm run dev` impõe esses destinos locais e recusa overrides remotos em
   variáveis de processo ou arquivos `.env*`; worktrees não exigem `.env` manual.
+  No perfil persistente já preparado, o comando não cria nem atualiza banco ou
+  fixture; reiniciar o Frontend não altera dados.
+  Para subir a validação combinada sem abrir o navegador, use no Git Bash:
+  `export MOTRIA_LOCAL_STACK_SLOT=combined-validation`, depois
+  `export BROWSER=none` e `npm run dev`. A URL é `http://127.0.0.1:3010`.
 
 ### Registro modular da landing
 
@@ -155,10 +168,50 @@ daquele módulo.
 > Documento de referência para criação e manutenção de módulos administrativos no frontend.
 > Reflete o padrão consolidado nas microetapas 1–17 (Planos, Agendamentos, Financeiro).
 
+### Contratos temporais do Frontend
+
+O Frontend distingue instante, data civil `YYYY-MM-DD`, competência `YYYY-MM`,
+horário civil de grade e duração. Agenda e Planos projetam seus instantes e o
+calendário operacional em `America/Sao_Paulo`; o fuso do navegador e `TZ` do
+processo não são autoridade. Marcadores `Date` em UTC podem ser usados apenas
+para fazer aritmética de calendário sem deslocar a data civil e nunca representam
+um instante de atendimento. Dia, Semana e Mês agrupam e apresentam sessões pelo
+dia civil da Agenda. Drag-and-drop e alterações explícitas convertem data e hora
+civis para um instante de São Paulo, preservando a duração real. O editor mantém
+a regra mais estrita já documentada: se o horário não mudou, reenvia literalmente
+os instantes originais.
+
+`GET /sessions` recebe limites date-only semiabertos: `from` inclui o primeiro
+dia e `to` é o dia seguinte ao último dia visível. Quando o consumidor envia um
+datetime com offset, o limite é o instante exato, sem arredondamento civil; `to`
+continua exclusivo. Eventos especiais mantêm seu contrato date-only inclusivo
+nas duas pontas; os contratos não compartilham uma compensação implícita de fim
+de dia.
+
+No Financeiro, vencimento, referência, filtros e competência permanecem valores
+civis. Períodos mensal e anual são formados diretamente dessas datas, inclusive
+nas bordas de fevereiro, mês e ano. `paid_at` preserva a âncora técnica vigente
+de 09h no calendário de São Paulo, sem transformar essa hora em dado exibido ao
+usuário. O Histórico distingue data civil, instante com offset e a representação
+legada conhecida `T09:00:00`; outro timestamp sem offset não é reinterpretado.
+Esses helpers financeiros são separados dos helpers da Agenda. Datas clínicas
+sem contrato temporal confirmado, evolução e auditoria clínica não são
+reinterpretadas por essa regra transversal.
+
+O gate `npm run test:temporal` executa as caracterizações afetadas. O CI o roda
+em processos separados com `TZ=UTC`, `TZ=America/Sao_Paulo` e
+`TZ=Pacific/Kiritimati` antes da suíte canônica completa; esse gate focado não
+substitui `npm test -- --watchAll=false --runInBand`.
+
 ### Autorização oficial e fail-closed
 
 `AuthorizationProvider` carrega `/team/authorization-context` para a identidade
-e o token atuais e aceita o catálogo oficial na versão `7`. Sidebar, atalhos e `MyRoute` usam exclusivamente os módulos,
+e o token atuais. O catálogo corrente é `8`; durante a compatibilidade fechada
+da transição, somente `7` e `8` são aceitos. Versões anteriores, futuras ou
+desconhecidas falham fechadas. A capacidade `schedule.package.share` exige
+simultaneamente catálogo `8` e presença explícita no payload: um contexto `7`
+não a concede, mesmo que contenha essa string de forma incompatível. Sidebar,
+atalhos e `MyRoute` usam exclusivamente os módulos,
 níveis e capacidades desse contrato. O frontend não consulta grupo ou nome de
 perfil para conceder acesso, não replica o resolvedor e somente considera
 administrativo o booleano literal `is_administrator === true` em um contexto
@@ -715,8 +768,11 @@ os critérios de consulta permanecem iguais.
 
 Em **Receitas > Detalhes > Cobranças > Detalhes**, o título do modal identifica
 Mensalidade/Pacote/Avulsa e o nome do serviço/plano. O paciente aparece abaixo,
-com peso normal e menor destaque. O corpo mantém o período da mensalidade em
-linha compacta, o resumo das sessões e a tabela **Data | Profissional | Status**.
+com peso normal e menor destaque. Esse cabeçalho conserva o comprador como
+identidade financeira. O corpo mantém o período da mensalidade em linha compacta,
+o resumo das sessões e a tabela **Data | Paciente atendido | Profissional |
+Status**; em pacote compartilhado, a identidade operacional de cada linha vem
+da sessão e não substitui o comprador.
 Não há faixa isolada de quantidade, título de distribuição ou seção/cards
 financeiros: valores ficam na tabela de Cobranças, e operações/descontos no
 Histórico, sem alteração dos dados ou cálculos.
@@ -752,8 +808,8 @@ recalcula os valores financeiros nem altera Histórico ou tabela principal.
 Somente este modal usa as variantes locais `RevenueChargeDetail*`: o cartão
 flex limita sua altura à janela e às margens de área segura; título/X e rodapé
 com **Fechar** não encolhem. Período/metadados e o resumo único de sessões ficam
-fora da rolagem. Somente a região focável da tabela pode rolar; seus três
-cabeçalhos **Data | Profissional | Status** permanecem sticky no topo dessa
+fora da rolagem. Somente a região focável da tabela pode rolar; seus quatro
+cabeçalhos **Data | Paciente atendido | Profissional | Status** permanecem sticky no topo dessa
 região, com fundo opaco. Não há tabela, cabeçalho ou resumo duplicado. O corpo
 flexível limita a região à altura disponível da janela, sem segunda rolagem
 vertical. Colunas têm larguras compartilhadas entre cabeçalho e linhas e textos
@@ -800,11 +856,19 @@ financeiro pendente.** quando houver pendência. Reposição e penalidade contin
 nos comandos operacionais. Falha da operação conjunta não executa cancelamento
 operacional separado nem liberação de crédito independente.
 
+Em sessão compartilhada, a Agenda valida separadamente as duas identidades do
+contrato autoritativo: `session.patient_id` da prévia precisa corresponder ao
+paciente atendido da sessão aberta, enquanto `patient.id` da prévia e
+`patient_id` da confirmação precisam corresponder ao comprador do `Package`
+projetado pela `PackageUnit`. Sessão comum usa o próprio paciente nas duas
+funções. Vínculo de pacote incompleto, divergente ou de outra clínica falha
+fechado; o navegador não envia nem aceita um `patient_id` escolhido livremente.
+
 Em **Receitas > Detalhes > Cobranças**, **Resolver pendência** aparece
 somente para pendências reais de `pending_resolutions`, com `can_resolve: true`,
 `finance/manage` e `finance.settle`. A lista genérica `cancellation_candidates`
 não habilita botões. O modal **Detalhes** mantém o resumo compacto e a tabela
-**Data | Profissional | Status**, com aviso discreto apenas
+**Data | Paciente atendido | Profissional | Status**, com aviso discreto apenas
 quando houver pendência financeira. Alterações concluídas são consultadas pela
 aba **Histórico**, sem aviso ou botão adicional no detalhe ou modal.
 Sem pendência aplicável, nenhum bloco ou espaço é reservado.
@@ -937,6 +1001,94 @@ conservam seus rótulos de confirmação/atribuição. Não há validação visu
 adicional na revisão: o Backend continua responsável por rejeitar serviço
 incompatível com o pacote, mesmo em payload adulterado.
 
+### Compartilhamento de pacote em Novo agendamento
+
+A opção **Usar pacote de outro paciente** existe somente para quem recebe
+`schedule.package.share` e fica no bloco **Valor da sessão**, ao lado de **Sem
+cobrança**; as duas opções são mutuamente exclusivas. Ela já é visível ao abrir
+o Novo agendamento e permanece desabilitada até existir paciente atendido. Ao
+ativá-la, o drawer expande apenas **De quem é o pacote?**. Serviço, profissional,
+data, horário e observações continuam no formulário comum, e alterações nesses
+campos não limpam silenciosamente o paciente dono do pacote.
+
+O caminho consumido é escolhido somente pelo `catalog_version` do contexto de
+autorização já validado, nunca pela ausência eventual de um campo, por `404` ou
+por falha de rede. No catálogo `7`, a Agenda mantém o contrato publicado que
+avalia eventos operacionais, sem exigir `validation`; a revisão identifica um
+resultado livre desses eventos como **Sem bloqueio operacional**, e a gravação
+continua sujeita à validação final do servidor. Nesse contexto não há
+compartilhamento, e o Histórico usa apenas `/sessions` e `/session-series`, sem
+consultar `/patients/:id/package-history` nem inventar unidades ou contadores.
+No catálogo `8`, a Agenda exige a validação completa de conflito do paciente e
+PatientDetails exige o read-model por `PackageUnit`; resposta incompleta, `404`
+ou erro permanece falha do contrato novo e não ativa fallback legado.
+
+A revisão de compartilhamento mostra paciente atendido, dono do pacote e atendimento, sem expor IDs
+ou unidades. Ela consulta somente pacotes elegíveis para o serviço já escolhido,
+ordena os mais recentes primeiro e apresenta contratação, quantidade e
+disponibilidade em cards compactos. Direito livre aparece como **N livres** e
+não expande sessões. Quando não há direito livre, o card informa **N agendadas**
+e, somente após ser selecionado, expande **Escolha a sessão:** com as futuras
+realocáveis. Cada opção combina data/hora, paciente atualmente atendido e
+profissional; o paciente da origem pode ser o titular, um terceiro ou o próprio
+destinatário. Contratação e sessões usam data completa `dd/mm/aaaa`; a fronteira
+do Frontend rejeita respostas sem `free_rights`, `relocatable_sessions` e lista
+coerente, em vez de renderizar contadores indefinidos. Contadores agregados da
+revisão ficam ocultos apenas neste fluxo;
+alertas e bloqueios reais continuam no item correspondente. As prévias individual
+e recorrente enviam paciente, intervalo, serviço e profissional para a validação autoritativa;
+ao selecionar pacote ou sessão de origem, invalida a resposta anterior e refaz a
+consulta com esse contexto. **Disponível** aparece somente quando o Backend
+confirma o contrato completo e a ausência de conflito do paciente. Enquanto a
+consulta estiver pendente o item informa a verificação, e resposta incompleta,
+falha ou `PATIENT_SCHEDULE_CONFLICT` deixa a ocorrência sem seleção e sem
+confirmação. Na recorrência, o contrato completo é exigido também para cada
+ocorrência. Respostas atrasadas são descartadas. Se o conflito surgir depois da
+prévia, o `409` atualiza o item correspondente — ou invalida toda a prévia quando
+não puder mapeá-lo com segurança — sem apagar o formulário e exige nova avaliação;
+o Backend continua revalidando na gravação. A confirmação usa `POST /sessions`,
+com token de revisão e chave idempotente; mudanças concorrentes atualizam as
+opções sem trocar o serviço ou o dono selecionado. Cards da
+grade Semana/Mês mantêm somente o paciente atendido. Em sessão de `PackageUnit`
+elegível, o campo **Paciente** do Editar agendamento usa diretamente a busca já
+existente e só dispara o comando de compartilhamento quando a escolha realmente
+muda; sessão comum, protegida ou sem `schedule.package.share` permanece somente
+leitura. A data original já ter passado não torna somente por isso uma sessão
+aberta inelegível; o Backend decide pelos estados e efeitos consolidados. O
+serviço continua fixo. Troca exclusiva do paciente preserva horário e não é
+remarcação; mudança simultânea de início ou fim continua sujeita à antecedência
+vigente. O editor apresenta e interpreta seus campos civis no fuso canônico da
+Agenda (`America/Sao_Paulo`): sem mudança temporal, início e fim originais são
+reenviados literalmente; uma alteração explícita é serializada como o instante
+equivalente nesse fuso, independentemente do fuso do navegador ou do CI.
+Detalhes do horário, visão Dia, Editar e a sessão avulsa do destinatário
+no Histórico exibem o `PackagePill` lilás **Pacote de {titular}** somente quando
+o paciente atendido difere do titular; a comparação usa IDs e acompanha a
+seleção no formulário. Em `PatientDetails`, `/patients/:id/package-history`
+mantém o pacote integral somente no titular e o modal inclui uma linha por
+`PackageUnit`: sessão vigente com **Paciente atendido**, ou **Não agendada**
+quando o direito está `available`, com campos ainda indefinidos em travessão.
+Remarcação, reposição e compartilhamento não duplicam direitos; o destinatário
+continua vendo somente as próprias sessões.
+
+Na tabela compacta **Pacotes e sessões avulsas**, **Agendadas** aparece
+imediatamente depois de **Total**. Para pacotes da fundação, a interface consome
+o `scheduled_count` autoritativo do read-model, calculado somente pela sessão
+vigente de cada `PackageUnit`; não deriva essa quantidade do tamanho da lista de
+sessões nem conta registros históricos. No histórico do destinatário, o item
+compartilhado continua representando somente a sessão atendida por ele, sem
+projetar os totais do pacote do titular.
+
+No modal, o próprio nome em **Paciente atendido** usa a rota existente
+`/pacientes/:id` somente quando há `patients/view` efetivo e
+`attended_patient.can_view_profile === true`; no legado, o paciente já aberto e
+autorizado pela própria rota conserva o mesmo padrão de link. A identidade do
+destino vem sempre do paciente atendido (`attended_patient.id` ou `Patient.id`),
+nunca do titular. Sem essa autorização, ou nas linhas **Não agendada**, o
+conteúdo permanece texto. A navegação usa o `Link` e o histórico nativos; ao
+voltar, a persistência já existente por paciente e clínica restaura a aba
+**Histórico**, sem criar estado paralelo de retorno.
+
 ### Confirmação de bloqueio manual por feriado
 
 Em Configurações da Agenda, criação de feriado bloqueante e a ação **Bloquear
@@ -970,6 +1122,39 @@ rota sensível protegida. A recarga exige nova oportunidade segura nesses evento
 ou após perda de foco do campo; remover um modal, sozinho, não garante recarga
 imediata. Falha de consulta não força recarga. Não remover essas proteções, criar
 logout global ou reenviar comandos financeiros após atualizar a página.
+
+Na transição fechada do catálogo de autorização `7` para `8`, uma aba com o
+bundle compatível conserva apenas os módulos e capacidades efetivamente presentes
+no contexto `7`; o compartilhamento permanece indisponível. Quando o documento
+recebe os assets correntes, `AppVersionReloader` aplica a mesma recarga segura
+descrita acima. Isso não abre aceitação genérica de versões nem contorna comandos
+em andamento.
+
+Um bundle antigo que conhece somente o catálogo `7` não negocia o contrato `8`
+em memória: ao receber esse contexto, falha fechado e depende da atualização de
+versão para carregar os assets transitórios. Se houver edição, modal ou rota
+sensível, a recarga pode ficar pendente até a próxima oportunidade segura; esse
+adiamento protege o rascunho, mas não prova compatibilidade funcional do bundle
+antigo com o Backend novo. Comandos já enviados continuam dependendo da
+idempotência e compatibilidade mantidas pelo servidor, sem reenvio automático.
+
+Se uma aba antiga perder os módulos ao receber catálogo `8`, a orientação é
+concluir ou cancelar com segurança a edição/modal local, sem repetir comando de
+resultado incerto, e então atualizar explicitamente a página para carregar o
+bundle corrente. Navegar, focar ou tornar a aba visível oferece uma nova
+oportunidade ao mecanismo existente, mas não garante recarga imediata; esperar
+ou apenas fechar o modal não substitui a atualização explícita. Não exigir
+logout global. Resultado incerto deve ser esclarecido no servidor antes de
+qualquer nova tentativa.
+
+A ordem técnica de uma futura ativação coordenada é: primeiro disponibilizar o
+Frontend transitório que aceita somente `7` e `8` e exige `8` para
+`schedule.package.share`; depois conter os escritores afetados, aplicar a
+migration do catálogo `8`, ativar Backend 8 e validar a combinação antes da
+reabertura. Backend 7 não pode atender o banco promovido. Somente em release
+posterior se retira o suporte ao catálogo `7`. O procedimento operacional fica
+no [runbook do Backend](https://github.com/MauHBC/MFBackend/blob/main/docs/deploy-production.md#corte-coordenado-do-catálogo-7-para-8).
+Esta integração local não executa nenhuma dessas etapas de publicação.
 
 O servidor permanece responsável pela compatibilidade de comandos das abas
 antigas. Recusa definitiva anterior à gravação usa o envelope de erro já
@@ -1338,6 +1523,7 @@ Badges de status e informação.
 | `StatusPill` | `$tone="canceled"` / default | Cinza |
 | `InfoPill` | — | Azul sutil (avisos, notas) |
 | `NeutralPill` | — | Cinza neutro |
+| `PackagePill` | — | Lilás sutil (contexto de Package) |
 
 ---
 

@@ -673,6 +673,10 @@ export function ScheduleChangeDrawer({
                     const option = weekdayOptions.find((item) => item.value === weekday);
                     const inputId = `schedule-change-time-${weekday}`;
                     const weekdayLabel = option?.fullLabel || option?.label || weekday;
+                    const selectedTime = form.times_by_weekday[String(weekday)] || "";
+                    const selectedTimeIsListed = timeOptions.some(
+                      (timeOption) => timeOption.value === selectedTime,
+                    );
                     return (
                       <DayTimeRow key={weekday} htmlFor={inputId}>
                         <span>{weekdayLabel}</span>
@@ -689,10 +693,13 @@ export function ScheduleChangeDrawer({
                           <select
                             id={inputId}
                             aria-label={`Horário de ${weekdayLabel}`}
-                            value={form.times_by_weekday[String(weekday)] || ""}
+                            value={selectedTime}
                             disabled={busy}
                             onChange={(event) => onTimeChange(weekday, event.target.value)}
                           >
+                            {selectedTime && !selectedTimeIsListed && (
+                              <option value={selectedTime}>{selectedTime}</option>
+                            )}
                             {timeOptions.map((optionItem) => (
                               <option key={optionItem.value} value={optionItem.value}>
                                 {optionItem.label}
