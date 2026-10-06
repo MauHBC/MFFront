@@ -2,29 +2,31 @@ import React from "react";
 import "@testing-library/jest-dom";
 import { fireEvent, render, screen } from "@testing-library/react";
 import RightsOriginPicker from "./RightsOriginPicker";
-import axios from "../../services/axios";
 
-jest.mock("../../services/axios", () => ({ get: jest.fn() }));
+const options = [{ id: 3, quantity: 4, free_rights: 3, service: { name: "Fisioterapia" } },
+  { id: 4, quantity: 2, free_rights: 2, service: { name: "Pilates" } }];
+const props = { rights: { status: "ready", options, refresh: jest.fn() }, origin: "",
+  onSelect: jest.fn(), onShare: jest.fn(), canShare: true };
 beforeEach(() => jest.clearAllMocks());
-const props = { patientId: "1", onSelect: jest.fn(), onShare: jest.fn(), canShare: true, sharing: false };
-test("automatically queries rights and never auto-selects between services or contracts", async () => {
-  const packages = [{ id: 3, quantity: 4, free_rights: 3, service: { name: "Fisioterapia" } },
-    { id: 4, quantity: 2, free_rights: 2, service: { name: "Pilates" } }];
-  axios.get.mockResolvedValue({ data: packages });
+test("own, shared and new origins are explicit radios with no implicit new choice", () => {
   render(<RightsOriginPicker {...props}/>);
-  expect(await screen.findByText(/Fisioterapia — 3 sessões disponíveis/)).toBeInTheDocument();
-  expect(screen.getByText(/Pilates — 2 sessões disponíveis/)).toBeInTheDocument();
-  expect(axios.get).toHaveBeenCalledWith("/patients/1/available-rights");
+  expect(screen.getByLabelText(/Fisioterapia - 3 sessões disponíveis/)).not.toBeChecked();
+  expect(screen.getByLabelText(/Pilates - 2 sessões disponíveis/)).not.toBeChecked();
+  expect(screen.getByLabelText("Novo lançamento")).not.toBeChecked();
+  const shared = screen.getByLabelText("Usar pacote de outro paciente");
+  expect(shared.type).toBe("radio");
+  fireEvent.click(shared);
+  expect(props.onShare).toHaveBeenCalledTimes(1);
   expect(props.onSelect).not.toHaveBeenCalled();
   fireEvent.click(screen.getByLabelText(/Pilates/));
-  expect(props.onSelect).toHaveBeenCalledWith(packages[1]);
+  expect(props.onSelect).toHaveBeenCalledWith(options[1]);
 });
-test("absence is discreet and does not add a confirmation; failure is not absence", async () => {
-  axios.get.mockResolvedValueOnce({ data: [] }).mockRejectedValueOnce(new Error("offline"));
-  const { rerender } = render(<RightsOriginPicker {...props}/>);
-  expect(await screen.findByText(/Nenhuma sessão disponível/)).toBeInTheDocument();
-  expect(props.onSelect).not.toHaveBeenCalled();
-  rerender(<RightsOriginPicker {...props} patientId="2"/>);
-  expect(await screen.findByText(/Não foi possível consultar/)).toBeInTheDocument();
+test("loading and errors expose no origin options; retry does not imply absence", () => {
+  const { rerender } = render(<RightsOriginPicker {...props} rights={{ ...props.rights, status: "loading" }}/>);
+  expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+  rerender(<RightsOriginPicker {...props} rights={{ ...props.rights, status: "error" }}/>);
   expect(screen.queryByText(/Nenhuma sessão disponível/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+  expect(props.rights.refresh).toHaveBeenCalledTimes(1);
 });

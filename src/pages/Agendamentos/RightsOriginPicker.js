@@ -1,40 +1,38 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import PropTypes from "prop-types";
-import axios from "../../services/axios";
+import { GhostButton } from "../../components/AppButton";
+import { FieldHint } from "../../components/AppForm";
 import CancelAvailableRights from "./CancelAvailableRights";
 
-export default function RightsOriginPicker({ patientId, selectedId, onSelect, canShare, sharing, onShare, canCancel }) {
-  const [state, setState] = useState({ status: "idle", options: [] });
-  const [refresh, setRefresh] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    if (!patientId) { setState({ status: "idle", options: [] }); return undefined; }
-    setState({ status: "loading", options: [] });
-    axios.get(`/patients/${patientId}/available-rights`).then((response) => {
-      if (!cancelled) setState({ status: "ready", options: Array.isArray(response.data) ? response.data : [] });
-    }).catch(() => { if (!cancelled) setState({ status: "error", options: [] }); });
-    return () => { cancelled = true; };
-  }, [patientId, refresh]);
+export default function RightsOriginPicker({ rights, origin, selectedId, onSelect, canShare, onShare, canCancel, Option }) {
   return <div style={{ display: "grid", gap: 10 }}>
-    {state.status === "loading" && <small>Consultando sessões disponíveis...</small>}
-    {state.status === "error" && <small>Não foi possível consultar as sessões disponíveis. <button type="button" onClick={() => setRefresh((value) => value + 1)}>Tentar novamente</button></small>}
-    {state.status === "ready" && (state.options.length ? <>
+    {rights.status === "loading" && <FieldHint role="status">Consultando sessões disponíveis...</FieldHint>}
+    {rights.status === "error" && <div role="alert"><FieldHint>Não foi possível consultar as sessões disponíveis.</FieldHint>{" "}
+      <GhostButton type="button" onClick={rights.refresh}>Tentar novamente</GhostButton></div>}
+    {rights.status === "ready" && <>
+      {!rights.options.length && <FieldHint>Nenhuma sessão disponível. Este atendimento será lançado como novo.</FieldHint>}
       <strong>Origem do atendimento</strong>
-      {state.options.map((pkg) => <div key={pkg.id}><label htmlFor={`own-right-origin-${pkg.id}`}>
-        <input id={`own-right-origin-${pkg.id}`} type="radio" name="own-right-origin" checked={String(selectedId) === String(pkg.id)}
-          onChange={() => onSelect(pkg)}/>{" "}{pkg.service.name} — {pkg.free_rights} {pkg.free_rights === 1 ? "sessão disponível" : "sessões disponíveis"}
+      {rights.options.map((pkg) => <div key={pkg.id}><Option htmlFor={`own-right-origin-${pkg.id}`}>
+        <input id={`own-right-origin-${pkg.id}`} type="radio" name="attendance-origin" checked={origin === "own" && String(selectedId) === String(pkg.id)}
+          onChange={() => onSelect(pkg)}/>{" "}{pkg.service.name} - {pkg.free_rights} {pkg.free_rights === 1 ? "sessão disponível" : "sessões disponíveis"}
         <small> · {Number(pkg.quantity) === 1 ? "Avulsa" : `Pacote de ${pkg.quantity}`}</small>
-      </label>{canCancel && <CancelAvailableRights packageId={pkg.id} onCompleted={() => { onSelect(null); setRefresh((value) => value + 1); }}/>}</div>)}
-      <label htmlFor="own-right-origin-new"><input id="own-right-origin-new" type="radio" name="own-right-origin" checked={!selectedId && !sharing} onChange={() => onSelect(null)}/>{" "}Novo lançamento</label>
-    </> : <small>Nenhuma sessão disponível. Este atendimento será lançado como novo.</small>)}
-    {canShare && <label htmlFor="right-origin-shared"><input id="right-origin-shared" type="checkbox" disabled={!patientId} checked={sharing} onChange={(event) => onShare(event.target.checked)}/>{" "}Usar pacote de outro paciente</label>}
+      </Option>{canCancel && <CancelAvailableRights packageId={pkg.id} onCompleted={() => { onSelect(undefined); rights.refresh(); }}/>}</div>)}
+      {canShare && <Option htmlFor="right-origin-shared"><input id="right-origin-shared" type="radio" name="attendance-origin"
+        checked={origin === "shared"} onChange={onShare}/>{" "}Usar pacote de outro paciente</Option>}
+      <Option htmlFor="own-right-origin-new"><input id="own-right-origin-new" type="radio" name="attendance-origin" checked={origin === "new"}
+        onChange={() => onSelect(null)}/>{" "}Novo lançamento</Option>
+    </>}
   </div>;
 }
 RightsOriginPicker.propTypes = {
-  patientId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  rights: PropTypes.shape({ status: PropTypes.string, options: PropTypes.arrayOf(PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  })), refresh: PropTypes.func }).isRequired,
+  origin: PropTypes.string.isRequired,
   selectedId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   onSelect: PropTypes.func.isRequired, canShare: PropTypes.bool.isRequired,
-  sharing: PropTypes.bool.isRequired, onShare: PropTypes.func.isRequired,
+  onShare: PropTypes.func.isRequired,
+  Option: PropTypes.elementType,
   canCancel: PropTypes.bool,
 };
-RightsOriginPicker.defaultProps = { patientId: "", selectedId: "", canCancel: false };
+RightsOriginPicker.defaultProps = { selectedId: "", canCancel: false, Option: "label" };

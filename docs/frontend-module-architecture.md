@@ -1005,9 +1005,10 @@ incompatível com o pacote, mesmo em payload adulterado.
 
 A opção **Usar pacote de outro paciente** existe somente para quem recebe
 `schedule.package.share` e fica no início do formulário, junto à escolha de
-direito próprio ou novo lançamento. São decisões de origem/cobertura. Ela já é visível ao abrir
-o Novo agendamento e permanece desabilitada até existir paciente atendido. Ao
-ativá-la, o drawer expande apenas **De quem é o pacote?**. Serviço, profissional,
+direito próprio ou novo lançamento. São decisões de origem/cobertura. Ela só
+aparece após selecionar o paciente e concluir a consulta de direitos, no mesmo
+grupo de radios das outras origens. Ao ativá-la, o drawer expande
+**De quem é o pacote?**. Serviço, profissional,
 data, horário e observações continuam no formulário comum, e alterações nesses
 campos não limpam silenciosamente o paciente dono do pacote.
 
@@ -1990,13 +1991,30 @@ O Hero usa altura limitada por viewport e largura, preserva `object-fit: cover` 
 
 ## Compra e agendamento na Agenda
 
-Novo agendamento oferece **Agendar agora** e **Agendar depois**. O formulário
-do segundo caminho possui paciente, serviço, quantidade, valor opcional e
-observação de lançamento; não solicita profissional ou horário. Consulta
-automática de direitos também ocorre nesse caminho. Selecionar um direito
-abre Agendar agora com origem/serviço escolhidos; compartilhamento abre a
-revisão existente. Direitos de contratos diferentes nunca são selecionados
-automaticamente. Ausência é discreta; erro oferece nova tentativa.
+Novo agendamento começa somente com `PatientSearchField`. Após a seleção,
+consulta automaticamente os direitos. Loading e erro não liberam os detalhes
+nem assumem novo lançamento; erro permite tentar novamente. Respostas atrasadas
+de outro paciente são descartadas. Havendo saldo, apresenta opções por
+serviço/pacote, **Usar pacote de outro paciente** (conforme permissão) e
+**Novo lançamento** no mesmo grupo mutuamente exclusivo. Nenhuma origem vem
+selecionada. Sem saldo, mostra aviso discreto e segue automaticamente como
+novo lançamento, mantendo o compartilhamento acessível sem confirmação extra.
+
+Somente em **Novo lançamento** aparecem **Agendar agora** e **Agendar depois**,
+usando os controles existentes da Agenda. Ambos usam a mesma seleção de paciente,
+serviço, valor e observação de lançamento. Depois solicita quantidade e oculta
+profissional, data, horário e observação de sessão; não existe formulário paralelo.
+A troca de modo conserva as observações separadas e os campos comuns, sem copiar
+uma observação para outra. A programação por quantidade conserva o mesmo número
+ao trocar agora/depois; rascunhos por semanas/meses continuam próprios da
+programação e não inventam datas para uma compra posterior.
+
+Direito próprio fixa serviço e agenda uma unidade pela revisão existente,
+sem controles de compra ou Mais sessões. Essa proteção também existe na seleção
+do comando e na construção do payload. Compartilhamento mantém sua revisão
+publicada. Prévias atrasadas de outra seleção de paciente/origem/modo não são
+reabertas nem confirmadas. Trocar paciente limpa origem, observações e seleção anterior antes
+de consultar seus direitos. Edição e reposição mantêm seus caminhos existentes.
 
 Uma unidade aparece como Avulsa e duas ou mais como Pacote no histórico e
 Financeiro. A revisão de compra programada exige selecionar todas as sessões;

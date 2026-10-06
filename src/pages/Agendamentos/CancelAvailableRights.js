@@ -2,6 +2,8 @@ import React, { useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { v4 as uuidv4 } from "uuid";
 import axios from "../../services/axios";
+import { GhostButton, PrimaryButton } from "../../components/AppButton";
+import { Field } from "../../components/AppForm";
 
 export default function CancelAvailableRights({ packageId, onCompleted }) {
   const [open, setOpen] = useState(false);
@@ -39,17 +41,17 @@ export default function CancelAvailableRights({ packageId, onCompleted }) {
       setError(failure.response?.data?.error || failure.message || "Não foi possível cancelar.");
     } finally { lock.current = false; setBusy(false); }
   };
-  if (!open) return <button type="button" onClick={() => { setOpen(true); setPreview(null); setReason(""); setError(""); setUncertain(false); attempt.current = null; }}>Cancelar unidades disponíveis</button>;
+  if (!open) return <GhostButton type="button" onClick={() => { setOpen(true); setPreview(null); setReason(""); setError(""); setUncertain(false); attempt.current = null; }}>Cancelar unidades disponíveis</GhostButton>;
   let label = preview ? "Confirmar cancelamento" : "Conferir unidades";
   if (uncertain) label = "Verificar resultado";
   return <div role="dialog" aria-label="Cancelar unidades disponíveis" style={{ padding: 16, border: "1px solid #cbd5e1", borderRadius: 8 }}>
     <p>As unidades usadas ou agendadas serão preservadas. As cobranças abertas ou pagas permanecerão no Financeiro. Qualquer acerto será feito separadamente, sem devolução automática.</p>
-    <label htmlFor={`cancel-right-reason-${packageId}`}>Motivo (opcional)<textarea id={`cancel-right-reason-${packageId}`} value={reason} maxLength={1000} disabled={busy || uncertain}
-      onChange={(event) => { setReason(event.target.value); setPreview(null); attempt.current = null; }}/></label>
+    <Field htmlFor={`cancel-right-reason-${packageId}`}>Motivo (opcional)<textarea id={`cancel-right-reason-${packageId}`} value={reason} maxLength={1000} disabled={busy || uncertain}
+      onChange={(event) => { setReason(event.target.value); setPreview(null); attempt.current = null; }}/></Field>
     {preview && <p>{preview.available_count} unidade(s) serão canceladas; {preview.preserved_count} preservadas.</p>}
     {error && <p role="alert">{error}</p>}
-    <button type="button" disabled={busy} onClick={execute}>{label}</button>{" "}
-    <button type="button" disabled={busy || uncertain} onClick={() => setOpen(false)}>Voltar</button>
+    <PrimaryButton type="button" disabled={busy} onClick={execute}>{label}</PrimaryButton>{" "}
+    <GhostButton type="button" disabled={busy || uncertain} onClick={() => setOpen(false)}>Voltar</GhostButton>
   </div>;
 }
 CancelAvailableRights.propTypes = { packageId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
