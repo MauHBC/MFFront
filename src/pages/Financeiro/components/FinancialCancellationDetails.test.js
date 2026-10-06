@@ -16,6 +16,16 @@ const props = {
 
 beforeEach(() => jest.clearAllMocks());
 
+test("contrato sem série identifica pendência pela compra e oferece acerto sem sessão", () => {
+  render(<FinancialCancellationDetails {...props} packageItem={{ kind: "series", sourceId: 91, package_id: 7 }}
+    pendingResolutions={[
+      { entry_id: 51, package_id: 7, package_unit_id: 80, session_id: null, can_resolve: true },
+      { entry_id: 52, package_id: 8, series_id: 91, can_resolve: true },
+    ]}/>);
+  expect(screen.getByText("Direito encerrado: acerto financeiro pendente.")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Resolver pendência" })).toHaveLength(1);
+});
+
 test("mostra apenas pendência explícita do pacote, sem aviso ou atalho de histórico", () => {
   const { rerender } = render(<FinancialCancellationDetails {...props} />);
   expect(screen.getByText("Sessão de 28/10/2026: acerto financeiro pendente.")).toBeInTheDocument();

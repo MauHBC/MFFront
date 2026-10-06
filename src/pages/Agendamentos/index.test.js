@@ -343,6 +343,7 @@ const selectAssignedProfessional = async (container) => {
 };
 
 const openNewSingleReview = async (container, {
+  ownRight = false,
   date = "2026-07-20",
   hour = "10",
 } = {}) => {
@@ -353,6 +354,7 @@ const openNewSingleReview = async (container, {
   });
   const patientSuggestions = await screen.findAllByText("Paciente Teste");
   fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+  if (ownRight) fireEvent.click(await screen.findByRole("radio", { name: /Fisioterapia/ }));
   await selectAssignedProfessional(container);
   fireEvent.change(container.querySelector('select[name="service_id"]'), {
     target: { value: "40" },
@@ -3249,6 +3251,24 @@ describe("Agendamentos - editar agendamento", () => {
 	    expect(screen.getByText(/21\/07\/2026/)).toBeInTheDocument();
 	  });
 
+  it("agenda direito próprio pela revisão sem novo lançamento financeiro", async () => {
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => url === "/patients/20/available-rights"
+      ? Promise.resolve({ data: [{ id: 701, quantity: 2, free_rights: 2, review_token: "own-review",
+        service: { id: 40, code: "physio", name: "Fisioterapia" } }] }) : originalGet(url, config));
+    const { container } = renderAgendamentos();
+    await openNewSingleReview(container, { ownRight: true });
+    await screen.findByText("Disponível");
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith("/sessions", expect.objectContaining({
+      patient_id: 20, shared_package_id: 701, use_own_package: true,
+    })));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).not.toHaveProperty("purchase_launch");
+    expect(payload).not.toHaveProperty("launch_notes");
+    expect(payload.idempotency_key).toMatch(/^own-right:/);
+  });
+
   it("mantem o novo agendamento compacto e escolhe na revisao um pacote disponivel", async () => {
     const originalGet = axios.get.getMockImplementation();
     axios.get.mockImplementation((url, config) => {
@@ -3321,7 +3341,7 @@ describe("Agendamentos - editar agendamento", () => {
     expect(sharing).not.toBeChecked();
     fireEvent.click(sharing);
     expect(sharing).toBeChecked();
-    expect(noCharge).not.toBeChecked();
+    expect(screen.queryByLabelText("Sem cobrança")).not.toBeInTheDocument();
 
     const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
     expect(screen.getByText("De quem é o pacote?")).toBeInTheDocument();

@@ -262,6 +262,7 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
   const displayed = orderHistoryRows(historyRows(unique.filter((event) => filter === "all" || event.type === "RECEIPT")));
   const movementLabel = (row) => {
     const session = row.session_starts_at ? `Sessão de ${formatFinancialEventDate(row.session_starts_at, { short: true })}` : "Sessão";
+    if (!row.session_id && row.package_unit_id && row.type === "CANCELLATION") return "Cobrança do direito encerrada";
     if (row.groupedCancellation) return `${session} cancelada — ${Number.isSafeInteger(row.amount_cents) ? `${formatCurrency(row.amount_cents)} liberados como crédito` : "crédito liberado"}`;
     if (row.type === "CANCELLATION") return `${session} cancelada`;
     if (row.type === "RECEIPT" && row.voided) return "Recebimento anulado";

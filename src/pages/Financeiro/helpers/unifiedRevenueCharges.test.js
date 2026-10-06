@@ -1,4 +1,4 @@
-import { mergeUnifiedRevenueSummaries } from "./unifiedRevenueCharges";
+import { mergeUnifiedRevenueSummaries, validateUnifiedRevenueDetail, mapUnifiedRevenueCharge } from "./unifiedRevenueCharges";
 
 const patient = (id, extra = {}) => ({ patient_id: id, patient_name: `Paciente ${id}`,
   total: 1000, received: 200, pending: 800, entries_count: 1, overdue_cents: 0,
@@ -36,4 +36,16 @@ test("resposta inválida em qualquer tipo impede apresentar resumo parcial", () 
   expect(() => mergeUnifiedRevenueSummaries([projection([patient(1)]),
     projection([patient(2, { total: -1 })])], "2026-09"))
     .toThrow("Não foi possível conferir os valores do resumo de receitas.");
+});
+
+
+test("contrato sem série e série histórica com mesmo número mantêm identidades distintas", () => {
+  const common = { kind: "series", sourceId: 7, amount_cents: 0, paid_cents: 0,
+    open_cents: 0, overdue_cents: 0, entries: [] };
+  const charges = [{ ...common, key: "package-7" }, { ...common, key: "series-7" }];
+  const detail = { origin: "all", patient: { id: 1 }, charges, financial_history: [],
+    summary: { total: 0, received: 0, pending: 0, creditAvailable: 0 } };
+  expect(validateUnifiedRevenueDetail(detail, 1)).toBe(detail);
+  expect(charges.map(mapUnifiedRevenueCharge).map(row => row.id)).toEqual(["package-7", "series-7"]);
+  expect(() => validateUnifiedRevenueDetail({ ...detail, charges: [charges[0], charges[0]] }, 1)).toThrow();
 });

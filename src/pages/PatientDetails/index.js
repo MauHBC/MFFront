@@ -17,6 +17,7 @@ import ClinicalSigningIdentitySummary from "../../components/ClinicalSigningIden
 import DataLoadingState from "../../components/DataLoadingState";
 import ClinicalSignatureConfirmModal from "../../components/ClinicalSignatureConfirmModal";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
+import CancelAvailableRights from "../Agendamentos/CancelAvailableRights";
 import { useClinicContext } from "../../contexts/ClinicContext";
 import axios from "../../services/axios";
 import {
@@ -962,6 +963,10 @@ export default function PatientDetails() {
     && canWriteClinicalRecords;
   const canViewPatientProfiles = authorization.canAccessModule("patients", "view");
   const canViewSchedule = authorization.canAccessModule("schedule", "view");
+  const canCancelPackageRights = authorization.status === "ready"
+    && authorization.canAccessModule("schedule", "manage")
+    && (authorization.isAdministrator || authorization.context?.modules?.some((module) => module.module_key === "schedule" && module.scope_level === "clinic"));
+  const [scheduleRefresh, setScheduleRefresh] = useState(0);
   const usesPackageUnitHistoryContract = authorization.context?.catalog_version === 8;
   const [activeTab, setActiveTab] = useState(() => getStoredPatientDetailsTab(id, sessionScope));
   const [activeProntuarioSection, setActiveProntuarioSection] = useState(
@@ -1245,7 +1250,7 @@ export default function PatientDetails() {
         toast.error(message);
       });
     return () => { active = false; };
-  }, [canViewSchedule, id, usesPackageUnitHistoryContract]);
+  }, [canViewSchedule, id, usesPackageUnitHistoryContract, scheduleRefresh]);
 
   useEffect(() => {
     if (patient && !editingSection) {
@@ -1491,8 +1496,10 @@ export default function PatientDetails() {
       const scheduledCount = Number(pkg.scheduled_count ?? 0);
       const canceledCount = sessionDetails.filter((session) => session.status === "canceled").length;
       return {
-        id: `package-${pkg.id}`,
-        kind: "package",
+          id: `package-${pkg.id}`,
+          kind: "package",
+            isSinglePurchase: pkg.origin === "agenda_purchase" && Number(pkg.quantity) === 1,
+            hasAvailableRights: pkg.status === "active" && pkg.sessions.some((session) => session.unit_state === "available"),
         sourceId: pkg.id,
         serviceName: pkg.service?.name || "Pacote de sessões",
         referenceDate: pkg.reference_date || pkg.contracted_at || pkg.sessions?.[0]?.starts_at || null,
@@ -3009,7 +3016,7 @@ export default function PatientDetails() {
                         <tr key={item.id}>
                           <td>
                             <TypePill $kind={item.kind}>
-                              {item.kind === "package" ? "Pacote" : "Avulsa"}
+                              {item.kind === "package" && !item.isSinglePurchase ? "Pacote" : "Avulsa"}
                             </TypePill>
                           </td>
                           <td>
@@ -3030,13 +3037,16 @@ export default function PatientDetails() {
                           <td>{item.canceledCount}</td>
                           <td>
                             {item.kind === "package" ? (
-                              <CardButton type="button" onClick={() => setSelectedPackage(item)}>
-                                Ver sessões
-                              </CardButton>
+                                <CardButton type="button" onClick={() => setSelectedPackage(item)}>
+                                  Ver sessões
+                                </CardButton>
                             ) : (
                               <span>-</span>
                             )}
-                          </td>
+
+                              {item.hasAvailableRights && canCancelPackageRights && <CancelAvailableRights packageId={item.sourceId}
+                                onCompleted={() => { setSelectedPackage(null); setScheduleRefresh((value) => value + 1); }}/>}
+</td>
                         </tr>
                       ))}
                     </tbody>

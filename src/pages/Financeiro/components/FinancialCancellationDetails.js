@@ -4,8 +4,11 @@ import styled from "styled-components";
 import { GhostButton } from "../../../components/AppButton";
 import { formatFinancialEventDate } from "./FinancialHistory";
 
+const pendingLabel = (item) => item.package_unit_id ? "Direito encerrado: " : "Sessão cancelada: ";
+
 const belongsToPackage = (record, packageItem) => {
   if (!packageItem) return true;
+  if (packageItem.package_id) return Number(record.package_id) === Number(packageItem.package_id);
   if (packageItem.kind === "series")
     return Number(record.series_id) === Number(packageItem.sourceId);
   if (packageItem.kind === "entry")
@@ -35,7 +38,7 @@ export default function FinancialCancellationDetails({
           <span>
             {item.session_starts_at
               ? `Sessão de ${formatFinancialEventDate(item.session_starts_at, { dateOnly: true })}: `
-              : "Sessão cancelada: "}
+              : pendingLabel(item)}
             acerto financeiro pendente.
           </span>
           {canResolve && item.can_resolve === true && (
@@ -58,11 +61,14 @@ FinancialCancellationDetails.propTypes = {
       source_session_id: PropTypes.number,
       session_starts_at: PropTypes.string,
       can_resolve: PropTypes.bool,
+      package_id: PropTypes.number,
+      package_unit_id: PropTypes.number,
     }),
   ),
   packageItem: PropTypes.shape({
     kind: PropTypes.string,
     sourceId: PropTypes.number,
+    package_id: PropTypes.number,
   }),
   canResolve: PropTypes.bool.isRequired,
   onResolve: PropTypes.func.isRequired,

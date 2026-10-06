@@ -1004,8 +1004,8 @@ incompatível com o pacote, mesmo em payload adulterado.
 ### Compartilhamento de pacote em Novo agendamento
 
 A opção **Usar pacote de outro paciente** existe somente para quem recebe
-`schedule.package.share` e fica no bloco **Valor da sessão**, ao lado de **Sem
-cobrança**; as duas opções são mutuamente exclusivas. Ela já é visível ao abrir
+`schedule.package.share` e fica no início do formulário, junto à escolha de
+direito próprio ou novo lançamento. São decisões de origem/cobertura. Ela já é visível ao abrir
 o Novo agendamento e permanece desabilitada até existir paciente atendido. Ao
 ativá-la, o drawer expande apenas **De quem é o pacote?**. Serviço, profissional,
 data, horário e observações continuam no formulário comum, e alterações nesses
@@ -1986,3 +1986,29 @@ real com Redux: 403 comercial conserva token/sessão e não navega ao login.
 ### Refinamentos visuais da landing
 
 O Hero usa altura limitada por viewport e largura, preserva `object-fit: cover` e aceita `title_line_2` como continuação editorial dentro do mesmo `h1`. `eyebrow`, `title` e `title_line_2` são lidos separadamente do documento modular; um `eyebrow` vazio não reativa texto legado. Seções usam revelação progressiva nativa com fallback visível e respeito a `prefers-reduced-motion`. O carrossel inicia automaticamente apenas com múltiplas imagens, pausa em hover ou foco e não expõe controle de play/pausa. Biografias longas são recolhidas com reticências e podem ser expandidas individualmente por botão semântico com rótulo visual "Ver mais" ou "Ver menos".
+
+
+## Compra e agendamento na Agenda
+
+Novo agendamento oferece **Agendar agora** e **Agendar depois**. O formulário
+do segundo caminho possui paciente, serviço, quantidade, valor opcional e
+observação de lançamento; não solicita profissional ou horário. Consulta
+automática de direitos também ocorre nesse caminho. Selecionar um direito
+abre Agendar agora com origem/serviço escolhidos; compartilhamento abre a
+revisão existente. Direitos de contratos diferentes nunca são selecionados
+automaticamente. Ausência é discreta; erro oferece nova tentativa.
+
+Uma unidade aparece como Avulsa e duas ou mais como Pacote no histórico e
+Financeiro. A revisão de compra programada exige selecionar todas as sessões;
+as datas podem ser corrigidas, mas não há compra parcialmente programada.
+Reserva própria usa a revisão normal de disponibilidade/alertas. Observação de
+lançamento e de sessão são campos opcionais separados. Comandos repetidos
+reutilizam a chave do mesmo payload; alterações geram outra confirmação.
+
+Cancelar unidades disponíveis está na origem e no histórico do titular, para
+gestão da Agenda com alcance de clínica. Mostra contagem e aviso de manutenção
+das cobranças, motivo opcional, prévia e confirmação. Resultado incerto congela
+o comando e permite verificar a mesma tentativa; revisão vencida exige outra
+prévia. Pendência financeira de direito sem sessão usa o modal de acerto
+existente, sem data fictícia. IDs canônicos `key` evitam colisão de contrato
+sem série com séries legadas. Regras autoritativas: AGE-015 e FIN-016 do Backend.

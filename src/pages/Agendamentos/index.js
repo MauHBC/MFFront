@@ -31,6 +31,8 @@ import { useAuthorization } from "../../contexts/AuthorizationContext";
 import { SessionStatusButton } from "../../components/AppSessionStatus";
 import { PackagePill } from "../../components/AppStatus";
 import PatientSearchField from "../../components/PatientSearchField";
+import PurchaseLaterForm from "./PurchaseLaterForm";
+import RightsOriginPicker from "./RightsOriginPicker";
 import { disabledFieldStyles } from "../../components/AppForm";
 import {
   formatCurrencyInput,
@@ -1526,6 +1528,9 @@ export default function Agendamentos() {
   const canSharePackages = authorization.status === "ready"
     && usesCompleteSchedulingAvailabilityContract
     && authorization.hasCapability("schedule.package.share");
+  const canLaunchWithoutSchedule = authorization.status === "ready"
+    && authorization.canAccessModule?.("schedule", "manage") === true
+    && (authorization.isAdministrator || authorization.context?.modules?.some((module) => module.module_key === "schedule" && module.scope_level === "clinic"));
   const canResolveSessionFinancial = authorization.canAccessModule?.("finance", "manage") === true
     && authorization.canAccessModule?.("schedule", "manage") === true
     && authorization.hasCapability("finance.settle");
@@ -1579,6 +1584,20 @@ export default function Agendamentos() {
   const [isBaseDataLoading, setIsBaseDataLoading] = useState(true);
   const [statusOptions, setStatusOptions] = useState([]);
   const [form, setForm] = useState(emptyForm);
+  const [purchaseLater, setPurchaseLater] = useState(false);
+  const [purchasePending, setPurchasePending] = useState(false);
+  const purchaseAttemptRef = useRef(null);
+  const purchaseKeyFor = useCallback((payload) => {
+    const command = { ...payload };
+    delete command.idempotency_key;
+    const fingerprint = JSON.stringify(command);
+    if (purchaseAttemptRef.current?.fingerprint !== fingerprint) {
+      purchaseAttemptRef.current = { fingerprint, key: `purchase:${uuidv4()}` };
+    }
+    return purchaseAttemptRef.current.key;
+  }, []);
+  const postAgendaCreation = useCallback((url, payload) => axios.post(url, payload.purchase_launch
+    ? { ...payload, idempotency_key: purchaseKeyFor(payload) } : payload), [purchaseKeyFor]);
   const [filterPatientQuery, setFilterPatientQuery] = useState("");
   const [formPatientQuery, setFormPatientQuery] = useState("");
   const [packageOwnerQuery, setPackageOwnerQuery] = useState("");
@@ -1936,6 +1955,7 @@ export default function Agendamentos() {
       shared_package_source_session_id: "",
       shared_package_review_token: "",
       package_share_idempotency_key: "",
+      use_own_package: false,
     }));
     setFormPatientQuery(getPatientName(patient));
     setPackageOwnerQuery("");
@@ -2527,11 +2547,12 @@ export default function Agendamentos() {
       shared_package_source_session_id: "",
       shared_package_review_token: "",
       package_share_idempotency_key: "",
+      use_own_package: false,
     }));
   }, []);
 
   useEffect(() => {
-    if (canSharePackages) return;
+    if (canSharePackages || form.use_own_package) return;
     singleReviewAvailabilityRequestIdRef.current += 1;
     setPackageOwnerQuery("");
     setPackageOwners([]);
@@ -2558,7 +2579,7 @@ export default function Agendamentos() {
         };
       });
     }
-  }, [canSharePackages, editingId]);
+  }, [canSharePackages, editingId, form.use_own_package]);
 
   const startPackageShare = useCallback(async () => {
     if (!canSharePackages) {
@@ -2570,6 +2591,7 @@ export default function Agendamentos() {
     setForm((prev) => ({
       ...prev,
       shared_package_owner_id: "pending",
+      use_own_package: false,
       shared_package_id: "",
       shared_package_source_session_id: "",
       shared_package_review_token: "",
@@ -2950,6 +2972,7 @@ export default function Agendamentos() {
     }
     if (String(payload.shared_package_review_token || "").trim()) {
       availabilityPayload.shared_package_review_token = payload.shared_package_review_token;
+      if (payload.use_own_package) availabilityPayload.use_own_package = true;
     }
     const availabilityResponse = await checkSchedulingAvailability(availabilityPayload);
     const availability = validateSingleSchedulingAvailability(availabilityResponse?.data, {
@@ -3454,6 +3477,7 @@ export default function Agendamentos() {
   }, []);
 
   const requestDrawerDiscard = useCallback(() => {
+    if (purchasePending) { toast.info("Verifique o lançamento pendente antes de sair."); return; }
     const hasFormInput = drawerMode === "form" && Boolean(
       editingId
       || hasFilledText(form.patient_id)
@@ -3473,7 +3497,7 @@ export default function Agendamentos() {
       return;
     }
     setDiscardDrawerClose(() => closeDrawer);
-  }, [closeDrawer, drawerMode, editingId, form, repeatEnabled]);
+  }, [closeDrawer, drawerMode, editingId, form, repeatEnabled, purchasePending]);
 
   const keepDrawerEditing = useCallback(() => {
     setDiscardDrawerClose(null);
@@ -3485,6 +3509,9 @@ export default function Agendamentos() {
   }, [discardDrawerClose]);
 
   const resetForm = useCallback(() => {
+      setPurchaseLater(false);
+      setPurchasePending(false);
+    purchaseAttemptRef.current = null;
     singleReviewAvailabilityRequestIdRef.current += 1;
     setEditingId(null);
     setEditingIntent("create");
@@ -3522,6 +3549,11 @@ export default function Agendamentos() {
     );
     if (selectedOccurrences.length === 0) {
       toast.error("Selecione ao menos uma ocorrencia para criar.");
+      return;
+    }
+    if (recurrencePreview.series_payload?.purchase_launch
+      && selectedOccurrences.length !== recurrencePreview.occurrences.length) {
+      toast.error("Agendar agora exige programar todas as sessões de uma vez. Revise as datas.");
       return;
     }
 
@@ -3567,7 +3599,7 @@ export default function Agendamentos() {
 	      if (recurrencePreview.review_type === "single") {
 	        const selectedOccurrence = selectedOccurrences[0];
 	        const occurrenceWasEdited = !!selectedOccurrence.manually_edited;
-	        await axios.post("/sessions", {
+	        await postAgendaCreation("/sessions", {
 	          ...recurrencePreview.single_payload,
 	          starts_at: occurrenceWasEdited
 	            ? selectedOccurrence.starts_at
@@ -3589,8 +3621,11 @@ export default function Agendamentos() {
 	        await loadOperationalAlerts(selectedMonthKey);
 	        return;
 	      }
-	      const response = await axios.post("/session-series", {
+	      const response = await postAgendaCreation("/session-series", {
 	        ...recurrencePreview.series_payload,
+        ...(recurrencePreview.series_payload.purchase_launch ? {
+          quantity: recurrencePreview.occurrences.length,
+        } : {}),
         starts_at: selectedOccurrences[0].starts_at,
         occurrence_count: selectedOccurrences.length,
         until_date: null,
@@ -3844,6 +3879,7 @@ export default function Agendamentos() {
       );
     }
   }, [
+    postAgendaCreation,
     canSharePackages,
     closeDrawer,
     form.service_id,
@@ -5003,7 +5039,7 @@ export default function Agendamentos() {
 	    ) || null,
 	    [form.session_replacement_credit_id, replacementCreditsForPatient],
 	  );
-	  const isPackageShareFlow = !editingId && !!form.shared_package_owner_id;
+	  const isPackageShareFlow = !editingId && !!form.shared_package_owner_id && !form.use_own_package;
 	  const isEditingPackageReallocation = !!editingId && editPackageShare.active;
 		  const isSchedulingReplacement = !editingId && !!selectedReplacementCredit;
   const isPackageReplacement = isSchedulingReplacement
@@ -5127,7 +5163,7 @@ export default function Agendamentos() {
         || !!form.shared_package_id
         || !!form.shared_package_source_session_id
         || !!form.shared_package_review_token;
-      if (hasPackageShareSubmission && !canSharePackages) {
+      if (hasPackageShareSubmission && !canSharePackages && !form.use_own_package) {
         toast.error(PACKAGE_SHARE_PERMISSION_ERROR_MESSAGE);
         return;
       }
@@ -5370,6 +5406,18 @@ export default function Agendamentos() {
       if (shouldSendPriceOverride) {
         payload.price_override_cents = sessionPriceCents;
       }
+      if (form.use_own_package) {
+          payload.shared_package_id = Number(form.shared_package_id);
+          payload.shared_package_review_token = form.shared_package_review_token;
+          payload.use_own_package = true;
+          payload.idempotency_key = form.package_share_idempotency_key;
+        }
+        if (!editingId && !isSchedulingReplacement && !isPackageShareFlow
+        && !form.use_own_package && !selectedPatientCreditId && payload.billing_mode === "per_session") {
+        payload.purchase_launch = true;
+        payload.launch_notes = form.launch_notes || null;
+        payload.idempotency_key = purchaseKeyFor(payload);
+      }
 
       if (isRecurring) {
         let untilDate = null;
@@ -5423,6 +5471,11 @@ export default function Agendamentos() {
 		        };
         if (shouldSendPriceOverride && repeatMode !== "plan") {
           seriesPayload.price_override_cents = sessionPriceCents;
+        }
+        if (repeatMode !== "plan" && !selectedPatientCreditId) {
+          seriesPayload.purchase_launch = true;
+          seriesPayload.launch_notes = form.launch_notes || null;
+          seriesPayload.idempotency_key = purchaseKeyFor(seriesPayload);
         }
 
         if (repeatMode === "plan") {
@@ -5669,7 +5722,7 @@ export default function Agendamentos() {
           override_reason: overrideReason,
         };
 	        if (isEditingPackageReallocation) {
-	          const response = await axios.post("/sessions", {
+	          const response = await postAgendaCreation("/sessions", {
 	            ...payload,
 	            ...schedulingPayload,
 	            status: "scheduled",
@@ -5704,7 +5757,7 @@ export default function Agendamentos() {
 	                : `Agendamento atualizado. ${updatedCount} sessão(ões) alterada(s).`,
 	            );
 	          } else if (isReschedule) {
-            const response = await axios.post("/sessions", {
+            const response = await postAgendaCreation("/sessions", {
               ...payload,
               ...schedulingPayload,
               status: "scheduled",
@@ -5721,7 +5774,7 @@ export default function Agendamentos() {
             toast.success("Agendamento atualizado.");
           }
         } else {
-          await axios.post("/sessions", {
+          await postAgendaCreation("/sessions", {
             ...payload,
             ...schedulingPayload,
           });
@@ -5741,6 +5794,8 @@ export default function Agendamentos() {
     },
 	    [
 	      canAssignPatientCare,
+        purchaseKeyFor,
+        postAgendaCreation,
 		      canSharePackages,
 		      closeDrawer,
 		      allowBrokenTimeScheduling,
@@ -7287,6 +7342,30 @@ export default function Agendamentos() {
               </GroupPanel>
             )}
             {drawerMode !== "group" && (
+              <>
+              {!editingId && !isSchedulingReplacement && <div style={{ display: "flex", gap: 12, padding: 16 }}>
+                <button type="button" aria-pressed={!purchaseLater} disabled={purchasePending} onClick={() => setPurchaseLater(false)}>Agendar agora</button>
+                <button type="button" aria-pressed={purchaseLater} disabled={!canLaunchWithoutSchedule || purchasePending} onClick={() => setPurchaseLater(true)}>Agendar depois</button>
+              </div>}
+              {purchaseLater ? <PurchaseLaterForm patients={patientOptions} services={serviceOptions} patientId={form.patient_id}
+                onPendingChange={setPurchasePending} canShare={canSharePackages} canCancel={canLaunchWithoutSchedule}
+                  onPatientChange={(id) => { const patient = patientOptions.find((item) => String(item.id) === String(id)); if (patient) handleSelectPatient(patient); }}
+                  onScheduleRight={(pkg, id) => {
+                    setPurchaseLater(false); setRepeatEnabled(false); clearPackageShare();
+                    const patient = patientOptions.find((item) => String(item.id) === String(id));
+                    if (patient) setFormPatientQuery(getPatientName(patient));
+                    setForm((previous) => ({ ...previous, patient_id: String(id), use_own_package: true,
+                      shared_package_owner_id: String(id), shared_package_id: String(pkg.id),
+                      shared_package_review_token: pkg.review_token, service_id: String(pkg.service.id),
+                      service_type: pkg.service.code, package_share_idempotency_key: `own-right:${uuidv4()}`,
+                      is_no_charge: false, session_price: "", session_price_manually_changed: false }));
+                  }}
+                  onShare={() => { setPurchaseLater(false); startPackageShare(); }}
+                  onError={(message) => toast.error(message)} onSuccess={async () => {
+                  toast.success("Lançamento registrado. Sessões disponíveis para agendar depois.");
+                  resetForm(); closeDrawer(); await reloadVisibleSessions();
+                }}/>
+                :
               <Form onSubmit={handleSubmit}>
                 <FormGrid>
 			                  {editingId ? (
@@ -7360,6 +7439,53 @@ export default function Agendamentos() {
                       onSelect={handleSelectPatient}
                     />
                   )}
+                  {!editingId && !isSchedulingReplacement && <Field as="div" className="span-2">
+                    <RightsOriginPicker patientId={form.patient_id}
+                      selectedId={form.use_own_package ? form.shared_package_id : ""}
+                      canCancel={canLaunchWithoutSchedule} canShare={canSharePackages} sharing={isPackageShareFlow && !form.use_own_package}
+                      onShare={(checked) => { if (checked) startPackageShare(); else clearPackageShare(); }}
+                      onSelect={(pkg) => {
+                        clearPackageShare();
+                        if (!pkg) return;
+                        setRepeatEnabled(false);
+                        setForm((previous) => ({ ...previous, use_own_package: true,
+                          shared_package_owner_id: String(previous.patient_id), shared_package_id: String(pkg.id),
+                          shared_package_review_token: pkg.review_token, service_id: String(pkg.service.id),
+                          service_type: pkg.service.code, package_share_idempotency_key: `own-right:${uuidv4()}`,
+                          is_no_charge: false, session_price: "", session_price_manually_changed: false }));
+                      }}/>
+                  {isPackageShareFlow && !form.use_own_package && (
+		                        <CompactPackageOwner>
+		                          <PatientSearchField
+		                            mode="select"
+		                            label="De quem é o pacote?"
+		                            patients={packageOwners
+		                              .filter((owner) => String(owner.id) !== String(form.patient_id))
+		                              .map((owner) => ({ ...owner, full_name: owner.name }))}
+		                            selectedPatientId={form.shared_package_owner_id === "pending"
+		                              ? ""
+		                              : form.shared_package_owner_id}
+		                            value={packageOwnerQuery}
+		                            onChange={(nextValue) => {
+		                              setPackageOwnerQuery(nextValue);
+		                              if (form.shared_package_owner_id !== "pending") {
+		                                setSharedPackages([]);
+		                                setForm((prev) => ({
+		                                  ...prev,
+		                                  shared_package_owner_id: "pending",
+		                                  shared_package_id: "",
+		                                  shared_package_source_session_id: "",
+		                                  shared_package_review_token: "",
+		                                  package_share_idempotency_key: "",
+		                                }));
+		                              }
+		                            }}
+		                            onSelect={handleSelectPackageOwner}
+		                          />
+		                          {isPackageShareLoading && <small>Buscando pacientes...</small>}
+		                        </CompactPackageOwner>
+		                      )}
+</Field>}
 	                  <Field className="span-2">
 	                    Tipo de atendimento
 			                    {editingId && (
@@ -7373,9 +7499,9 @@ export default function Agendamentos() {
 	                          name="service_id"
 	                          value={form.service_id}
 	                          $selected={!!form.service_id}
-	                          disabled={isPackageReplacement}
+                          disabled={isPackageReplacement || form.use_own_package}
 		                          onChange={(event) => {
-                                if (isPackageReplacement) return;
+                                if (isPackageReplacement || form.use_own_package) return;
 		                            const selectedId = event.target.value;
 		                            const service = serviceOptions.find(
 		                              (item) => String(item.id) === selectedId,
@@ -7816,8 +7942,8 @@ export default function Agendamentos() {
                       )}
 		                    </RepeatCard>
 		                  )}
-	                  {!editingId && !isSchedulingReplacement && (
-	                    <ValueCard className="span-2">
+	                  {!editingId && !isSchedulingReplacement && !isPackageShareFlow && !form.use_own_package && (
+<ValueCard className="span-2">
 	                      <ValueHeader>
 	                        <strong>Valor da sessão</strong>
 	                        {!form.is_no_charge && !isPackageShareFlow && selectedServicePriceCents && (
@@ -7860,55 +7986,15 @@ export default function Agendamentos() {
 		                            />
 		                            <span>Sem cobrança</span>
 		                          </NoChargeOption>
-		                          {canSharePackages && (
-		                            <NoChargeOption>
-		                              <input
-		                                type="checkbox"
-		                                checked={isPackageShareFlow}
-		                                disabled={!form.patient_id}
-		                                onChange={(event) => {
-		                                  if (event.target.checked) startPackageShare();
-		                                  else clearPackageShare();
-		                                }}
-		                              />
-		                              <span>Usar pacote de outro paciente</span>
-		                            </NoChargeOption>
-		                          )}
 		                      </ValueOptions>
-		                      {isPackageShareFlow && (
-		                        <CompactPackageOwner>
-		                          <PatientSearchField
-		                            mode="select"
-		                            label="De quem é o pacote?"
-		                            patients={packageOwners
-		                              .filter((owner) => String(owner.id) !== String(form.patient_id))
-		                              .map((owner) => ({ ...owner, full_name: owner.name }))}
-		                            selectedPatientId={form.shared_package_owner_id === "pending"
-		                              ? ""
-		                              : form.shared_package_owner_id}
-		                            value={packageOwnerQuery}
-		                            onChange={(nextValue) => {
-		                              setPackageOwnerQuery(nextValue);
-		                              if (form.shared_package_owner_id !== "pending") {
-		                                setSharedPackages([]);
-		                                setForm((prev) => ({
-		                                  ...prev,
-		                                  shared_package_owner_id: "pending",
-		                                  shared_package_id: "",
-		                                  shared_package_source_session_id: "",
-		                                  shared_package_review_token: "",
-		                                  package_share_idempotency_key: "",
-		                                }));
-		                              }
-		                            }}
-		                            onSelect={handleSelectPackageOwner}
-		                          />
-		                          {isPackageShareLoading && <small>Buscando pacientes...</small>}
-		                        </CompactPackageOwner>
-		                      )}
+
 	                    </ValueCard>
 	                  )}
-	                  <Field className="span-2">
+	                  {!editingId && !isSchedulingReplacement && !isPackageShareFlow && !form.use_own_package && repeatMode !== "plan" && <Field className="span-2">
+Observação do lançamento (opcional)
+<textarea name="launch_notes" value={form.launch_notes || ""} onChange={handleFormChange} maxLength={2000} rows={2}/>
+</Field>}
+<Field className="span-2">
                     {notesFieldLabel}
                     <textarea
                       name="notes"
@@ -7970,7 +8056,8 @@ export default function Agendamentos() {
                     {submitButtonLabel}
                   </PrimaryButton>
                 </DrawerActions>
-              </Form>
+              </Form>}
+              </>
             )}
           </DrawerBody>
         </AppDrawer>

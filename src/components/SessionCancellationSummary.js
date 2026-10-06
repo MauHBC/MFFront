@@ -23,7 +23,10 @@ export const validCancellationPreview = (preview, target) => Boolean(
     preview.blockers.length === 0
     && typeof preview.preview_fingerprint === "string" && preview.preview_fingerprint.trim().length > 0
     && identifier(preview.entry?.id)
-    && identifier(preview.session?.id) && validDate(preview.session.starts_at)
+    && ((identifier(preview.session?.id) && validDate(preview.session.starts_at))
+      || (preview.session?.id === null && preview.session?.starts_at === null
+        && preview.entry?.session_id === null
+        && identifier(preview.entry?.package_unit_id) && !target.session_id))
     && Array.isArray(preview.affected_sessions)
     && preview.affected_sessions.every((session) => identifier(session?.id) && validDate(session.starts_at))
     && cents(preview.release_amount_cents)
@@ -38,10 +41,10 @@ export const validCancellationPreview = (preview, target) => Boolean(
 );
 
 export default function SessionCancellationSummary({ preview, formatCurrency }) {
-  const sessionDate = clinicalDate(preview.session.starts_at);
+  const sessionDate = preview.session.starts_at ? clinicalDate(preview.session.starts_at) : null;
   return (
     <section aria-label="Prévia do cancelamento">
-      <p><strong>Cancelar a sessão de {sessionDate}?</strong></p>
+      <p><strong>{sessionDate ? `Cancelar a sessão de ${sessionDate}?` : "Cancelar a cobrança do direito encerrado?"}</strong></p>
       {preview.package && (
         <p>O pacote passará de {formatCurrency(preview.package.amount_before_cents)} para {formatCurrency(preview.package.amount_after_cents)}.</p>
       )}
@@ -58,7 +61,7 @@ export default function SessionCancellationSummary({ preview, formatCurrency }) 
 
 SessionCancellationSummary.propTypes = {
   preview: PropTypes.shape({
-    session: PropTypes.shape({ id: PropTypes.number, starts_at: PropTypes.string.isRequired }).isRequired,
+    session: PropTypes.shape({ id: PropTypes.number, starts_at: PropTypes.string }).isRequired,
     package: PropTypes.shape({ amount_before_cents: PropTypes.number.isRequired, amount_after_cents: PropTypes.number.isRequired }),
     release_amount_cents: PropTypes.number.isRequired,
     affected_sessions: PropTypes.arrayOf(PropTypes.shape({ id: PropTypes.number, starts_at: PropTypes.string })),
