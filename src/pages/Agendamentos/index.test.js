@@ -2434,7 +2434,7 @@ describe("Agendamentos - editar agendamento", () => {
       expect(screen.getByLabelText(/Avaliação Coluna.*falta em 03\/05\/26/)).toBeInTheDocument();
 	    fireEvent.click(replacementSelect);
       expect(screen.getByRole("heading", { name: "Novo agendamento" })).toBeInTheDocument();
-      expect(screen.queryByRole("heading", { name: "Agendar reposição" })).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Agendar reposição", level: 3 })).toBeInTheDocument();
       expect(screen.getByText("Reposição selecionada. Sem nova cobrança.")).toBeInTheDocument();
 
       fireEvent.click(screen.getByLabelText("Registrar novas sessões"));
