@@ -1996,11 +1996,11 @@ consulta automaticamente os direitos. Loading e erro não liberam os detalhes
 nem assumem novo lançamento; erro permite tentar novamente. Respostas atrasadas
 de outro paciente são descartadas. Havendo saldo, apresenta opções por
 serviço/pacote, **Usar pacote de outro paciente** (conforme permissão) e
-**Fazer novo lançamento** no mesmo grupo mutuamente exclusivo. Nenhuma origem vem
+**Registrar novas sessões** no mesmo grupo mutuamente exclusivo. Nenhuma origem vem
 selecionada. Sem saldo, mostra aviso discreto e segue automaticamente como
 novo lançamento, mantendo o compartilhamento acessível sem confirmação extra.
 
-Somente em **Novo lançamento** aparecem **Agendar agora** e **Agendar depois**,
+Somente em **Registrar novas sessões** aparecem **Agendar agora** e **Agendar depois**,
 usando os controles existentes da Agenda. Ambos usam a mesma seleção de paciente,
 serviço, valor e observação de lançamento. Depois solicita quantidade e oculta
 profissional, data, horário e observação de sessão; não existe formulário paralelo.
@@ -2023,8 +2023,7 @@ Reserva própria usa a revisão normal de disponibilidade/alertas. Observação 
 lançamento e de sessão são campos opcionais separados. Comandos repetidos
 reutilizam a chave do mesmo payload; alterações geram outra confirmação.
 
-O grupo **Como deseja continuar?** explica as origens com o apoio "Use uma sessão disponível, utilize o pacote de outro paciente ou faça um novo lançamento.".
-**Usar sessão disponível** identifica serviço, saldo e tipo; havendo várias opções, também identifica o pacote pelo ID. **Fazer novo lançamento** traz o apoio "Comprar sessões para agendar agora ou depois".
+O grupo **Como deseja continuar?** apresenta opções compactas: serviço e quantidade total contratada na primeira linha, saldo não agendado na segunda. `quantity` é o total real do contrato, não o saldo; ausência de total não inventa quantidade. O ID aparece discretamente somente quando há mais de um pacote do mesmo serviço. **Usar pacote de outro paciente** e **Registrar novas sessões** mantêm as origens existentes. Os apoios explicativos do grupo e de agora/depois foram removidos. A entrada externa continua **Novo agendamento**.
 
 Cancelar unidades disponíveis está somente em Paciente → Histórico → Pacotes e sessões avulsas, junto de cada pacote e seu saldo disponível, para
 gestão da Agenda com alcance de clínica. Mostra contagem e aviso de manutenção

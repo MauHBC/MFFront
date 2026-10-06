@@ -10,13 +10,15 @@ const props = { rights: { status: "ready", options, refresh: jest.fn() }, origin
 beforeEach(() => jest.clearAllMocks());
 test("own, shared and new origins are explicit radios with no implicit new choice", () => {
   render(<RightsOriginPicker {...props}/>);
-  expect(screen.getByLabelText(/Fisioterapia - 3 sessões disponíveis/)).not.toBeChecked();
-  expect(screen.getByLabelText(/Pilates - 2 sessões disponíveis/)).not.toBeChecked();
+  expect(screen.getByLabelText(/Fisioterapia.*4 sessões.*3 não agendadas/)).not.toBeChecked();
+  expect(screen.getByLabelText(/Pilates.*2 sessões.*2 não agendadas/)).not.toBeChecked();
   expect(screen.getByText("Como deseja continuar?")).toBeInTheDocument();
-  expect(screen.getByText("Comprar sessões para agendar agora ou depois")).toBeInTheDocument();
+  expect(screen.queryByText("Comprar sessões para agendar agora ou depois")).not.toBeInTheDocument();
+  expect(screen.queryByText(/Use uma sessão disponível, utilize/)).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Cancelar unidades disponíveis" })).not.toBeInTheDocument();
-  expect(screen.getByLabelText(/Usar sessão disponível.*Fisioterapia.*#3/)).toBeInTheDocument();
-  expect(screen.getByLabelText("Fazer novo lançamento")).not.toBeChecked();
+  expect(screen.queryByText(/Usar sessão disponível/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/#3/)).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Registrar novas sessões")).not.toBeChecked();
   const shared = screen.getByLabelText("Usar pacote de outro paciente");
   expect(shared.type).toBe("radio");
   fireEvent.click(shared);
@@ -33,4 +35,27 @@ test("loading and errors expose no origin options; retry does not imply absence"
   expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
   expect(props.rights.refresh).toHaveBeenCalledTimes(1);
+});
+
+
+test("same-service packages carry a discreet identity; totals and unscheduled balances remain separate", () => {
+  const sameService = [
+    { id: 3, quantity: 10, free_rights: 2, service: { id: 40, name: "Pilates" } },
+    { id: 4, quantity: 1, free_rights: 1, service: { id: 40, name: "Pilates" } },
+  ];
+  render(<RightsOriginPicker {...props} rights={{ ...props.rights, options: sameService }}/>);
+  const first = screen.getByLabelText(/Pilates.*10 sessões.*2 não agendadas.*#3/);
+  const second = screen.getByLabelText(/Pilates.*1 sessão.*1 não agendada.*#4/);
+  expect(first).not.toBeChecked();
+  fireEvent.click(second);
+  expect(props.onSelect).toHaveBeenCalledWith(sameService[1]);
+});
+
+test("missing contract total never becomes a guessed total or package type", () => {
+  render(<RightsOriginPicker {...props} rights={{ ...props.rights, options: [
+    { id: 5, free_rights: 2, service: { id: 40, name: "Pilates" } },
+  ] }}/>);
+  expect(screen.getByLabelText(/Pilates.*2 não agendadas/)).toBeInTheDocument();
+  expect(screen.queryByText(/Pacote de|NaN|undefined|2 sessões/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/#5/)).not.toBeInTheDocument();
 });

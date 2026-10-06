@@ -3305,7 +3305,7 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Tentar novamente" }));
     expect(await within(form).findByText(/Nenhuma sessão disponível/)).toBeInTheDocument();
     expect(await within(form).findByText("Tipo de atendimento")).toBeInTheDocument();
-    expect(within(form).getByLabelText("Fazer novo lançamento")).toBeChecked();
+    expect(within(form).getByLabelText("Registrar novas sessões")).toBeChecked();
     expect(within(form).getByLabelText("Usar pacote de outro paciente")).toBeEnabled();
   });
 
@@ -3316,27 +3316,27 @@ describe("Agendamentos - editar agendamento", () => {
     const { container } = renderAgendamentos();
     const form = await openCreationForm();
     await selectCreationPatient();
-    await within(form).findByLabelText(/Fisioterapia - 3 sessões disponíveis/);
+    await within(form).findByLabelText(/Fisioterapia.*3 não agendadas/);
     expect(within(form).getAllByRole("radio").every((radio) => !radio.checked)).toBe(true);
     expect(within(form).queryByText("Tipo de atendimento")).not.toBeInTheDocument();
     fireEvent.submit(form);
     expect(axios.post).not.toHaveBeenCalled();
-    fireEvent.click(within(form).getByLabelText("Fazer novo lançamento"));
+    fireEvent.click(within(form).getByLabelText("Registrar novas sessões"));
     fireEvent.click(within(form).getByRole("button", { name: "+ Adicionar" }));
     fireEvent.change(container.querySelector('input[placeholder="Ex.: 10"]'), { target: { value: "3" } });
-    fireEvent.click(within(form).getByLabelText(/Fisioterapia - 3 sessões disponíveis/));
-    expect(within(form).getByLabelText("Fazer novo lançamento")).not.toBeChecked();
+    fireEvent.click(within(form).getByLabelText(/Fisioterapia.*3 não agendadas/));
+    expect(within(form).getByLabelText("Registrar novas sessões")).not.toBeChecked();
     expect(within(form).queryByText("Mais sessões")).not.toBeInTheDocument();
     expect(within(form).queryByRole("button", { name: "Agendar agora" })).not.toBeInTheDocument();
     expect(within(form).queryByRole("button", { name: "Agendar depois" })).not.toBeInTheDocument();
     expect(form.querySelector('select[name="service_id"]')).toBeDisabled();
     expect(within(form).queryByText("Valor da sessão")).not.toBeInTheDocument();
     fireEvent.click(within(form).getByLabelText("Usar pacote de outro paciente"));
-    expect(within(form).getByLabelText(/Fisioterapia - 3 sessões disponíveis/)).not.toBeChecked();
+    expect(within(form).getByLabelText(/Fisioterapia.*3 não agendadas/)).not.toBeChecked();
     expect(within(form).getAllByRole("radio").filter((radio) => radio.checked)).toHaveLength(1);
     expect(within(form).getByText("De quem é o pacote?")).toBeInTheDocument();
     expect(within(form).queryByRole("button", { name: "Agendar depois" })).not.toBeInTheDocument();
-    fireEvent.click(within(form).getByLabelText("Fazer novo lançamento"));
+    fireEvent.click(within(form).getByLabelText("Registrar novas sessões"));
     expect(within(form).queryByText("De quem é o pacote?")).not.toBeInTheDocument();
     expect(within(form).getByRole("button", { name: "Agendar depois" })).toBeInTheDocument();
   });
@@ -3357,9 +3357,9 @@ describe("Agendamentos - editar agendamento", () => {
     await act(async () => first({ data: [] }));
     expect(within(form).queryByText("Tipo de atendimento")).not.toBeInTheDocument();
     await act(async () => second({ data: ownRights }));
-    expect(await within(form).findByLabelText(/Fisioterapia - 3/)).not.toBeChecked();
-    expect(within(form).getByLabelText("Fazer novo lançamento")).not.toBeChecked();
-    fireEvent.click(within(form).getByLabelText("Fazer novo lançamento"));
+    expect(await within(form).findByLabelText(/Fisioterapia.*3 não agendadas/)).not.toBeChecked();
+    expect(within(form).getByLabelText("Registrar novas sessões")).not.toBeChecked();
+    fireEvent.click(within(form).getByLabelText("Registrar novas sessões"));
     fireEvent.change(form.querySelector('textarea[name="launch_notes"]'), { target: { value: "Anterior" } });
     fireEvent.change(form.querySelector('textarea[name="notes"]'), { target: { value: "Sessão anterior" } });
     await selectCreationPatient();
@@ -3455,7 +3455,7 @@ describe("Agendamentos - editar agendamento", () => {
     const { container } = renderAgendamentos();
     const form = await openCreationForm();
     await selectCreationPatient();
-    fireEvent.click(await within(form).findByLabelText("Fazer novo lançamento"));
+    fireEvent.click(await within(form).findByLabelText("Registrar novas sessões"));
     await selectAssignedProfessional(container);
     fireEvent.change(form.querySelector('select[name="service_id"]'), { target: { value: "41" } });
     fireEvent.change(form.querySelector('input[type="date"]'), { target: { value: "2026-07-06" } });
@@ -3466,7 +3466,7 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(form.querySelector('input[placeholder="Ex.: 10"]'), { target: { value: "2" } });
     fireEvent.click(within(form).getByRole("button", { name: "Revisar agendamento" }));
     await waitFor(() => expect(previewSchedulingOccurrences).toHaveBeenCalledTimes(1));
-    fireEvent.click(within(form).getByLabelText(/Fisioterapia - 3 sessões disponíveis/));
+    fireEvent.click(within(form).getByLabelText(/Fisioterapia.*3 não agendadas/));
     await act(async () => pendingPreview.resolve({ data: {
       occurrences_preview: [buildPreviewOccurrence(1, "2026-07-06"), buildPreviewOccurrence(2, "2026-07-13")],
       summary: buildPreviewSummary({ total: 2, available: 2, warn: 0, blocked: 0 }),

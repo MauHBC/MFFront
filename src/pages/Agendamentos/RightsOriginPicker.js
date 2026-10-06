@@ -11,17 +11,25 @@ export default function RightsOriginPicker({ rights, origin, selectedId, onSelec
     {rights.status === "ready" && <>
       {!rights.options.length && <FieldHint>Nenhuma sessão disponível. Este atendimento será lançado como novo.</FieldHint>}
       <strong>Como deseja continuar?</strong>
-      <FieldHint>Use uma sessão disponível, utilize o pacote de outro paciente ou faça um novo lançamento.</FieldHint>
-      {rights.options.map((pkg) => <div key={pkg.id}><Option htmlFor={`own-right-origin-${pkg.id}`}>
-        <input id={`own-right-origin-${pkg.id}`} type="radio" name="attendance-origin" checked={origin === "own" && String(selectedId) === String(pkg.id)}
-          onChange={() => onSelect(pkg)}/>{" "}Usar sessão disponível — {pkg.service.name} - {pkg.free_rights} {pkg.free_rights === 1 ? "sessão disponível" : "sessões disponíveis"}
-        <small> · {Number(pkg.quantity) === 1 ? "Avulsa" : `Pacote de ${pkg.quantity}`}{rights.options.length > 1 && ` · #${pkg.id}`}</small>
-      </Option></div>)}
+      {rights.options.map((pkg) => {
+        const quantity = Number(pkg.quantity);
+        const hasTotal = Number.isSafeInteger(quantity) && quantity > 0;
+        const serviceIdentity = pkg.service.id ?? pkg.service.name;
+        const needsIdentity = rights.options.some((other) => other !== pkg
+          && (other.service.id ?? other.service.name) === serviceIdentity);
+        return <Option key={pkg.id} htmlFor={`own-right-origin-${pkg.id}`} style={{ width: "100%", alignItems: "flex-start" }}>
+          <input id={`own-right-origin-${pkg.id}`} type="radio" name="attendance-origin"
+            checked={origin === "own" && String(selectedId) === String(pkg.id)} onChange={() => onSelect(pkg)}/>
+          <span style={{ display: "grid", gap: 2, minWidth: 0 }}>
+            <span>{pkg.service.name}{hasTotal && ` · ${quantity} ${quantity === 1 ? "sessão" : "sessões"}`}</span>
+            <small>{pkg.free_rights} {Number(pkg.free_rights) === 1 ? "não agendada" : "não agendadas"}{needsIdentity && ` · #${pkg.id}`}</small>
+          </span>
+        </Option>;
+      })}
       {canShare && <Option htmlFor="right-origin-shared"><input id="right-origin-shared" type="radio" name="attendance-origin"
         checked={origin === "shared"} onChange={onShare}/>{" "}Usar pacote de outro paciente</Option>}
       <Option htmlFor="own-right-origin-new"><input id="own-right-origin-new" type="radio" name="attendance-origin" checked={origin === "new"}
-        onChange={() => onSelect(null)}/>{" "}Fazer novo lançamento</Option>
-      <FieldHint>Comprar sessões para agendar agora ou depois</FieldHint>
+        onChange={() => onSelect(null)}/>{" "}Registrar novas sessões</Option>
     </>}
   </div>;
 }
