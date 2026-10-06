@@ -13,6 +13,7 @@ const internal = ["/login", "/menu/", "/register", "/agendamentos/eventos/",
   "/pacientes/123/avaliacoes/456", "/planos/pacientes/123", "/equipe",
   "/financeiro/configuracoes/formas-pagamento", "/configuracoes/documentos", "/platform/clinics/123"];
 const exceptions = ["/politica", "/politica/", "/cadastro/paciente/synthetic-code",
+  "/c/marca-1/synthetic-code", "/c/synthetic-code",
   "/credencial", "/credencial/", "/recuperar-senha", "/api/public/media/code",
   "/api/patients/123", "/assets/photo.png", "/static/main.js", "/uploads/file.pdf",
   "/downloads/document.pdf", "/unknown", "/agendamentos/unknown"];
