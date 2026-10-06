@@ -186,7 +186,7 @@ export default function PatientsSearch() {
               )}
             </InviteInfo>
             <LinkBox>
-              <LinkInput value={inviteLink} readOnly />
+              <LinkInput aria-label="Link de cadastro" value={inviteLink} readOnly />
               <SecondaryAction type="button" onClick={handleCopyInvite}>
                 Copiar
               </SecondaryAction>

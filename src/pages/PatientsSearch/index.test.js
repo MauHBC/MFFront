@@ -53,6 +53,20 @@ function renderPage() {
 }
 
 describe("PatientsSearch", () => {
+  it.each(["Espaço Cuidar", "Agenda de João"])("preserva somente a URL e a ação original de cópia para %s", async (name) => {
+    const link = "https://app.motria.com.br/c/nome-1/synthetic-placeholder";
+    axios.post.mockResolvedValue({ data: { invite_url: link, identity: { name } } });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Gerar link" }));
+    expect(await screen.findByLabelText("Link de cadastro")).toHaveValue(link);
+    expect(screen.queryByLabelText("Mensagem para copiar")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copiar mensagem" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copiar", exact: true }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(link));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
+    expect(axios.post).toHaveBeenCalledTimes(1);
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockPatientAccessLevel = "manage";
@@ -194,7 +208,7 @@ describe("PatientsSearch", () => {
     const expectedLink = `${window.location.origin}/cadastro/paciente/codigo-convite`;
     expect(await screen.findByDisplayValue(expectedLink)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Copiar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copiar", exact: true }));
     await waitFor(() => {
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expectedLink);
       expect(toast.success).toHaveBeenCalledWith("Link copiado.");
@@ -217,7 +231,7 @@ describe("PatientsSearch", () => {
     });
     navigator.clipboard.writeText.mockRejectedValueOnce(new Error("clipboard"));
     fireEvent.click(screen.getByRole("button", { name: "Gerar link" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Copiar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Copiar", exact: true }));
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith("Não foi possível copiar o link.");

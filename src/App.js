@@ -21,6 +21,7 @@ import productIdentity from "./config/productIdentity";
 import TenantLoading from "./components/TenantLoading";
 import useAppVersionUpdate from "./hooks/useAppVersionUpdate";
 import EntryBoundary, { useEntryPolicy } from "./routes/EntryBoundary";
+import { isPatientInvitePath } from "./utils/patientInvite";
 
 const PUBLIC_LANDING_PATH = "/";
 const AUTH_REDIRECT_PATHS = new Set(["/login", "/login/"]);
@@ -49,6 +50,7 @@ function InitialRenderGate({ children }) {
     }
   }, [central, clinicError, clinicLoaded, isLoggedIn, shouldRedirectAuthenticatedPath, returnTo]);
 
+  if (isPatientInvitePath(location.pathname)) return children;
   if (switching) return <TenantLoading />;
   if (central && isLoggedIn && clinicLoaded && clinicError && shouldRedirectAuthenticatedPath) {
     return <div role="alert">Não foi possível validar sua sessão. Recarregue a página para tentar novamente.</div>;
@@ -130,7 +132,8 @@ function AppHelmet() {
 
   return (
     <Helmet>
-      <title>{title}</title>
+      {/* The invite page owns its title, including with another tenant logged in. */}
+      {!isPatientInvitePath(location.pathname) && <title>{title}</title>}
       {new URLSearchParams(location.hash.replace(/^#/, "")).get("landing_preview") && (
         <meta name="robots" content="noindex,nofollow,noarchive" />
       )}

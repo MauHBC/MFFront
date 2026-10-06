@@ -89,7 +89,7 @@ async function fixture() {
       clinics.push(clinic);
       await model('ClinicBranding').create({ clinic_id: clinic.id, public_name: `Fixture Clinic ${index}` });
       for (const domain of domains[index]) {
-        await model('ClinicDomain').create({ clinic_id: clinic.id, domain,
+        await model('ClinicDomain').create({ clinic_id: clinic.id, domain, domain_type: index < 2 ? 'custom_domain' : 'subdomain',
           is_primary: domain === domains[index][0], is_active: true, verification_status: 'verified' });
       }
       if (index < 2) {
@@ -121,6 +121,12 @@ async function fixture() {
     const token = () => crypto.randomBytes(32).toString('base64url');
     const invite = token();
     const expiredInvite = token();
+    const customInvite = crypto.randomBytes(16).toString('base64url');
+    await model('PatientInvite').create({ clinic_id: clinics[0].id,
+      created_by_membership_id: memberships[0].id,
+      public_slug: 'fixture-clinic', public_origin: `https://${nginx.hosts[0]}`,
+      secret_digest: crypto.createHash('sha256').update(customInvite).digest('hex'),
+      expires_at: new Date(Date.now() + 600000) });
     for (const [secret, expired] of [[invite, false], [expiredInvite, true]]) {
       await model('PatientInvite').create({ clinic_id: clinics[0].id, created_by_membership_id: memberships[0].id,
         secret_digest: crypto.createHash('sha256').update(secret).digest('hex'),
@@ -226,12 +232,24 @@ async function fixture() {
       for (const [secret, valid] of [[invite, true], [expiredInvite, false]]) {
         const response = page.waitForResponse((res) => res.url().includes('/public/patient-invites/')
           && res.status() === (valid ? 200 : 404));
-        await goto(`https://${nginx.hosts[5]}/cadastro/paciente/${secret}`);
+        await goto(`https://${nginx.hosts[0]}/cadastro/paciente/${secret}`);
         await response;
         if (valid) await page.locator('form').waitFor();
         else await page.getByText('Convite indisponível', { exact: false }).waitFor();
-        assert.equal(new URL(page.url()).hostname, nginx.hosts[5]);
+        assert.equal(new URL(page.url()).hostname, nginx.hosts[0]);
       }
+    });
+    await check('custom short invite stays on its own host and foreign host discloses no invite identity', async () => {
+      await goto(`https://${nginx.hosts[0]}/c/${customInvite}`);
+      await page.locator('form').waitFor();
+      await page.getByText('Fixture Clinic 0', { exact: true }).waitFor();
+      assert.equal(new URL(page.url()).hostname, nginx.hosts[0]);
+      assert.equal(await model('PatientInvite').count({ where: { used_at: { [require(path.join(backendRoot, 'node_modules/sequelize')).Op.ne]: null } } }), 0);
+      const rejected = page.waitForResponse((res) => res.url().includes('/public/patient-invites/') && res.status() === 404);
+      await goto(`https://${nginx.hosts[2]}/c/${customInvite}`);
+      await rejected;
+      await page.getByText('Convite indisponível', { exact: false }).waitFor();
+      assert.equal(await page.locator('form').count(), 0);
     });
     await check('credential valid/expired stays on origin and removes its own fragment only', async () => {
       for (const [secret, valid] of [[credentials[0], true], [credentials[1], false]]) {

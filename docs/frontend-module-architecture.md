@@ -351,6 +351,45 @@ gates. O `testMatch` do Jest usa padrões independentes do caminho absoluto para
 que `npm test -- --watchAll=false --runInBand` também descubra as suítes em
 worktrees Windows sob `.codex-worktrees`.
 
+#### Identidade dos convites públicos de paciente
+
+`Gerar link` mantém o painel original: somente o link, a validade e a ação
+`Copiar`, que copia exatamente a URL. Não há mensagem padronizada nem ação de
+cópia de mensagem. A interface não envia WhatsApp.
+
+Domínio próprio primário, ativo e verificado usa `https://{dominio}/c/{segredo}`;
+sem ele, novos links usam `https://app.motria.com.br/c/{nome-normalizado}/{segredo}`,
+sem sufixo de ID. Seleção e origem persistida pertencem ao Backend, sem aceitar
+`Origin` do navegador. A rota curta envia somente o código; a rota central
+envia também o slug salvo. Slugs iguais não escolhem tenant. A rota antiga
+`/cadastro/paciente/{segredo}` continua funcionando. Essas rotas são públicas, sem
+navbar/App Shell. A rota central inclui o slug na consulta e no envio à API;
+o Backend valida sua correspondência ao convite e preserva as regras de
+[PAC-005](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/pacientes.md#pac-005).
+
+`PatientSelfSignup` apresenta `identity.name` e `identity.logo_url` retornados
+pelo convite. Logo ausente ou indisponível conserva o nome, sem imagem quebrada.
+Nome e logo compõem uma identidade horizontal alinhada, acima de “Cadastro do
+paciente”. O nome tem destaque proporcional à logo e aparece uma única vez;
+nomes longos quebram dentro do bloco, inclusive no celular. Sem logo, o nome
+mantém o destaque. A logo é decorativa para leitores de tela quando acompanha
+o nome escrito, evitando anunciar a identidade duas vezes.
+O nome operacional da Agenda é o fallback do Backend; não se cria classificação
+clínica/autônomo ou perfil público adicional. Título e cabeçalho não usam a
+sessão autenticada nem o domínio. Os gates da sessão/estado comercial de outra
+Agenda não bloqueiam essas rotas públicas; a API mantém as validações do convite.
+O título do cadastro também não é sobrescrito pelo contexto público do host.
+
+Não há alteração de validade, uso único, permissões ou atribuição assistencial;
+não há DNS, envio automático ou implementação de prévia WhatsApp/SSR.
+
+Para ativar URLs novas, primeiro publicar o Frontend compatível com respostas
+anteriores sem `identity` e com as três rotas públicas. Só depois aplicar as
+expansões nullable e ativar o Backend emissor. O Frontend antigo não reconhece
+as novas rotas; não iniciar emissões antes dessa compatibilidade. Após emitir
+URLs novas, preservar um Frontend que reconheça essas rotas em qualquer
+recuperação; não apagar slugs/origens persistidos com `down` das migrations.
+
 #### Composição modular de `PatientDetails`
 
 A rota `/pacientes/:id` continua protegida por `patients/view`, mas a página

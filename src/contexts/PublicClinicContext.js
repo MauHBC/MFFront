@@ -11,6 +11,7 @@ import { useLocation } from "react-router-dom";
 import axios from "../services/axios";
 import { getClinicPublicProfile } from "../config/clinicPublicProfiles";
 import productIdentity from "../config/productIdentity";
+import { isPatientInvitePath } from "../utils/patientInvite";
 
 const DEFAULT_PUBLIC_CONTEXT = {
   has_public_tenant: false,
@@ -202,7 +203,8 @@ export function PublicClinicProvider({ children }) {
         const nextContext = normalizeContext(response.data);
         setPublicClinic(nextContext);
         applyPublicVariables(nextContext);
-        if (window.location.pathname.replace(/\/$/, "") !== "/login" || nextContext.has_public_tenant) {
+        if (!isPatientInvitePath(window.location.pathname)
+          && (window.location.pathname.replace(/\/$/, "") !== "/login" || nextContext.has_public_tenant)) {
           document.title = nextContext.public_name;
         }
         applyPublicFavicon(nextContext.favicon_url, nextContext.has_public_tenant);
@@ -212,7 +214,8 @@ export function PublicClinicProvider({ children }) {
         setError(err);
         setPublicClinic(DEFAULT_PUBLIC_CONTEXT);
         applyPublicVariables(DEFAULT_PUBLIC_CONTEXT);
-        if (window.location.pathname.replace(/\/$/, "") !== "/login") {
+        if (!isPatientInvitePath(window.location.pathname)
+          && window.location.pathname.replace(/\/$/, "") !== "/login") {
           document.title = DEFAULT_PUBLIC_CONTEXT.public_name;
         }
         applyPublicFavicon(DEFAULT_PUBLIC_CONTEXT.favicon_url, false);
