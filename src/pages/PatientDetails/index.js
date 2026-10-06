@@ -1499,7 +1499,8 @@ export default function PatientDetails() {
           id: `package-${pkg.id}`,
           kind: "package",
             isSinglePurchase: pkg.origin === "agenda_purchase" && Number(pkg.quantity) === 1,
-            hasAvailableRights: pkg.status === "active" && pkg.sessions.some((session) => session.unit_state === "available"),
+            hasAvailableRights: pkg.status === "active" && (pkg.sessions || []).some((session) => session.unit_state === "available"),
+            availableCount: (pkg.sessions || []).filter((session) => session.unit_state === "available").length,
         sourceId: pkg.id,
         serviceName: pkg.service?.name || "Pacote de sessões",
         referenceDate: pkg.reference_date || pkg.contracted_at || pkg.sessions?.[0]?.starts_at || null,
@@ -3021,6 +3022,7 @@ export default function PatientDetails() {
                           </td>
                           <td>
                             <strong>{item.serviceName}</strong>
+                            {item.availableCount !== undefined && <div>{item.availableCount} {item.availableCount === 1 ? "sessão disponível" : "sessões disponíveis"}</div>}
                             {item.kind === "single" && item.sessions[0]?.packageOwnerName && (
                               <div>
                                 <PackagePill>

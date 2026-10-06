@@ -1996,7 +1996,7 @@ consulta automaticamente os direitos. Loading e erro não liberam os detalhes
 nem assumem novo lançamento; erro permite tentar novamente. Respostas atrasadas
 de outro paciente são descartadas. Havendo saldo, apresenta opções por
 serviço/pacote, **Usar pacote de outro paciente** (conforme permissão) e
-**Novo lançamento** no mesmo grupo mutuamente exclusivo. Nenhuma origem vem
+**Fazer novo lançamento** no mesmo grupo mutuamente exclusivo. Nenhuma origem vem
 selecionada. Sem saldo, mostra aviso discreto e segue automaticamente como
 novo lançamento, mantendo o compartilhamento acessível sem confirmação extra.
 
@@ -2023,7 +2023,10 @@ Reserva própria usa a revisão normal de disponibilidade/alertas. Observação 
 lançamento e de sessão são campos opcionais separados. Comandos repetidos
 reutilizam a chave do mesmo payload; alterações geram outra confirmação.
 
-Cancelar unidades disponíveis está na origem e no histórico do titular, para
+O grupo **Como deseja continuar?** explica as origens com o apoio "Use uma sessão disponível, utilize o pacote de outro paciente ou faça um novo lançamento.".
+**Usar sessão disponível** identifica serviço, saldo e tipo; havendo várias opções, também identifica o pacote pelo ID. **Fazer novo lançamento** traz o apoio "Comprar sessões para agendar agora ou depois".
+
+Cancelar unidades disponíveis está somente em Paciente → Histórico → Pacotes e sessões avulsas, junto de cada pacote e seu saldo disponível, para
 gestão da Agenda com alcance de clínica. Mostra contagem e aviso de manutenção
 das cobranças, motivo opcional, prévia e confirmação. Resultado incerto congela
 o comando e permite verificar a mesma tentativa; revisão vencida exige outra

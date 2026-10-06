@@ -12,7 +12,11 @@ test("own, shared and new origins are explicit radios with no implicit new choic
   render(<RightsOriginPicker {...props}/>);
   expect(screen.getByLabelText(/Fisioterapia - 3 sessões disponíveis/)).not.toBeChecked();
   expect(screen.getByLabelText(/Pilates - 2 sessões disponíveis/)).not.toBeChecked();
-  expect(screen.getByLabelText("Novo lançamento")).not.toBeChecked();
+  expect(screen.getByText("Como deseja continuar?")).toBeInTheDocument();
+  expect(screen.getByText("Comprar sessões para agendar agora ou depois")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Cancelar unidades disponíveis" })).not.toBeInTheDocument();
+  expect(screen.getByLabelText(/Usar sessão disponível.*Fisioterapia.*#3/)).toBeInTheDocument();
+  expect(screen.getByLabelText("Fazer novo lançamento")).not.toBeChecked();
   const shared = screen.getByLabelText("Usar pacote de outro paciente");
   expect(shared.type).toBe("radio");
   fireEvent.click(shared);

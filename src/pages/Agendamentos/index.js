@@ -7569,7 +7569,7 @@ export default function Agendamentos() {
                   {isNewOriginFlow && form.patient_id && <Field as="div" className="span-2">
                     <RightsOriginPicker rights={patientRights} origin={selectedOrigin} Option={NoChargeOption}
                       selectedId={form.use_own_package ? form.shared_package_id : ""}
-                      canCancel={canLaunchWithoutSchedule} canShare={canSharePackages}
+                      canShare={canSharePackages}
                       onShare={selectSharedOrigin} onSelect={selectOwnOrNewOrigin}/>
                   {originReady && isPackageShareFlow && selectedOrigin === "shared" && (
 		                        <CompactPackageOwner>
