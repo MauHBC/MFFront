@@ -12,7 +12,7 @@ test("own, shared and new origins are explicit radios with no implicit new choic
   render(<RightsOriginPicker {...props}/>);
   expect(screen.getByLabelText(/Fisioterapia.*4 sessões.*3 não agendadas/)).not.toBeChecked();
   expect(screen.getByLabelText(/Pilates.*2 sessões.*2 não agendadas/)).not.toBeChecked();
-  expect(screen.getByText("Como deseja continuar?")).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: "Como deseja continuar?" })).toBeInTheDocument();
   expect(screen.queryByText("Comprar sessões para agendar agora ou depois")).not.toBeInTheDocument();
   expect(screen.queryByText(/Use uma sessão disponível, utilize/)).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Cancelar unidades disponíveis" })).not.toBeInTheDocument();
@@ -58,4 +58,14 @@ test("missing contract total never becomes a guessed total or package type", () 
   expect(screen.getByLabelText(/Pilates.*2 não agendadas/)).toBeInTheDocument();
   expect(screen.queryByText(/Pacote de|NaN|undefined|2 sessões/)).not.toBeInTheDocument();
   expect(screen.queryByText(/#5/)).not.toBeInTheDocument();
+});
+
+test("replacement-only balance requires explicit origin and shares the existing radio group", () => {
+ const credit = { id: 9, source_service_name: "Pilates" }; const onReplacement = jest.fn();
+ render(<RightsOriginPicker {...props} rights={{ ...props.rights, options: [], replacements: [credit] }} onReplacement={onReplacement}/>);
+ expect(screen.queryByText(/Nenhuma sessão disponível/)).not.toBeInTheDocument();
+ const replacement = screen.getByLabelText("Reposição: Pilates");
+ expect(replacement).not.toBeChecked(); expect(replacement.name).toBe("attendance-origin");
+ fireEvent.click(replacement); expect(onReplacement).toHaveBeenCalledWith(credit);
+ expect(props.onSelect).not.toHaveBeenCalled();
 });

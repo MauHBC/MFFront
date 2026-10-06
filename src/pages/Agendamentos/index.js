@@ -35,6 +35,8 @@ import usePurchaseLaterCommand from "./usePurchaseLaterCommand";
 import usePatientRights from "./usePatientRights";
 import creationCommand from "./creationCommand";
 import RightsOriginPicker from "./RightsOriginPicker";
+import SchedulingDetails from "./SchedulingDetails";
+import { normalizeReplacementCredit } from "./patientSchedulingOrigins";
 import { disabledFieldStyles, FieldHint, Field as AppField } from "../../components/AppForm";
 import {
   formatCurrencyInput,
@@ -1607,6 +1609,7 @@ export default function Agendamentos() {
   const [form, setForm] = useState(emptyForm);
   const [purchaseLater, setPurchaseLater] = useState(false);
   const [selectedOrigin, setSelectedOrigin] = useState("");
+  const [isInitialOriginChoice, setIsInitialOriginChoice] = useState(false);
   const [patientSelection, setPatientSelection] = useState(0);
   const creationSelectionVersionRef = useRef(0);
   const purchaseCallbacksRef = useRef({});
@@ -1683,6 +1686,7 @@ export default function Agendamentos() {
   const [isDeletePreviewing, setIsDeletePreviewing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [replacementCreditsForPatient, setReplacementCreditsForPatient] = useState([]);
+  const replacementCreditsRequestIdRef = useRef(0);
   const [operationalPolicy, setOperationalPolicy] = useState(DEFAULT_OPERATIONAL_POLICY);
   const [showEditReasonError, setShowEditReasonError] = useState(false);
   const [expandedHours, setExpandedHours] = useState(new Set());
@@ -1851,6 +1855,8 @@ export default function Agendamentos() {
   );
 
   const loadReplacementCreditsForPatient = useCallback(async (patientId) => {
+    replacementCreditsRequestIdRef.current += 1;
+    const requestId = replacementCreditsRequestIdRef.current;
     if (!patientId) {
       setReplacementCreditsForPatient([]);
       return;
@@ -1859,16 +1865,26 @@ export default function Agendamentos() {
       const response = await axios.get("/session-replacement-credits", {
         params: { patient_id: patientId, status: "pending" },
       });
-      setReplacementCreditsForPatient(Array.isArray(response.data) ? response.data : []);
+      if (requestId !== replacementCreditsRequestIdRef.current) return;
+      setReplacementCreditsForPatient((previous) => (Array.isArray(response.data) ? response.data : []).map((credit) =>
+        normalizeReplacementCredit(credit, previous.find((item) => String(item.id) === String(credit.id)) || {})));
     } catch (_err) {
+      if (requestId !== replacementCreditsRequestIdRef.current) return;
       setReplacementCreditsForPatient([]);
     }
   }, []);
 
   useEffect(() => {
+    if (isInitialOriginChoice && !editingId) {
+      replacementCreditsRequestIdRef.current += 1;
+      setReplacementCreditsForPatient([]);
+      return;
+    }
     loadReplacementCreditsForPatient(form.patient_id);
   }, [
     form.patient_id,
+    isInitialOriginChoice,
+    editingId,
     loadReplacementCreditsForPatient,
   ]);
 
@@ -1994,6 +2010,7 @@ export default function Agendamentos() {
     setPackageOwnerQuery("");
     setSharedPackages([]);
     if (!editingId) {
+      setIsInitialOriginChoice(true);
       creationSelectionVersionRef.current += 1;
       setPatientSelection((value) => value + 1);
       setSelectedOrigin("");
@@ -3014,7 +3031,14 @@ export default function Agendamentos() {
     }
     if (String(payload.shared_package_review_token || "").trim()) {
       availabilityPayload.shared_package_review_token = payload.shared_package_review_token;
-      if (payload.use_own_package) availabilityPayload.use_own_package = true;
+      if (payload.use_own_package) {
+        availabilityPayload.use_own_package = true;
+        if (payload.own_package_right_kind) availabilityPayload.own_package_right_kind = payload.own_package_right_kind;
+        if (payload.idempotency_key) availabilityPayload.idempotency_key = payload.idempotency_key;
+      }
+    }
+    if (positiveIdentifier(payload.session_replacement_credit_id)) {
+      availabilityPayload.session_replacement_credit_id = Number(payload.session_replacement_credit_id);
     }
     const availabilityResponse = await checkSchedulingAvailability(availabilityPayload);
     const availability = validateSingleSchedulingAvailability(availabilityResponse?.data, {
@@ -3552,6 +3576,7 @@ export default function Agendamentos() {
   }, [discardDrawerClose]);
 
   const resetForm = useCallback(() => {
+    setIsInitialOriginChoice(true);
     creationSelectionVersionRef.current += 1;
     setPatientSelection((value) => value + 1);
       setPurchaseLater(false);
@@ -4000,6 +4025,7 @@ export default function Agendamentos() {
     setEditingId(null);
     setEditingIntent("create");
     setRepeatEnabled(false);
+    setIsInitialOriginChoice(false);
     setReplacementCreditsForPatient([replacementCredit]);
     setFormPatientQuery(replacementCredit.patient_name || "Paciente");
     setForm({
@@ -5083,22 +5109,23 @@ export default function Agendamentos() {
     }
   }, [attendanceModal, loadPendingSessions, reloadVisibleSessions]);
 
-	  const selectedReplacementCredit = useMemo(
-	    () => replacementCreditsForPatient.find(
-	      (credit) => String(credit.id) === String(form.session_replacement_credit_id),
-	    ) || null,
-	    [form.session_replacement_credit_id, replacementCreditsForPatient],
-	  );
-	  const isPackageShareFlow = !editingId && !!form.shared_package_owner_id && !form.use_own_package;
-	  const isEditingPackageReallocation = !!editingId && editPackageShare.active;
-		  const isSchedulingReplacement = !editingId && !!selectedReplacementCredit;
+  const isInitialOriginFlow = !editingId && isInitialOriginChoice;
+  const patientRights = usePatientRights(form.patient_id,
+    isDrawerOpen && drawerMode === "form" && isInitialOriginFlow, patientSelection, true);
+  const selectedReplacementCredit = useMemo(() => (
+    isInitialOriginFlow ? patientRights.replacements : replacementCreditsForPatient
+  ).find((credit) => String(credit.id) === String(form.session_replacement_credit_id)) || null,
+  [isInitialOriginFlow, patientRights.replacements, replacementCreditsForPatient, form.session_replacement_credit_id]);
+  const isPackageShareFlow = !editingId && !!form.shared_package_owner_id && !form.use_own_package;
+  const isEditingPackageReallocation = !!editingId && editPackageShare.active;
+  const isSchedulingReplacement = !editingId && !!selectedReplacementCredit;
   const isNewOriginFlow = !editingId && !isSchedulingReplacement;
-  const patientRights = usePatientRights(form.patient_id, isDrawerOpen && drawerMode === "form" && !editingId, patientSelection);
   const originReady = patientRights.status === "ready";
   const creationEndpoint = creationCommand({ ready: originReady, origin: selectedOrigin,
     own: form.use_own_package, packageId: form.shared_package_id,
+    replacementId: selectedReplacementCredit?.id,
     sharing: isPackageShareFlow, repeat: repeatEnabled, later: purchaseLater });
-  const hasCreationDetails = !isNewOriginFlow || (originReady && !!selectedOrigin);
+  const hasCreationDetails = !isInitialOriginFlow || (originReady && !!creationEndpoint);
   const isNewPurchase = isNewOriginFlow && !!creationEndpoint && selectedOrigin === "new"
     && !form.use_own_package && !isPackageShareFlow;
   const isDeferredPurchase = isNewPurchase && purchaseLater;
@@ -5113,15 +5140,17 @@ export default function Agendamentos() {
   if (purchaseCommand.uncertain) purchaseSubmitLabel = "Verificar lançamento";
   const purchaseQuantity = repeatEnabled && repeatMode === "count" ? repeatCount : form.purchase_quantity;
   useEffect(() => {
-    if (isNewOriginFlow && originReady && !patientRights.options.length && !selectedOrigin) {
+    if (isInitialOriginFlow && originReady && !patientRights.options.length && !patientRights.replacements.length && !selectedOrigin) {
       setSelectedOrigin("new");
     }
-  }, [isNewOriginFlow, originReady, patientRights.options.length, selectedOrigin]);
+  }, [isInitialOriginFlow, originReady, patientRights.options.length, patientRights.replacements.length, selectedOrigin]);
 
   const selectOwnOrNewOrigin = (pkg) => {
     if (purchasePending) return;
     creationSelectionVersionRef.current += 1;
     clearPackageShare();
+    setForm((previous) => ({ ...previous, session_replacement_credit_id: "",
+      cycle_reschedule_exception_justified: false, cycle_reschedule_exception_reason: "" }));
     let origin = "new";
     if (pkg) origin = "own";
     if (pkg === undefined) origin = "";
@@ -5142,6 +5171,20 @@ export default function Agendamentos() {
     setSelectedOrigin("shared"); setPurchaseLater(false); setRecurrencePreview(null);
     setForm((previous) => ({ ...previous, launch_notes: "" }));
     startPackageShare();
+  };
+  const selectReplacementOrigin = (candidate) => {
+    if (purchasePending || !originReady) return;
+    const credit = patientRights.replacements.find((item) => String(item.id) === String(candidate.id));
+    if (!credit || String(credit.patient_id) !== String(form.patient_id)) return;
+    creationSelectionVersionRef.current += 1;
+    clearPackageShare();
+    setSelectedOrigin("replacement"); setPurchaseLater(false); setRepeatEnabled(false); setRecurrencePreview(null);
+    setForm((previous) => ({ ...previous, session_replacement_credit_id: String(credit.id),
+      service_id: credit.source_service_id ? String(credit.source_service_id) : previous.service_id,
+      service_type: credit.source_service_type || previous.service_type,
+      billing_mode: credit.source_billing_mode || previous.billing_mode,
+      launch_notes: "", is_no_charge: false, session_price: "", session_price_manually_changed: false,
+      cycle_reschedule_exception_justified: false, cycle_reschedule_exception_reason: "" }));
   };
   const handleSubmitPurchaseLater = async (event) => {
     event.preventDefault();
@@ -5277,8 +5320,9 @@ export default function Agendamentos() {
     async (event) => {
       event.preventDefault();
       if (submitLockRef.current || isSaving) return;
-      if (isNewOriginFlow && (!creationEndpoint || purchasePending || creationEndpoint === "/package-purchases")) return;
-      if (isNewOriginFlow && (
+      if (!editingId && form.session_replacement_credit_id && !selectedReplacementCredit) return;
+      if (isInitialOriginFlow && (!creationEndpoint || purchasePending || creationEndpoint === "/package-purchases")) return;
+      if (isInitialOriginFlow && (
         (selectedOrigin === "own" && (!form.use_own_package || !form.shared_package_id))
         || (selectedOrigin === "shared" && !isPackageShareFlow)
         || (selectedOrigin === "new" && !isNewPurchase)
@@ -5538,6 +5582,7 @@ export default function Agendamentos() {
           payload.shared_package_id = Number(form.shared_package_id);
           payload.shared_package_review_token = form.shared_package_review_token;
           payload.use_own_package = true;
+          if (isInitialOriginFlow) payload.own_package_right_kind = "purchased";
           payload.idempotency_key = form.package_share_idempotency_key;
         }
         if (isNewPurchase && !selectedPatientCreditId && payload.billing_mode === "per_session") {
@@ -5930,6 +5975,8 @@ export default function Agendamentos() {
         purchaseKeyFor,
         postAgendaCreation,
         isNewOriginFlow,
+        isInitialOriginFlow,
+        selectedReplacementCredit,
         selectedOrigin,
         purchasePending,
         isNewPurchase,
@@ -7566,13 +7613,19 @@ export default function Agendamentos() {
                       onSelect={handleSelectPatient}
                     />
                   )}
-                  {isNewOriginFlow && form.patient_id && <Field as="div" className="span-2">
+                  {isInitialOriginFlow && form.patient_id && <Field as="div" className="span-2">
                     <RightsOriginPicker rights={patientRights} origin={selectedOrigin} Option={NoChargeOption}
                       selectedId={form.use_own_package ? form.shared_package_id : ""}
                       canShare={canSharePackages}
-                      onShare={selectSharedOrigin} onSelect={selectOwnOrNewOrigin}/>
+                      onShare={selectSharedOrigin} onSelect={selectOwnOrNewOrigin}
+                      replacementId={form.session_replacement_credit_id} onReplacement={selectReplacementOrigin}
+                      replacementLabel={getReplacementCreditOptionLabel}/>
+                  </Field>}
+                  {hasCreationDetails && <SchedulingDetails separated={isInitialOriginFlow}
+                    title={{ new: "Novas sessões", shared: "Pacote de outro paciente", replacement: "Agendar reposição" }[selectedOrigin] || "Agendar sessão"}>
+                    {isInitialOriginFlow && isSchedulingReplacement && <ReplacementSelectionHint className="span-2">Reposição selecionada. Sem nova cobrança.</ReplacementSelectionHint>}
                   {originReady && isPackageShareFlow && selectedOrigin === "shared" && (
-		                        <CompactPackageOwner>
+		                        <CompactPackageOwner className="span-2">
 		                          <PatientSearchField
 		                            mode="select"
 		                            label="De quem é o pacote?"
@@ -7602,10 +7655,8 @@ export default function Agendamentos() {
 		                          {isPackageShareLoading && <small>Buscando pacientes...</small>}
 		                        </CompactPackageOwner>
 		                      )}
-</Field>}
-                  {hasCreationDetails && <>
                   {isNewPurchase && <Field as="div" className="span-2">
-                    <RepeatModes>
+                    <RepeatModes role="group" aria-label="Quando agendar as novas sessões">
                       <RepeatModeButton type="button" $active={!purchaseLater} aria-pressed={!purchaseLater}
                         onClick={() => {
                           if (purchasePending) return;
@@ -7651,7 +7702,8 @@ export default function Agendamentos() {
                                 session_price: centsToCurrencyInput(suggestedPriceCents),
                                 session_price_manually_changed: false,
 	                              patient_credit_id: "",
-	                              session_replacement_credit_id: "",
+	                              session_replacement_credit_id: isInitialOriginFlow && selectedOrigin === "replacement"
+                                  ? prev.session_replacement_credit_id : "",
 	                              cycle_reschedule_exception_justified: false,
 	                              cycle_reschedule_exception_reason: "",
 	                              shared_package_id: "",
@@ -7837,7 +7889,7 @@ export default function Agendamentos() {
 	                      </LatePolicyToggle>
 	                    </LatePolicyCard>
 	                  )}
-		                  {!isDeferredPurchase && !editingId && !form.use_own_package && !isPackageShareFlow
+		                  {!isInitialOriginFlow && !isDeferredPurchase && !editingId && !form.use_own_package && !isPackageShareFlow
                       && replacementCreditsForPatient.length > 0 && (
 	                    <Field className="span-2">
 	                      Reposição de sessão
@@ -8195,7 +8247,7 @@ Observação do lançamento (opcional)
                   {isDeferredPurchase && <FieldHint className="span-2">
                     A compra será registrada hoje no Financeiro. O profissional e o horário serão definidos ao agendar cada sessão.
                   </FieldHint>}
-                  </>}
+                  </SchedulingDetails>}
 		                </FormGrid>
                 {purchaseCommand.uncertain && <FieldHint role="status">O resultado está pendente. Verifique a mesma tentativa para evitar outro lançamento.</FieldHint>}
                 {hasCreationDetails && <DrawerActions>

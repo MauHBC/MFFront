@@ -379,9 +379,9 @@ const selectCreationPatient = async (name = "Paciente Teste") => {
   const matches = await screen.findAllByText(name);
   fireEvent.click(matches.find((element) => element.tagName === "BUTTON"));
 };
-const ownRights = [{ id: 701, quantity: 4, free_rights: 3, review_token: "own-review",
+const ownRights = [{ id: 701, quantity: 4, free_rights: 3, purchased_free_rights: 3, review_token: "own-review",
   service: { id: 41, code: "physio", name: "Fisioterapia" } },
-{ id: 702, quantity: 2, free_rights: 2, review_token: "other-review",
+{ id: 702, quantity: 2, free_rights: 2, purchased_free_rights: 2, review_token: "other-review",
   service: { id: 40, code: "spine_eval", name: "Avaliacao Coluna" } }];
 
 const openNewRecurringReview = async (container, {
@@ -1729,7 +1729,7 @@ describe("Agendamentos - editar agendamento", () => {
           id: 901,
           package_unit_id: 501,
           patient_id: 20,
-          status: "pending",
+          status: "pending", expires_at: "2026-07-30",
           sourceSession: {
             service_id: 41,
             service_type: "physio",
@@ -1748,6 +1748,7 @@ describe("Agendamentos - editar agendamento", () => {
     });
     const suggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(suggestions.find((element) => element.tagName === "BUTTON"));
+    fireEvent.click(await screen.findByLabelText("Registrar novas sessões"));
     await selectAssignedProfessional(container);
     const service = container.querySelector('select[name="service_id"]');
     const professional = container.querySelector('select[name="professional_user_id"]');
@@ -1755,12 +1756,12 @@ describe("Agendamentos - editar agendamento", () => {
     const hour = Array.from(container.querySelectorAll("select"))
       .find((select) => Array.from(select.options).some((option) => option.value === "10"));
     const notes = container.querySelector('[name="notes"]');
-    const replacement = container.querySelector('select[name="session_replacement_credit_id"]');
+    const replacement = screen.getByLabelText(/Reposição:/);
     fireEvent.change(service, { target: { value: "40" } });
     fireEvent.change(date, { target: { value: "2026-06-30" } });
     fireEvent.change(hour, { target: { value: "10" } });
     fireEvent.change(notes, { target: { value: "Observação preservada" } });
-    fireEvent.change(replacement, { target: { value: "901" } });
+    fireEvent.click(replacement);
     await waitFor(() => expect(service).toHaveValue("41"));
     expect(service).toBeDisabled();
     expect(service.closest("label")).toHaveClass("span-2");
@@ -1780,7 +1781,7 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(date, { target: { value: "2026-07-01" } });
     fireEvent.change(hour, { target: { value: "11" } });
     fireEvent.change(notes, { target: { value: "Outra observação" } });
-    expect(replacement).toHaveValue("901");
+    expect(replacement).toBeChecked();
     expect(service).toHaveValue("41");
     expect(professional).toHaveValue("31");
     expect(date).toHaveValue("2026-07-01");
@@ -1807,7 +1808,7 @@ describe("Agendamentos - editar agendamento", () => {
     const originalGet = axios.get.getMockImplementation();
     axios.get.mockImplementation((url, config) => url === "/session-replacement-credits"
       ? Promise.resolve({ data: [{
-        id: 901, package_unit_id: 501, source_service_id: 41, source_service_type: "physio",
+        id: 901, patient_id: 20, status: "pending", expires_at: "2026-07-30", package_unit_id: 501, source_service_id: 41, source_service_type: "physio",
       }] })
       : originalGet(url, config));
     const { container } = renderAgendamentos();
@@ -1818,8 +1819,9 @@ describe("Agendamentos - editar agendamento", () => {
     });
     const suggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(suggestions.find((element) => element.tagName === "BUTTON"));
+    fireEvent.click(await screen.findByLabelText("Registrar novas sessões"));
     await selectAssignedProfessional(container);
-    const replacement = container.querySelector('select[name="session_replacement_credit_id"]');
+    const replacement = screen.getByLabelText(/Reposição:/);
     const service = container.querySelector('select[name="service_id"]');
     const date = container.querySelector('input[type="date"]');
     const hour = Array.from(container.querySelectorAll("select"))
@@ -1828,13 +1830,13 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(date, { target: { value: "2026-06-30" } });
     fireEvent.change(hour, { target: { value: "10" } });
     fireEvent.change(notes, { target: { value: "Manter observação" } });
-    fireEvent.change(replacement, { target: { value: "901" } });
+    fireEvent.click(replacement);
     await waitFor(() => expect(service).toBeDisabled());
-    fireEvent.change(replacement, { target: { value: "" } });
+    fireEvent.click(screen.getByLabelText("Registrar novas sessões"));
     expect(service).not.toBeDisabled();
     expect(window.getComputedStyle(service).appearance).not.toBe("none");
     fireEvent.change(service, { target: { value: "40" } });
-    expect(replacement).toHaveValue("");
+    expect(replacement).not.toBeChecked();
     expect(container.querySelector('select[name="professional_user_id"]')).toHaveValue("30");
     expect(date).toHaveValue("2026-06-30");
     expect(hour).toHaveValue("10");
@@ -2279,8 +2281,8 @@ describe("Agendamentos - editar agendamento", () => {
           return Promise.resolve({
 	            data: [{
 	              id: 901,
-	              patient_id: 20,
-	              reason: "Reposicao",
+	              patient_id: 20, status: "pending",
+            reason: "Reposicao",
 	              expires_at: "2026-07-30",
 	              source_service_id: 40,
 	              source_service_type: "spine_eval",
@@ -2309,23 +2311,21 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(patientInput, { target: { value: "Paciente Teste" } });
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    fireEvent.click(await screen.findByLabelText("Registrar novas sessões"));
     await selectAssignedProfessional(container);
 
     const serviceSelect = container.querySelector('select[name="service_id"]');
     fireEvent.change(serviceSelect, { target: { value: "40" } });
 
-    await waitFor(() => {
-	      const element = container.querySelector('select[name="session_replacement_credit_id"]');
-	      expect(element).toBeTruthy();
-	      return element;
-	    });
-      expect(screen.getByText("Não usar reposição")).toBeInTheDocument();
-      expect(screen.getByText("Avaliação Coluna — falta em 03/05/26")).toBeInTheDocument();
+    await screen.findByLabelText(/Reposição:/);
+      expect(screen.getByLabelText(/Reposição:/)).not.toBeChecked();
+      expect(screen.getByLabelText(/Avaliação Coluna.*falta em 03\/05\/26/)).toBeInTheDocument();
       expect(screen.queryByText(/#901/)).not.toBeInTheDocument();
       expect(screen.queryByText(/vence em/i)).not.toBeInTheDocument();
 
     fireEvent.change(patientInput, { target: { value: "Paciente Sem Vinculo" } });
     fireEvent.click(await screen.findByText("Paciente Sem Vinculo"));
+    fireEvent.click(await screen.findByLabelText("Registrar novas sessões"));
     await selectAssignedProfessional(container);
 
     fireEvent.change(container.querySelector('input[type="date"]'), {
@@ -2392,7 +2392,7 @@ describe("Agendamentos - editar agendamento", () => {
         return Promise.resolve({
           data: [{
             id: 901,
-            patient_id: 20,
+            patient_id: 20, status: "pending",
             reason: "Reposicao",
             expires_at: "2026-07-30",
 	            source_service_id: 40,
@@ -2424,26 +2424,23 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(patientInput, { target: { value: "Paciente Teste" } });
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    fireEvent.click(await screen.findByLabelText("Registrar novas sessões"));
     await selectAssignedProfessional(container);
 
     const serviceSelect = container.querySelector('select[name="service_id"]');
     fireEvent.change(serviceSelect, { target: { value: "40" } });
 
-    const replacementSelect = await waitFor(() => {
-      const element = container.querySelector('select[name="session_replacement_credit_id"]');
-      expect(element).toBeTruthy();
-      return element;
-	    });
-      expect(screen.getByText("Avaliação Coluna — falta em 03/05/26")).toBeInTheDocument();
-	    fireEvent.change(replacementSelect, { target: { value: "901" } });
+    const replacementSelect = await screen.findByLabelText(/Reposição:/);
+      expect(screen.getByLabelText(/Avaliação Coluna.*falta em 03\/05\/26/)).toBeInTheDocument();
+	    fireEvent.click(replacementSelect);
       expect(screen.getByRole("heading", { name: "Novo agendamento" })).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "Agendar reposição" })).not.toBeInTheDocument();
       expect(screen.getByText("Reposição selecionada. Sem nova cobrança.")).toBeInTheDocument();
 
-      fireEvent.change(replacementSelect, { target: { value: "" } });
+      fireEvent.click(screen.getByLabelText("Registrar novas sessões"));
       expect(screen.queryByText("Reposição selecionada. Sem nova cobrança.")).not.toBeInTheDocument();
 
-      fireEvent.change(replacementSelect, { target: { value: "901" } });
+      fireEvent.click(replacementSelect);
 
 	    fireEvent.change(container.querySelector('input[type="date"]'), {
 	      target: { value: "2026-06-30" },
@@ -3319,12 +3316,17 @@ describe("Agendamentos - editar agendamento", () => {
     await within(form).findByLabelText(/Fisioterapia.*3 não agendadas/);
     expect(within(form).getAllByRole("radio").every((radio) => !radio.checked)).toBe(true);
     expect(within(form).queryByText("Tipo de atendimento")).not.toBeInTheDocument();
+    expect(within(form).queryByRole("region")).not.toBeInTheDocument();
     fireEvent.submit(form);
     expect(axios.post).not.toHaveBeenCalled();
     fireEvent.click(within(form).getByLabelText("Registrar novas sessões"));
+    const newDetails = within(form).getByRole("region", { name: "Novas sessões" });
+    expect(within(newDetails).getByRole("group", { name: "Quando agendar as novas sessões" })).toBeInTheDocument();
+    expect(within(newDetails).getByText("Tipo de atendimento")).toBeInTheDocument();
     fireEvent.click(within(form).getByRole("button", { name: "+ Adicionar" }));
     fireEvent.change(container.querySelector('input[placeholder="Ex.: 10"]'), { target: { value: "3" } });
     fireEvent.click(within(form).getByLabelText(/Fisioterapia.*3 não agendadas/));
+    expect(within(form).getByRole("region", { name: "Agendar sessão" })).toBeInTheDocument();
     expect(within(form).getByLabelText("Registrar novas sessões")).not.toBeChecked();
     expect(within(form).queryByText("Mais sessões")).not.toBeInTheDocument();
     expect(within(form).queryByRole("button", { name: "Agendar agora" })).not.toBeInTheDocument();
@@ -3332,6 +3334,11 @@ describe("Agendamentos - editar agendamento", () => {
     expect(form.querySelector('select[name="service_id"]')).toBeDisabled();
     expect(within(form).queryByText("Valor da sessão")).not.toBeInTheDocument();
     fireEvent.click(within(form).getByLabelText("Usar pacote de outro paciente"));
+    const sharedDetails = within(form).getByRole("region", { name: "Pacote de outro paciente" });
+    expect(within(sharedDetails).getByText("De quem é o pacote?")).toBeInTheDocument();
+    const choice = within(form).getByRole("group", { name: "Como deseja continuar?" });
+    expect(within(choice).queryByText("De quem é o pacote?")).not.toBeInTheDocument();
+    expect(within(choice).queryByText("Tipo de atendimento")).not.toBeInTheDocument();
     expect(within(form).getByLabelText(/Fisioterapia.*3 não agendadas/)).not.toBeChecked();
     expect(within(form).getAllByRole("radio").filter((radio) => radio.checked)).toHaveLength(1);
     expect(within(form).getByText("De quem é o pacote?")).toBeInTheDocument();
@@ -3375,11 +3382,12 @@ describe("Agendamentos - editar agendamento", () => {
     mockAuthorization = { ...mockAuthorization, isAdministrator: true, canAccessModule: jest.fn(() => true) };
     const get = axios.get.getMockImplementation();
     axios.get.mockImplementation((url, config) => url === "/session-replacement-credits"
-      ? Promise.resolve({ data: [{ id: 901, source_service_id: 40, source_service_type: "spine_eval" }] })
+      ? Promise.resolve({ data: [{ id: 901, patient_id: 20, status: "pending", expires_at: "2026-07-30", source_service_id: 40, source_service_type: "spine_eval" }] })
       : get(url, config));
     renderAgendamentos();
     const form = await openCreationForm();
     await selectCreationPatient();
+    fireEvent.click(await within(form).findByLabelText("Registrar novas sessões"));
     await within(form).findByText("Tipo de atendimento");
     fireEvent.change(form.querySelector('select[name="service_id"]'), { target: { value: "40" } });
     fireEvent.change(form.querySelector('textarea[name="launch_notes"]'), { target: { value: "Compra independente" } });
@@ -3428,19 +3436,65 @@ describe("Agendamentos - editar agendamento", () => {
     expect(axios.post.mock.calls[1][1]).toEqual(axios.post.mock.calls[0][1]);
   });
 
+  it("origem inicial separa saldo comum e reposição, preserva confirmação mensal e impede compra", async () => {
+    const get = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/patients/20/available-rights") return Promise.resolve({ data: [{ ...ownRights[0], free_rights: 4 }] });
+      if (url === "/session-replacement-credits") return Promise.resolve({ data: [{
+        id: 901, patient_id: 20, status: "pending", expires_at: "2026-07-30", package_unit_id: 501,
+        source_service_id: 41, source_service_type: "physio", source_service_name: "Fisioterapia",
+        source_billing_mode: "covered_by_plan", source_billing_cycle_start: "2026-06-01", source_billing_cycle_end: "2026-06-30",
+      }] });
+      return get(url, config);
+    });
+    const { container } = renderAgendamentos(); const form = await openCreationForm();
+    await selectCreationPatient();
+    const credit = await within(form).findByLabelText(/Reposição:/);
+    expect(within(form).getByLabelText(/Fisioterapia.*3 não agendadas/)).not.toBeChecked();
+    expect(credit).not.toBeChecked();
+    expect(form.querySelector('select[name="service_id"]')).toBeNull();
+    fireEvent.click(credit); await selectAssignedProfessional(container);
+    expect(within(form).getByRole("region", { name: "Agendar reposição" })).toBeInTheDocument();
+    expect(form.querySelector('select[name="service_id"]')).toHaveValue("41");
+    expect(form.querySelector('select[name="service_id"]')).toBeDisabled();
+    expect(within(form).queryByText("Mais sessões")).not.toBeInTheDocument();
+    expect(within(form).queryByRole("button", { name: "Agendar depois" })).not.toBeInTheDocument();
+    expect(form.querySelector('textarea[name="launch_notes"]')).toBeNull();
+    fireEvent.change(form.querySelector('input[type="date"]'), { target: { value: "2026-07-01" } });
+    const hour = Array.from(form.querySelectorAll("select")).find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hour, { target: { value: "10" } });
+    const warning = within(form).getByLabelText(/A reposição está sendo agendada fora do ciclo/);
+    expect(warning).not.toBeChecked(); fireEvent.click(warning);
+    fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+    await screen.findByRole("heading", { name: "Revisar agendamento" });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar", exact: true }));
+    await waitFor(() => expect(axios.post.mock.calls.some(([url]) => url === "/sessions")).toBe(true));
+    const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(payload).toMatchObject({ session_replacement_credit_id: 901, cycle_reschedule_exception_justified: true, service_id: 41 });
+    expect(checkSchedulingAvailability).toHaveBeenCalledWith(expect.objectContaining({ session_replacement_credit_id: 901 }));
+    const preview = checkSchedulingAvailability.mock.calls.find(([body]) => body.session_replacement_credit_id === 901)[0];
+    ["purchase_launch", "own_package_right_kind", "use_own_package", "shared_package_id", "shared_package_review_token"].forEach((key) => expect(preview).not.toHaveProperty(key));
+    ["purchase_launch", "launch_notes", "price_override_cents", "own_package_right_kind", "use_own_package"].forEach((key) => expect(payload).not.toHaveProperty(key));
+    expect(axios.post.mock.calls.some(([url]) => url === "/session-series" || url === "/package-purchases")).toBe(false);
+  });
+
   it("agenda direito próprio pela revisão sem novo lançamento financeiro", async () => {
     const originalGet = axios.get.getMockImplementation();
     axios.get.mockImplementation((url, config) => url === "/patients/20/available-rights"
-      ? Promise.resolve({ data: [{ id: 701, quantity: 2, free_rights: 2, review_token: "own-review",
+      ? Promise.resolve({ data: [{ id: 701, quantity: 2, free_rights: 2, purchased_free_rights: 2, review_token: "own-review",
         service: { id: 40, code: "physio", name: "Fisioterapia" } }] }) : originalGet(url, config));
     const { container } = renderAgendamentos();
     await openNewSingleReview(container, { ownRight: true });
     await screen.findByText("Disponível");
     fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith("/sessions", expect.objectContaining({
-      patient_id: 20, shared_package_id: 701, use_own_package: true,
+      patient_id: 20, shared_package_id: 701, use_own_package: true, own_package_right_kind: "purchased",
     })));
     const payload = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(checkSchedulingAvailability).toHaveBeenCalledWith(expect.objectContaining({
+      shared_package_id: 701, shared_package_review_token: "own-review", use_own_package: true,
+      own_package_right_kind: "purchased", idempotency_key: payload.idempotency_key,
+    }));
     expect(payload).not.toHaveProperty("purchase_launch");
     expect(payload).not.toHaveProperty("launch_notes");
     expect(payload.idempotency_key).toMatch(/^own-right:/);

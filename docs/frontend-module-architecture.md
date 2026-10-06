@@ -2000,6 +2000,29 @@ serviço/pacote, **Usar pacote de outro paciente** (conforme permissão) e
 selecionada. Sem saldo, mostra aviso discreto e segue automaticamente como
 novo lançamento, mantendo o compartilhamento acessível sem confirmação extra.
 
+A consulta inicial é conjunta: direitos em `/patients/:id/available-rights` e
+créditos pendentes em `/session-replacement-credits`. O formulário só avança
+quando ambas respondem para a seleção atual; erro em qualquer uma bloqueia as
+origens, e tentar novamente consulta ambas. Respostas de outra seleção são
+ignoradas. Os pacotes usam `purchased_free_rights` como saldo comum, mantendo
+`quantity` como total contratado. Unidades disponíveis vinculadas a reposição
+não aparecem outra vez como saldo comum; não se calcula esse saldo por subtração
+no navegador. Prévia e confirmação de direito próprio enviam
+`own_package_right_kind: "purchased"`, respeitando a seleção autoritativa do
+Backend. Contrato ausente ou inválido bloqueia o avanço.
+
+Reposições elegíveis aparecem no mesmo grupo de origem, com serviço e origem
+clínica já usados pela Agenda. A escolha é explícita inclusive quando só existe
+reposição. Status, uso, paciente e validade civil da clínica são conferidos; o
+Backend preserva autorização, escopo e coerência da origem. A escolha reutiliza o
+formulário e a revisão existentes, com `session_replacement_credit_id`, sem
+novo lançamento financeiro, preço sobrescrito, observação de compra ou **Mais
+sessões**. Reposição de pacote fixa o serviço; profissional, data, horário e
+observações continuam editáveis. Trocar a origem invalida prévias atrasadas.
+O modo e as datas do ciclo vêm da origem real para manter a confirmação mensal
+fora do ciclo; não são inferidos no navegador. A entrada pela Central de
+Pendências mantém seu caminho existente. A aprovação visual pertence a Maurício.
+
 Somente em **Registrar novas sessões** aparecem **Agendar agora** e **Agendar depois**,
 usando os controles existentes da Agenda. Ambos usam a mesma seleção de paciente,
 serviço, valor e observação de lançamento. Depois solicita quantidade e oculta
@@ -2014,7 +2037,7 @@ sem controles de compra ou Mais sessões. Essa proteção também existe na sele
 do comando e na construção do payload. Compartilhamento mantém sua revisão
 publicada. Prévias atrasadas de outra seleção de paciente/origem/modo não são
 reabertas nem confirmadas. Trocar paciente limpa origem, observações e seleção anterior antes
-de consultar seus direitos. Edição e reposição mantêm seus caminhos existentes.
+de consultar seus direitos. Edição e reposição iniciada pela Central de Pendências mantêm seus caminhos existentes.
 
 Uma unidade aparece como Avulsa e duas ou mais como Pacote no histórico e
 Financeiro. A revisão de compra programada exige selecionar todas as sessões;
@@ -2024,6 +2047,16 @@ lançamento e de sessão são campos opcionais separados. Comandos repetidos
 reutilizam a chave do mesmo payload; alterações geram outra confirmação.
 
 O grupo **Como deseja continuar?** apresenta opções compactas: serviço e quantidade total contratada na primeira linha, saldo não agendado na segunda. `quantity` é o total real do contrato, não o saldo; ausência de total não inventa quantidade. O ID aparece discretamente somente quando há mais de um pacote do mesmo serviço. **Usar pacote de outro paciente** e **Registrar novas sessões** mantêm as origens existentes. Os apoios explicativos do grupo e de agora/depois foram removidos. A entrada externa continua **Novo agendamento**.
+
+A escolha de origem usa `fieldset/legend` acessível. Após a escolha e a consulta
+completa, uma única seção de detalhes é separada por divisória discreta e
+espaçamentos dos tokens existentes, sem acrescentar etapa ou card. O título
+contextual é **Agendar sessão**, **Agendar reposição**, **Pacote de outro
+paciente** ou **Novas sessões**. O titular compartilhado fica nessa seção;
+**Agendar agora/depois** fica dentro de **Novas sessões**, em grupo acessível.
+Detalhes nunca ficam dentro do grupo de alternativas. Saldo usa tipografia
+secundária, e os grids têm colunas que podem encolher e uma coluna no mobile.
+Edição e entrada direta pela Central de Pendências preservam sua estrutura.
 
 Cancelar unidades disponíveis está somente em Paciente → Histórico → Pacotes e sessões avulsas, junto de cada pacote e seu saldo disponível, para
 gestão da Agenda com alcance de clínica. Mostra contagem e aviso de manutenção

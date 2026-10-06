@@ -42,3 +42,28 @@ test("selecting the same patient again invalidates the previous empty result imm
   await act(async () => resolve({ data: [{ id: 7 }] }));
   expect(result.current.options).toEqual([{ id: 7 }]);
 });
+
+test("joint consultation waits for replacement response and retries both after failure", async () => {
+ let resolveCredits;
+ axios.get.mockImplementation((url) => url.includes("available-rights") ? Promise.resolve({ data: [] }) : new Promise((resolve) => { resolveCredits = resolve; }));
+ const { result } = renderHook(() => usePatientRights("20", true, 1, true));
+ await act(async () => {});
+ expect(result.current.status).toBe("loading");
+ await act(async () => resolveCredits({ data: {} }));
+ expect(result.current.status).toBe("error");
+ expect(result.current.options).toEqual([]);
+ axios.get.mockResolvedValue({ data: [] });
+ act(() => result.current.refresh());
+ await waitFor(() => expect(result.current.status).toBe("ready"));
+ expect(axios.get).toHaveBeenCalledTimes(4);
+});
+test("late joint consultation after changing patient cannot restore previous credits", async () => {
+ const pending = {};
+ axios.get.mockImplementation((url, config) => new Promise((resolve) => { pending[url.includes("available-rights") ? url : `credits-${config.params.patient_id}`] = resolve; }));
+ const { result, rerender } = renderHook(({ id }) => usePatientRights(id, true, 1, true), { initialProps: { id: "20" } });
+ rerender({ id: "21" });
+ await act(async () => { pending["/patients/21/available-rights"]({ data: [] }); pending["credits-21"]({ data: [] }); });
+ expect(result.current.status).toBe("ready");
+ await act(async () => { pending["/patients/20/available-rights"]({ data: [] }); pending["credits-20"]({ data: [{ id: 9, patient_id: 20, status: "pending", expires_at: "2099-01-01" }] }); });
+ expect(result.current.replacements).toEqual([]);
+});

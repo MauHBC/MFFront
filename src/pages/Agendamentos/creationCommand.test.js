@@ -21,3 +21,9 @@ test("only an explicit new origin can choose deferred or integral scheduled purc
   expect(creationCommand({ ready: true, origin: "new", repeat: true })).toBe("/session-series");
   expect(creationCommand({ ready: true, origin: "new" })).toBe("/sessions");
 });
+
+test("replacement always schedules one session and cannot leak into another origin", () => {
+  expect(creationCommand({ ready: true, origin: "replacement", replacementId: 9, repeat: true, later: true })).toBe("/sessions");
+  ["own", "shared", "new"].forEach((origin) => expect(creationCommand({ ready: true, origin, replacementId: 9, own: true, packageId: 7, sharing: true })).toBeNull());
+  expect(creationCommand({ ready: true, origin: "replacement" })).toBeNull();
+});
