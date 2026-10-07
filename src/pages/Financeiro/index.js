@@ -639,6 +639,7 @@ const normalizeFinancialOverview = (
 export default function Financeiro() {
   const routeLocation = useLocation();
   const authorization = useAuthorization();
+  const [financialCorrectionVersion, setFinancialCorrectionVersion] = useState(0);
   const canManageClinicExpenses = authorization.canAccessModule("finance", "manage");
   const canSettleClinicExpenses = canManageClinicExpenses
     && authorization.hasCapability("finance.settle");
@@ -4651,6 +4652,12 @@ export default function Financeiro() {
     await handleViewPatientSessions(patientId, { keepTab: true });
   };
 
+  const completePaymentVoid = async (patientId) => {
+    setFinancialCorrectionVersion((version) => version + 1);
+    toast.success("Recebimento anulado. Original e motivo preservados no Histórico.");
+    await handleSharedPaymentSaved({ patientId: Number(patientId) });
+  };
+
   const attendancePeriodLabel = useMemo(() => {
     if (attendancePeriodMode === "year") {
       return attendancePeriodYear || "";
@@ -5028,6 +5035,7 @@ export default function Financeiro() {
 
   const renderOverview = () => (
     <FinancialOverviewSection
+      key={financialCorrectionVersion}
       ui={{
         Spinner,
         AttendanceSectionSurface,
@@ -5438,6 +5446,9 @@ export default function Financeiro() {
       const receiptsContent = (
         <FinancialHistory
           key={selectedAttendancePatientId}
+          patientId={Number(selectedAttendancePatientId)}
+          patientName={selectedAttendancePatient?.full_name || "Paciente"}
+          onPaymentVoided={() => completePaymentVoid(selectedAttendancePatientId)}
           events={attendanceFinancialContext?.history}
           receipts={attendanceSelectedPatientReceipts}
           sessions={[
@@ -6169,6 +6180,9 @@ export default function Financeiro() {
             && currentBillingCyclesPatientDetail && (
               <FinancialHistory
                 key={`billing-cycles-${selectedBillingCyclesPatientSummary.patientId}`}
+                patientId={Number(selectedBillingCyclesPatientSummary.patientId)}
+                patientName={selectedBillingCyclesPatientSummary.patientName || "Paciente"}
+                onPaymentVoided={() => completePaymentVoid(selectedBillingCyclesPatientSummary.patientId)}
                 events={currentBillingCyclesPatientDetail.financial_history}
                 receipts={billingCyclesPatientReceipts}
                 sessions={[]}

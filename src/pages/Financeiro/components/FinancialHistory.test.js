@@ -3,10 +3,13 @@ import "@testing-library/jest-dom";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import FinancialHistory from "./FinancialHistory";
 import { getFinancialReceiptDetails } from "../../../services/financial";
+import { useAuthorization } from "../../../contexts/AuthorizationContext";
 
 jest.mock("../../../services/financial", () => ({ getFinancialReceiptDetails: jest.fn() }));
+jest.mock("../../../contexts/AuthorizationContext", () => ({ useAuthorization: jest.fn() }));
 
 beforeEach(() => {
+  useAuthorization.mockReturnValue({ isAdministrator: false, canAccessModule: () => true, hasCapability: () => true });
   getFinancialReceiptDetails.mockResolvedValue({ data: { receipt_details: { groups: [] } } });
 });
 
@@ -36,6 +39,20 @@ const renderHistory = (props = {}) => render(<FinancialHistory events={[receipt]
   sessions={sessions} formatCurrency={money} {...props} />);
 const rows = () => within(screen.getByRole("table")).getAllByRole("row").slice(1);
 const mainValues = () => rows().map((row) => within(row).getAllByRole("cell")[2].textContent);
+
+test("ação exige Administrador e finance.settle, contexto real e recebimento vigente", () => {
+  const context = { patientId: 2, patientName: "Paciente sintético", onPaymentVoided: jest.fn() };
+  const view = renderHistory(context);
+  expect(screen.queryByRole("button", { name: /Anular recebimento/ })).not.toBeInTheDocument();
+  useAuthorization.mockReturnValue({ isAdministrator: true, canAccessModule: () => true, hasCapability: () => false });
+  view.rerender(<FinancialHistory events={[receipt]} formatCurrency={money} {...context} />);
+  expect(screen.queryByRole("button", { name: /Anular recebimento/ })).not.toBeInTheDocument();
+  useAuthorization.mockReturnValue({ isAdministrator: true, canAccessModule: () => true, hasCapability: () => true });
+  view.rerender(<FinancialHistory events={[receipt]} formatCurrency={money} {...context} />);
+  expect(screen.getByRole("button", { name: /Anular recebimento/ })).toBeEnabled();
+  view.rerender(<FinancialHistory events={[{ ...receipt, voided: true }]} formatCurrency={money} {...context} />);
+  expect(screen.queryByRole("button", { name: /Anular recebimento/ })).not.toBeInTheDocument();
+});
 
 test("tabela compacta agrupa cancelamento e crédito da mesma operação sem somar duas vezes", () => {
   const events = [receipt, receipt, cancellation, release, {

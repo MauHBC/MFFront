@@ -2,6 +2,9 @@ import React, { useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import FinancialReceiptDetails from "./FinancialReceiptDetails";
+import FinancialPaymentVoidModal from "./FinancialPaymentVoidModal";
+import { useAuthorization } from "../../../contexts/AuthorizationContext";
+import { GhostButton } from "../../../components/AppButton";
 import { formatCivilDate } from "../../../utils/canonicalDateTime";
 import {
   formatFinancialInstant,
@@ -245,7 +248,13 @@ HistoryDetails.propTypes = {
 };
 HistoryDetails.defaultProps = { serviceName: "" };
 
-export default function FinancialHistory({ events, receipts, sessions, filter, formatCurrency }) {
+export default function FinancialHistory({ events, receipts, sessions, filter, formatCurrency, patientId, patientName, onPaymentVoided }) {
+  const authorization = useAuthorization();
+  const [voidTarget, setVoidTarget] = useState(null);
+  const canVoid = authorization.isAdministrator === true
+    && authorization.canAccessModule("finance", "manage")
+    && authorization.hasCapability("finance.settle")
+    && patientId > 0 && Boolean(onPaymentVoided);
   const sessionById = new Map(sessions.map((session) => [Number(session.id), session]));
   const receiptById = new Map(receipts.map((item) => [Number(item.payment.id), item]));
   const source = Array.isArray(events)
@@ -285,17 +294,29 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
                 <td>{Number.isSafeInteger(row.amount_cents) ? formatCurrency(row.amount_cents) : "Valor não registrado"}</td>
                 <td><HistoryDetails row={row}
                   serviceName={sessionById.get(Number(row.session_id))?.Service?.name}
-                  formatCurrency={formatCurrency} /></td>
+                  formatCurrency={formatCurrency} />
+                  {canVoid && row.type === "RECEIPT" && !row.voided && Number(row.source?.payment_id) > 0 && (
+                    <GhostButton type="button" onClick={() => setVoidTarget({
+                      paymentId: Number(row.source.payment_id), patientId, patientName,
+                    })}>Anular recebimento #{row.source.payment_id}</GhostButton>
+                  )}
+                </td>
               </tr>
             ))}</tbody>
           </HistoryTable>
         </TableScroll>
       )}
+      {canVoid && voidTarget && <FinancialPaymentVoidModal target={voidTarget}
+        formatCurrency={formatCurrency} onClose={() => setVoidTarget(null)}
+        onCompleted={() => { setVoidTarget(null); onPaymentVoided(); }} />}
     </HistorySection>
   );
 }
 
 FinancialHistory.propTypes = {
+  patientId: PropTypes.number,
+  patientName: PropTypes.string,
+  onPaymentVoided: PropTypes.func,
   events: PropTypes.arrayOf(eventType),
   receipts: PropTypes.arrayOf(PropTypes.shape({
     payment: PropTypes.shape({
@@ -312,7 +333,7 @@ FinancialHistory.propTypes = {
   })),
   formatCurrency: PropTypes.func.isRequired,
 };
-FinancialHistory.defaultProps = { events: null, receipts: [], sessions: [], filter: "all" };
+FinancialHistory.defaultProps = { events: null, receipts: [], sessions: [], filter: "all", patientId: null, patientName: "Paciente", onPaymentVoided: null };
 
 const HistorySection = styled.section`
   min-width: 0;
