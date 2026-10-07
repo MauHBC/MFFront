@@ -1007,8 +1007,8 @@ A opção **Usar pacote de outro paciente** existe somente para quem recebe
 `schedule.package.share` e fica no início do formulário, junto à escolha de
 direito próprio ou novo lançamento. São decisões de origem/cobertura. Ela só
 aparece após selecionar o paciente e concluir a consulta de direitos, no mesmo
-grupo de radios das outras origens. Ao ativá-la, o drawer expande
-**De quem é o pacote?**. Serviço, profissional,
+grupo de radios das outras origens. Após selecioná-la e usar **Avançar**,
+os detalhes do mesmo formulário mostram **De quem é o pacote?**. Serviço, profissional,
 data, horário e observações continuam no formulário comum, e alterações nesses
 campos não limpam silenciosamente o paciente dono do pacote.
 
