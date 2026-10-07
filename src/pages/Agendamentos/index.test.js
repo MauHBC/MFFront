@@ -325,11 +325,15 @@ const submitAndConfirmReview = async () => {
 };
 
 const advanceCreation = async () => {
+  const findAdvance = () => {
+    const form = document.querySelector("form");
+    return form ? within(form).queryByRole("button", { name: "Avançar" }) : null;
+  };
   await waitFor(() => {
-    const advance = screen.queryByRole("button", { name: "Avançar" });
+    const advance = findAdvance();
     if (advance) expect(advance).toBeEnabled();
-  });
-  const advance = screen.queryByRole("button", { name: "Avançar" });
+  }, { timeout: 5000 });
+  const advance = findAdvance();
   if (advance) fireEvent.click(advance);
 };
 const chooseCreationOrigin = async (name) => {
