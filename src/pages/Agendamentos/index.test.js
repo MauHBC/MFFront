@@ -366,6 +366,7 @@ const selectAssignedProfessional = async (container) => {
 
 const openNewSingleReview = async (container, {
   ownRight = false,
+  notes,
   date = "2026-07-20",
   hour = "10",
 } = {}) => {
@@ -387,6 +388,7 @@ const openNewSingleReview = async (container, {
   const hourSelect = Array.from(container.querySelectorAll("select"))
     .find((select) => Array.from(select.options).some((option) => option.value === hour));
   fireEvent.change(hourSelect, { target: { value: hour } });
+  if (notes !== undefined) fireEvent.change(container.querySelector('textarea[name="notes"]'), { target: { value: notes } });
   fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
 };
 
@@ -407,6 +409,7 @@ const ownRights = [{ id: 701, quantity: 4, free_rights: 3, purchased_free_rights
 
 const openNewRecurringReview = async (container, {
   count = "2",
+  notes,
   date = "2026-07-06",
   hour = "10",
 } = {}) => {
@@ -434,6 +437,7 @@ const openNewRecurringReview = async (container, {
   fireEvent.change(screen.getByPlaceholderText("Ex.: 10"), {
     target: { value: count },
   });
+  if (notes !== undefined) fireEvent.change(container.querySelector('textarea[name="notes"]'), { target: { value: notes } });
   fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
 };
 
@@ -3418,7 +3422,6 @@ describe("Agendamentos - editar agendamento", () => {
     expect(within(form).getByLabelText("Registrar novas sessões")).not.toBeChecked();
     fireEvent.click(within(form).getByLabelText("Registrar novas sessões"));
     await advanceCreation();
-    fireEvent.change(form.querySelector('textarea[name="launch_notes"]'), { target: { value: "Anterior" } });
     fireEvent.change(form.querySelector('textarea[name="notes"]'), { target: { value: "Sessão anterior" } });
     fireEvent.click(within(form).getByRole("button", { name: "Voltar" }));
     await selectCreationPatient();
@@ -3426,7 +3429,7 @@ describe("Agendamentos - editar agendamento", () => {
     await act(async () => first({ data: [] }));
     await advanceCreation();
     await within(form).findByText("Tipo de atendimento");
-    expect(form.querySelector('textarea[name="launch_notes"]')).toHaveValue("");
+    expect(form.querySelector('textarea[name="launch_notes"]')).toBeNull();
     expect(form.querySelector('textarea[name="notes"]')).toHaveValue("");
     expect(form.querySelector('select[name="service_id"]')).toHaveValue("");
   });
@@ -3444,7 +3447,6 @@ describe("Agendamentos - editar agendamento", () => {
     await advanceCreation();
     await within(form).findByText("Tipo de atendimento");
     fireEvent.change(form.querySelector('select[name="service_id"]'), { target: { value: "40" } });
-    fireEvent.change(form.querySelector('textarea[name="launch_notes"]'), { target: { value: "Compra independente" } });
     fireEvent.change(form.querySelector('textarea[name="notes"]'), { target: { value: "Sessão independente" } });
     fireEvent.change(form.querySelector('input[name="session_price"]'), { target: { value: "" } });
     fireEvent.click(within(form).getByRole("button", { name: "Agendar depois" }));
@@ -3456,19 +3458,39 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(form.querySelector('input[name="purchase_quantity"]'), { target: { value: "3" } });
     fireEvent.click(within(form).getByRole("button", { name: "Agendar agora" }));
     expect(form.querySelector('textarea[name="notes"]')).toHaveValue("Sessão independente");
-    expect(form.querySelector('textarea[name="launch_notes"]')).toHaveValue("Compra independente");
+    expect(form.querySelector('textarea[name="launch_notes"]')).toBeNull();
     expect(form.querySelector('input[placeholder="Ex.: 10"]')).toHaveValue(3);
     fireEvent.click(within(form).getByRole("button", { name: "Agendar depois" }));
     fireEvent.click(within(form).getByRole("button", { name: "Lançar e agendar depois" }));
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith("/package-purchases", expect.objectContaining({
-      patient_id: 20, service_id: 40, quantity: 3, launch_notes: "Compra independente",
+      patient_id: 20, service_id: 40, quantity: 3,
     })));
     const body = axios.post.mock.calls.find(([url]) => url === "/package-purchases")[1];
     expect(body).not.toHaveProperty("starts_at");
     expect(body).not.toHaveProperty("professional_user_id");
     expect(body).not.toHaveProperty("notes");
+    expect(body).not.toHaveProperty("launch_notes");
     expect(body).not.toHaveProperty("price_override_cents");
     expect(axios.post.mock.calls.some(([url]) => url === "/sessions" || url === "/session-series")).toBe(false);
+  });
+
+  it.each(["single", "series"])("fluxo aprovado: novo agora preserva Observações de sessão sem nota de compra (%s)", async (mode) => {
+    previewSchedulingOccurrences.mockResolvedValue({ data: {
+      occurrences_preview: [buildPreviewOccurrence(1, "2026-07-06"), buildPreviewOccurrence(2, "2026-07-13")],
+      summary: buildPreviewSummary({ total: 2, available: 2, warn: 0, blocked: 0 }), validation: buildAvailabilityValidation(),
+    } });
+    const { container } = renderAgendamentos();
+    const notes = "Observação antiga da sessão";
+    if (mode === "single") await openNewSingleReview(container, { notes });
+    else await openNewRecurringReview(container, { notes });
+    expect(container.querySelector('textarea[name="launch_notes"]')).toBeNull();
+    expect(screen.getByLabelText("Observações")).toHaveValue(notes);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirmar agendamento" }));
+    const endpoint = mode === "single" ? "/sessions" : "/session-series";
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(endpoint, expect.objectContaining({ notes })));
+    const body = axios.post.mock.calls.find(([url]) => url === endpoint)[1];
+    expect(body).not.toHaveProperty("launch_notes");
+    expect(axios.post.mock.calls.some(([url]) => url === "/package-purchases")).toBe(false);
   });
 
   it("fluxo aprovado: resultado incerto congela origem e modo e verifica a mesma compra", async () => {
@@ -3613,9 +3635,30 @@ describe("Agendamentos - editar agendamento", () => {
     return { container, form };
   };
 
+  it("lote próprio comprado: quantidade antecede data e só várias sessões mostram recorrência", async () => {
+    const { form } = await openOwnPurchasedBatch("1");
+    const quantity = within(form).getByLabelText("Quantas sessões serão agendadas?");
+    const date = form.querySelector('input[type="date"]');
+    expect(quantity.compareDocumentPosition(date)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(within(form).queryByText("Repetir")).not.toBeInTheDocument();
+    expect(within(form).queryByText("Quais dias?")).not.toBeInTheDocument();
+    expect(within(form).queryByText(/O restante continua disponível/)).not.toBeInTheDocument();
+    expect(within(form).queryByText("Quantas sessões compradas deseja agendar?")).not.toBeInTheDocument();
+    expect(within(form).getByLabelText("Resumo do paciente e origem")).toHaveTextContent("Paciente:");
+    expect(within(form).getByLabelText("Observações")).toBeInTheDocument();
+    fireEvent.change(quantity, { target: { value: "2" } });
+    expect(within(form).getByText("Repetir")).toBeInTheDocument();
+    expect(within(form).getByText("Quais dias?")).toBeInTheDocument();
+    fireEvent.change(quantity, { target: { value: "1" } });
+    expect(within(form).queryByText("Repetir")).not.toBeInTheDocument();
+    expect(within(form).queryByText("Quais dias?")).not.toBeInTheDocument();
+    expect(form.querySelector('textarea[name="notes"]')).toHaveValue("Observação geral do lote");
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
   it("lote próprio comprado: distribui parte do saldo em lote integral sem compra ou cobrança", async () => {
     const { form } = await openOwnPurchasedBatch();
-    expect(within(form).getByText("Distribuir sessões na agenda")).toBeInTheDocument();
+    expect(within(form).getByText("Quantas sessões serão agendadas?")).toBeInTheDocument();
     expect(form.querySelector('input[name="own_schedule_quantity"]')).toHaveAttribute("max", "3");
     expect(form.querySelector('textarea[name="launch_notes"]')).toBeNull();
     expect(within(form).queryByText("Definir por")).not.toBeInTheDocument();

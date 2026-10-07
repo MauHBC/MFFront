@@ -6665,10 +6665,7 @@ export default function Financeiro() {
                                   ))}
                                 </div>}
                               </AttendanceChargeMetadata>}
-                              {item.launch_notes && <AttendancePackageSummarySection aria-label="Observação da compra">
-                                <AttendancePackageSummaryTitle>Observação da compra</AttendancePackageSummaryTitle>
-                                <AttendanceSessionsSummaryText style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.launch_notes}</AttendanceSessionsSummaryText>
-                              </AttendancePackageSummarySection>}
+
                               {item.kind !== "entry" && !sessionsLoading && !sessionsError && summaryParts.length > 0 && <AttendancePackageSummarySection>
 			                            <AttendancePackageSummaryTitle>
                                       Sessões

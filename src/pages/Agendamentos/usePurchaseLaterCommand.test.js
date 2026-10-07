@@ -4,7 +4,7 @@ import axios from "../../services/axios";
 
 jest.mock("../../services/axios", () => ({ post: jest.fn() }));
 beforeEach(() => jest.clearAllMocks());
-const body = { patient_id: 1, service_id: 2, quantity: 3, launch_notes: "Lançamento" };
+const body = { patient_id: 1, service_id: 2, quantity: 3 };
 const setup = () => {
   const callbacks = { onSuccess: jest.fn(), onError: jest.fn() };
   return { ...renderHook(() => usePurchaseLaterCommand(callbacks)), ...callbacks };

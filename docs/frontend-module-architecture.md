@@ -2025,17 +2025,16 @@ Pendências mantém seu caminho existente. A aprovação visual pertence a Maur�
 
 Somente em **Registrar novas sessões** aparecem **Agendar agora** e **Agendar depois**,
 usando os controles existentes da Agenda. Ambos usam a mesma seleção de paciente,
-serviço, valor e observação de lançamento. Depois solicita quantidade e oculta
-profissional, data, horário e observação de sessão; não existe formulário paralelo.
-A troca de modo conserva as observações separadas e os campos comuns, sem copiar
-uma observação para outra. A programação por quantidade conserva o mesmo número
+serviço e valor. Depois solicita quantidade e oculta profissional, data, horário
+e observação de sessão; não existe formulário paralelo nem observação substituta.
+A troca de modo conserva o rascunho de sessão e os campos comuns, sem copiar notas. A programação por quantidade conserva o mesmo número
 ao trocar agora/depois; rascunhos por semanas/meses continuam próprios da
 programação e não inventam datas para uma compra posterior.
 
-Direito próprio comprado fixa o serviço e mostra **Distribuir sessões na agenda**.
+Direito próprio comprado fixa o serviço e mostra **Quantas sessões serão agendadas?**.
 A quantidade vai de 1 até o saldo `purchased_free_rights` do pacote escolhido,
-limitada a 500; reposições não aumentam esse limite. Uma unidade usa a revisão
-individual existente. Mais unidades reutilizam o gerador por quantidade,
+limitada a 500; reposições não aumentam esse limite. A quantidade antecede data/horário e recorrência, sem apoio redundante de saldo.
+Uma unidade mostra somente data/horário e usa a revisão individual existente. Mais unidades reutilizam o gerador por quantidade,
 dias da semana e cadência semanal/alternada, sem controles de compra ou preço.
 A observação do agendamento é geral e acompanha todas as sessões do lote.
 Selecionar parte do saldo existente deixa as demais unidades disponíveis;
@@ -2069,7 +2068,8 @@ O grupo **Como deseja continuar?** apresenta opções compactas: serviço e quan
 
 A escolha de origem usa `fieldset/legend` acessível. Novo agendamento tem dois
 passos no mesmo formulário: paciente/origem e, após **Avançar**, detalhes com
-resumo do paciente e origem. A consulta completa governa o avanço; havendo
+resumo compacto com rótulos discretos **Paciente:** e **Origem:**, nome com
+destaque moderado e espaçamento reduzido no cabeçalho. A consulta completa governa o avanço; havendo
 direitos, nenhuma origem é presumida. Sem direitos, o novo lançamento é
 selecionado e os detalhes aparecem automaticamente, com aviso discreto, sem
 confirmação adicional. **Voltar** preserva o rascunho e invalida a revisão em
@@ -2084,14 +2084,19 @@ paciente** ou **Novas sessões**. O titular compartilhado fica nessa seção;
 Saldo usa tipografia secundária e os grids mantêm uma coluna no mobile. Edição
 e entrada direta pela Central de Pendências preservam sua estrutura.
 
-**Observação da compra (opcional)** fica junto aos valores e usa `launch_notes`;
-**Observação do agendamento (opcional)** fica junto à programação e usa `notes`.
-São independentes e permanecem separadas ao trocar agora/depois. Compra para
-depois não envia observação de agendamento. Edição preserva **Motivo da alteração**.
-A observação da compra retornada pelo Backend aparece nos detalhes do pacote
-no Histórico e nos detalhes da cobrança do Financeiro. Ausência de `launch_notes`
-não é preenchida com observação de sessão ou recebimento. O antigo aviso de
-registro da compra hoje foi removido; os contratos financeiros permanecem.
+O campo antigo **Observações** conserva `notes`, a semântica e os destinos de
+sessão do baseline publicado `ac8755ab2f4a`: criação individual, séries e detalhes
+das sessões. Edição preserva **Motivo da alteração**. Não há sufixo “opcional”.
+A observação nova da compra foi retirada: novo lançamento, agora ou depois,
+não apresenta esse campo e não envia `launch_notes`. Agendar depois não apresenta
+observação substituta nem envia `notes`; o rascunho de sessão continua disponível
+se retornar a Agendar agora. Não há unificação nem cópia de conteúdo.
+O Frontend não exibe a observação de compra em Histórico ou Financeiro,
+mesmo se um DTO legado ainda a retornar. Os valores históricos são preservados
+no Backend, sem migration destrutiva e com replay compatível; não são expostos
+no histórico nem alimentam o campo de sessão. Não há novas notas de compra.
+O antigo aviso de registro da compra hoje foi removido; os contratos financeiros
+permanecem.
 
 Cancelar unidades disponíveis está somente em Paciente → Histórico → Pacotes e sessões avulsas, junto de cada pacote e seu saldo disponível, para
 gestão da Agenda com alcance de clínica. Mostra contagem e aviso de manutenção
