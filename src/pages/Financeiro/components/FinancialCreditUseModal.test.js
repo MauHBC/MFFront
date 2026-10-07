@@ -693,3 +693,24 @@ test("falha do catálogo ao Voltar preserva nova revisão; retry conserva valor 
   expect(screen.getByRole("checkbox", { name: /18\/11\/2026/ })).toBeChecked();
   expect(confirmFinancialCreditApplication).toHaveBeenCalledTimes(1);
 });
+
+
+test("desconto reduz a dívida e exige motivo, mantendo consumo positivo de crédito", async () => {
+  getFinancialCreditDestinations.mockResolvedValue({ data: destinations([single], 10000) });
+  previewFinancialCreditApplication.mockImplementation(async (body) => ({ data: {
+    ...makePreview(body, [single], 10000), discount_cents: body.discount_cents,
+    selected_open_after_cents: 0,
+  } }));
+  setup();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Avançar" })).toBeEnabled());
+  await userEvent.type(screen.getByLabelText("Desconto nesta aplicação"), "10");
+  const amount = screen.getByLabelText("Valor a usar");
+  await userEvent.clear(amount); await userEvent.type(amount, "90");
+  expect(screen.getByRole("button", { name: "Avançar" })).toBeDisabled();
+  await userEvent.type(screen.getByLabelText("Motivo do desconto"), "Ajuste autorizado");
+  await advance();
+  expect(previewFinancialCreditApplication).toHaveBeenLastCalledWith(expect.objectContaining({
+    amount_cents: 9000, discount_cents: 1000, adjustment_reason: "Ajuste autorizado", selected_entry_ids: [201],
+  }));
+  expect(screen.getByText("Desconto nesta baixa")).toBeVisible();
+});

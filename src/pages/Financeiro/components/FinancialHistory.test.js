@@ -40,7 +40,7 @@ const renderHistory = (props = {}) => render(<FinancialHistory events={[receipt]
 const rows = () => within(screen.getByRole("table")).getAllByRole("row").slice(1);
 const mainValues = () => rows().map((row) => within(row).getAllByRole("cell")[2].textContent);
 
-test("ação exige Administrador e finance.settle, contexto real e recebimento vigente", () => {
+test("Histórico permanece somente consulta mesmo para Administrador autorizado", () => {
   const context = { patientId: 2, patientName: "Paciente sintético", onPaymentVoided: jest.fn() };
   const view = renderHistory(context);
   expect(screen.queryByRole("button", { name: /Anular recebimento/ })).not.toBeInTheDocument();
@@ -49,7 +49,7 @@ test("ação exige Administrador e finance.settle, contexto real e recebimento v
   expect(screen.queryByRole("button", { name: /Anular recebimento/ })).not.toBeInTheDocument();
   useAuthorization.mockReturnValue({ isAdministrator: true, canAccessModule: () => true, hasCapability: () => true });
   view.rerender(<FinancialHistory events={[receipt]} formatCurrency={money} {...context} />);
-  expect(screen.getByRole("button", { name: /Anular recebimento/ })).toBeEnabled();
+  expect(screen.queryByRole("button", { name: /Anular recebimento/ })).not.toBeInTheDocument();
   view.rerender(<FinancialHistory events={[{ ...receipt, voided: true }]} formatCurrency={money} {...context} />);
   expect(screen.queryByRole("button", { name: /Anular recebimento/ })).not.toBeInTheDocument();
 });

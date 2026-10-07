@@ -100,7 +100,8 @@ const mockSessionsRequest = (implementation) => {
 };
 const openChargeDetails = async (serviceName = "Recovery") => {
   const row = (await screen.findByText(serviceName)).closest("tr");
-  await userEvent.click(within(row).getByRole("button", { name: "Detalhes" }));
+  await userEvent.click(within(row).getByRole("button", { name: /Ações da cobrança/ }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "Ver sessões" }));
   return screen.findByRole("dialog");
 };
 const expectCompactChargeDetails = (dialog) => {
@@ -197,7 +198,8 @@ test("uma lista com valores visíveis, detalhe misto e colunas aprovadas; filtro
   expect(within(packageRow).getAllByRole("cell")[2].textContent).toBe("22/09/2026");
   expect(within(packageRow).getAllByRole("cell")[2].childElementCount).toBe(0);
   expect(packageRow).toHaveTextContent("22/09/2026");
-  await userEvent.click(within(packageRow).getByRole("button", { name: "Detalhes" }));
+  await userEvent.click(within(packageRow).getByRole("button", { name: /Ações da cobrança/ }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "Ver sessões" }));
   const packageDialog = await screen.findByRole("dialog");
   expect(within(packageDialog).getByText("20/10/2026", { selector: "dd" })).toBeVisible();
   await userEvent.click(screen.getByRole("button", { name: "Fechar" }));
@@ -827,8 +829,9 @@ describe("Detalhes da cobrança e sessões canônicas da mensalidade", () => {
     const view = open("?month=2026-09&patient_id=30");
     try {
       const trigger = within((await screen.findByText("Recovery")).closest("tr"))
-        .getByRole("button", { name: "Detalhes" });
+        .getByRole("button", { name: /Ações da cobrança/ });
       await userEvent.click(trigger);
+      await userEvent.click(screen.getByRole("menuitem", { name: "Ver sessões" }));
       const dialog = await screen.findByRole("dialog", { name: "Mensalidade · Recovery" });
       await within(dialog).findByText("Profissional da sessão 901");
       const closeIcon = within(dialog).getByRole("button", { name: "Fechar detalhes" });
@@ -849,6 +852,7 @@ describe("Detalhes da cobrança e sessões canônicas da mensalidade", () => {
       expect(trigger).toHaveFocus();
       expect(document.body.style.overflow).toBe("scroll");
       await userEvent.click(trigger);
+      await userEvent.click(screen.getByRole("menuitem", { name: "Ver sessões" }));
       await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Fechar detalhes" }));
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       expect(trigger).toHaveFocus();

@@ -2,9 +2,6 @@ import React, { useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import FinancialReceiptDetails from "./FinancialReceiptDetails";
-import FinancialPaymentVoidModal from "./FinancialPaymentVoidModal";
-import { useAuthorization } from "../../../contexts/AuthorizationContext";
-import { GhostButton } from "../../../components/AppButton";
 import { formatCivilDate } from "../../../utils/canonicalDateTime";
 import {
   formatFinancialInstant,
@@ -17,6 +14,7 @@ const labels = {
   CANCELLATION: "Cancelamento da sessão",
   CREDIT_RELEASE: "Liberação de crédito",
   PAYMENT_CORRECTION: "Correção de recebimento",
+  PAYMENT_UNAPPLICATION: "Pagamento desfeito — crédito restaurado",
 };
 
 export const formatFinancialEventDate = (value, { dateOnly = false, short = false } = {}) => {
@@ -37,6 +35,7 @@ const detailDateLabels = {
   CANCELLATION: "Cancelado em",
   CREDIT_RELEASE: "Crédito liberado em",
   PAYMENT_CORRECTION: "Corrigido em",
+  PAYMENT_UNAPPLICATION: "Desfeito em",
 };
 
 const formatDetailDate = (value) => {
@@ -141,6 +140,8 @@ const eventType = PropTypes.shape({
   id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
   type: PropTypes.string.isRequired,
   amount_cents: PropTypes.number,
+  discount_cents: PropTypes.number,
+  surcharge_cents: PropTypes.number,
   recorded_at: PropTypes.string,
   occurred_at: PropTypes.string,
   session_id: PropTypes.number,
@@ -215,6 +216,7 @@ function EventDetails({ event, serviceName, formatCurrency }) {
           : formatDetailDate(event.occurred_at)}</dd>
         <dt>Responsável</dt><dd>{event.actor?.name?.trim() || "Não registrado"}</dd>
         {event.type === "RECEIPT" && <><dt>Forma de pagamento</dt><dd>{event.payment_method_name?.trim() || "—"}</dd></>}
+        {event.type === "PAYMENT_UNAPPLICATION" && <><dt>Crédito restaurado</dt><dd>{formatCurrency(event.amount_cents)}</dd>{event.discount_cents > 0 && <><dt>Desconto desfeito</dt><dd>{formatCurrency(event.discount_cents)}</dd></>}{event.surcharge_cents > 0 && <><dt>Acréscimo desfeito</dt><dd>{formatCurrency(event.surcharge_cents)}</dd></>}</>}
         {!hideGenericObservation && <><dt>{reasonLabel}</dt><dd>{event.reason?.trim() || "Não registrado"}</dd></>}
       </dl>
     </EventDetail>
@@ -248,13 +250,7 @@ HistoryDetails.propTypes = {
 };
 HistoryDetails.defaultProps = { serviceName: "" };
 
-export default function FinancialHistory({ events, receipts, sessions, filter, formatCurrency, patientId, patientName, onPaymentVoided }) {
-  const authorization = useAuthorization();
-  const [voidTarget, setVoidTarget] = useState(null);
-  const canVoid = authorization.isAdministrator === true
-    && authorization.canAccessModule("finance", "manage")
-    && authorization.hasCapability("finance.settle")
-    && patientId > 0 && Boolean(onPaymentVoided);
+export default function FinancialHistory({ events, receipts, sessions, filter, formatCurrency }) {
   const sessionById = new Map(sessions.map((session) => [Number(session.id), session]));
   const receiptById = new Map(receipts.map((item) => [Number(item.payment.id), item]));
   const source = Array.isArray(events)
@@ -295,28 +291,19 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
                 <td><HistoryDetails row={row}
                   serviceName={sessionById.get(Number(row.session_id))?.Service?.name}
                   formatCurrency={formatCurrency} />
-                  {canVoid && row.type === "RECEIPT" && !row.voided && Number(row.source?.payment_id) > 0 && (
-                    <GhostButton type="button" onClick={() => setVoidTarget({
-                      paymentId: Number(row.source.payment_id), patientId, patientName,
-                    })}>Anular recebimento #{row.source.payment_id}</GhostButton>
-                  )}
+
                 </td>
               </tr>
             ))}</tbody>
           </HistoryTable>
         </TableScroll>
       )}
-      {canVoid && voidTarget && <FinancialPaymentVoidModal target={voidTarget}
-        formatCurrency={formatCurrency} onClose={() => setVoidTarget(null)}
-        onCompleted={() => { setVoidTarget(null); onPaymentVoided(); }} />}
+
     </HistorySection>
   );
 }
 
 FinancialHistory.propTypes = {
-  patientId: PropTypes.number,
-  patientName: PropTypes.string,
-  onPaymentVoided: PropTypes.func,
   events: PropTypes.arrayOf(eventType),
   receipts: PropTypes.arrayOf(PropTypes.shape({
     payment: PropTypes.shape({
@@ -333,7 +320,7 @@ FinancialHistory.propTypes = {
   })),
   formatCurrency: PropTypes.func.isRequired,
 };
-FinancialHistory.defaultProps = { events: null, receipts: [], sessions: [], filter: "all", patientId: null, patientName: "Paciente", onPaymentVoided: null };
+FinancialHistory.defaultProps = { events: null, receipts: [], sessions: [], filter: "all" };
 
 const HistorySection = styled.section`
   min-width: 0;

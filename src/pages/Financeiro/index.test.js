@@ -285,8 +285,9 @@ const expectChargeTableStructure = (serviceName, expectedCells) => {
 
   const cells = within(row).getAllByRole("cell");
   expect(cells).toHaveLength(8);
-  expect(cells.map((cell) => cell.textContent.replace(/\s+/g, " ").trim()))
-    .toEqual(expectedCells);
+  expect(cells.slice(0, 7).map((cell) => cell.textContent.replace(/\s+/g, " ").trim()))
+    .toEqual(expectedCells.slice(0, 7));
+  expect(within(cells[7]).getByRole("button", { name: /Ações da cobrança/ })).toBeVisible();
 };
 
 const RealDate = Date;
@@ -906,7 +907,8 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(within(settledRow).getAllByRole("cell").slice(3, 6)
       .map((cell) => cell.textContent.replace(/\u00a0/g, " ")))
       .toEqual(["R$ 300,00", "R$ 300,00", "R$ 0,00"]);
-    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await userEvent.click(screen.getByRole("button", { name: /Ações da cobrança/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Ver sessões" }));
     const compactDialog = await screen.findByRole("dialog", { name: "Pacote · Fisioterapia" });
     expect(within(compactDialog).queryByText("Financeiro da cobrança")).not.toBeInTheDocument();
     expect(within(compactDialog).queryByText(/^R\$\s/)).not.toBeInTheDocument();
@@ -958,8 +960,9 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
     const trigger = within((await screen.findByText("Fisioterapia")).closest("tr"))
-      .getByRole("button", { name: "Detalhes" });
+      .getByRole("button", { name: /Ações da cobrança/ });
     await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Ver sessões" }));
     const detailsDialog = await screen.findByRole("dialog", { name: "Pacote · Fisioterapia" });
     await userEvent.click(within(detailsDialog).getByRole("button", { name: "Resolver pendência" }));
     const resolutionDialog = await screen.findByRole("dialog", { name: "Resolver pendência" });
@@ -1006,7 +1009,8 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(screen.queryByText(/Há alterações financeiras registradas/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ver histórico financeiro" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Cancelar cobrança|Resolver pendência/ })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await userEvent.click(screen.getByRole("button", { name: /Ações da cobrança/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Ver sessões" }));
     await screen.findByText("Pacote · Fisioterapia");
     const dialog = screen.getByRole("dialog", { name: "Pacote · Fisioterapia" });
     expect(within(dialog).getByText("Sessões", { exact: true })).toBeInTheDocument();
@@ -1326,7 +1330,8 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
       "A vencer",
       "Detalhes",
     ]);
-    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await userEvent.click(screen.getByRole("button", { name: /Ações da cobrança/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Ver sessões" }));
     expect(await screen.findByText(/9 contratadas.*1 vinculada/)).toBeInTheDocument();
     expect(screen.getByText(/1 realizada/)).toBeInTheDocument();
     expect(screen.queryByText(/5 realizadas|Distribuição das/)).not.toBeInTheDocument();
@@ -1405,7 +1410,8 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(packageRow).toHaveTextContent("28/10/2026");
     expect(within(packageRow).getAllByRole("cell").slice(3, 6).map((cell) => cell.textContent.replace(/\u00a0/g, " ")))
       .toEqual([money(amount), money(applied), money(open)]);
-    await userEvent.click(within(packageRow).getByRole("button", { name: "Detalhes" }));
+    await userEvent.click(within(packageRow).getByRole("button", { name: /Ações da cobrança/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Ver sessões" }));
     const dialog = await screen.findByRole("dialog", { name: `Pacote · ${serviceName}` });
     expect(within(dialog).queryByText(/Financeiro da cobrança|Distribuição das/)).not.toBeInTheDocument();
     ["Valor", "Pago", "A receber"].forEach((label) => {
@@ -2417,7 +2423,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(row).toBeTruthy();
     expect(within(row).getByText("Sem cobrança")).toBeInTheDocument();
     expect(within(row).getAllByText("R$ 0,00")).toHaveLength(3);
-    expect(within(row).getByRole("button", { name: "Detalhes" })).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: /Ações da cobrança/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Registrar recebimento" })).toBeEnabled();
     expect(listBillingCycles).not.toHaveBeenCalled();
   });
@@ -2514,7 +2520,8 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await screen.findByText("Maria Silva");
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
     await screen.findByText("Fisioterapia");
-    await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    await userEvent.click(screen.getByRole("button", { name: /Ações da cobrança/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Ver sessões" }));
     expect(axios.get).not.toHaveBeenCalledWith("/sessions", expect.anything());
     expect(await screen.findByText("Pacote · Fisioterapia")).toBeInTheDocument();
     await waitFor(() => {

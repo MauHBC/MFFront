@@ -2026,31 +2026,35 @@ real com Redux: 403 comercial conserva token/sessão e não navega ao login.
 
 O Hero usa altura limitada por viewport e largura, preserva `object-fit: cover` e aceita `title_line_2` como continuação editorial dentro do mesmo `h1`. `eyebrow`, `title` e `title_line_2` são lidos separadamente do documento modular; um `eyebrow` vazio não reativa texto legado. Seções usam revelação progressiva nativa com fallback visível e respeito a `prefers-reduced-motion`. O carrossel inicia automaticamente apenas com múltiplas imagens, pausa em hover ou foco e não expõe controle de play/pausa. Biografias longas são recolhidas com reticências e podem ser expandidas individualmente por botão semântico com rótulo visual "Ver mais" ou "Ver menos".
 
-## Anulação de recebimento no Financeiro (FIN-013)
+## Desfazer pagamento em Cobranças
 
-No Histórico do detalhe do paciente em Receitas e Mensalidades, cada recebimento
-vigente identificado pelo Backend oferece `Anular recebimento` ao Administrador
-com gestão de Financeiro e `finance.settle`. A identidade administrativa vem do
-AuthorizationContext; a autoridade e os efeitos permanecem no Backend.
+O menu Ações da cobrança reutiliza AppActionMenu e oferece Ver sessões e
+Desfazer pagamento. Histórico é somente consulta. A confirmação exige
+Administrador canônico, gerenciamento de Financeiro e finance.settle, com
+contexto de autorização estável durante o modal. A autoridade e as regras
+financeiras permanecem no Backend; ver a
+[regra canônica](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#desfazer-pagamento-na-cobrança).
 
-O modal confere novamente pagamento e paciente por API antes da confirmação,
-mostra paciente, identificador, data e valor integral, exige motivo e informa
-preservação do original, impacto líquido e ausência de devolução de dinheiro.
-Não há edição de valor, correção parcial ou associação automática a FIN-010.
-O original e o evento de anulação continuam distinguíveis no Histórico. Um
-pagamento já anulado não oferece nova confirmação. A mesma ação se aplica a
-mensalidades sem alterar plano, ciclo, cobertura ou sessões.
+FinancialPaymentUnapplicationModal consulta baixas identificadas na cobrança,
+explica bloqueios legados e exige motivo e prévia válida. A seleção corresponde
+a uma baixa integral somente nessa cobrança, sem valor livre. O dinheiro
+aplicado volta ao crédito do mesmo paciente; desconto não vira crédito.
+Recebimento, caixa, demais cobranças e direitos são preservados.
 
-Duplo clique é bloqueado. Timeout, erro de rede ou resposta de servidor incerta
-conservam chave e comando exatos; edição e saída ficam bloqueadas até `Verificar
-resultado`. Um conflito confirmado de pagamento já anulado recarrega o contexto.
-Falhas conhecidas preservam o modal e mostram a mensagem pública do Backend.
-Após sucesso, a tela invalida o cache do paciente, recarrega detalhe, resumo e
-mensalidades pelo fluxo compartilhado e remonta a Visão geral, preservando filtros
-ativos. A aprovação visual final cabe ao usuário.
+Duplo clique é bloqueado. Timeout, erro de rede e resposta incerta conservam
+corpo e chave idempotente; saída e edição aguardam Verificar resultado.
+Respostas incompatíveis com paciente, cobrança ou operação não autorizam
+confirmação. Depois do sucesso, o fluxo compartilhado invalida cache e
+recarrega detalhe, cards, resumo e Visão geral, preservando filtros.
 
-Para a sprint `financeiro estorno`, o perfil local fechado usa Frontend
-`127.0.0.1:3020` e API `127.0.0.1:3026`. A worktree pode persistir somente
-`MOTRIA_LOCAL_STACK_SLOT=financeiro-estorno` em `.env.local` ignorado pelo Git e
-iniciar com `npm run dev`. O Backend vem do runner descartável de FIN-013;
-este perfil não usa banco persistente ou secrets compartilhados.
+Usar crédito aceita desconto com motivo e consumo monetário positivo. Mostra
+limites após desconto e a revisão distingue desconto de crédito consumido.
+Desconto de 100% não pertence a esse comando. Os detalhes de sessão continuam
+usando o modal existente e devolvem foco ao menu Ações da cobrança.
+
+O perfil local fechado da sprint financeiro estorno usa Frontend
+127.0.0.1:3020 e API 127.0.0.1:3026. A worktree persiste somente
+MOTRIA_LOCAL_STACK_SLOT=financeiro-estorno em .env.local ignorado e inicia
+com npm run dev. A API usa o MariaDB descartável próprio e preserva a fixture
+sintética existente; nunca usa banco persistente nem movimentos reais.
+A aprovação visual final pertence ao usuário.

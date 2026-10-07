@@ -86,6 +86,8 @@ import {
 } from "./helpers/clinicExpensePayment";
 import FinancialPaymentModal from "./components/FinancialPaymentModal";
 import FinancialOverviewSection from "./components/FinancialOverviewSection";
+import AppActionMenu from "../../components/AppActionMenu";
+import FinancialPaymentUnapplicationModal from "./components/FinancialPaymentUnapplicationModal";
 import FinancialHistory from "./components/FinancialHistory";
 import FinancialCancellationDetails from "./components/FinancialCancellationDetails";
 import FinancialCancellationModal from "./components/FinancialCancellationModal";
@@ -730,6 +732,7 @@ export default function Financeiro() {
   const [attendanceDetailPackages, setAttendanceDetailPackages] = useState([]);
   const [attendanceFinancialContext, setAttendanceFinancialContext] = useState(null);
   const [cancellationTarget, setCancellationTarget] = useState(null);
+  const [unapplicationTarget, setUnapplicationTarget] = useState(null);
   const [attendanceDetailSummary, setAttendanceDetailSummary] = useState(null);
   const [attendanceBackendCreditByPatient, setAttendanceBackendCreditByPatient] = useState(() => new Map());
   const [attendanceDetailTab, setAttendanceDetailTab] = useState("charges");
@@ -4652,9 +4655,9 @@ export default function Financeiro() {
     await handleViewPatientSessions(patientId, { keepTab: true });
   };
 
-  const completePaymentVoid = async (patientId) => {
+  const completePaymentUnapplication = async (patientId) => {
     setFinancialCorrectionVersion((version) => version + 1);
-    toast.success("Recebimento anulado. Original e motivo preservados no Histórico.");
+    toast.success("Pagamento desfeito nesta cobrança. Dinheiro restaurado ao crédito e histórico preservado.");
     await handleSharedPaymentSaved({ patientId: Number(patientId) });
   };
 
@@ -5426,12 +5429,24 @@ export default function Financeiro() {
                       </td>
                       <td>
                           <AttendanceRowActions>
-                            <AttendanceSmallAction
-                              type="button"
-                              onClick={() => handleOpenPackageSessions(item)}
-                            >
-                              Detalhes
-                            </AttendanceSmallAction>
+                            <AppActionMenu label={`Ações da cobrança ${item.serviceName}`}>
+                                <AttendanceSmallAction type="button" onClick={(event) => {
+                                  event.currentTarget.closest("tr")?.querySelector("button[aria-haspopup=menu]")?.focus();
+                                  handleOpenPackageSessions(item);
+                                }}>Ver sessões</AttendanceSmallAction>
+                                {item.paidCents > 0 && <AttendanceSmallAction type="button"
+                                  disabled={!authorization.isAdministrator || !canResolveFinancialCancellation}
+                                  title={!authorization.isAdministrator || !canResolveFinancialCancellation ? "Exige Administrador com permissão para liquidar no Financeiro." : undefined}
+                                  onClick={(event) => {
+                                    event.currentTarget.closest("tr")?.querySelector("button[aria-haspopup=menu]")?.focus();
+                                    setUnapplicationTarget({
+                                    authorizationContext: authorization.context,
+                                    patientName: attendanceSelectedPatientSummary.patientName,
+                                    chargeName: item.serviceName,
+                                    query: { patient_id: Number(selectedAttendancePatientId), charge_key: item.key || item.id,
+                                      period_start: attendanceFilters.start, period_end: attendanceFilters.end },
+                                  }); }}>Desfazer pagamento</AttendanceSmallAction>}
+                              </AppActionMenu>
                           </AttendanceRowActions>
                       </td>
                     </PatientSummaryRow>
@@ -5448,7 +5463,6 @@ export default function Financeiro() {
           key={selectedAttendancePatientId}
           patientId={Number(selectedAttendancePatientId)}
           patientName={selectedAttendancePatient?.full_name || "Paciente"}
-          onPaymentVoided={() => completePaymentVoid(selectedAttendancePatientId)}
           events={attendanceFinancialContext?.history}
           receipts={attendanceSelectedPatientReceipts}
           sessions={[
@@ -6182,7 +6196,6 @@ export default function Financeiro() {
                 key={`billing-cycles-${selectedBillingCyclesPatientSummary.patientId}`}
                 patientId={Number(selectedBillingCyclesPatientSummary.patientId)}
                 patientName={selectedBillingCyclesPatientSummary.patientName || "Paciente"}
-                onPaymentVoided={() => completePaymentVoid(selectedBillingCyclesPatientSummary.patientId)}
                 events={currentBillingCyclesPatientDetail.financial_history}
                 receipts={billingCyclesPatientReceipts}
                 sessions={[]}
@@ -6753,6 +6766,13 @@ export default function Financeiro() {
           <ProtectedBackdrop onClick={handleClosePackageSessions} />
         </>
       )}
+
+      {unapplicationTarget && authorization.isAdministrator && canResolveFinancialCancellation
+        && unapplicationTarget.authorizationContext === authorization.context && (
+          <FinancialPaymentUnapplicationModal target={unapplicationTarget} formatCurrency={formatCurrency}
+            onClose={() => setUnapplicationTarget(null)}
+            onCompleted={async (result) => { setUnapplicationTarget(null); await completePaymentUnapplication(result.patient_id); }} />
+        )}
 
       {cancellationTarget && canResolveFinancialCancellation
         && cancellationTarget.authorizationContext === authorization.context && (

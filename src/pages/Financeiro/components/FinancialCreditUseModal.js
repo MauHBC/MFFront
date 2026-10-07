@@ -66,6 +66,7 @@ function validDestinations(data, patientId) {
 function validPreview(data, command) {
   if (!validDestinations(data, command.patient_id) || !data.preview_fingerprint
     || data.amount_cents !== command.amount_cents
+    || (data.discount_cents || 0) !== (command.discount_cents || 0)
     || !cents(data.credit_remaining_cents) || !cents(data.selected_open_before_cents)
     || !cents(data.selected_open_after_cents)) return false;
   const entries = data.groups.flatMap((group) => group.entries);
@@ -82,6 +83,8 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
   const [selected, setSelected] = useState([]);
   const [expanded, setExpanded] = useState([]);
   const [amount, setAmount] = useState("");
+  const [discount, setDiscount] = useState("");
+  const [adjustmentReason, setAdjustmentReason] = useState("");
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState("destinations");
   const [error, setError] = useState("");
@@ -161,11 +164,13 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
   }, []);
 
   const reviewing = Boolean(preview);
-  useEffect(() => { if (!busy) heading.current?.focus(); }, [reviewing, busy]);
+  useEffect(() => { heading.current?.focus(); }, [reviewing]);
   const selectedSet = new Set(selected);
   const eligibleEntries = new Map((destinations?.groups || []).flatMap((group) => group.entries.map((entry) => [entry.entry_id, entry])));
   const selectedOpen = [...selectedSet].reduce((sum, id) => sum + (eligibleEntries.get(id)?.open_cents || 0), 0);
-  const maximum = Math.min(destinations?.credit_available_cents || 0, selectedOpen);
+  const discountCents = discount ? parseCurrencyInputToCents(discount) : 0;
+  const discountValid = cents(discountCents) && discountCents < selectedOpen;
+  const maximum = Math.min(destinations?.credit_available_cents || 0, Math.max(0, selectedOpen - (cents(discountCents) ? discountCents : 0)));
   const destinationsAvailable = Boolean(destinations);
   useEffect(() => {
     // Seed once per opening. A refreshed limit validates the draft, never rewrites it.
@@ -174,7 +179,8 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
     setAmount(formatCurrencyInputFromCents(maximum));
   }, [maximum, destinationsAvailable]);
   const amountCents = parseCurrencyInputToCents(amount);
-  const validAmount = selected.length > 0 && cents(amountCents) && amountCents > 0 && amountCents <= maximum;
+  const validAmount = selected.length > 0 && cents(amountCents) && amountCents > 0 && amountCents <= maximum
+    && discountValid && (discountCents === 0 || Boolean(adjustmentReason.trim()));
   let amountError = "";
   if (destinationsAvailable && selected.length && !validAmount) {
     amountError = amountCents > maximum
@@ -207,7 +213,9 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
     inFlight.current = true;
     setBusy("preview"); setError("");
     try {
-      await requestPreview({ ...query, selected_entry_ids: [...selectedSet], amount_cents: amountCents });
+      await requestPreview({ ...query, selected_entry_ids: [...selectedSet], amount_cents: amountCents,
+        ...(discountCents > 0 ? { discount_cents: discountCents, adjustment_reason: adjustmentReason.trim() } : {}),
+      });
     } catch (failure) {
       if (mounted.current) setError(getUserFacingApiError(failure, "Não foi possível conferir o uso do crédito. Tente novamente."));
     } finally {
@@ -333,6 +341,19 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
               </CreditCurrencyInputGroup>
               {amountError && <AmountError id="credit-use-limit" role="alert">{amountError}</AmountError>}
             </AmountField>
+            <AmountField>
+              <AmountLabel htmlFor="credit-use-discount">Desconto nesta aplicação</AmountLabel>
+              <CreditCurrencyInputGroup><CurrencyPrefix aria-hidden="true">R$</CurrencyPrefix>
+                <CurrencyInput id="credit-use-discount" inputMode="decimal" placeholder="0,00" value={discount} disabled={Boolean(busy) || !selected.length}
+                  onBlur={() => setDiscount((current) => current ? formatCurrencyInput(current) : "")}
+                  onChange={(event) => { setDiscount(sanitizePositiveCurrencyInput(event.target.value)); invalidate(); }} />
+              </CreditCurrencyInputGroup>
+              <small>Desconto não consome crédito. Esta ação exige uso de crédito maior que zero.</small>
+              {discountCents > 0 && <><AmountLabel htmlFor="credit-use-adjustment-reason">Motivo do desconto</AmountLabel>
+                <textarea id="credit-use-adjustment-reason" rows={2} maxLength={1000} value={adjustmentReason} disabled={Boolean(busy)}
+                  onChange={(event) => { setAdjustmentReason(event.target.value); invalidate(); }} /></>}
+              {selected.length > 0 && !discountValid && <AmountError role="alert">O desconto deve ser menor que a dívida selecionada.</AmountError>}
+            </AmountField>
           </>}
           {preview && <>
             <GroupList aria-label="Destinos conferidos">
@@ -364,6 +385,7 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
             </GroupList>
             <Totals>
               <PrimaryTotal><span>Crédito a aplicar</span><strong>{formatCurrency(preview.amount_cents)}</strong></PrimaryTotal>
+              {preview.discount_cents > 0 && <SummaryLine><span>Desconto nesta baixa</span><strong>{formatCurrency(preview.discount_cents)}</strong></SummaryLine>}
               <SummaryLine><span>Crédito restante</span><strong>{formatCurrency(preview.credit_remaining_cents)}</strong></SummaryLine>
             </Totals>
           </>}
