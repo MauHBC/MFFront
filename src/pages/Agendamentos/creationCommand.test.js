@@ -27,3 +27,9 @@ test("replacement always schedules one session and cannot leak into another orig
   ["own", "shared", "new"].forEach((origin) => expect(creationCommand({ ready: true, origin, replacementId: 9, own: true, packageId: 7, sharing: true })).toBeNull());
   expect(creationCommand({ ready: true, origin: "replacement" })).toBeNull();
 });
+
+test("own purchased batch is explicit and cannot choose a new purchase", () => {
+  expect(creationCommand({ ready: true, origin: "own", own: true, packageId: 7, repeat: true, ownBatch: true, later: true })).toBe("/session-series");
+  expect(creationCommand({ ready: true, origin: "shared", sharing: true, repeat: true, ownBatch: true })).toBe("/sessions");
+  expect(creationCommand({ ready: true, origin: "replacement", replacementId: 9, repeat: true, ownBatch: true })).toBe("/sessions");
+});

@@ -1609,6 +1609,7 @@ export default function Agendamentos() {
   const [form, setForm] = useState(emptyForm);
   const [purchaseLater, setPurchaseLater] = useState(false);
   const [selectedOrigin, setSelectedOrigin] = useState("");
+  const [ownBatchUncertain, setOwnBatchUncertain] = useState(false);
   const [creationStep, setCreationStep] = useState("origin");
   const [isInitialOriginChoice, setIsInitialOriginChoice] = useState(false);
   const [patientSelection, setPatientSelection] = useState(0);
@@ -1618,7 +1619,7 @@ export default function Agendamentos() {
     onSuccess: (...args) => purchaseCallbacksRef.current.onSuccess(...args),
     onError: (message) => purchaseCallbacksRef.current.onError(message),
   });
-  const purchasePending = purchaseCommand.saving || purchaseCommand.uncertain;
+  const purchasePending = purchaseCommand.saving || purchaseCommand.uncertain || ownBatchUncertain;
   const resetPurchaseCommand = purchaseCommand.reset;
   const purchaseAttemptRef = useRef(null);
   const purchaseKeyFor = useCallback((payload) => {
@@ -1629,6 +1630,18 @@ export default function Agendamentos() {
       purchaseAttemptRef.current = { fingerprint, key: `purchase:${uuidv4()}` };
     }
     return purchaseAttemptRef.current.key;
+  }, []);
+  const patientRightsRefreshRef = useRef(null);
+  const ownBatchAttemptRef = useRef(null);
+  const ownBatchKeyFor = useCallback((payload) => {
+    const command = { ...payload };
+    delete command.idempotency_key;
+    delete command.shared_package_review_token;
+    const fingerprint = JSON.stringify(command);
+    if (ownBatchAttemptRef.current?.fingerprint !== fingerprint) {
+      ownBatchAttemptRef.current = { fingerprint, key: `own-batch:${uuidv4()}` };
+    }
+    return ownBatchAttemptRef.current.key;
   }, []);
   const postAgendaCreation = useCallback((url, payload) => axios.post(url, payload.purchase_launch
     ? { ...payload, idempotency_key: purchaseKeyFor(payload) } : payload), [purchaseKeyFor]);
@@ -3000,9 +3013,10 @@ export default function Agendamentos() {
   ]);
 
   const closeRecurrencePreview = useCallback(() => {
+    if (ownBatchUncertain) return;
     singleReviewAvailabilityRequestIdRef.current += 1;
     setRecurrencePreview(null);
-  }, []);
+  }, [ownBatchUncertain]);
 
   const buildSingleReviewOccurrence = useCallback(async ({
     payload,
@@ -3261,7 +3275,7 @@ export default function Agendamentos() {
     if (!occurrence?.index) return;
     if (!isReviewOccurrenceSelectable(occurrence)) return;
     setRecurrencePreview((previous) => {
-      if (!previous || previous.requires_revalidation) return previous;
+      if (!previous || previous.requires_revalidation || ownBatchUncertain) return previous;
       const { index } = occurrence;
       const isSelected = previous.selected_indexes.includes(index);
       const selectedIndexes = isSelected
@@ -3293,9 +3307,10 @@ export default function Agendamentos() {
         force_override_indexes: forceOverrideIndexes,
       };
     });
-  }, []);
+  }, [ownBatchUncertain]);
 
   const handleStartEditPreviewOccurrence = useCallback((occurrence) => {
+    if (ownBatchUncertain) return;
     if (!occurrence?.index) return;
     setRecurrencePreview((previous) => {
       if (!previous) return previous;
@@ -3309,7 +3324,7 @@ export default function Agendamentos() {
         edit_error: "",
       };
     });
-  }, []);
+  }, [ownBatchUncertain]);
 
   const handleCancelEditPreviewOccurrence = useCallback(() => {
     setRecurrencePreview((previous) => {
@@ -3410,11 +3425,14 @@ export default function Agendamentos() {
         occurrences: sortedDraftOccurrences.map((item) =>
           toOccurrencePreviewPayload(item, recurrencePreview.series_payload)),
       });
+      if (recurrencePreview.selection_version !== undefined
+        && recurrencePreview.selection_version !== creationSelectionVersionRef.current) return;
       const preview = validateRecurringSchedulingAvailability(response?.data, {
         requireCompleteValidation: usesCompleteSchedulingAvailabilityContract,
       });
       const nextOccurrences = preview.occurrences_preview.map((item, index) => ({
         ...item,
+        ...(recurrencePreview.series_payload.use_own_package ? { can_override_block: false } : {}),
         manually_edited: !!sortedDraftOccurrences[index]?.manually_edited,
         availability_scope: usesCompleteSchedulingAvailabilityContract
           ? "patient_conflict_checked"
@@ -3447,7 +3465,7 @@ export default function Agendamentos() {
         .map((item) => item.index);
 
       setRecurrencePreview((previous) =>
-        previous
+        previous?.series_payload === recurrencePreview.series_payload
           ? {
             ...previous,
             occurrences: nextOccurrences,
@@ -3464,8 +3482,9 @@ export default function Agendamentos() {
           }
           : previous);
     } catch (error) {
+      if (recurrencePreview.selection_version !== undefined && recurrencePreview.selection_version !== creationSelectionVersionRef.current) return;
       setRecurrencePreview((previous) => {
-        if (!previous) return previous;
+        if (previous?.series_payload !== recurrencePreview.series_payload) return previous;
         const availabilityError = error?.response?.data?.error
           || "Não foi possível recalcular esta ocorrência.";
         const failedOccurrences = previous.occurrences.map((item) => ({
@@ -3586,6 +3605,8 @@ export default function Agendamentos() {
       setSelectedOrigin("");
       resetPurchaseCommand();
     purchaseAttemptRef.current = null;
+    ownBatchAttemptRef.current = null;
+    setOwnBatchUncertain(false);
     singleReviewAvailabilityRequestIdRef.current += 1;
     setEditingId(null);
     setEditingIntent("create");
@@ -3627,6 +3648,12 @@ export default function Agendamentos() {
     );
     if (selectedOccurrences.length === 0) {
       toast.error("Selecione ao menos uma ocorrencia para criar.");
+      return;
+    }
+    if (recurrencePreview.series_payload?.use_own_package
+      && (selectedOccurrences.length !== recurrencePreview.occurrences.length
+        || selectedOccurrences.some((item) => item.status === "BLOCK" || item.status === "ERROR"))) {
+      toast.error("Distribuir sessões exige todas as datas disponíveis. Revise o lote inteiro.");
       return;
     }
     if (recurrencePreview.series_payload?.purchase_launch
@@ -3699,7 +3726,7 @@ export default function Agendamentos() {
 	        await loadOperationalAlerts(selectedMonthKey);
 	        return;
 	      }
-	      const response = await postAgendaCreation("/session-series", {
+	      const seriesCommand = {
 	        ...recurrencePreview.series_payload,
         ...(recurrencePreview.series_payload.purchase_launch ? {
           quantity: recurrencePreview.occurrences.length,
@@ -3707,14 +3734,18 @@ export default function Agendamentos() {
         starts_at: selectedOccurrences[0].starts_at,
         occurrence_count: selectedOccurrences.length,
         until_date: null,
-        creation_mode: "selected_only",
+        creation_mode: recurrencePreview.series_payload.use_own_package ? "all_or_nothing" : "selected_only",
         occurrence_indexes: selectedIndexes,
         occurrences: selectedOccurrences.map((item) =>
           toOccurrencePreviewPayload(item, recurrencePreview.series_payload)),
         confirm_warning_indexes: confirmWarningIndexes,
         force_override_indexes: forceOverrideIndexes,
         override_reason: requiresOverrideReason ? overrideReason : null,
-      });
+      };
+      if (seriesCommand.use_own_package) {
+        seriesCommand.idempotency_key = ownBatchKeyFor(seriesCommand);
+      }
+      const response = await postAgendaCreation("/session-series", seriesCommand);
 
       const created = Number(response?.data?.total_created || 0);
       const skipped = Number(response?.data?.total_skipped || 0);
@@ -3731,6 +3762,24 @@ export default function Agendamentos() {
       await loadPendingSessions();
     } catch (error) {
       const responseData = error?.response?.data || {};
+      if (recurrencePreview.series_payload?.use_own_package) {
+        const status = error?.response?.status;
+        if (!status || status >= 500) {
+          setOwnBatchUncertain(true);
+          toast.error("Resposta não confirmada. Verifique a mesma distribuição antes de alterar.");
+          return;
+        }
+        setOwnBatchUncertain(false);
+        if (["PACKAGE_SHARE_REVIEW_CHANGED", "PACKAGE_OWN_RIGHT_UNAVAILABLE", "PACKAGE_OWN_RIGHT_QUANTITY_UNAVAILABLE", "PACKAGE_OWN_BATCH_IDEMPOTENCY_CONFLICT"].includes(responseData.code)) {
+          creationSelectionVersionRef.current += 1;
+          setRecurrencePreview(null); setCreationStep("origin"); setSelectedOrigin("");
+          setForm((previous) => ({ ...previous, use_own_package: false,
+            shared_package_owner_id: "", shared_package_id: "", shared_package_review_token: "", package_share_idempotency_key: "" }));
+          patientRightsRefreshRef.current?.();
+          toast.error(resolveSchedulingErrorMessage(error));
+          return;
+        }
+      }
       if (
         responseData?.code === "PATIENT_SCHEDULE_CONFLICT"
         && recurrencePreview.review_type === "single"
@@ -3931,6 +3980,7 @@ export default function Agendamentos() {
         }
         const nextOccurrences = changedPreview.occurrences_preview.map((occurrence) => ({
           ...occurrence,
+          ...(recurrencePreview.series_payload?.use_own_package ? { can_override_block: false } : {}),
           availability_scope: usesCompleteSchedulingAvailabilityContract
             ? "patient_conflict_checked"
             : LEGACY_OPERATIONAL_AVAILABILITY_SCOPE,
@@ -3970,6 +4020,7 @@ export default function Agendamentos() {
     resetForm,
     selectedMonthKey,
     usesCompleteSchedulingAvailabilityContract,
+    ownBatchKeyFor,
   ]);
 
   const handleCreateAt = useCallback(
@@ -5115,6 +5166,7 @@ export default function Agendamentos() {
   const isInitialOriginFlow = !editingId && isInitialOriginChoice;
   const patientRights = usePatientRights(form.patient_id,
     isDrawerOpen && drawerMode === "form" && isInitialOriginFlow, patientSelection, true);
+  patientRightsRefreshRef.current = patientRights.refresh;
   const selectedReplacementCredit = useMemo(() => (
     isInitialOriginFlow ? patientRights.replacements : replacementCreditsForPatient
   ).find((credit) => String(credit.id) === String(form.session_replacement_credit_id)) || null,
@@ -5124,10 +5176,12 @@ export default function Agendamentos() {
   const isSchedulingReplacement = !editingId && !!selectedReplacementCredit;
   const isNewOriginFlow = !editingId && !isSchedulingReplacement;
   const originReady = patientRights.status === "ready";
+  const isOwnPurchasedBatch = isInitialOriginFlow && selectedOrigin === "own"
+    && form.use_own_package && repeatEnabled && Number(repeatCount) > 1;
   const creationEndpoint = creationCommand({ ready: originReady, origin: selectedOrigin,
     own: form.use_own_package, packageId: form.shared_package_id,
     replacementId: selectedReplacementCredit?.id,
-    sharing: isPackageShareFlow, repeat: repeatEnabled, later: purchaseLater });
+    sharing: isPackageShareFlow, repeat: repeatEnabled, later: purchaseLater, ownBatch: isOwnPurchasedBatch });
   const canAdvanceCreation = originReady && !!creationEndpoint;
   const hasCreationDetails = !isInitialOriginFlow || (canAdvanceCreation && creationStep === "details");
   const selectedOwnPackage = patientRights.options.find((pkg) => String(pkg.id) === String(form.shared_package_id));
@@ -5171,7 +5225,8 @@ export default function Agendamentos() {
     setRecurrencePreview(null);
     if (!pkg) return;
     setPurchaseLater(false);
-    setRepeatEnabled(false);
+    setRepeatEnabled(false); setRepeatMode("count"); setRepeatCount("1");
+    ownBatchAttemptRef.current = null;
     setForm((previous) => ({ ...previous, use_own_package: true,
       shared_package_owner_id: String(previous.patient_id), shared_package_id: String(pkg.id),
       shared_package_review_token: pkg.review_token, service_id: String(pkg.service.id),
@@ -5469,12 +5524,20 @@ export default function Agendamentos() {
         return;
       }
 
-      const isRecurring = repeatEnabled
+      if (isInitialOriginFlow && selectedOrigin === "own") {
+        const quantity = Number(repeatCount);
+        const available = selectedOwnPackage?.purchased_free_rights || 0;
+        if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > Math.min(available, 500)) {
+          toast.error(`Selecione de 1 a ${Math.min(available, 500)} sessões compradas disponíveis.`);
+          return;
+        }
+      }
+      const isRecurring = isOwnPurchasedBatch || (repeatEnabled
         && !editingId
         && !isSchedulingReplacement
         && !isPackageShareFlow
         && !form.use_own_package
-        && (!isNewOriginFlow || creationEndpoint === "/session-series");
+        && (!isNewOriginFlow || creationEndpoint === "/session-series"));
       if (endsAtDate && endsAtDate <= startsAtDate) {
         toast.error("O horário final deve ser posterior ao início.");
         return;
@@ -5664,6 +5727,16 @@ export default function Agendamentos() {
           seriesPayload.idempotency_key = purchaseKeyFor(seriesPayload);
         }
 
+        if (isOwnPurchasedBatch) {
+          seriesPayload.use_own_package = true;
+          seriesPayload.own_package_right_kind = "purchased";
+          seriesPayload.shared_package_id = payload.shared_package_id;
+          seriesPayload.shared_package_review_token = payload.shared_package_review_token;
+          seriesPayload.creation_mode = "all_or_nothing";
+          delete seriesPayload.patient_credit_id;
+          delete seriesPayload.is_no_charge;
+        }
+
         if (repeatMode === "plan") {
           try {
             const response = await axios.post("/session-series", seriesPayload);
@@ -5702,6 +5775,7 @@ export default function Agendamentos() {
           });
           const occurrences = preview.occurrences_preview.map((occurrence) => ({
             ...occurrence,
+            ...(isOwnPurchasedBatch ? { can_override_block: false } : {}),
             availability_scope: usesCompleteSchedulingAvailabilityContract
               ? "patient_conflict_checked"
               : LEGACY_OPERATIONAL_AVAILABILITY_SCOPE,
@@ -5720,7 +5794,7 @@ export default function Agendamentos() {
 			            open: true,
 			            is_submitting: false,
 			            series_payload: seriesPayload,
-	              price_unit_cents: seriesPayload.is_no_charge ? null : visibleSessionPriceCents,
+	              price_unit_cents: isOwnPurchasedBatch || seriesPayload.is_no_charge ? null : visibleSessionPriceCents,
 	              is_no_charge: !!seriesPayload.is_no_charge,
 		              repeat_mode: repeatMode,
               repeat_cadence: repeatCadence,
@@ -6038,6 +6112,8 @@ export default function Agendamentos() {
       usesMembershipSessionContract,
       usesCompleteSchedulingAvailabilityContract,
       hasCreationDetails,
+      isOwnPurchasedBatch,
+      selectedOwnPackage,
       visibleSessionPriceCents,
 	    ],
 	  );
@@ -7987,11 +8063,11 @@ export default function Agendamentos() {
                       <span>A agenda esta bloqueada por feriado.</span>
                     </ScheduleContextCard>
                   )}
-	                  {!isDeferredPurchase && !editingId && !isSchedulingReplacement && !isPackageShareFlow && !form.use_own_package && (
+	                  {!isDeferredPurchase && !editingId && !isSchedulingReplacement && !isPackageShareFlow && (!form.use_own_package || isInitialOriginFlow) && (
 	                    <RepeatCard className="span-2">
 	                      <RepeatHeader>
-	                        <strong>Mais sessões</strong>
-	                        {repeatEnabled ? (
+	                        <strong>{form.use_own_package ? "Distribuir sessões na agenda" : "Mais sessões"}</strong>
+	                        {!form.use_own_package && (repeatEnabled ? (
 	                          <RepeatActionButton
 	                            type="button"
 	                            onClick={handleRemoveMoreSessions}
@@ -8005,11 +8081,22 @@ export default function Agendamentos() {
 	                          >
 	                            + Adicionar
 	                          </RepeatActionButton>
-	                        )}
+	                        ))}
 	                      </RepeatHeader>
+                      {form.use_own_package && <AppField>
+                        Quantas sessões compradas deseja agendar?
+                        <input name="own_schedule_quantity" type="number" min="1" max={Math.min(selectedOwnPackage?.purchased_free_rights || 0, 500)} step="1"
+                          value={repeatCount} onChange={(event) => {
+                            creationSelectionVersionRef.current += 1;
+                            setRecurrencePreview(null); setRepeatMode("count");
+                            setRepeatCount(event.target.value); setRepeatEnabled(Number(event.target.value) > 1);
+                            if (!repeatWeekdays.length && form.starts_at) setRepeatWeekdays([getAgendaIsoWeekday(form.starts_at)]);
+                          }}/>
+                        <FieldHint>{selectedOwnPackage?.purchased_free_rights || 0} sessões compradas disponíveis. O restante continua disponível, sem nova compra.</FieldHint>
+                      </AppField>}
                       {repeatEnabled && (
                         <RepeatBody>
-                          <RepeatRow>
+                          {!form.use_own_package && <RepeatRow>
                             <RepeatField className="full">
                                 <RepeatLabel>Definir por</RepeatLabel>
 	                              <RepeatModes>
@@ -8045,7 +8132,7 @@ export default function Agendamentos() {
                                 )}
                               </RepeatModes>
 	                            </RepeatField>
-	                          </RepeatRow>
+	                          </RepeatRow>}
                             <RepeatRow>
                               <RepeatField className="full">
                                 <RepeatLabel>Repetir</RepeatLabel>
@@ -8068,7 +8155,7 @@ export default function Agendamentos() {
                               </RepeatField>
                             </RepeatRow>
 	                          <RepeatRow>
-                            {repeatMode === "count" && (
+                            {!form.use_own_package && repeatMode === "count" && (
                               <RepeatField className="full">
                                 <RepeatLabel>Quantas sessões?</RepeatLabel>
                                 <RepeatInline>
@@ -8307,11 +8394,12 @@ Observação da compra (opcional)
 	            <RecurrencePreviewCard>
 	              <ModalHeader>
 		                <h3>Revisar agendamento</h3>
-	                <IconButton type="button" onClick={closeRecurrencePreview}>
+	                <IconButton type="button" onClick={closeRecurrencePreview} disabled={ownBatchUncertain || recurrencePreview.is_submitting}>
 	                  <FaTimes />
 	                </IconButton>
 	              </ModalHeader>
 	              <RecurrencePreviewBody>
+                    {ownBatchUncertain && <FieldHint role="status">Distribuição pendente. Verifique a mesma tentativa antes de alterar.</FieldHint>}
 		                <RecurrenceReviewSummary>
 		                  {!recurrencePreview?.package_share_review && (
 		                    <>
@@ -8443,7 +8531,7 @@ Observação da compra (opcional)
                             type="checkbox"
                             checked={isSelected}
                             disabled={
-                              recurrencePreview.is_submitting ||
+                              recurrencePreview.is_submitting || ownBatchUncertain ||
                               !isSelectable
                             }
                             onChange={() => handleTogglePreviewOccurrence(occurrence)}
@@ -8471,7 +8559,7 @@ Observação da compra (opcional)
 		                              <RecurrenceInlineButton
 		                                type="button"
 		                                onClick={handleRetrySingleAvailability}
-		                                disabled={recurrencePreview.is_submitting}
+		                                disabled={recurrencePreview.is_submitting || ownBatchUncertain}
 		                              >
 		                                Tentar novamente
 		                              </RecurrenceInlineButton>
@@ -8593,7 +8681,7 @@ Observação da compra (opcional)
                 <SecondaryButton
                   type="button"
                   onClick={closeRecurrencePreview}
-                  disabled={recurrencePreview.is_submitting}
+                  disabled={recurrencePreview.is_submitting || ownBatchUncertain}
                 >
                   Voltar e editar
                 </SecondaryButton>
@@ -8613,7 +8701,7 @@ Observação da compra (opcional)
 		                    ))
 		                  }
 	                >
-	                  {recurrenceConfirmationLabel(recurrencePreview, isPackageReplacement)}
+	                  {ownBatchUncertain ? "Verificar distribuição" : recurrenceConfirmationLabel(recurrencePreview, isPackageReplacement)}
 	                </PrimaryButton>
               </ModalActions>
             </RecurrencePreviewCard>

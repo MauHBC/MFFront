@@ -2032,12 +2032,31 @@ uma observação para outra. A programação por quantidade conserva o mesmo nú
 ao trocar agora/depois; rascunhos por semanas/meses continuam próprios da
 programação e não inventam datas para uma compra posterior.
 
-Direito próprio fixa serviço e agenda uma unidade pela revisão existente,
-sem controles de compra ou Mais sessões. Essa proteção também existe na seleção
-do comando e na construção do payload. Compartilhamento mantém sua revisão
-publicada. Prévias atrasadas de outra seleção de paciente/origem/modo não são
-reabertas nem confirmadas. Trocar paciente limpa origem, observações e seleção anterior antes
-de consultar seus direitos. Edição e reposição iniciada pela Central de Pendências mantêm seus caminhos existentes.
+Direito próprio comprado fixa o serviço e mostra **Distribuir sessões na agenda**.
+A quantidade vai de 1 até o saldo `purchased_free_rights` do pacote escolhido,
+limitada a 500; reposições não aumentam esse limite. Uma unidade usa a revisão
+individual existente. Mais unidades reutilizam o gerador por quantidade,
+dias da semana e cadência semanal/alternada, sem controles de compra ou preço.
+A observação do agendamento é geral e acompanha todas as sessões do lote.
+Selecionar parte do saldo existente deixa as demais unidades disponíveis;
+isso não altera a regra de compra nova agora, que programa todas as sessões.
+
+Lote próprio usa `/scheduling/occurrences-preview` e confirma em `/session-series`
+com `use_own_package: true`, `own_package_right_kind: "purchased"`, pacote/token
+de revisão e `creation_mode: "all_or_nothing"`. Não envia compra, observação da
+compra, preço, unidades escolhidas no navegador ou crédito de reposição.
+Todas as datas do lote precisam estar disponíveis; conflito não é ignorado nem
+forçado. Datas podem ser corrigidas na revisão existente, com revalidação do lote.
+Atomicidade, limite real, autorização e concorrência pertencem ao Backend.
+
+Resposta perdida congela o rascunho e permite **Verificar distribuição** com o
+mesmo payload/chave; alterar a programação confirmada gera outra chave. Saldo
+ou revisão alterados por concorrência recarregam os direitos e exigem nova escolha.
+Compartilhamento e reposição continuam individuais, sem geração de lote.
+Prévias atrasadas de outra seleção de paciente/origem/modo não são reabertas nem
+confirmadas. Trocar paciente limpa origem, observações e seleção anterior antes
+de consultar seus direitos. Edição e reposição pela Central de Pendências
+mantêm seus caminhos existentes.
 
 Uma unidade aparece como Avulsa e duas ou mais como Pacote no histórico e
 Financeiro. A revisão de compra programada exige selecionar todas as sessões;

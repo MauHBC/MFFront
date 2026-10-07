@@ -3589,6 +3589,128 @@ describe("Agendamentos - editar agendamento", () => {
     expect(axios.post.mock.calls.find(([url]) => url === "/sessions")[1]).not.toHaveProperty("purchase_launch");
   });
 
+  const openOwnPurchasedBatch = async (quantity = "2") => {
+    const get = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => url === "/patients/20/available-rights"
+      ? Promise.resolve({ data: ownRights }) : get(url, config));
+    previewSchedulingOccurrences.mockResolvedValue({ data: {
+      occurrences_preview: [buildPreviewOccurrence(1, "2026-07-06"), buildPreviewOccurrence(2, "2026-07-13")],
+      summary: buildPreviewSummary({ total: 2, available: 2, warn: 0, blocked: 0 }), validation: buildAvailabilityValidation(),
+    } });
+    const { container } = renderAgendamentos();
+    const form = await openCreationForm(); await selectCreationPatient();
+    fireEvent.click(await within(form).findByLabelText(/Fisioterapia.*3 não agendadas/));
+    await advanceCreation(); await selectAssignedProfessional(container);
+    fireEvent.change(form.querySelector('input[type="date"]'), { target: { value: "2026-07-06" } });
+    const hour = Array.from(form.querySelectorAll("select")).find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hour, { target: { value: "10" } });
+    fireEvent.change(form.querySelector('input[name="own_schedule_quantity"]'), { target: { value: quantity } });
+    fireEvent.change(form.querySelector('textarea[name="notes"]'), { target: { value: "Observação geral do lote" } });
+    return { container, form };
+  };
+
+  it("lote próprio comprado: distribui parte do saldo em lote integral sem compra ou cobrança", async () => {
+    const { form } = await openOwnPurchasedBatch();
+    expect(within(form).getByText("Distribuir sessões na agenda")).toBeInTheDocument();
+    expect(form.querySelector('input[name="own_schedule_quantity"]')).toHaveAttribute("max", "3");
+    expect(form.querySelector('textarea[name="launch_notes"]')).toBeNull();
+    expect(within(form).queryByText("Definir por")).not.toBeInTheDocument();
+    fireEvent.click(within(form).getByRole("button", { name: "Semana sim, semana não" }));
+    fireEvent.click(within(form).getByRole("button", { name: "Revisar agendamento" }));
+    await screen.findByRole("heading", { name: "Revisar agendamento" });
+    expect(previewSchedulingOccurrences).toHaveBeenCalledWith(expect.objectContaining({
+      patient_id: 20, service_id: 41, shared_package_id: 701, shared_package_review_token: "own-review",
+      use_own_package: true, own_package_right_kind: "purchased", occurrence_count: 2,
+      repeat_interval: 2, creation_mode: "all_or_nothing", notes: "Observação geral do lote",
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith("/session-series", expect.objectContaining({
+      use_own_package: true, own_package_right_kind: "purchased", shared_package_id: 701,
+      occurrence_count: 2, creation_mode: "all_or_nothing", notes: "Observação geral do lote",
+      idempotency_key: expect.stringMatching(/^own-batch:/), occurrences: expect.any(Array),
+    })));
+    const body = axios.post.mock.calls.find(([url]) => url === "/session-series")[1];
+    ["purchase_launch", "launch_notes", "price_override_cents", "patient_credit_id", "session_replacement_credit_id", "package_unit_ids", "shared_package_source_session_id", "is_no_charge"].forEach((key) => expect(body).not.toHaveProperty(key));
+    expect(body.occurrences).toHaveLength(2); expect(body.force_override_indexes).toEqual([]);
+    expect(axios.post.mock.calls.some(([url]) => ["/sessions", "/package-purchases"].includes(url))).toBe(false);
+  });
+
+  it.each(["0", "4", "2.5"])("lote próprio comprado: rejeita quantidade inválida %s sem consultar ou reservar", async (quantity) => {
+    const { form } = await openOwnPurchasedBatch(quantity);
+    fireEvent.click(within(form).getByRole("button", { name: "Revisar agendamento" }));
+    expect(previewSchedulingOccurrences).not.toHaveBeenCalled(); expect(axios.post).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith("Selecione de 1 a 3 sessões compradas disponíveis.");
+  });
+
+  it("lote próprio comprado: não permite confirmar somente as datas disponíveis ou forçar conflito", async () => {
+    const { form } = await openOwnPurchasedBatch();
+    const blocked = { ...buildPreviewOccurrence(2, "2026-07-13"), status: "BLOCK", can_override_block: true,
+      can_create: false, blocking_code: "SCHEDULING_BLOCKED", blocking_reason: "Agenda bloqueada",
+      availability: buildOperationalAvailability({ hasBlockingEvents: true, blockingReason: "Agenda bloqueada", allowAdminOverrideBlock: true }),
+      validation: buildAvailabilityValidation({ blockingCode: "SCHEDULING_BLOCKED", blockingReason: "Agenda bloqueada" }),
+    };
+    previewSchedulingOccurrences.mockResolvedValueOnce({ data: {
+      occurrences_preview: [buildPreviewOccurrence(1, "2026-07-06"), blocked],
+      summary: buildPreviewSummary({ total: 2, available: 1, warn: 0, blocked: 1, overrideableBlocked: 1 }), validation: buildAvailabilityValidation(),
+    } });
+    fireEvent.click(within(form).getByRole("button", { name: "Revisar agendamento" }));
+    await screen.findByRole("heading", { name: "Revisar agendamento" });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    expect(toast.error).toHaveBeenCalledWith("Distribuir sessões exige todas as datas disponíveis. Revise o lote inteiro.");
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("checkbox").filter((box) => box.disabled)).toHaveLength(1);
+  });
+
+  it("lote próprio comprado: corrigir data revalida todas as ocorrências antes de confirmar", async () => {
+    const { form } = await openOwnPurchasedBatch();
+    fireEvent.click(within(form).getByRole("button", { name: "Revisar agendamento" }));
+    await screen.findByRole("heading", { name: "Revisar agendamento" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[1]);
+    fireEvent.change(document.getElementById("recurrence-edit-date-2"), { target: { value: "2026-07-14" } });
+    previewSchedulingOccurrences.mockResolvedValueOnce({ data: {
+      occurrences_preview: [buildPreviewOccurrence(1, "2026-07-06"), buildPreviewOccurrence(2, "2026-07-14")],
+      summary: buildPreviewSummary({ total: 2, available: 2, warn: 0, blocked: 0 }), validation: buildAvailabilityValidation(),
+    } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await screen.findByText(/14\/07\/2026/);
+    expect(previewSchedulingOccurrences.mock.calls[1][0]).toMatchObject({ use_own_package: true, own_package_right_kind: "purchased", creation_mode: "all_or_nothing" });
+    expect(previewSchedulingOccurrences.mock.calls[1][0].occurrences).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalled());
+    const body = axios.post.mock.calls[0][1];
+    expect(body.occurrences).toHaveLength(2);
+    expect(body.occurrences[1].starts_at).toBe("2026-07-14T13:00:00.000Z");
+    expect(body.notes).toBe("Observação geral do lote");
+  });
+
+  it("lote próprio comprado: resposta perdida congela alterações e repete exatamente a mesma chave", async () => {
+    const { form } = await openOwnPurchasedBatch();
+    axios.post.mockRejectedValueOnce(new Error("Resposta perdida")).mockResolvedValueOnce({ data: { total_created: 2, replayed: true } });
+    fireEvent.click(within(form).getByRole("button", { name: "Revisar agendamento" }));
+    await screen.findByRole("heading", { name: "Revisar agendamento" });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    const retry = await screen.findByRole("button", { name: "Verificar distribuição" });
+    expect(screen.getByRole("button", { name: "Voltar e editar" })).toBeDisabled();
+    expect(screen.getAllByRole("checkbox").every((box) => box.disabled)).toBe(true);
+    expect(form.querySelector("fieldset")).toBeDisabled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(2));
+    expect(axios.post.mock.calls[1]).toEqual(axios.post.mock.calls[0]);
+  });
+
+  it("lote próprio comprado: concorrência atualiza direitos e exige outra escolha explícita", async () => {
+    const { form } = await openOwnPurchasedBatch();
+    axios.post.mockRejectedValueOnce({ response: { status: 409, data: { code: "PACKAGE_OWN_RIGHT_QUANTITY_UNAVAILABLE", error: "Saldo alterado" } } });
+    fireEvent.click(within(form).getByRole("button", { name: "Revisar agendamento" }));
+    await screen.findByRole("heading", { name: "Revisar agendamento" });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    const origin = await within(form).findByLabelText(/Fisioterapia.*3 não agendadas/);
+    expect(origin).not.toBeChecked();
+    expect(within(form).getByRole("button", { name: "Avançar" })).toBeDisabled();
+    expect(screen.queryByRole("heading", { name: "Revisar agendamento" })).not.toBeInTheDocument();
+    expect(axios.get.mock.calls.filter(([url]) => url === "/patients/20/available-rights")).toHaveLength(2);
+  });
+
   it("fluxo aprovado: compra agora rejeita seleção parcial e lança todas as sessões na mesma confirmação", async () => {
     previewSchedulingOccurrences.mockResolvedValue({ data: {
       occurrences_preview: [buildPreviewOccurrence(1, "2026-07-06"), buildPreviewOccurrence(2, "2026-07-13")],
