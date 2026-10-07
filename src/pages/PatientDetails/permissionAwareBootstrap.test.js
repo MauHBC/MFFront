@@ -1149,4 +1149,23 @@ describe("PatientDetails permission-aware bootstrap", () => {
     }
   });
 
+  test("histórico mostra observação da compra nos detalhes sem usar nota da sessão", async () => {
+    authorize(["patients", "schedule"]);
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/patients/101/package-history") {
+        const payload = buildPackageHistoryPayloadWithSession({ unit_state: "available", status: "available", notes: "Nota do agendamento" });
+        payload[0].launch_notes = "Compra para uso futuro";
+        return response(payload);
+      }
+      return configureResponse(url, config);
+    });
+    renderPage();
+    await screen.findByRole("heading", { name: "Ana Modular" });
+    fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ver sessões" }));
+    expect(await screen.findByText("Observação da compra")).toBeInTheDocument();
+    expect(screen.getByText("Compra para uso futuro")).toBeInTheDocument();
+    expect(screen.queryByText("Nota do agendamento")).not.toBeInTheDocument();
+  });
+
 });

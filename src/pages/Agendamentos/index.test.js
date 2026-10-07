@@ -324,7 +324,24 @@ const submitAndConfirmReview = async () => {
   fireEvent.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
 };
 
+const advanceCreation = async () => {
+  await waitFor(() => {
+    const advance = screen.queryByRole("button", { name: "Avançar" });
+    if (advance) expect(advance).toBeEnabled();
+  });
+  const advance = screen.queryByRole("button", { name: "Avançar" });
+  if (advance) fireEvent.click(advance);
+};
+const chooseCreationOrigin = async (name) => {
+  const back = screen.queryByRole("button", { name: "Voltar", exact: true });
+  if (back) fireEvent.click(back);
+  const choice = await screen.findByLabelText(name);
+  fireEvent.click(choice);
+  await advanceCreation();
+  return choice;
+};
 const selectAssignedProfessional = async (container) => {
+  await advanceCreation();
   await waitFor(() => expect(axios.get.mock.calls.some(
     ([url, config]) => url === "/schedule/references/professionals"
       && Number(config?.params?.patient_id) > 0,
@@ -425,8 +442,8 @@ const openPackageShareReview = async (container) => {
   const patientSuggestions = await screen.findAllByText("Paciente Teste");
   fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
   await selectAssignedProfessional(container);
-  fireEvent.click(screen.getByLabelText("Usar pacote de outro paciente"));
-  const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+  await chooseCreationOrigin("Usar pacote de outro paciente");
+  const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[0];
   fireEvent.change(ownerInput, { target: { value: "Maurício" } });
   fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
   fireEvent.change(container.querySelector('select[name="service_id"]'), {
@@ -1750,18 +1767,22 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.click(suggestions.find((element) => element.tagName === "BUTTON"));
     fireEvent.click(await screen.findByLabelText("Registrar novas sessões"));
     await selectAssignedProfessional(container);
-    const service = container.querySelector('select[name="service_id"]');
-    const professional = container.querySelector('select[name="professional_user_id"]');
-    const date = container.querySelector('input[type="date"]');
-    const hour = Array.from(container.querySelectorAll("select"))
+    let service = container.querySelector('select[name="service_id"]');
+    let professional = container.querySelector('select[name="professional_user_id"]');
+    let date = container.querySelector('input[type="date"]');
+    let hour = Array.from(container.querySelectorAll("select"))
       .find((select) => Array.from(select.options).some((option) => option.value === "10"));
-    const notes = container.querySelector('[name="notes"]');
-    const replacement = screen.getByLabelText(/Reposição:/);
+    let notes = container.querySelector('[name="notes"]');
     fireEvent.change(service, { target: { value: "40" } });
     fireEvent.change(date, { target: { value: "2026-06-30" } });
     fireEvent.change(hour, { target: { value: "10" } });
     fireEvent.change(notes, { target: { value: "Observação preservada" } });
-    fireEvent.click(replacement);
+    const replacement = await chooseCreationOrigin(/Reposição:/);
+    service = container.querySelector('select[name="service_id"]');
+    date = container.querySelector('input[type="date"]');
+    hour = Array.from(container.querySelectorAll("select")).find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    notes = container.querySelector('[name="notes"]');
+    professional = container.querySelector('select[name="professional_user_id"]');
     await waitFor(() => expect(service).toHaveValue("41"));
     expect(service).toBeDisabled();
     expect(service.closest("label")).toHaveClass("span-2");
@@ -1821,22 +1842,29 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.click(suggestions.find((element) => element.tagName === "BUTTON"));
     fireEvent.click(await screen.findByLabelText("Registrar novas sessões"));
     await selectAssignedProfessional(container);
-    const replacement = screen.getByLabelText(/Reposição:/);
-    const service = container.querySelector('select[name="service_id"]');
-    const date = container.querySelector('input[type="date"]');
-    const hour = Array.from(container.querySelectorAll("select"))
+    let service = container.querySelector('select[name="service_id"]');
+    let date = container.querySelector('input[type="date"]');
+    let hour = Array.from(container.querySelectorAll("select"))
       .find((select) => Array.from(select.options).some((option) => option.value === "10"));
-    const notes = container.querySelector('[name="notes"]');
+    let notes = container.querySelector('[name="notes"]');
     fireEvent.change(date, { target: { value: "2026-06-30" } });
     fireEvent.change(hour, { target: { value: "10" } });
     fireEvent.change(notes, { target: { value: "Manter observação" } });
-    fireEvent.click(replacement);
+    const replacement = await chooseCreationOrigin(/Reposição:/);
+    service = container.querySelector('select[name="service_id"]');
+    date = container.querySelector('input[type="date"]');
+    hour = Array.from(container.querySelectorAll("select")).find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    notes = container.querySelector('[name="notes"]');
     await waitFor(() => expect(service).toBeDisabled());
-    fireEvent.click(screen.getByLabelText("Registrar novas sessões"));
+    await chooseCreationOrigin("Registrar novas sessões");
+    service = container.querySelector('select[name="service_id"]');
+    date = container.querySelector('input[type="date"]');
+    hour = Array.from(container.querySelectorAll("select")).find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    notes = container.querySelector('[name="notes"]');
     expect(service).not.toBeDisabled();
     expect(window.getComputedStyle(service).appearance).not.toBe("none");
     fireEvent.change(service, { target: { value: "40" } });
-    expect(replacement).not.toBeChecked();
+    expect(screen.getByLabelText("Resumo do paciente e origem")).toHaveTextContent("Registrar novas sessões");
     expect(container.querySelector('select[name="professional_user_id"]')).toHaveValue("30");
     expect(date).toHaveValue("2026-06-30");
     expect(hour).toHaveValue("10");
@@ -1926,6 +1954,7 @@ describe("Agendamentos - editar agendamento", () => {
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
 
+    await advanceCreation();
     const assignmentOption = await screen.findByText("Profissional Alternativo");
     fireEvent.change(container.querySelector('select[name="professional_user_id"]'), {
       target: { value: assignmentOption.value },
@@ -2129,6 +2158,7 @@ describe("Agendamentos - editar agendamento", () => {
     });
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
+    await advanceCreation();
     await waitFor(() => expect(container.querySelector('select[name="service_id"]')).not.toBeNull());
 
     fireEvent.change(container.querySelector('select[name="service_id"]'), {
@@ -2317,13 +2347,14 @@ describe("Agendamentos - editar agendamento", () => {
     const serviceSelect = container.querySelector('select[name="service_id"]');
     fireEvent.change(serviceSelect, { target: { value: "40" } });
 
+    fireEvent.click(screen.getByRole("button", { name: "Voltar", exact: true }));
     await screen.findByLabelText(/Reposição:/);
       expect(screen.getByLabelText(/Reposição:/)).not.toBeChecked();
       expect(screen.getByLabelText(/Avaliação Coluna.*falta em 03\/05\/26/)).toBeInTheDocument();
       expect(screen.queryByText(/#901/)).not.toBeInTheDocument();
       expect(screen.queryByText(/vence em/i)).not.toBeInTheDocument();
 
-    fireEvent.change(patientInput, { target: { value: "Paciente Sem Vinculo" } });
+    fireEvent.change(screen.getByPlaceholderText("Buscar paciente"), { target: { value: "Paciente Sem Vinculo" } });
     fireEvent.click(await screen.findByText("Paciente Sem Vinculo"));
     fireEvent.click(await screen.findByLabelText("Registrar novas sessões"));
     await selectAssignedProfessional(container);
@@ -2430,17 +2461,18 @@ describe("Agendamentos - editar agendamento", () => {
     const serviceSelect = container.querySelector('select[name="service_id"]');
     fireEvent.change(serviceSelect, { target: { value: "40" } });
 
+    fireEvent.click(screen.getByRole("button", { name: "Voltar", exact: true }));
     const replacementSelect = await screen.findByLabelText(/Reposição:/);
       expect(screen.getByLabelText(/Avaliação Coluna.*falta em 03\/05\/26/)).toBeInTheDocument();
-	    fireEvent.click(replacementSelect);
+	    await chooseCreationOrigin(/Reposição:/);
       expect(screen.getByRole("heading", { name: "Novo agendamento" })).toBeInTheDocument();
       expect(screen.getByRole("heading", { name: "Agendar reposição", level: 3 })).toBeInTheDocument();
       expect(screen.getByText("Reposição selecionada. Sem nova cobrança.")).toBeInTheDocument();
 
-      fireEvent.click(screen.getByLabelText("Registrar novas sessões"));
+      await chooseCreationOrigin("Registrar novas sessões");
       expect(screen.queryByText("Reposição selecionada. Sem nova cobrança.")).not.toBeInTheDocument();
 
-      fireEvent.click(replacementSelect);
+      await chooseCreationOrigin(/Reposição:/);
 
 	    fireEvent.change(container.querySelector('input[type="date"]'), {
 	      target: { value: "2026-06-30" },
@@ -3302,6 +3334,9 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Tentar novamente" }));
     expect(await within(form).findByText(/Nenhuma sessão disponível/)).toBeInTheDocument();
     expect(await within(form).findByText("Tipo de atendimento")).toBeInTheDocument();
+    expect(within(form).queryByRole("button", { name: "Avançar" })).not.toBeInTheDocument();
+    expect(within(form).getByLabelText("Resumo do paciente e origem")).toHaveTextContent("Registrar novas sessões");
+    fireEvent.click(within(form).getByRole("button", { name: "Voltar", exact: true }));
     expect(within(form).getByLabelText("Registrar novas sessões")).toBeChecked();
     expect(within(form).getByLabelText("Usar pacote de outro paciente")).toBeEnabled();
   });
@@ -3320,30 +3355,41 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.submit(form);
     expect(axios.post).not.toHaveBeenCalled();
     fireEvent.click(within(form).getByLabelText("Registrar novas sessões"));
+    expect(within(form).queryByRole("region")).not.toBeInTheDocument();
+    fireEvent.submit(form);
+    expect(axios.post).not.toHaveBeenCalled();
+    await advanceCreation();
+    expect(within(form).getByLabelText("Resumo do paciente e origem")).toHaveTextContent("Paciente Teste");
     const newDetails = within(form).getByRole("region", { name: "Novas sessões" });
     expect(within(newDetails).getByRole("group", { name: "Quando agendar as novas sessões" })).toBeInTheDocument();
     expect(within(newDetails).getByText("Tipo de atendimento")).toBeInTheDocument();
     fireEvent.click(within(form).getByRole("button", { name: "+ Adicionar" }));
     fireEvent.change(container.querySelector('input[placeholder="Ex.: 10"]'), { target: { value: "3" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Voltar" }));
     fireEvent.click(within(form).getByLabelText(/Fisioterapia.*3 não agendadas/));
+    await advanceCreation();
     expect(within(form).getByRole("region", { name: "Agendar sessão" })).toBeInTheDocument();
-    expect(within(form).getByLabelText("Registrar novas sessões")).not.toBeChecked();
+    expect(within(form).queryByRole("radio")).not.toBeInTheDocument();
     expect(within(form).queryByText("Mais sessões")).not.toBeInTheDocument();
     expect(within(form).queryByRole("button", { name: "Agendar agora" })).not.toBeInTheDocument();
     expect(within(form).queryByRole("button", { name: "Agendar depois" })).not.toBeInTheDocument();
     expect(form.querySelector('select[name="service_id"]')).toBeDisabled();
     expect(within(form).queryByText("Valor da sessão")).not.toBeInTheDocument();
+    fireEvent.click(within(form).getByRole("button", { name: "Voltar" }));
     fireEvent.click(within(form).getByLabelText("Usar pacote de outro paciente"));
-    const sharedDetails = within(form).getByRole("region", { name: "Pacote de outro paciente" });
-    expect(within(sharedDetails).getByText("De quem é o pacote?")).toBeInTheDocument();
     const choice = within(form).getByRole("group", { name: "Como deseja continuar?" });
     expect(within(choice).queryByText("De quem é o pacote?")).not.toBeInTheDocument();
     expect(within(choice).queryByText("Tipo de atendimento")).not.toBeInTheDocument();
     expect(within(form).getByLabelText(/Fisioterapia.*3 não agendadas/)).not.toBeChecked();
     expect(within(form).getAllByRole("radio").filter((radio) => radio.checked)).toHaveLength(1);
+    await advanceCreation();
+    const sharedDetails = within(form).getByRole("region", { name: "Pacote de outro paciente" });
+    expect(within(sharedDetails).getByText("De quem é o pacote?")).toBeInTheDocument();
     expect(within(form).getByText("De quem é o pacote?")).toBeInTheDocument();
     expect(within(form).queryByRole("button", { name: "Agendar depois" })).not.toBeInTheDocument();
+    fireEvent.click(within(form).getByRole("button", { name: "Voltar" }));
     fireEvent.click(within(form).getByLabelText("Registrar novas sessões"));
+    await advanceCreation();
     expect(within(form).queryByText("De quem é o pacote?")).not.toBeInTheDocument();
     expect(within(form).getByRole("button", { name: "Agendar depois" })).toBeInTheDocument();
   });
@@ -3367,11 +3413,14 @@ describe("Agendamentos - editar agendamento", () => {
     expect(await within(form).findByLabelText(/Fisioterapia.*3 não agendadas/)).not.toBeChecked();
     expect(within(form).getByLabelText("Registrar novas sessões")).not.toBeChecked();
     fireEvent.click(within(form).getByLabelText("Registrar novas sessões"));
+    await advanceCreation();
     fireEvent.change(form.querySelector('textarea[name="launch_notes"]'), { target: { value: "Anterior" } });
     fireEvent.change(form.querySelector('textarea[name="notes"]'), { target: { value: "Sessão anterior" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Voltar" }));
     await selectCreationPatient();
     expect(within(form).queryByText("Tipo de atendimento")).not.toBeInTheDocument();
     await act(async () => first({ data: [] }));
+    await advanceCreation();
     await within(form).findByText("Tipo de atendimento");
     expect(form.querySelector('textarea[name="launch_notes"]')).toHaveValue("");
     expect(form.querySelector('textarea[name="notes"]')).toHaveValue("");
@@ -3388,13 +3437,14 @@ describe("Agendamentos - editar agendamento", () => {
     const form = await openCreationForm();
     await selectCreationPatient();
     fireEvent.click(await within(form).findByLabelText("Registrar novas sessões"));
+    await advanceCreation();
     await within(form).findByText("Tipo de atendimento");
     fireEvent.change(form.querySelector('select[name="service_id"]'), { target: { value: "40" } });
     fireEvent.change(form.querySelector('textarea[name="launch_notes"]'), { target: { value: "Compra independente" } });
     fireEvent.change(form.querySelector('textarea[name="notes"]'), { target: { value: "Sessão independente" } });
     fireEvent.change(form.querySelector('input[name="session_price"]'), { target: { value: "" } });
     fireEvent.click(within(form).getByRole("button", { name: "Agendar depois" }));
-    expect(within(form).getAllByRole("searchbox")).toHaveLength(1);
+    expect(within(form).queryAllByRole("searchbox")).toHaveLength(0);
     expect(form.querySelector('select[name="professional_user_id"]')).toBeNull();
     expect(form.querySelector('input[type="date"]')).toBeNull();
     expect(form.querySelector('textarea[name="notes"]')).toBeNull();
@@ -3422,14 +3472,15 @@ describe("Agendamentos - editar agendamento", () => {
     axios.post.mockRejectedValueOnce(new Error("Resposta perdida")).mockResolvedValueOnce({ data: {} });
     renderAgendamentos();
     const form = await openCreationForm();
-    await selectCreationPatient(); await within(form).findByText("Tipo de atendimento");
+    await selectCreationPatient(); await advanceCreation(); await within(form).findByText("Tipo de atendimento");
     fireEvent.change(form.querySelector('select[name="service_id"]'), { target: { value: "40" } });
     fireEvent.click(within(form).getByRole("button", { name: "Agendar depois" }));
     fireEvent.click(within(form).getByRole("button", { name: "Lançar e agendar depois" }));
     await within(form).findByRole("button", { name: "Verificar lançamento" });
     expect(form.querySelector("fieldset")).toBeDisabled();
     fireEvent.click(within(form).getByRole("button", { name: "Agendar agora" }));
-    fireEvent.click(within(form).getByLabelText("Usar pacote de outro paciente"));
+    expect(within(form).getByRole("button", { name: "Voltar" })).toBeDisabled();
+    expect(within(form).queryByRole("radio")).not.toBeInTheDocument();
     expect(within(form).getByRole("button", { name: "Verificar lançamento" })).toBeInTheDocument();
     fireEvent.click(within(form).getByRole("button", { name: "Verificar lançamento" }));
     await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(2));
@@ -3520,6 +3571,7 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(form.querySelector('input[placeholder="Ex.: 10"]'), { target: { value: "2" } });
     fireEvent.click(within(form).getByRole("button", { name: "Revisar agendamento" }));
     await waitFor(() => expect(previewSchedulingOccurrences).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(form).getByRole("button", { name: "Voltar" }));
     fireEvent.click(within(form).getByLabelText(/Fisioterapia.*3 não agendadas/));
     await act(async () => pendingPreview.resolve({ data: {
       occurrences_preview: [buildPreviewOccurrence(1, "2026-07-06"), buildPreviewOccurrence(2, "2026-07-13")],
@@ -3527,6 +3579,7 @@ describe("Agendamentos - editar agendamento", () => {
       validation: buildAvailabilityValidation(),
     } }));
     expect(screen.queryByRole("heading", { name: "Revisar agendamento" })).not.toBeInTheDocument();
+    await advanceCreation();
     expect(within(form).queryByText("Mais sessões")).not.toBeInTheDocument();
     await submitAndConfirmReview();
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith("/sessions", expect.objectContaining({
@@ -3618,22 +3671,15 @@ describe("Agendamentos - editar agendamento", () => {
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
     await selectAssignedProfessional(container);
-    const sharing = screen.getByLabelText("Usar pacote de outro paciente");
-    expect(sharing).toBeVisible();
     expect(screen.getAllByText("Valor da sessão")).toHaveLength(1);
-    expect(screen.queryByText("Pacote de outro paciente", { selector: "strong" }))
-      .not.toBeInTheDocument();
-
     const noCharge = screen.getByLabelText("Sem cobrança");
-    expect(sharing).toBeEnabled();
     fireEvent.click(noCharge);
     expect(noCharge).toBeChecked();
-    expect(sharing).not.toBeChecked();
-    fireEvent.click(sharing);
+    const sharing = await chooseCreationOrigin("Usar pacote de outro paciente");
     expect(sharing).toBeChecked();
     expect(screen.queryByLabelText("Sem cobrança")).not.toBeInTheDocument();
 
-    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[0];
     expect(screen.getByText("De quem é o pacote?")).toBeInTheDocument();
     expect(screen.queryByText("Qual pacote vamos usar?")).not.toBeInTheDocument();
     fireEvent.change(ownerInput, { target: { value: "Maurício" } });
@@ -3984,8 +4030,8 @@ describe("Agendamentos - editar agendamento", () => {
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
     await selectAssignedProfessional(container);
-    fireEvent.click(screen.getByLabelText("Usar pacote de outro paciente"));
-    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+    await chooseCreationOrigin("Usar pacote de outro paciente");
+    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[0];
     fireEvent.change(ownerInput, { target: { value: "Maurício" } });
     fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
     fireEvent.change(container.querySelector('select[name="service_id"]'), {
@@ -4073,8 +4119,8 @@ describe("Agendamentos - editar agendamento", () => {
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
     await selectAssignedProfessional(container);
-    fireEvent.click(screen.getByLabelText("Usar pacote de outro paciente"));
-    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+    await chooseCreationOrigin("Usar pacote de outro paciente");
+    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[0];
     fireEvent.change(ownerInput, { target: { value: "Maurício" } });
     fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
     fireEvent.change(container.querySelector('select[name="service_id"]'), {
@@ -4116,8 +4162,8 @@ describe("Agendamentos - editar agendamento", () => {
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
     await selectAssignedProfessional(container);
-    fireEvent.click(screen.getByLabelText("Usar pacote de outro paciente"));
-    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[1];
+    await chooseCreationOrigin("Usar pacote de outro paciente");
+    const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[0];
     fireEvent.change(ownerInput, { target: { value: "Maurício" } });
     fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
     fireEvent.change(container.querySelector('select[name="service_id"]'), {

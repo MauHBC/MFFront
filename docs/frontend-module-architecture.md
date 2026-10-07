@@ -2048,15 +2048,31 @@ reutilizam a chave do mesmo payload; alterações geram outra confirmação.
 
 O grupo **Como deseja continuar?** apresenta opções compactas: serviço e quantidade total contratada na primeira linha, saldo não agendado na segunda. `quantity` é o total real do contrato, não o saldo; ausência de total não inventa quantidade. O ID aparece discretamente somente quando há mais de um pacote do mesmo serviço. **Usar pacote de outro paciente** e **Registrar novas sessões** mantêm as origens existentes. Os apoios explicativos do grupo e de agora/depois foram removidos. A entrada externa continua **Novo agendamento**.
 
-A escolha de origem usa `fieldset/legend` acessível. Após a escolha e a consulta
-completa, uma única seção de detalhes é separada por divisória discreta e
-espaçamentos dos tokens existentes, sem acrescentar etapa ou card. O título
-contextual é **Agendar sessão**, **Agendar reposição**, **Pacote de outro
+A escolha de origem usa `fieldset/legend` acessível. Novo agendamento tem dois
+passos no mesmo formulário: paciente/origem e, após **Avançar**, detalhes com
+resumo do paciente e origem. A consulta completa governa o avanço; havendo
+direitos, nenhuma origem é presumida. Sem direitos, o novo lançamento é
+selecionado e os detalhes aparecem automaticamente, com aviso discreto, sem
+confirmação adicional. **Voltar** preserva o rascunho e invalida a revisão em
+andamento; permite selecionar compartilhamento mesmo sem saldo próprio.
+Trocar paciente limpa a origem e as observações antes de consultar novamente.
+Uma resposta tardia não reabre a revisão da escolha anterior.
+
+A seção de detalhes usa divisória e espaçamentos dos tokens existentes. O
+título contextual é **Agendar sessão**, **Agendar reposição**, **Pacote de outro
 paciente** ou **Novas sessões**. O titular compartilhado fica nessa seção;
 **Agendar agora/depois** fica dentro de **Novas sessões**, em grupo acessível.
-Detalhes nunca ficam dentro do grupo de alternativas. Saldo usa tipografia
-secundária, e os grids têm colunas que podem encolher e uma coluna no mobile.
-Edição e entrada direta pela Central de Pendências preservam sua estrutura.
+Saldo usa tipografia secundária e os grids mantêm uma coluna no mobile. Edição
+e entrada direta pela Central de Pendências preservam sua estrutura.
+
+**Observação da compra (opcional)** fica junto aos valores e usa `launch_notes`;
+**Observação do agendamento (opcional)** fica junto à programação e usa `notes`.
+São independentes e permanecem separadas ao trocar agora/depois. Compra para
+depois não envia observação de agendamento. Edição preserva **Motivo da alteração**.
+A observação da compra retornada pelo Backend aparece nos detalhes do pacote
+no Histórico e nos detalhes da cobrança do Financeiro. Ausência de `launch_notes`
+não é preenchida com observação de sessão ou recebimento. O antigo aviso de
+registro da compra hoje foi removido; os contratos financeiros permanecem.
 
 Cancelar unidades disponíveis está somente em Paciente → Histórico → Pacotes e sessões avulsas, junto de cada pacote e seu saldo disponível, para
 gestão da Agenda com alcance de clínica. Mostra contagem e aviso de manutenção
