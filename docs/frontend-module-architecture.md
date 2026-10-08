@@ -2058,7 +2058,12 @@ O menu mostra somente Ações, com as cores e espaçamentos neutros do dropdown
 diário da Agenda. Os modais identificam paciente, serviço e pagamento de forma curta.
 Seleção e Histórico identificam operações por data, valor original, forma/origem
 e referência curta estável por paciente, retornada pelo Backend. Desconto, crédito
-consumido, motivo e responsável ficam explícitos no Histórico. Para operações
+consumido, motivo e responsável ficam explícitos em Ver detalhes no Histórico.
+Movimento contém somente o tipo principal, sem valor, forma de pagamento ou
+referência repetidos. As quatro colunas têm larguras estáveis; a expansão permanece
+na célula Detalhes à direita e não desloca o acionador. Em largura reduzida, a
+tabela conserva a rolagem horizontal e o conteúdo expandido quebra dentro da
+mesma coluna. Para operações
 antigas sem motivo persistido, apresenta-se Não registrado nesta operação.
 Desconto de 100% não pertence a esse comando. Os detalhes de sessão continuam
 usando o modal existente e devolvem foco ao menu Ações da cobrança.

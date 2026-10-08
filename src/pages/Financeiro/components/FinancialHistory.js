@@ -15,7 +15,7 @@ const labels = {
   CANCELLATION: "Cancelamento da sessão",
   CREDIT_RELEASE: "Liberação de crédito",
   PAYMENT_CORRECTION: "Correção de recebimento",
-  PAYMENT_UNAPPLICATION: "Pagamento desfeito — crédito restaurado",
+  PAYMENT_UNAPPLICATION: "Pagamento desfeito",
 };
 
 export const formatFinancialEventDate = (value, { dateOnly = false, short = false } = {}) => {
@@ -281,9 +281,6 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
     .map((event) => [String(event.id), event])).values()];
   const displayed = orderHistoryRows(historyRows(unique.filter((event) => filter === "all" || event.type === "RECEIPT")));
   const movementLabel = (row) => {
-    const session = row.session_starts_at ? `Sessão de ${formatFinancialEventDate(row.session_starts_at, { short: true })}` : "Sessão";
-    if (row.groupedCancellation) return `${session} cancelada — ${Number.isSafeInteger(row.amount_cents) ? `${formatCurrency(row.amount_cents)} liberados como crédito` : "crédito liberado"}`;
-    if (row.type === "CANCELLATION") return `${session} cancelada`;
     if (row.type === "RECEIPT" && row.voided) return "Recebimento anulado";
     return labels[row.type] || "Movimento financeiro";
   };
@@ -292,6 +289,7 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
       {displayed.length === 0 ? <p>Nenhum evento financeiro encontrado neste contexto.</p> : (
         <TableScroll>
           <HistoryTable>
+            <colgroup><col style={{ width: "20%" }} /><col style={{ width: "28%" }} /><col style={{ width: "18%" }} /><col style={{ width: "34%" }} /></colgroup>
             <thead><tr><th>Registrado em</th><th>Movimento</th><th>Valor</th><th>Detalhes</th></tr></thead>
             <tbody>{displayed.map((row) => (
               <tr key={row.id}>
@@ -301,10 +299,7 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
                     timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
                   })}</small>
                 </RecordedDate>}</td>
-                <td>{movementLabel(row)}
-                  {["RECEIPT", "CREDIT_APPLIED"].includes(row.type) && <small>{formatPaymentOperationIdentity(row, formatCurrency)}</small>}
-                  {row.type === "CREDIT_APPLIED" && row.discount_cents > 0 && <small>Crédito consumido: {formatCurrency(row.amount_cents)} · Desconto: {formatCurrency(row.discount_cents)}</small>}
-                </td>
+                <td>{movementLabel(row)}</td>
                 <td>{Number.isSafeInteger(row.amount_cents) ? formatCurrency(row.amount_cents) : "Valor não registrado"}</td>
                 <td><HistoryDetails row={row}
                   serviceName={sessionById.get(Number(row.session_id))?.Service?.name}
@@ -353,12 +348,14 @@ const RecordedDate = styled.time`
 `;
 const HistoryTable = styled.table`
   width: 100%;
+  min-width: 620px;
+  table-layout: fixed;
   border-collapse: collapse;
   text-align: left;
   font-size: 0.9rem;
   th, td { padding: 10px 12px; border-bottom: 1px solid #e2e7e1; vertical-align: top; }
   th { color: #59645d; font-weight: 600; }
-  td:nth-child(2) small { display: block; margin-top: 4px; color: #59645d; font-size: 0.8rem; }
+  td { overflow-wrap: anywhere; }
   td:first-child, td:nth-child(3) { white-space: nowrap; }
 `;
 const HistoryDetailButton = styled.button`
@@ -371,18 +368,21 @@ const HistoryDetailButton = styled.button`
   white-space: nowrap;
 `;
 const EventDetail = styled.div`
-  min-width: 230px;
+  min-width: 0;
+  width: 100%;
   max-width: 420px;
   margin-top: 12px;
   overflow-wrap: anywhere;
   p { margin: 8px 0; }
-  dl { display: grid; grid-template-columns: minmax(75px, auto) minmax(0, 1fr); gap: 6px 12px; margin: 10px 0; }
+  dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 6px 12px; margin: 10px 0; }
   dt { font-weight: 600; }
   dd { margin: 0; }
 `;
 
 const ReceiptDetailBlock = styled.div`
-  min-width: 230px;
+  min-width: 0;
+  width: 100%;
+  overflow-x: auto;
   max-width: 420px;
   margin-top: 10px;
   padding-top: 10px;

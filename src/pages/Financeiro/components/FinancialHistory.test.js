@@ -65,7 +65,7 @@ test("tabela compacta agrupa cancelamento e crédito da mesma operação sem som
   expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Registrado em", "Movimento", "Valor", "Detalhes"]);
   expect(rows()).toHaveLength(3);
   expect(screen.queryByRole("list")).not.toBeInTheDocument();
-  expect(screen.getByText("Sessão de 28/10 cancelada — R$ 100.00 liberados como crédito")).toBeInTheDocument();
+  expect(screen.getByText("Cancelamento da sessão")).toBeInTheDocument();
   expect(mainValues()).toEqual(["R$ 400.00", "R$ 100.00", "R$ 40.00"]);
   expect(screen.queryByText("R$ 200.00")).not.toBeInTheDocument();
   const grouped = rows()[1];
@@ -81,7 +81,7 @@ test("tabela compacta agrupa cancelamento e crédito da mesma operação sem som
   expect(within(grouped).getAllByText("Pessoa autorizada")).toHaveLength(1);
   expect(within(grouped).getAllByText("Cancelamento definitivo")).toHaveLength(1);
   expect(grouped).not.toHaveTextContent(/25\/12\/2026|financial-cancellation|#51|#81|#70|#30/);
-  ["Cancelamento da sessão", "Liberação de crédito", "Valor registrado", "Origem", "Destino", "Operação", "Forma"].forEach((text) => {
+  ["Liberação de crédito", "Valor registrado", "Origem", "Destino", "Operação", "Forma"].forEach((text) => {
     expect(within(grouped).queryByText(text)).not.toBeInTheDocument();
   });
   expect(screen.queryByText(/Contas consultadas:/)).not.toBeInTheDocument();
@@ -198,7 +198,7 @@ test("datas sem horário não inventam meia-noite nem deslocam o dia pelo fuso",
 test("privacidade mascara o movimento agrupado e histórico vazio válido não reconstrói recibos", () => {
   const { rerender } = renderHistory({ events: [cancellation, release], formatCurrency: () => "R$ ••••" });
   expect(mainValues()).toEqual(["R$ ••••"]);
-  expect(screen.getByText("Sessão de 28/10 cancelada — R$ •••• liberados como crédito")).toBeInTheDocument();
+  expect(screen.getByText("Cancelamento da sessão")).toBeInTheDocument();
   expect(screen.queryByText(/100.00/)).not.toBeInTheDocument();
   rerender(<FinancialHistory events={[]} receipts={[{ payment: { id: 81 }, amountCents: 40000 }]}
     formatCurrency={money} />);
@@ -311,7 +311,7 @@ test("registro real ordena recebimentos futuros e retroativos, crédito e cancel
     expect(cell).not.toHaveTextContent(/25\/10|01\/09|09:00:00/);
   });
   expect(recordCells[0].querySelector("time")).toHaveAttribute("datetime", used.recorded_at);
-  expect(screen.getAllByText(/liberados como crédito/)).toHaveLength(1);
+  expect(screen.getByText("Cancelamento da sessão")).toBeInTheDocument();
   expect(within(rows()[2]).getByText("Recebido em").nextSibling).toHaveTextContent(/^25\/10\/2026$/);
   expect(within(rows()[3]).getByText("Recebido em").nextSibling).toHaveTextContent(/^01\/09\/2026$/);
 });
@@ -438,4 +438,27 @@ test("desconto histórico sem motivo persistido não inventa informação", () =
     discount_cents: 1000, occurred_at: "2026-10-08T12:00:00Z", source: {}, actor: { name: "Administrador" } }] });
   fireEvent.click(screen.getByText("Ver detalhes"));
   expect(screen.getByText("Motivo do desconto").nextSibling).toHaveTextContent("Não registrado nesta operação");
+});
+
+test("Movimento mantém somente o tipo e a ação permanece na quarta coluna ao expandir várias linhas", () => {
+  renderHistory({ events: [{ ...receipt, reference: "Rec. 01", payment_method_name: "Pix" }, {
+    id: "credit-command-83", type: "CREDIT_APPLIED", amount_cents: 23000, discount_cents: 1000,
+    reference: "Créd. 01", adjustment_reason: "Ajuste autorizado", occurred_at: "2026-10-08T12:00:00Z",
+  }] });
+  const table = screen.getByRole("table");
+  expect(table).toHaveStyle({ tableLayout: "fixed", minWidth: "620px" });
+  const movements = rows().map((row) => within(row).getAllByRole("cell")[1]);
+  expect(movements.map((cell) => cell.textContent)).toEqual(["Recebimento", "Uso de crédito"]);
+  movements.forEach((cell) => expect(cell).not.toHaveTextContent(/R\$|Pix|Rec\.|Créd\./));
+  const actions = rows().map((row) => within(row).getAllByRole("cell")[3]);
+  actions.forEach((cell) => fireEvent.click(within(cell).getByRole("button", { name: "Ver detalhes" })));
+  expect(actions[0]).toHaveTextContent("Rec. 01");
+  expect(actions[1]).toHaveTextContent("Ajuste autorizado");
+  actions.forEach((cell) => {
+    const button = within(cell).getByRole("button", { name: "Ocultar detalhes" });
+    expect(button.closest("td")).toBe(cell);
+    fireEvent.click(button);
+    expect(within(cell).getByRole("button", { name: "Ver detalhes" })).toHaveAttribute("aria-expanded", "false");
+  });
+  expect(rows().map((row) => within(row).getAllByRole("cell")[1].textContent)).toEqual(["Recebimento", "Uso de crédito"]);
 });
