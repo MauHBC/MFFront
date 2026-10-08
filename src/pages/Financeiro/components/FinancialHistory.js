@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import FinancialReceiptDetails from "./FinancialReceiptDetails";
+import { formatPaymentOperationIdentity } from "../helpers/financialOperationIdentity";
 import { formatCivilDate } from "../../../utils/canonicalDateTime";
 import {
   formatFinancialInstant,
@@ -14,6 +15,7 @@ const labels = {
   CANCELLATION: "Cancelamento da sessão",
   CREDIT_RELEASE: "Liberação de crédito",
   PAYMENT_CORRECTION: "Correção de recebimento",
+  PAYMENT_UNAPPLICATION: "Pagamento desfeito",
 };
 
 export const formatFinancialEventDate = (value, { dateOnly = false, short = false } = {}) => {
@@ -34,6 +36,7 @@ const detailDateLabels = {
   CANCELLATION: "Cancelado em",
   CREDIT_RELEASE: "Crédito liberado em",
   PAYMENT_CORRECTION: "Corrigido em",
+  PAYMENT_UNAPPLICATION: "Desfeito em",
 };
 
 const formatDetailDate = (value) => {
@@ -138,6 +141,8 @@ const eventType = PropTypes.shape({
   id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
   type: PropTypes.string.isRequired,
   amount_cents: PropTypes.number,
+  discount_cents: PropTypes.number,
+  surcharge_cents: PropTypes.number,
   recorded_at: PropTypes.string,
   occurred_at: PropTypes.string,
   session_id: PropTypes.number,
@@ -172,6 +177,16 @@ const eventType = PropTypes.shape({
   reason: PropTypes.string,
   context: PropTypes.string,
   payment_method_name: PropTypes.string,
+  reference: PropTypes.string,
+  original_amount_cents: PropTypes.number,
+  adjustment_reason: PropTypes.string,
+  original_operation: PropTypes.shape({
+    kind: PropTypes.string,
+    reference: PropTypes.string,
+    original_amount_cents: PropTypes.number,
+    occurred_at: PropTypes.string,
+    payment_method_name: PropTypes.string,
+  }),
   historical_details_available: PropTypes.bool,
   voided: PropTypes.bool,
 });
@@ -190,7 +205,11 @@ function EventDetails({ event, serviceName, formatCurrency }) {
   return (
     <EventDetail>
       <dl>
+        {(event.type === "RECEIPT" || isCreditUse) && <><dt>Pagamento</dt><dd>{formatPaymentOperationIdentity(event, formatCurrency)}</dd></>}
+        {event.type === "PAYMENT_UNAPPLICATION" && event.original_operation && <><dt>Pagamento original</dt><dd>{formatPaymentOperationIdentity(event.original_operation, formatCurrency)}</dd></>}
         {isCreditUse && <>
+          <dt>Crédito consumido</dt><dd>{formatCurrency(event.amount_cents)}</dd>
+          {event.discount_cents > 0 && <><dt>Desconto</dt><dd>{formatCurrency(event.discount_cents)}</dd><dt>Motivo do desconto</dt><dd>{event.adjustment_reason?.trim() || "Não registrado nesta operação"}</dd></>}
           <dt>{appliedDestinations.length > 1 ? "Destinos" : "Destino"}</dt>
           <dd>{appliedDestinations.length ? <AppliedSessionsList>
             {appliedDestinations.map((destination, index) => <li key={`${destination.kind || "destination"}:${destination.session_id || destination.billing_cycle_id || index}`}>
@@ -212,6 +231,7 @@ function EventDetails({ event, serviceName, formatCurrency }) {
           : formatDetailDate(event.occurred_at)}</dd>
         <dt>Responsável</dt><dd>{event.actor?.name?.trim() || "Não registrado"}</dd>
         {event.type === "RECEIPT" && <><dt>Forma de pagamento</dt><dd>{event.payment_method_name?.trim() || "—"}</dd></>}
+        {event.type === "PAYMENT_UNAPPLICATION" && <><dt>Crédito restaurado</dt><dd>{formatCurrency(event.amount_cents)}</dd>{event.discount_cents > 0 && <><dt>Desconto desfeito</dt><dd>{formatCurrency(event.discount_cents)}</dd></>}{event.surcharge_cents > 0 && <><dt>Acréscimo desfeito</dt><dd>{formatCurrency(event.surcharge_cents)}</dd></>}</>}
         {!hideGenericObservation && <><dt>{reasonLabel}</dt><dd>{event.reason?.trim() || "Não registrado"}</dd></>}
       </dl>
     </EventDetail>
@@ -261,10 +281,7 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
     .map((event) => [String(event.id), event])).values()];
   const displayed = orderHistoryRows(historyRows(unique.filter((event) => filter === "all" || event.type === "RECEIPT")));
   const movementLabel = (row) => {
-    const session = row.session_starts_at ? `Sessão de ${formatFinancialEventDate(row.session_starts_at, { short: true })}` : "Sessão";
     if (!row.session_id && row.package_unit_id && row.type === "CANCELLATION") return "Cobrança do direito encerrada";
-    if (row.groupedCancellation) return `${session} cancelada — ${Number.isSafeInteger(row.amount_cents) ? `${formatCurrency(row.amount_cents)} liberados como crédito` : "crédito liberado"}`;
-    if (row.type === "CANCELLATION") return `${session} cancelada`;
     if (row.type === "RECEIPT" && row.voided) return "Recebimento anulado";
     return labels[row.type] || "Movimento financeiro";
   };
@@ -273,6 +290,7 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
       {displayed.length === 0 ? <p>Nenhum evento financeiro encontrado neste contexto.</p> : (
         <TableScroll>
           <HistoryTable>
+            <colgroup><col style={{ width: "20%" }} /><col style={{ width: "28%" }} /><col style={{ width: "18%" }} /><col style={{ width: "34%" }} /></colgroup>
             <thead><tr><th>Registrado em</th><th>Movimento</th><th>Valor</th><th>Detalhes</th></tr></thead>
             <tbody>{displayed.map((row) => (
               <tr key={row.id}>
@@ -286,12 +304,15 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
                 <td>{Number.isSafeInteger(row.amount_cents) ? formatCurrency(row.amount_cents) : "Valor não registrado"}</td>
                 <td><HistoryDetails row={row}
                   serviceName={sessionById.get(Number(row.session_id))?.Service?.name}
-                  formatCurrency={formatCurrency} /></td>
+                  formatCurrency={formatCurrency} />
+
+                </td>
               </tr>
             ))}</tbody>
           </HistoryTable>
         </TableScroll>
       )}
+
     </HistorySection>
   );
 }
@@ -328,11 +349,14 @@ const RecordedDate = styled.time`
 `;
 const HistoryTable = styled.table`
   width: 100%;
+  min-width: 620px;
+  table-layout: fixed;
   border-collapse: collapse;
   text-align: left;
   font-size: 0.9rem;
   th, td { padding: 10px 12px; border-bottom: 1px solid #e2e7e1; vertical-align: top; }
   th { color: #59645d; font-weight: 600; }
+  td { overflow-wrap: anywhere; }
   td:first-child, td:nth-child(3) { white-space: nowrap; }
 `;
 const HistoryDetailButton = styled.button`
@@ -345,18 +369,21 @@ const HistoryDetailButton = styled.button`
   white-space: nowrap;
 `;
 const EventDetail = styled.div`
-  min-width: 230px;
+  min-width: 0;
+  width: 100%;
   max-width: 420px;
   margin-top: 12px;
   overflow-wrap: anywhere;
   p { margin: 8px 0; }
-  dl { display: grid; grid-template-columns: minmax(75px, auto) minmax(0, 1fr); gap: 6px 12px; margin: 10px 0; }
+  dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 6px 12px; margin: 10px 0; }
   dt { font-weight: 600; }
   dd { margin: 0; }
 `;
 
 const ReceiptDetailBlock = styled.div`
-  min-width: 230px;
+  min-width: 0;
+  width: 100%;
+  overflow-x: auto;
   max-width: 420px;
   margin-top: 10px;
   padding-top: 10px;

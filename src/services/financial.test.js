@@ -1,5 +1,6 @@
 import {
   createFinancialPayment,
+  voidFinancialPayment,
   deleteClinicExpense,
   createClinicExpenseWithPayment,
   getFinancialOverview,
@@ -20,6 +21,12 @@ jest.mock("./axios", () => ({
 }));
 
 describe("financial service", () => {
+  it("anula somente o recebimento identificado com chave da mesma tentativa", () => {
+    const command = { correction_type: "VOID_WRONG_PAYMENT", reason: "Duplicidade" };
+    voidFinancialPayment(81, command, "void-attempt-1234");
+    expect(api.post).toHaveBeenCalledWith("/financial-payments/81/corrections", command,
+      { headers: { "Idempotency-Key": "void-attempt-1234" } });
+  });
   beforeEach(() => {
     api.get.mockReset();
     api.delete.mockReset();

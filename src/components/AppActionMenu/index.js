@@ -20,6 +20,8 @@ export default function AppActionMenu({
   visibleLabel = "Ações",
   compact = false,
   disabled = false,
+  showIndicator = true,
+  agendaAppearance = false,
   children,
 }) {
   const [open, setOpen] = useState(false);
@@ -104,11 +106,12 @@ export default function AppActionMenu({
         }}
       >
         {!compact && visibleLabel}
-        <span aria-hidden="true">⋯</span>
+        {showIndicator && <span aria-hidden="true">⋯</span>}
       </MenuTrigger>
       {open && !disabled && (
         <MenuPopover
           ref={menuRef}
+          $agendaAppearance={agendaAppearance}
           role="menu"
           aria-label={label}
           onKeyDown={handleMenuKeyDown}
@@ -126,12 +129,16 @@ AppActionMenu.propTypes = {
   compact: PropTypes.bool,
   disabled: PropTypes.bool,
   children: PropTypes.node.isRequired,
+  showIndicator: PropTypes.bool,
+  agendaAppearance: PropTypes.bool,
 };
 
 AppActionMenu.defaultProps = {
   compact: false,
   disabled: false,
   visibleLabel: "Ações",
+  showIndicator: true,
+  agendaAppearance: false,
 };
 
 const MenuRoot = styled.div`
@@ -178,9 +185,24 @@ const MenuPopover = styled.div`
     text-align: left;
   }
 
+  ${(props) => props.$agendaAppearance && `
+    top: calc(100% + 4px); z-index: 200; background: #fff;
+    border: 1px solid rgba(106, 121, 92, 0.18); border-radius: 12px;
+    box-shadow: 0 12px 30px rgba(32, 43, 27, 0.16);
+    padding: 6px; min-width: 164px; display: flex; flex-direction: column; gap: 2px;
+  `}
+
   @media (max-width: 620px) {
     min-width: min(240px, calc(100vw - 64px));
   }
 `;
 
 export const AppActionMenuItem = styled(RowActionButton)``;
+
+// Same neutral action item as Agenda's day dropdown; no status tone is applied.
+export const AgendaActionMenuItem = styled.button`
+  background: none; border: none; text-align: left; padding: 7px 14px;
+  font-size: 0.82rem; font-weight: 500; color: #1b1b1b; cursor: pointer;
+  &:disabled { cursor: not-allowed; opacity: 0.45; }
+  &:not(:disabled):hover { background: rgba(106, 121, 92, 0.07); }
+`;

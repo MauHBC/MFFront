@@ -489,3 +489,5 @@ const Backdrop = styled.div`
   background: rgba(0, 0, 0, 0.35);
   z-index: 1990;
 `;
+
+export { FormGrid as PaymentFormGrid, Field as PaymentField, Label as PaymentLabel, TextArea as PaymentTextArea };
