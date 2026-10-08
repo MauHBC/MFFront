@@ -13,6 +13,13 @@ const LOCAL_STACK_SLOT_KEY = 'MOTRIA_LOCAL_STACK_SLOT';
 const PERSISTED_LOCAL_STACK_SLOT_FILE = '.env.local';
 const PERSISTED_LOCAL_STACK_SLOT = 'persistent-validation';
 const LOCAL_STACK_PROFILES = Object.freeze({
+  'financeiro-estorno': Object.freeze({
+    NODE_ENV: 'development',
+    HOST: '127.0.0.1',
+    PORT: '3020',
+    HTTPS: 'false',
+    REACT_APP_API_BASE_URL: 'http://127.0.0.1:3026/api',
+  }),
   [PERSISTED_LOCAL_STACK_SLOT]: Object.freeze({
     NODE_ENV: 'development',
     HOST: '127.0.0.1',
@@ -138,7 +145,7 @@ function persistedLocalStackSlot(repositoryRoot) {
   }
   const values = parseEnv(fs.readFileSync(filePath, 'utf8'), PERSISTED_LOCAL_STACK_SLOT_FILE);
   const slot = environmentValue(values, LOCAL_STACK_SLOT_KEY, PERSISTED_LOCAL_STACK_SLOT_FILE);
-  if (slot !== undefined && slot !== PERSISTED_LOCAL_STACK_SLOT) {
+  if (slot !== undefined && ![PERSISTED_LOCAL_STACK_SLOT, 'financeiro-estorno'].includes(slot)) {
     fail(`LOCAL_STACK_SLOT_FILE_FORBIDDEN:${PERSISTED_LOCAL_STACK_SLOT_FILE}`);
   }
   return slot;
@@ -159,7 +166,7 @@ function validateLocalEnvironment(repositoryRoot, environment = process.env) {
     const fileSlot = environmentValue(values, LOCAL_STACK_SLOT_KEY, filename);
     if (fileSlot !== undefined && (
       filename !== PERSISTED_LOCAL_STACK_SLOT_FILE
-      || fileSlot !== PERSISTED_LOCAL_STACK_SLOT
+      || ![PERSISTED_LOCAL_STACK_SLOT, 'financeiro-estorno'].includes(fileSlot)
     )) {
       fail(`LOCAL_STACK_SLOT_FILE_FORBIDDEN:${filename}`);
     }

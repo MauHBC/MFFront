@@ -127,7 +127,7 @@ test("interação real preserva valor digitado, seleção, expansão e contexto 
   expect(screen.getByRole("checkbox", { name: /18\/11\/2026/ })).toBeChecked();
   expect(screen.getByRole("button", { expanded: true })).toHaveAttribute("aria-controls", "credit-group-package-90");
   expect(screen.getByText(patient.full_name)).toBeVisible();
-  expect(screen.getByText("Período consultado: outubro de 2026")).toBeVisible();
+  expect(screen.queryByText("Período consultado: outubro de 2026")).not.toBeInTheDocument();
   expect(screen.getAllByRole("dialog")).toHaveLength(1);
   expect(getFinancialCreditDestinations).toHaveBeenCalledTimes(1);
   expect(confirmFinancialCreditApplication).not.toHaveBeenCalled();
@@ -356,11 +356,11 @@ test("cabeçalho mantém crédito próximo com ênfase no rótulo e contexto dis
     expect(label.parentElement).toHaveStyle({ display: "flex", flexWrap: "wrap" });
     expect(label.parentElement).not.toHaveStyle({ justifyContent: "space-between" });
     expect(screen.getByText(patient.full_name).closest("strong")).toBeNull();
-    expect(screen.getByText("Período consultado: outubro de 2026")).toBeVisible();
+    expect(screen.queryByText("Período consultado: outubro de 2026")).not.toBeInTheDocument();
   };
   checkHeader();
   expect(screen.queryByText(/^Até R\$/)).not.toBeInTheDocument();
-  expect(screen.getByLabelText("Valor a usar")).toHaveStyle({ height: "42px", fontWeight: "400" });
+  expect(screen.getByLabelText("Valor a usar")).toHaveStyle({ padding: "10px 12px" });
   await advance();
   checkHeader();
   expect(screen.getByText("Crédito a aplicar").parentElement).toHaveTextContent("R$ 65,00");
@@ -692,4 +692,45 @@ test("falha do catálogo ao Voltar preserva nova revisão; retry conserva valor 
   expect(screen.getByRole("checkbox", { name: /04\/11\/2026/ })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: /18\/11\/2026/ })).toBeChecked();
   expect(confirmFinancialCreditApplication).toHaveBeenCalledTimes(1);
+});
+
+
+test("desconto reduz a dívida e exige motivo, mantendo consumo positivo de crédito", async () => {
+  getFinancialCreditDestinations.mockResolvedValue({ data: destinations([single], 10000) });
+  previewFinancialCreditApplication.mockImplementation(async (body) => ({ data: {
+    ...makePreview(body, [single], 10000), discount_cents: body.discount_cents,
+    selected_open_after_cents: 0,
+  } }));
+  setup();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Avançar" })).toBeEnabled());
+  await userEvent.type(screen.getByLabelText("Desconto nesta aplicação"), "10");
+  const amount = screen.getByLabelText("Valor a usar");
+  await userEvent.clear(amount); await userEvent.type(amount, "90");
+  expect(screen.getByRole("button", { name: "Avançar" })).toBeDisabled();
+  await userEvent.type(screen.getByLabelText("Motivo do desconto"), "Ajuste autorizado");
+  await advance();
+  expect(previewFinancialCreditApplication).toHaveBeenLastCalledWith(expect.objectContaining({
+    amount_cents: 9000, discount_cents: 1000, adjustment_reason: "Ajuste autorizado", selected_entry_ids: [201],
+  }));
+  expect(screen.getByText("Desconto nesta baixa")).toBeVisible();
+});
+
+test.each(["230", "230,00"])("sequência desconto10 e consumo %s limpa erro monetário sem ocultar motivo obrigatório", async (value) => {
+  const monthly = { ...single, amount_cents: 24000, open_cents: 24000, entries: [{ ...single.entries[0], amount_cents: 24000, open_cents: 24000 }] };
+  getFinancialCreditDestinations.mockResolvedValue({ data: destinations([monthly], 26000) });
+  setup();
+  await waitFor(() => expect(screen.getByLabelText("Valor a usar")).toHaveValue("240,00"));
+  await userEvent.type(screen.getByLabelText("Desconto nesta aplicação"), "10");
+  expect(screen.getByRole("alert")).toHaveTextContent("230");
+  const amount = screen.getByLabelText("Valor a usar");
+  await userEvent.clear(amount); await userEvent.type(amount, value); await userEvent.tab();
+  expect(amount).toHaveValue("230,00");
+  expect(screen.queryByText(/Informe um valor maior que zero/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/O valor não pode ultrapassar/)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Avançar" })).toBeDisabled();
+  await userEvent.type(screen.getByLabelText("Motivo do desconto"), "Ajuste autorizado");
+  expect(screen.getByRole("button", { name: "Avançar" })).toBeEnabled();
+  await userEvent.clear(amount); await userEvent.type(amount, "230,01");
+  expect(screen.getByRole("button", { name: "Avançar" })).toBeDisabled();
+  expect(screen.getByRole("alert")).toHaveTextContent("230");
 });
