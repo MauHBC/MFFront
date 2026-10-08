@@ -44,8 +44,9 @@ test("same-service packages carry a discreet identity; totals and unscheduled ba
     { id: 4, quantity: 1, free_rights: 1, service: { id: 40, name: "Pilates" } },
   ];
   render(<RightsOriginPicker {...props} rights={{ ...props.rights, options: sameService }}/>);
-  const first = screen.getByLabelText(/Pilates.*10 sessões.*2 não agendadas.*#3/);
-  const second = screen.getByLabelText(/Pilates.*1 sessão.*1 não agendada.*#4/);
+  const first = screen.getByLabelText(/Pilates.*10 sessões.*2 não agendadas.*Opção 1/);
+  const second = screen.getByLabelText(/Pilates.*1 sessão.*1 não agendada.*Opção 2/);
+  expect(screen.queryByText(/#[34]/)).not.toBeInTheDocument();
   expect(first).not.toBeChecked();
   fireEvent.click(second);
   expect(props.onSelect).toHaveBeenCalledWith(sameService[1]);
@@ -68,4 +69,16 @@ test("replacement-only balance requires explicit origin and shares the existing 
  expect(replacement).not.toBeChecked(); expect(replacement.name).toBe("attendance-origin");
  fireEvent.click(replacement); expect(onReplacement).toHaveBeenCalledWith(credit);
  expect(props.onSelect).not.toHaveBeenCalled();
+});
+
+test("same-service packages use existing contract dates instead of internal keys", () => {
+  const dated = [
+    { ...options[0], contracted_at: "2026-10-07", service: { id: 40, name: "Pilates" } },
+    { ...options[0], id: 9, contracted_at: "2026-10-08", service: { id: 40, name: "Pilates" } },
+  ];
+  render(<RightsOriginPicker {...props} rights={{ ...props.rights, options: dated }}/>);
+  fireEvent.click(screen.getByLabelText(/Contratado em 08\/10\/2026/));
+  expect(props.onSelect).toHaveBeenCalledWith(dated[1]);
+  expect(screen.getByLabelText(/Contratado em 07\/10\/2026/)).not.toBeChecked();
+  expect(screen.queryByText(/#[39]/)).not.toBeInTheDocument();
 });

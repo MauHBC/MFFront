@@ -1149,7 +1149,7 @@ describe("PatientDetails permission-aware bootstrap", () => {
     }
   });
 
-  test("observação da compra retirada não reaparece no histórico via dados legados", async () => {
+  test("histórico lê Observações da compra sem substituir a nota da sessão", async () => {
     authorize(["patients", "schedule"]);
     axios.get.mockImplementation((url, config) => {
       if (url === "/patients/101/package-history") {
@@ -1163,8 +1163,8 @@ describe("PatientDetails permission-aware bootstrap", () => {
     await screen.findByRole("heading", { name: "Ana Modular" });
     fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
     fireEvent.click(await screen.findByRole("button", { name: "Ver sessões" }));
-    expect(screen.queryByText("Observação da compra")).not.toBeInTheDocument();
-    expect(screen.queryByText("Compra para uso futuro")).not.toBeInTheDocument();
+    expect(screen.getByText("Observações")).toBeInTheDocument();
+    expect(screen.getByText("Compra para uso futuro")).toBeInTheDocument();
     expect(screen.queryByText("Nota do agendamento")).not.toBeInTheDocument();
   });
 

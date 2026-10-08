@@ -1,5 +1,5 @@
-import { normalizeCivilDate } from "../../utils/canonicalDateTime";
-import { formatAgendaDateInput } from "../../utils/agendaDateTime";
+import { formatCivilDate, normalizeCivilDate } from "../../utils/canonicalDateTime";
+import { formatAgendaDate, formatAgendaDateInput } from "../../utils/agendaDateTime";
 
 export function normalizeReplacementCredit(credit, previous = {}) {
   const source = credit.sourceSession || credit.source_session || {};
@@ -37,3 +37,23 @@ export function partitionPatientOrigins(packages, credits, patientId, now = new 
   }).filter((pkg) => pkg.free_rights > 0);
   return { options, replacements };
 }
+
+const contractDateLabel = (pkg) => {
+  if (!pkg?.contracted_at) return "";
+  const civil = normalizeCivilDate(pkg.contracted_at);
+  return civil ? formatCivilDate(civil) : formatAgendaDate(pkg.contracted_at);
+};
+
+// Dates are already part of the package DTO; identical/missing dates use display order.
+export const ownPackageIdentity = (pkg, options = []) => {
+  if (!pkg) return "";
+  const service = pkg.service?.id ?? pkg.service?.name;
+  const peers = options.filter((other) => (other.service?.id ?? other.service?.name) === service);
+  if (peers.length < 2) return "";
+  const date = contractDateLabel(pkg);
+  if (date && peers.filter((other) => contractDateLabel(other) === date).length === 1) {
+    return `Contratado em ${date}`;
+  }
+  const position = peers.findIndex((other) => String(other.id) === String(pkg.id)) + 1;
+  return `${date ? `Contratado em ${date} · ` : ""}Opção ${position}`;
+};

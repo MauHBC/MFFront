@@ -40,3 +40,17 @@ test("double submit while saving issues one request", async () => {
   expect(axios.post).toHaveBeenCalledTimes(1);
   await act(async () => { resolve({ data: {} }); await pending; });
 });
+
+test("deferred notes participate in command identity; a changed or cleared note gets a new key", async () => {
+  axios.post.mockRejectedValue({ response: { status: 400, data: { error: "Confira" } } });
+  const { result } = setup();
+  await act(async () => result.current.submit({ ...body, launch_notes: "Nota A" }));
+  const first = axios.post.mock.calls[0][1];
+  await act(async () => result.current.submit({ ...body, launch_notes: "Nota A" }));
+  expect(axios.post.mock.calls[1][1]).toEqual(first);
+  await act(async () => result.current.submit({ ...body, launch_notes: "Nota B" }));
+  const changed = axios.post.mock.calls[2][1];
+  expect(changed.idempotency_key).not.toBe(first.idempotency_key);
+  await act(async () => result.current.submit({ ...body, launch_notes: null }));
+  expect(axios.post.mock.calls[3][1].idempotency_key).not.toBe(changed.idempotency_key);
+});

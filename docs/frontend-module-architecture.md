@@ -2025,9 +2025,9 @@ Pendências mantém seu caminho existente. A aprovação visual pertence a Maur�
 
 Somente em **Registrar novas sessões** aparecem **Agendar agora** e **Agendar depois**,
 usando os controles existentes da Agenda. Ambos usam a mesma seleção de paciente,
-serviço e valor. Depois solicita quantidade e oculta profissional, data, horário
-e observação de sessão; não existe formulário paralelo nem observação substituta.
-A troca de modo conserva o rascunho de sessão e os campos comuns, sem copiar notas. A programação por quantidade conserva o mesmo número
+serviço e valor. Depois solicita quantidade e oculta profissional, data e horário;
+não existe formulário paralelo. Observações permanece como único campo nos dois
+modos, no último bloco. A troca conserva o rascunho e os campos comuns. A programação por quantidade conserva o mesmo número
 ao trocar agora/depois; rascunhos por semanas/meses continuam próprios da
 programação e não inventam datas para uma compra posterior.
 
@@ -2060,11 +2060,11 @@ mantêm seus caminhos existentes.
 Uma unidade aparece como Avulsa e duas ou mais como Pacote no histórico e
 Financeiro. A revisão de compra programada exige selecionar todas as sessões;
 as datas podem ser corrigidas, mas não há compra parcialmente programada.
-Reserva própria usa a revisão normal de disponibilidade/alertas. Observação de
-lançamento e de sessão são campos opcionais separados. Comandos repetidos
+Reserva própria usa a revisão normal de disponibilidade/alertas. Observações é um único campo,
+com destino definido pelo comando atual. Comandos repetidos
 reutilizam a chave do mesmo payload; alterações geram outra confirmação.
 
-O grupo **Como deseja continuar?** apresenta opções compactas: serviço e quantidade total contratada na primeira linha, saldo não agendado na segunda. `quantity` é o total real do contrato, não o saldo; ausência de total não inventa quantidade. O ID aparece discretamente somente quando há mais de um pacote do mesmo serviço. **Usar pacote de outro paciente** e **Registrar novas sessões** mantêm as origens existentes. Os apoios explicativos do grupo e de agora/depois foram removidos. A entrada externa continua **Novo agendamento**.
+O grupo **Como deseja continuar?** apresenta opções compactas: serviço e quantidade total contratada na primeira linha, saldo não agendado na segunda. `quantity` é o total real do contrato, não o saldo; ausência de total não inventa quantidade. Pacotes do mesmo serviço usam a data de contratação já disponível no DTO. Datas iguais ou ausentes usam a posição visual (Opção 1, Opção 2), sem expor IDs internos; a seleção continua usando a identidade e o token originais. **Usar pacote de outro paciente** e **Registrar novas sessões** mantêm as origens existentes. Os apoios explicativos do grupo e de agora/depois foram removidos. A entrada externa continua **Novo agendamento**.
 
 A escolha de origem usa `fieldset/legend` acessível. Novo agendamento tem dois
 passos no mesmo formulário: paciente/origem e, após **Avançar**, detalhes com
@@ -2072,8 +2072,8 @@ resumo compacto com rótulos discretos **Paciente:** e **Origem:**, nome com
 destaque moderado e espaçamento reduzido no cabeçalho. A consulta completa governa o avanço; havendo
 direitos, nenhuma origem é presumida. Sem direitos, o novo lançamento é
 selecionado e os detalhes aparecem automaticamente, com aviso discreto, sem
-confirmação adicional. **Voltar** preserva o rascunho e invalida a revisão em
-andamento; permite selecionar compartilhamento mesmo sem saldo próprio.
+confirmação adicional. **Voltar** preserva o rascunho e invalida a revisão anterior; fica bloqueado
+durante a preparação e permite selecionar compartilhamento mesmo sem saldo próprio.
 Trocar paciente limpa a origem e as observações antes de consultar novamente.
 Uma resposta tardia não reabre a revisão da escolha anterior.
 
@@ -2084,19 +2084,27 @@ paciente** ou **Novas sessões**. O titular compartilhado fica nessa seção;
 Saldo usa tipografia secundária e os grids mantêm uma coluna no mobile. Edição
 e entrada direta pela Central de Pendências preservam sua estrutura.
 
-O campo antigo **Observações** conserva `notes`, a semântica e os destinos de
-sessão do baseline publicado `ac8755ab2f4a`: criação individual, séries e detalhes
-das sessões. Edição preserva **Motivo da alteração**. Não há sufixo “opcional”.
-A observação nova da compra foi retirada: novo lançamento, agora ou depois,
-não apresenta esse campo e não envia `launch_notes`. Agendar depois não apresenta
-observação substituta nem envia `notes`; o rascunho de sessão continua disponível
-se retornar a Agendar agora. Não há unificação nem cópia de conteúdo.
-O Frontend não exibe a observação de compra em Histórico ou Financeiro,
-mesmo se um DTO legado ainda a retornar. Os valores históricos são preservados
-no Backend, sem migration destrutiva e com replay compatível; não são expostos
-no histórico nem alimentam o campo de sessão. Não há novas notas de compra.
-O antigo aviso de registro da compra hoje foi removido; os contratos financeiros
-permanecem.
+A preparação da revisão no novo agendamento mantém o painel visível. O spinner
+existente fica somente no botão, com **Preparando revisão...**, status acessível
+e aria-busy. Campos e ações de retorno/envio ficam bloqueados enquanto a consulta
+está pendente; a trava síncrona impede submissões duplicadas. Erro libera a mesma
+ação para tentar novamente, conservando o rascunho. Outros fluxos conservam seus
+indicadores de carregamento. **Observações** é o último bloco do formulário.
+
+Há um único campo **Observações**, opcional e no último bloco. Agora, direito
+próprio e compartilhamento conservam notes e os destinos de sessão do baseline
+publicado ac8755ab2f4a, incluindo séries. Edição preserva **Motivo da alteração**.
+Depois usa o mesmo campo e envia apenas launch_notes em /package-purchases,
+até 2000 caracteres; espaços externos são removidos e vazio vira null.
+O Backend persiste em Package.launch_notes e devolve a nota na compra e no
+Histórico autorizado. O detalhe do pacote mostra **Observações** somente com
+conteúdo. A nota do lançamento não preenche Session.notes ao agendar direitos,
+não preenche o próximo formulário e não é copiada nem exibida como nota financeira.
+Comandos novos de adiamento incluem a nota na identidade idempotente; alteração
+ou remoção muda o comando. Resultado incerto conserva a tentativa original.
+Replays legados e valores históricos continuam compatíveis sem migration.
+Não há segundo campo ou cópia automática para sessões futuras. O antigo aviso
+de registro da compra hoje foi removido; os contratos financeiros permanecem.
 
 Cancelar unidades disponíveis está somente em Paciente → Histórico → Pacotes e sessões avulsas, junto de cada pacote e seu saldo disponível, para
 gestão da Agenda com alcance de clínica. Mostra contagem e aviso de manutenção

@@ -1,5 +1,6 @@
 import React from "react";
 import PropTypes from "prop-types";
+import { ownPackageIdentity } from "./patientSchedulingOrigins";
 import { GhostButton } from "../../components/AppButton";
 import { FieldHint } from "../../components/AppForm";
 import { colors, spacing } from "../../styles/tokens";
@@ -15,15 +16,13 @@ export default function RightsOriginPicker({ rights, origin, selectedId, onSelec
       {rights.options.map((pkg) => {
         const quantity = Number(pkg.quantity);
         const hasTotal = Number.isSafeInteger(quantity) && quantity > 0;
-        const serviceIdentity = pkg.service.id ?? pkg.service.name;
-        const needsIdentity = rights.options.some((other) => other !== pkg
-          && (other.service.id ?? other.service.name) === serviceIdentity);
+        const identity = ownPackageIdentity(pkg, rights.options);
         return <Option key={pkg.id} htmlFor={`own-right-origin-${pkg.id}`} style={{ width: "100%", alignItems: "flex-start" }}>
           <input id={`own-right-origin-${pkg.id}`} type="radio" name="attendance-origin"
             checked={origin === "own" && String(selectedId) === String(pkg.id)} onChange={() => onSelect(pkg)}/>
           <span style={{ display: "grid", gap: 2, minWidth: 0, overflowWrap: "anywhere" }}>
             <span>{pkg.service.name}{hasTotal && ` · ${quantity} ${quantity === 1 ? "sessão" : "sessões"}`}</span>
-            <small style={{ color: colors.textSecondary, fontWeight: 500 }}>{pkg.free_rights} {Number(pkg.free_rights) === 1 ? "não agendada" : "não agendadas"}{needsIdentity && ` · #${pkg.id}`}</small>
+            <small style={{ color: colors.textSecondary, fontWeight: 500 }}>{pkg.free_rights} {Number(pkg.free_rights) === 1 ? "não agendada" : "não agendadas"}{identity && (` · ${identity}`)}</small>
           </span>
         </Option>;
       })}

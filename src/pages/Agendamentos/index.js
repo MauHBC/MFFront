@@ -36,7 +36,7 @@ import usePatientRights from "./usePatientRights";
 import creationCommand from "./creationCommand";
 import RightsOriginPicker from "./RightsOriginPicker";
 import SchedulingDetails from "./SchedulingDetails";
-import { normalizeReplacementCredit } from "./patientSchedulingOrigins";
+import { normalizeReplacementCredit, ownPackageIdentity } from "./patientSchedulingOrigins";
 import { disabledFieldStyles, FieldHint, Field as AppField } from "../../components/AppForm";
 import {
   formatCurrencyInput,
@@ -5185,7 +5185,7 @@ export default function Agendamentos() {
   const hasCreationDetails = !isInitialOriginFlow || (canAdvanceCreation && creationStep === "details");
   const selectedOwnPackage = patientRights.options.find((pkg) => String(pkg.id) === String(form.shared_package_id));
   const returnToOrigin = () => {
-    if (purchasePending || recurrencePreview?.is_submitting) return;
+    if (isSaving || purchasePending || recurrencePreview?.is_submitting) return;
     creationSelectionVersionRef.current += 1;
     singleReviewAvailabilityRequestIdRef.current += 1;
     setRecurrencePreview(null);
@@ -5265,7 +5265,7 @@ export default function Agendamentos() {
       toast.error("Informe um valor por sessão válido."); return;
     }
     await purchaseCommand.submit({ patient_id: Number(form.patient_id), service_id: Number(form.service_id),
-      quantity,
+      quantity, launch_notes: normalizeText(form.notes),
       ...(hasPriceOverride ? { price_override_cents: price } : {}),
       ...(form.is_no_charge ? { is_no_charge: true } : {}),
     });
@@ -6650,10 +6650,13 @@ export default function Agendamentos() {
 	    submitButtonLabel = "Salvar";
   }
 
+  const primarySubmitLabel = isDeferredPurchase ? purchaseSubmitLabel : submitButtonLabel;
   let originSummary = "Registrar novas sessões";
   if (selectedOrigin === "own") {
-    const needsIdentity = patientRights.options.filter((pkg) => String(pkg.service.id) === String(selectedOwnPackage?.service?.id)).length > 1;
-    originSummary = `${selectedOwnPackage?.service?.name || "Sessões compradas"} · ${selectedOwnPackage?.purchased_free_rights || 0} disponíveis${needsIdentity ? ` · #${form.shared_package_id}` : ""}`;
+    const identity = ownPackageIdentity(selectedOwnPackage, patientRights.options);
+    originSummary = `${selectedOwnPackage?.service?.name || "Sessões compradas"  } · ${
+       selectedOwnPackage?.purchased_free_rights || 0  } disponíveis${
+       identity ? ` · ${identity}` : ""}`;
   }
   if (selectedOrigin === "shared") originSummary = "Usar pacote de outro paciente";
   if (selectedOrigin === "replacement" && selectedReplacementCredit) originSummary = getReplacementCreditOptionLabel(selectedReplacementCredit);
@@ -7427,7 +7430,7 @@ export default function Agendamentos() {
             </IconButton>
           </DrawerHeader>
           <DrawerBody $compact={isInitialOriginFlow}>
-            <Loading isLoading={isSaving} />
+            <Loading isLoading={isSaving && !isInitialOriginFlow} />
             {drawerMode === "group" && (
               <GroupPanel>
                 <GroupHeader>
@@ -7621,7 +7624,7 @@ export default function Agendamentos() {
             )}
             {drawerMode !== "group" && (
               <Form onSubmit={isDeferredPurchase ? handleSubmitPurchaseLater : handleSubmit}>
-                <FormGrid as="fieldset" disabled={purchasePending}>
+                <FormGrid as="fieldset" disabled={purchasePending || (isInitialOriginFlow && isSaving)}>
 			                  {isInitialOriginFlow && creationStep === "details" && (
                     <Field as="div" className="span-2" aria-label="Resumo do paciente e origem">
                       <ReadonlyText><span style={{ fontSize: "0.85rem" }}>Paciente: </span><strong style={{ fontWeight: 600 }}>{formPatientQuery}</strong></ReadonlyText>
@@ -8239,20 +8242,7 @@ export default function Agendamentos() {
                       )}
 		                    </RepeatCard>
 		                  )}
-                  {!isDeferredPurchase && <Field className="span-2">
-                    {notesFieldLabel}
-                    <textarea
-                      name="notes"
-                      value={form.notes}
-                      onChange={handleFormChange}
-                      rows={3}
-                      aria-invalid={editingId && showEditReasonError ? "true" : undefined}
-                      className={editingId && showEditReasonError ? "is-invalid" : undefined}
-                    />
-		                    {editingId && showEditReasonError && (
-		                      <FieldBubble role="alert">Preencher motivo para salvar</FieldBubble>
-		                    )}
-		                  </Field>}
+
                   {isDeferredPurchase && <AppField className="span-2">
                     Quantidade de sessões
                     <input name="purchase_quantity" type="number" min="1" max="200" step="1"
@@ -8351,6 +8341,21 @@ export default function Agendamentos() {
 		                      )}
 				                    </PackageScopeCard>
 				                  )}
+                  <Field className="span-2">
+                    {notesFieldLabel}
+                    <textarea
+                      name="notes"
+                      value={form.notes}
+                      onChange={handleFormChange}
+                      rows={3}
+                      maxLength={isDeferredPurchase ? 2000 : undefined}
+                      aria-invalid={editingId && showEditReasonError ? "true" : undefined}
+                      className={editingId && showEditReasonError ? "is-invalid" : undefined}
+                    />
+		                    {editingId && showEditReasonError && (
+		                      <FieldBubble role="alert">Preencher motivo para salvar</FieldBubble>
+		                    )}
+		                  </Field>
                   </SchedulingDetails>}
 		                </FormGrid>
                 {purchaseCommand.uncertain && <FieldHint role="status">O resultado está pendente. Verifique a mesma tentativa para evitar outro lançamento.</FieldHint>}
@@ -8360,13 +8365,15 @@ export default function Agendamentos() {
                     onClick={() => { if (canAdvanceCreation) setCreationStep("details"); }}>Avançar</PrimaryButton>
                 </DrawerActions>}
                 {hasCreationDetails && <DrawerActions>
-                  {isInitialOriginFlow && <SecondaryButton type="button" onClick={returnToOrigin} disabled={purchasePending || recurrencePreview?.is_submitting}>Voltar</SecondaryButton>}
+                  {isInitialOriginFlow && <SecondaryButton type="button" onClick={returnToOrigin} disabled={isSaving || purchasePending || recurrencePreview?.is_submitting}>Voltar</SecondaryButton>}
                   <SecondaryButton type="button" onClick={closeDrawer} disabled={isSaving || purchasePending}>
                     Cancelar
                   </SecondaryButton>
-                  <PrimaryButton type="submit" disabled={isSaving || purchaseCommand.saving}>
+                  <PrimaryButton type="submit" aria-busy={isSaving || purchaseCommand.saving} disabled={isSaving || purchaseCommand.saving}>
                     {(isSaving || purchaseCommand.saving) ? <ButtonSpinner aria-hidden="true" /> : null}
-                    {isDeferredPurchase ? purchaseSubmitLabel : submitButtonLabel}
+                    {isSaving && isInitialOriginFlow && !isDeferredPurchase
+                      ? <span role="status" aria-live="polite">Preparando revisão...</span>
+                      : primarySubmitLabel}
                   </PrimaryButton>
                 </DrawerActions>}
               </Form>

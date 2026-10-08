@@ -3434,7 +3434,7 @@ describe("Agendamentos - editar agendamento", () => {
     expect(form.querySelector('select[name="service_id"]')).toHaveValue("");
   });
 
-  it("fluxo aprovado: agora/depois compartilham paciente e campos; lançamento não envia datas ou notas de sessão", async () => {
+  it("fluxo aprovado: Observações é um único campo nos dois modos; depois usa somente a nota da compra", async () => {
     mockAuthorization = { ...mockAuthorization, isAdministrator: true, canAccessModule: jest.fn(() => true) };
     const get = axios.get.getMockImplementation();
     axios.get.mockImplementation((url, config) => url === "/session-replacement-credits"
@@ -3453,7 +3453,9 @@ describe("Agendamentos - editar agendamento", () => {
     expect(within(form).queryAllByRole("searchbox")).toHaveLength(0);
     expect(form.querySelector('select[name="professional_user_id"]')).toBeNull();
     expect(form.querySelector('input[type="date"]')).toBeNull();
-    expect(form.querySelector('textarea[name="notes"]')).toBeNull();
+    expect(within(form).getAllByLabelText("Observações")).toHaveLength(1);
+    expect(form.querySelector('textarea[name="notes"]')).toHaveValue("Sessão independente");
+    expect(form.querySelector('textarea[name="notes"]')).toHaveAttribute("maxlength", "2000");
     expect(form.querySelector('select[name="session_replacement_credit_id"]')).toBeNull();
     fireEvent.change(form.querySelector('input[name="purchase_quantity"]'), { target: { value: "3" } });
     fireEvent.click(within(form).getByRole("button", { name: "Agendar agora" }));
@@ -3463,15 +3465,55 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Agendar depois" }));
     fireEvent.click(within(form).getByRole("button", { name: "Lançar e agendar depois" }));
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith("/package-purchases", expect.objectContaining({
-      patient_id: 20, service_id: 40, quantity: 3,
+      patient_id: 20, service_id: 40, quantity: 3, launch_notes: "Sessão independente",
     })));
     const body = axios.post.mock.calls.find(([url]) => url === "/package-purchases")[1];
     expect(body).not.toHaveProperty("starts_at");
     expect(body).not.toHaveProperty("professional_user_id");
     expect(body).not.toHaveProperty("notes");
-    expect(body).not.toHaveProperty("launch_notes");
+    expect(body.launch_notes).toBe("Sessão independente");
     expect(body).not.toHaveProperty("price_override_cents");
     expect(axios.post.mock.calls.some(([url]) => url === "/sessions" || url === "/session-series")).toBe(false);
+  });
+
+  it("fluxo aprovado: salva nota no adiamento e novo agendamento do direito começa sem copiar a nota", async () => {
+    mockAuthorization = { ...mockAuthorization, isAdministrator: true, canAccessModule: jest.fn(() => true) };
+    const get = axios.get.getMockImplementation();
+    let saved = null;
+    axios.get.mockImplementation((url, config) => url === "/patients/20/available-rights"
+      ? Promise.resolve({ data: saved ? [{ ...ownRights[1], launch_notes: saved.launch_notes }] : [] })
+      : get(url, config));
+    axios.post.mockImplementation((url, body) => {
+      if (url === "/package-purchases") saved = body;
+      return Promise.resolve({ data: { id: 702, launch_notes: saved?.launch_notes } });
+    });
+    const { container } = renderAgendamentos();
+    const form = await openCreationForm(); await selectCreationPatient();
+    await within(form).findByText("Tipo de atendimento");
+    fireEvent.change(form.querySelector('select[name="service_id"]'), { target: { value: "40" } });
+    await waitFor(() => expect(within(form).getByRole("button", { name: "Agendar depois" })).toBeEnabled());
+    fireEvent.click(within(form).getByRole("button", { name: "Agendar depois" }));
+    const notes = within(form).getByLabelText("Observações");
+    fireEvent.change(form.querySelector('input[name="purchase_quantity"]'), { target: { value: "2" } });
+    expect(notes.closest("label").parentElement.lastElementChild).toBe(notes.closest("label"));
+    fireEvent.change(notes, { target: { value: "  Comentário do lançamento  " } });
+    fireEvent.click(within(form).getByRole("button", { name: "Lançar e agendar depois" }));
+    await waitFor(() => expect(saved).toEqual(expect.objectContaining({ launch_notes: "Comentário do lançamento" })));
+    expect(saved).not.toHaveProperty("notes");
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(expect.stringContaining("Sessões disponíveis")));
+    const next = await openCreationForm(); await selectCreationPatient();
+    fireEvent.click(await within(next).findByLabelText(/Avaliacao Coluna/));
+    await advanceCreation(); await selectAssignedProfessional(container);
+    expect(within(next).getByLabelText("Observações")).toHaveValue("");
+    fireEvent.change(next.querySelector('input[type="date"]'), { target: { value: "2026-07-06" } });
+    const hour = Array.from(next.querySelectorAll("select")).find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hour, { target: { value: "10" } });
+    fireEvent.click(within(next).getByRole("button", { name: "Revisar agendamento" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirmar agendamento" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith("/sessions", expect.objectContaining({
+      use_own_package: true, shared_package_id: 702, notes: null,
+    })));
+    expect(axios.post.mock.calls.find(([url]) => url === "/sessions")[1]).not.toHaveProperty("launch_notes");
   });
 
   it.each(["single", "series"])("fluxo aprovado: novo agora preserva Observações de sessão sem nota de compra (%s)", async (mode) => {
@@ -3577,7 +3619,7 @@ describe("Agendamentos - editar agendamento", () => {
     expect(payload.idempotency_key).toMatch(/^own-right:/);
   });
 
-  it("fluxo aprovado: prévia tardia de nova série não reabre compra após selecionar direito próprio", async () => {
+  it("fluxo aprovado: revisão pendente bloqueia troca de origem; após erro permite selecionar direito próprio", async () => {
     const get = axios.get.getMockImplementation();
     axios.get.mockImplementation((url, config) => String(url).includes("available-rights")
       ? Promise.resolve({ data: ownRights }) : get(url, config));
@@ -3597,13 +3639,10 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(form.querySelector('input[placeholder="Ex.: 10"]'), { target: { value: "2" } });
     fireEvent.click(within(form).getByRole("button", { name: "Revisar agendamento" }));
     await waitFor(() => expect(previewSchedulingOccurrences).toHaveBeenCalledTimes(1));
+    expect(within(form).getByRole("button", { name: "Voltar" })).toBeDisabled();
+    await act(async () => pendingPreview.reject(new Error("Falha temporária")));
     fireEvent.click(within(form).getByRole("button", { name: "Voltar" }));
-    fireEvent.click(within(form).getByLabelText(/Fisioterapia.*3 não agendadas/));
-    await act(async () => pendingPreview.resolve({ data: {
-      occurrences_preview: [buildPreviewOccurrence(1, "2026-07-06"), buildPreviewOccurrence(2, "2026-07-13")],
-      summary: buildPreviewSummary({ total: 2, available: 2, warn: 0, blocked: 0 }),
-      validation: buildAvailabilityValidation(),
-    } }));
+    fireEvent.click(await within(form).findByLabelText(/Fisioterapia.*3 não agendadas/));
     expect(screen.queryByRole("heading", { name: "Revisar agendamento" })).not.toBeInTheDocument();
     await advanceCreation();
     expect(within(form).queryByText("Mais sessões")).not.toBeInTheDocument();
@@ -3653,6 +3692,35 @@ describe("Agendamentos - editar agendamento", () => {
     expect(within(form).queryByText("Repetir")).not.toBeInTheDocument();
     expect(within(form).queryByText("Quais dias?")).not.toBeInTheDocument();
     expect(form.querySelector('textarea[name="notes"]')).toHaveValue("Observação geral do lote");
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  it("lote próprio comprado: revisão carrega só no botão, bloqueia duplicação e preserva rascunho após erro", async () => {
+    const { form } = await openOwnPurchasedBatch();
+    const deferred = createDeferred();
+    previewSchedulingOccurrences.mockImplementationOnce(() => deferred.promise);
+    fireEvent.click(within(form).getByRole("button", { name: "Revisar agendamento" }));
+    const busy = await within(form).findByRole("button", { name: "Preparando revisão..." });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    expect(within(busy).getByRole("status")).toHaveTextContent("Preparando revisão...");
+    expect(form).toBeVisible();
+    expect(screen.queryByText("Carregando ...")).not.toBeInTheDocument();
+    const notes = within(form).getByLabelText("Observações");
+    expect(notes).toBeDisabled();
+    expect(notes.closest("label").parentElement.lastElementChild).toBe(notes.closest("label"));
+    expect(within(form).getByRole("button", { name: "Voltar" })).toBeDisabled();
+    fireEvent.submit(form);
+    expect(previewSchedulingOccurrences).toHaveBeenCalledTimes(1);
+    await act(async () => deferred.reject(new Error("Falha temporária")));
+    const retry = await within(form).findByRole("button", { name: "Revisar agendamento" });
+    expect(retry).toBeEnabled();
+    expect(notes).toHaveValue("Observação geral do lote");
+    expect(notes).toBeEnabled();
+    expect(toast.error).toHaveBeenCalled();
+    fireEvent.click(retry);
+    await screen.findByRole("heading", { name: "Revisar agendamento" });
+    expect(previewSchedulingOccurrences).toHaveBeenCalledTimes(2);
     expect(axios.post).not.toHaveBeenCalled();
   });
 

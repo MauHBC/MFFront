@@ -1502,6 +1502,7 @@ export default function PatientDetails() {
             hasAvailableRights: pkg.status === "active" && (pkg.sessions || []).some((session) => session.unit_state === "available"),
             availableCount: (pkg.sessions || []).filter((session) => session.unit_state === "available").length,
         sourceId: pkg.id,
+        launchNotes: typeof pkg.launch_notes === "string" ? pkg.launch_notes.trim() : "",
         serviceName: pkg.service?.name || "Pacote de sessões",
         referenceDate: pkg.reference_date || pkg.contracted_at || pkg.sessions?.[0]?.starts_at || null,
         totalSessions: Number(pkg.quantity || 0),
@@ -5065,6 +5066,10 @@ export default function PatientDetails() {
                 </IconButton>
               </ModalHeader>
 
+              {selectedPackage.launchNotes && <InfoCard>
+                <strong>Observações</strong>
+                <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{selectedPackage.launchNotes}</p>
+              </InfoCard>}
               <PackageSessionTableWrap>
                 <PackageSessionTable>
                   <thead>
