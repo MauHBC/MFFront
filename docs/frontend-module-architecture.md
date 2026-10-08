@@ -205,6 +205,15 @@ substitui `npm test -- --watchAll=false --runInBand`.
 
 ### Autorização oficial e fail-closed
 
+A entrada autenticada `/menu`, compartilhada pelo login, raiz central e troca
+de clínica, aguarda o contexto oficial e substitui a rota por `/agendamentos`
+somente quando `canAccessModule("schedule")` permite acesso. Sem Agenda, mantém
+a tela existente de atalhos permitidos, inclusive o estado sem permissões;
+carregamento, contexto inválido ou erro não montam módulos. Links diretos dos
+módulos continuam nas próprias rotas e guards. A navegação lateral apresenta
+Agenda primeiro e Painel segundo, preservando os demais itens e Configurações
+no rodapé. Não há preferência por perfil ou concessão adicional de acesso.
+
 `AuthorizationProvider` carrega `/team/authorization-context` para a identidade
 e o token atuais. O catálogo corrente é `8`; durante a compatibilidade fechada
 da transição, somente `7` e `8` são aceitos. Versões anteriores, futuras ou
@@ -1235,8 +1244,8 @@ sidebar fixada usa `localStorage` e a chave
 
 | Item | Tipo | Destinos reais |
 |---|---|---|
-| Painel | Link direto | `/painel`; `/dashboard` é alias ativo |
 | Agenda | Expansível | Agenda: `/agendamentos`; Configurações: `/agendamentos/eventos` |
+| Painel | Link direto | `/painel`; `/dashboard` é alias ativo |
 | Pacientes | Link direto | `/pacientes`; detalhes em `/pacientes/:id` e demais subrotas protegidas |
 | Planos | Expansível e sujeito a `isPlansModuleEnabled` | Pacientes com plano: `/planos?tab=patient-plans`; Planos mensais: `/planos?tab=service-plans`; Serviços: `/planos?tab=services`; detalhes: `/planos/pacientes/:patientPlanId` |
 | Financeiro | Expansível | `/financeiro/visao-geral`, `/financeiro/receitas`, `/financeiro/despesas` e `/financeiro/configuracoes` |

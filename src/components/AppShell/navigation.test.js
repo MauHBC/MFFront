@@ -12,6 +12,12 @@ describe("AppShell navigation", () => {
     canViewTeam: true,
     isAdministrator: true,
   };
+  it("mantém Agenda primeiro, Painel segundo e os demais itens na ordem existente", () => {
+    expect(getVisibleNavigationItems(fullAccess).map(({ key }) => key))
+      .toEqual(["schedule", "dashboard", "patients", "team", "plans", "financial"]);
+    expect(getVisibleNavigationItems({ ...fullAccess, canAccessModule: (key) => key !== "schedule" })
+      .map(({ key }) => key)).toEqual(["dashboard", "patients", "team", "plans", "financial"]);
+  });
   it("remove o módulo quando ele ou todos os seus submenus estão indisponíveis", () => {
     const hiddenParent = {
       key: "hidden-parent",
