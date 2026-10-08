@@ -903,7 +903,7 @@ describe("Agendamentos - editar agendamento", () => {
       expect.objectContaining({
         starts_at: "2026-06-29T13:00:00.000Z",
         ends_at: "2026-06-29T14:00:00.000Z",
-        notes: "ajuste administrativo",
+        change_reason: "ajuste administrativo",
         status: "scheduled",
         rescheduled_from_id: 10,
       }),
@@ -944,7 +944,7 @@ describe("Agendamentos - editar agendamento", () => {
     expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(0);
   });
 
-  it("mantem PUT quando somente a observacao muda", async () => {
+  it("mantem PUT quando somente o motivo da alteração é informado", async () => {
     sessionsMockData = [absoluteBaseSession, canceledSession, noShowSession];
     const { container } = renderAgendamentos();
     await openScheduledSessionEdit(container);
@@ -958,7 +958,7 @@ describe("Agendamentos - editar agendamento", () => {
       expect.objectContaining({
         starts_at: absoluteBaseSession.starts_at,
         ends_at: absoluteBaseSession.ends_at,
-        notes: "observacao sem mudanca temporal",
+        change_reason: "observacao sem mudanca temporal",
       }),
     ));
     const payload = axios.put.mock.calls.find(([url]) => url === "/sessions/10")[1];
@@ -1019,7 +1019,7 @@ describe("Agendamentos - editar agendamento", () => {
     expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(0);
   });
 
-  it("combina horario profissional e observacao em uma unica remarcacao", async () => {
+  it("combina horario profissional e motivo em uma unica remarcacao", async () => {
     sessionsMockData = [absoluteBaseSession, canceledSession, noShowSession];
     const { container } = renderAgendamentos();
     await openScheduledSessionEdit(container);
@@ -1040,7 +1040,7 @@ describe("Agendamentos - editar agendamento", () => {
         starts_at: "2026-06-29T13:00:00.000Z",
         ends_at: "2026-06-29T14:00:00.000Z",
         professional_user_id: 31,
-        notes: "excecao com outro profissional",
+        change_reason: "excecao com outro profissional",
         rescheduled_from_id: 10,
       }),
     ));
@@ -1050,6 +1050,129 @@ describe("Agendamentos - editar agendamento", () => {
     expect(payload).not.toHaveProperty("billing_mode");
     expect(axios.post.mock.calls.filter(([url]) => url === "/sessions")).toHaveLength(1);
     expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it.each(["própria comprada", "compartilhada", "reposição", "nova compra já agendada"].flatMap(
+    (origin) => ["editar", "remarcar"].map((mode) => [origin, mode]),
+  ))("motivo separado: %s / %s mantém notas e não compra novamente", async (origin, mode) => {
+    const original = {
+      ...absolutePackageSession,
+      notes: "Observação original da sessão",
+      session_replacement_credit_id: origin === "reposição" ? 901 : null,
+      PackageUnit: {
+        ...packageSession.PackageUnit,
+        unit_kind: origin === "reposição" ? "replacement" : "purchased",
+        Package: { ...packageSession.PackageUnit.Package,
+          patient_id: origin === "compartilhada" ? 88 : 20,
+          launch_notes: "Observação da compra",
+          Patient: { id: origin === "compartilhada" ? 88 : 20, full_name: "Titular do pacote" },
+        },
+      },
+    };
+    sessionsMockData = [original];
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    const edit = within(container.querySelector('textarea[name="notes"]').closest("form"));
+    expect(edit.getAllByLabelText("Motivo da alteração")).toHaveLength(1);
+    expect(edit.getByLabelText("Motivo da alteração")).toHaveValue("");
+    expect(edit.queryByRole("button", { name: "Agendar depois" })).not.toBeInTheDocument();
+    expect(edit.queryByText("Como deseja continuar?")).not.toBeInTheDocument();
+    expect(edit.queryByText("Mais sessões")).not.toBeInTheDocument();
+    if (mode === "remarcar") {
+      const hour = Array.from(container.querySelectorAll("select"))
+        .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+      fireEvent.change(hour, { target: { value: "10" } });
+    } else {
+      fireEvent.change(container.querySelector('select[name="professional_user_id"]'), { target: { value: "31" } });
+    }
+    fireEvent.change(edit.getByLabelText("Motivo da alteração"), { target: { value: "  Ajuste autorizado  " } });
+    fireEvent.click(edit.getByRole("button", { name: "Salvar" }));
+    const method = mode === "editar" ? axios.put : axios.post;
+    const endpoint = mode === "editar" ? "/sessions/10" : "/sessions";
+    await waitFor(() => expect(method).toHaveBeenCalledWith(endpoint, expect.objectContaining({
+      patient_id: original.patient_id, service_id: original.service_id, change_reason: "Ajuste autorizado",
+    })));
+    const body = method.mock.calls.find(([url]) => url === endpoint)[1];
+    ["notes", "launch_notes", "purchase_launch", "use_own_package", "shared_package_id", "shared_package_review_token", "price_override_cents"].forEach(
+      (field) => expect(body).not.toHaveProperty(field),
+    );
+    if (mode === "editar") expect(body.idempotency_key).toMatch(/^session-edit:/);
+    else expect(body.rescheduled_from_id).toBe(original.id);
+    expect(axios.post.mock.calls.every(([url]) => url === "/sessions")).toBe(true);
+    expect(original.notes).toBe("Observação original da sessão");
+    expect(original.PackageUnit.id).toBe(501);
+    expect(original.PackageUnit.Package.launch_notes).toBe("Observação da compra");
+  });
+
+  it.each(["single", "series"])("motivo separado: retry %s reutiliza chave e alteração do comando gera outra", async (scope) => {
+    sessionsMockData = [{ ...absolutePackageSession, series_id: scope === "series" ? 99 : null, notes: "Preservar sessão" }];
+    const get = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url, config) => String(url).includes("package-scope-update-preview")
+      ? Promise.resolve({ data: { total_following_eligible: 1 } }) : get(url, config));
+    const method = scope === "single" ? axios.put : axios.post;
+    const endpoint = scope === "single" ? "/sessions/10" : "/sessions/10/package-scope-update";
+    method.mockImplementation((url) => url === endpoint
+      ? Promise.reject(new Error("Resposta perdida")) : Promise.resolve({ data: {} }));
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    const edit = within(container.querySelector('textarea[name="notes"]').closest("form"));
+    if (scope === "series") {
+      const radio = await edit.findByLabelText("Esta sessão e todas seguintes");
+      await waitFor(() => expect(radio).toBeEnabled());
+      fireEvent.click(radio);
+    }
+    fireEvent.change(container.querySelector('select[name="professional_user_id"]'), { target: { value: "31" } });
+    fireEvent.change(edit.getByLabelText("Motivo da alteração"), { target: { value: "Motivo inicial" } });
+    fireEvent.click(edit.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(method.mock.calls.filter(([url]) => url === endpoint)).toHaveLength(1));
+    await waitFor(() => expect(edit.getByRole("button", { name: "Salvar" })).toBeEnabled());
+    fireEvent.click(edit.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(method.mock.calls.filter(([url]) => url === endpoint)).toHaveLength(2));
+    const attempts = method.mock.calls.filter(([url]) => url === endpoint).map(([, body]) => body);
+    expect(attempts[1]).toEqual(attempts[0]);
+    expect(attempts[0]).toEqual(expect.objectContaining({ change_reason: "Motivo inicial", idempotency_key: expect.stringMatching(/^session-edit:/) }));
+    expect(attempts[0]).not.toHaveProperty("notes");
+    if (scope === "series") {
+      expect(attempts[0].scope).toBe("series");
+      expect(attempts[0].data).not.toHaveProperty("notes");
+      expect(attempts[0].data).not.toHaveProperty("change_reason");
+      expect(attempts[0].data).not.toHaveProperty("idempotency_key");
+      expect(attempts[0].data.professional_user_id).toBe(31);
+    }
+    await waitFor(() => expect(edit.getByRole("button", { name: "Salvar" })).toBeEnabled());
+    fireEvent.change(edit.getByLabelText("Motivo da alteração"), { target: { value: "Motivo revisado" } });
+    fireEvent.click(edit.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(method.mock.calls.filter(([url]) => url === endpoint)).toHaveLength(3));
+    const changed = method.mock.calls.filter(([url]) => url === endpoint)[2][1];
+    expect(changed.idempotency_key).not.toBe(attempts[0].idempotency_key);
+    expect(changed.change_reason).toBe("Motivo revisado");
+    expect(sessionsMockData[0].notes).toBe("Preservar sessão");
+  });
+
+  it("motivo separado: retry de remarcação conserva origem e aceita a proteção nativa 409", async () => {
+    sessionsMockData = [{ ...absolutePackageSession, notes: "Nota da origem" }];
+    const repeated = new Error("Já remarcada");
+    repeated.response = { status: 409, data: { error: "Sessão já remarcada." } };
+    axios.post.mockRejectedValueOnce(new Error("Resposta perdida")).mockRejectedValueOnce(repeated);
+    const { container } = renderAgendamentos();
+    await openScheduledSessionEdit(container);
+    const edit = within(container.querySelector('textarea[name="notes"]').closest("form"));
+    const hour = Array.from(container.querySelectorAll("select"))
+      .find((select) => Array.from(select.options).some((option) => option.value === "10"));
+    fireEvent.change(hour, { target: { value: "10" } });
+    fireEvent.change(edit.getByLabelText("Motivo da alteração"), { target: { value: "Remarcação autorizada" } });
+    fireEvent.click(edit.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(edit.getByRole("button", { name: "Salvar" })).toBeEnabled());
+    expect(edit.getByLabelText("Motivo da alteração")).toHaveValue("Remarcação autorizada");
+    fireEvent.click(edit.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Sessão já remarcada."));
+    const bodies = axios.post.mock.calls.map(([url, body]) => { expect(url).toBe("/sessions"); return body; });
+    expect(bodies[1]).toEqual(bodies[0]);
+    expect(bodies[0]).toEqual(expect.objectContaining({ rescheduled_from_id: 10, change_reason: "Remarcação autorizada" }));
+    ["notes", "launch_notes", "purchase_launch", "idempotency_key"].forEach((field) => expect(bodies[0]).not.toHaveProperty(field));
+    expect(axios.put).not.toHaveBeenCalled();
+    expect(sessionsMockData[0].notes).toBe("Nota da origem");
   });
 
   it("mostra o erro funcional retornado pela remarcacao", async () => {
@@ -1500,16 +1623,19 @@ describe("Agendamentos - editar agendamento", () => {
         : Promise.resolve({ data: { id: 2, entry_id: 90, patient_id: 20 } });
     });
     await openFinancialAbsence();
-    await readyToConfirmCancellation();
-    fireEvent.click(confirmCancellationButton());
-    await screen.findByText("O agendamento mudou. Confira as informações atualizadas e confirme novamente.");
+    const dialog = within(screen.getByRole("heading", { name: "Cancelamento/falta" }).parentElement.parentElement);
+    const confirm = () => dialog.getByRole("button", { name: "Confirmar cancelamento" });
+    await flushFinancialPreviewDebounce();
+    await waitFor(() => expect(confirm()).toBeEnabled());
+    fireEvent.click(confirm());
+    await dialog.findByText("O agendamento mudou. Confira as informações atualizadas e confirme novamente.");
 	    await flushFinancialPreviewDebounce();
     await waitFor(() => expect(cancellationCalls("cancellation-preview")).toHaveLength(2));
-	    await waitFor(() => expect(confirmCancellationButton()).toBeEnabled());
-    expect(screen.getByLabelText("Outros agendamentos afetados")).toHaveTextContent(/Paciente atualizado.*06\/11\/2026.*10:00/);
+	    await waitFor(() => expect(confirm()).toBeEnabled());
+    expect(dialog.getByLabelText("Outros agendamentos afetados")).toHaveTextContent(/Paciente atualizado.*06\/11\/2026.*10:00/);
     expect(cancellationCalls("cancel-with-credit")).toHaveLength(1);
-    expect(screen.getByText("O que aconteceu?")).toBeInTheDocument();
-    fireEvent.click(confirmCancellationButton());
+    expect(dialog.getByText("O que aconteceu?")).toBeInTheDocument();
+    fireEvent.click(confirm());
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sessão cancelada."));
     expect(cancellationCalls("cancel-with-credit")[1][1].preview_fingerprint).toBe("updated-preview");
     expect(cancellationCalls("cancel-with-credit")[1][2]).not.toEqual(cancellationCalls("cancel-with-credit")[0][2]);
@@ -4430,7 +4556,7 @@ describe("Agendamentos - editar agendamento", () => {
   });
 
   it("troca o paciente de uma sessao de pacote pelo mesmo comando e unidade", async () => {
-    sessionsMockData = [absolutePackageSession];
+    sessionsMockData = [{ ...absolutePackageSession, notes: "Nota original preservada" }];
     const originalGet = axios.get.getMockImplementation();
     axios.get.mockImplementation((url, config) => {
       if (url === "/package-sharing/owners/20/packages") {
@@ -4488,12 +4614,14 @@ describe("Agendamentos - editar agendamento", () => {
     fireEvent.change(screen.getByPlaceholderText("Motivo"), {
       target: { value: "Alteração de horário autorizada" },
     });
+    fireEvent.change(screen.getByLabelText("Motivo da alteração"), { target: { value: "Realocação autorizada" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
 
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       "/sessions",
       expect.objectContaining({
         patient_id: 21,
+        change_reason: "Realocação autorizada",
         professional_user_id: 31,
         service_id: 40,
         starts_at: "2026-06-30T13:00:00.000Z",
@@ -4507,6 +4635,11 @@ describe("Agendamentos - editar agendamento", () => {
         late_policy_exception_reason: "Alteração de horário autorizada",
       }),
     ));
+    const body = axios.post.mock.calls.find(([url]) => url === "/sessions")[1];
+    expect(body).not.toHaveProperty("notes");
+    expect(body).not.toHaveProperty("launch_notes");
+    expect(body).not.toHaveProperty("purchase_launch");
+    expect(sessionsMockData[0].notes).toBe("Nota original preservada");
     expect(axios.put).not.toHaveBeenCalledWith(
       "/sessions/10",
       expect.objectContaining({ patient_id: 21 }),
@@ -4767,7 +4900,7 @@ describe("Agendamentos - editar agendamento", () => {
       "/sessions/10",
       expect.objectContaining({
         patient_id: 20,
-        notes: "Ajuste administrativo sem troca de paciente",
+        change_reason: "Ajuste administrativo sem troca de paciente",
       }),
     ));
     expect(axios.post.mock.calls.some(([url]) => url === "/sessions")).toBe(false);

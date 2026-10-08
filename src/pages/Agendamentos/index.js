@@ -1630,6 +1630,16 @@ export default function Agendamentos() {
     }
     return purchaseAttemptRef.current.key;
   }, []);
+  const editAttemptRef = useRef(null);
+  const editKeyFor = useCallback((url, payload) => {
+    const command = { ...payload };
+    delete command.idempotency_key;
+    const fingerprint = JSON.stringify([url, command]);
+    if (editAttemptRef.current?.fingerprint !== fingerprint) {
+      editAttemptRef.current = { fingerprint, key: `session-edit:${uuidv4()}` };
+    }
+    return editAttemptRef.current.key;
+  }, []);
   const patientRightsRefreshRef = useRef(null);
   const ownBatchAttemptRef = useRef(null);
   const ownBatchKeyFor = useCallback((payload) => {
@@ -3604,6 +3614,7 @@ export default function Agendamentos() {
       setSelectedOrigin("");
       resetPurchaseCommand();
     purchaseAttemptRef.current = null;
+    editAttemptRef.current = null;
     ownBatchAttemptRef.current = null;
     setOwnBatchUncertain(false);
     singleReviewAvailabilityRequestIdRef.current += 1;
@@ -4231,6 +4242,7 @@ export default function Agendamentos() {
       } else if (serviceFromCode?.id) {
         serviceIdValue = String(serviceFromCode.id);
       }
+      editAttemptRef.current = null;
       setEditingId(session.id);
       setEditingIntent(intent);
       setPackageScopePreview({ sessionId: null, loading: false, data: null });
@@ -5617,7 +5629,7 @@ export default function Agendamentos() {
           : {}),
         starts_at: resolvedFormInterval.starts_at,
         ends_at: resolvedFormInterval.ends_at,
-        notes: editReason,
+        ...(editingId ? { change_reason: editReason } : { notes: editReason }),
         absence_reason: normalizeText(form.absence_reason),
         late_policy_exception_justified: !!form.late_policy_exception_justified,
         late_policy_exception_reason: normalizeText(form.late_policy_exception_reason),
@@ -6000,16 +6012,20 @@ export default function Agendamentos() {
 	          const isReschedule = originalSession && editingScheduleWasChanged;
 
 	          if (shouldUsePackageScopeUpdate) {
-	            const response = await axios.post(`/sessions/${editingId}/package-scope-update`, {
+	            const editUrl = `/sessions/${editingId}/package-scope-update`;
+            const editPayload = {
 	              scope: "series",
+              change_reason: payload.change_reason,
 	              data: {
 	                professional_user_id: payload.professional_user_id,
 	                starts_at: packageScopeTimeChanged ? payload.starts_at : undefined,
 	                ends_at: packageScopeTimeChanged ? payload.ends_at : undefined,
-	                notes: payload.notes,
 	              },
 	              ...schedulingPayload,
-	            });
+	            };
+            const response = await axios.post(editUrl, {
+              ...editPayload, idempotency_key: editKeyFor(editUrl, editPayload),
+            });
 	            const updatedCount = Number(response?.data?.total_updated || 0);
 	            const skippedCount = Number(response?.data?.total_skipped || 0);
 	            toast.success(
@@ -6027,9 +6043,10 @@ export default function Agendamentos() {
             showAbsenceMonthlyPolicyNotice(response?.data);
             toast.success("Agendamento remarcado.");
           } else {
-            const response = await axios.put(`/sessions/${editingId}`, {
-              ...payload,
-              ...schedulingPayload,
+            const editUrl = `/sessions/${editingId}`;
+            const editPayload = { ...payload, ...schedulingPayload };
+            const response = await axios.put(editUrl, {
+              ...editPayload, idempotency_key: editKeyFor(editUrl, editPayload),
             });
             showAbsenceMonthlyPolicyNotice(response?.data);
             toast.success("Agendamento atualizado.");
@@ -6056,6 +6073,7 @@ export default function Agendamentos() {
 	    [
 	      canAssignPatientCare,
         purchaseKeyFor,
+        editKeyFor,
         postAgendaCreation,
         isNewOriginFlow,
         isInitialOriginFlow,

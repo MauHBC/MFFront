@@ -2094,6 +2094,21 @@ indicadores de carregamento. **Observações** é o último bloco do formulário
 Há um único campo **Observações**, opcional e no último bloco. Agora, direito
 próprio e compartilhamento conservam notes e os destinos de sessão do baseline
 publicado ac8755ab2f4a, incluindo séries. Edição preserva **Motivo da alteração**.
+A edição mantém o formulário validado e o campo existente **Motivo da alteração**.
+Seu valor vai em `change_reason`, no topo do PUT `/sessions/:id`, da remarcação
+formal com `rescheduled_from_id` e da alteração de escopo do pacote; neste último
+comando fica fora de `data`. O formulário nativo omite `notes` nesses comandos:
+o motivo não substitui a observação da sessão nem a nota da compra. O Backend
+registra o motivo na auditoria; na remarcação formal, a sucessora conserva a
+observação da origem quando `notes` é omitido. A realocação explícita conserva seu
+comando de compartilhamento e envia o motivo separado no topo.
+PUT e alteração de escopo enviam `idempotency_key` estável para o mesmo endpoint
+e payload, incluindo motivo. Retry reutiliza a chave; mudança do comando gera
+outra. A remarcação formal conserva as proteções nativas contra repetição.
+O Backend aceita motivo de até 500 caracteres e mantém compatibilidade com
+clientes legados. A obrigatoriedade existente do motivo na UI permanece;
+não há campo adicional nem alteração de layout, origem, escopo ou regra financeira.
+
 Depois usa o mesmo campo e envia apenas launch_notes em /package-purchases,
 até 2000 caracteres; espaços externos são removidos e vazio vira null.
 O Backend persiste em Package.launch_notes e devolve a nota na compra e no
