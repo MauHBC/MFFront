@@ -81,6 +81,12 @@ function renderRoutes(pathname) {
 }
 
 describe("rotas de Pacientes no App Shell", () => {
+  it.each(["/c/marca-1/synthetic", "/c/synthetic", "/cadastro/paciente/synthetic"])("preserves public invite without app shell or navbar: %s", (path) => {
+    renderRoutes(path);
+    expect(screen.getByText("Cadastro público")).toBeInTheDocument();
+    expect(screen.queryByTestId("old-navbar")).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: /principal/i })).not.toBeInTheDocument();
+  });
   beforeEach(() => { mockPatientAccessLevel = "manage"; });
   afterEach(cleanup);
 

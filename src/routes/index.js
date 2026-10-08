@@ -79,6 +79,7 @@ export default function Routes() {
   // Condicional para verificar se não é a HomePage
   const isLogin = ["/login", "/login/"].includes(location.pathname);
   const isPublicSignup = location.pathname.startsWith("/cadastro/paciente")
+    || location.pathname.startsWith("/c/")
     || ["/cadastro", "/confirmar-email", "/termos", "/privacidade"].includes(location.pathname);
   const isCredentialLifecycle = ["/recuperar-senha", "/credencial"].includes(location.pathname);
   const usesPatientsAppShell = location.pathname === "/pacientes"
@@ -121,6 +122,8 @@ export default function Routes() {
         <MyRoute exact path="/credencial" component={CredentialAction} isClosed={false} />
         <MyRoute exact path="/politica" component={Politica} isClosed={false} />
         <MyRoute exact path="/cadastro/paciente/:token" component={PatientSelfSignup} isClosed={false} />
+        <MyRoute exact path="/c/:slug/:token" component={PatientSelfSignup} isClosed={false} />
+        <MyRoute exact path="/c/:token" component={PatientSelfSignup} isClosed={false} />
 
         {/* Rotas protegidas */}
         <MyRoute exact path="/register/" component={Register} isClosed administratorOnly />

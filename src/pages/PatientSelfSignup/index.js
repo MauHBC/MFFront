@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import styled from "styled-components";
 import { toast } from "react-toastify";
+import { Helmet } from "react-helmet";
 
 import axios from "../../services/axios";
 import Loading from "../../components/Loading";
+import { patientInviteApiPath } from "../../utils/patientInvite";
 import {
   formatBirthDateForApi,
   isBirthDateFilled,
@@ -35,7 +37,8 @@ const buildTreatmentGoalPayload = (selectedValues = [], otherText = "") => {
 };
 
 export default function PatientSelfSignup() {
-  const { token } = useParams();
+  const { token, slug } = useParams();
+  const [logoFailed, setLogoFailed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [inviteInfo, setInviteInfo] = useState(null);
@@ -79,8 +82,10 @@ export default function PatientSelfSignup() {
     let active = true;
     setIsLoading(true);
     setInviteError("");
+    setInviteInfo(null);
+    setLogoFailed(false);
     axios
-      .get(`/public/patient-invites/${token}`)
+      .get(patientInviteApiPath("patient-invites", token, slug))
       .then((response) => {
         if (!active) return;
         setInviteInfo(response.data);
@@ -97,7 +102,7 @@ export default function PatientSelfSignup() {
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [token, slug]);
 
   const handleChange = useCallback((event) => {
     const { name, value, type, checked } = event.target;
@@ -202,7 +207,7 @@ export default function PatientSelfSignup() {
 
       setIsSaving(true);
       try {
-        await axios.post(`/public/patient-intake/${token}`, payload);
+        await axios.post(patientInviteApiPath("patient-intake", token, slug), payload);
         setSubmitted(true);
       } catch (error) {
         const message =
@@ -213,14 +218,23 @@ export default function PatientSelfSignup() {
         setIsSaving(false);
       }
     },
-    [form, token],
+    [form, token, slug],
   );
 
   const isTreatmentGoalOtherSelected = form.treatment_goal_options.includes("other");
+  const identityName = inviteInfo?.identity?.name;
+  const inviteMetadata = (
+    <Helmet>
+      <title>{identityName ? `Cadastro do paciente | ${identityName}` : "Cadastro do paciente"}</title>
+      <meta name="robots" content="noindex,nofollow,noarchive" />
+      <meta name="referrer" content="no-referrer" />
+    </Helmet>
+  );
 
   if (isLoading) {
     return (
       <Wrapper>
+        {inviteMetadata}
         <Card>
           <Loading isLoading />
         </Card>
@@ -231,6 +245,7 @@ export default function PatientSelfSignup() {
   if (inviteError) {
     return (
       <Wrapper>
+        {inviteMetadata}
         <Card>
           <Title>Cadastro do paciente</Title>
           <ErrorText>{inviteError}</ErrorText>
@@ -242,6 +257,7 @@ export default function PatientSelfSignup() {
   if (submitted) {
     return (
       <Wrapper>
+        {inviteMetadata}
         <Card>
           <Title>Cadastro enviado</Title>
           <SuccessText>
@@ -254,14 +270,20 @@ export default function PatientSelfSignup() {
 
   return (
     <Wrapper>
+      {inviteMetadata}
       <Card>
         <Header>
+          {(identityName || (inviteInfo?.identity?.logo_url && !logoFailed)) && (
+            <InviteIdentity role="group" aria-label="Identidade do atendimento">
+              {inviteInfo?.identity?.logo_url && !logoFailed && (
+                <InviteLogo src={inviteInfo.identity.logo_url} alt="" aria-hidden="true"
+                  onError={() => setLogoFailed(true)} />
+              )}
+              {identityName && <InviteIdentityName>{identityName}</InviteIdentityName>}
+            </InviteIdentity>
+          )}
           <Title>Cadastro do paciente</Title>
-          <Subtitle>
-            {inviteInfo?.clinic?.name
-              ? `Clinica: ${inviteInfo.clinic.name}`
-              : "Preencha seus dados para iniciar o atendimento."}
-          </Subtitle>
+          {!identityName && <Subtitle>Preencha seus dados para iniciar o atendimento.</Subtitle>}
         </Header>
 
         <Loading isLoading={isSaving} />
@@ -649,6 +671,41 @@ const Title = styled.h1`
 
 const Subtitle = styled.p`
   color: #6a795c;
+`;
+
+const InviteIdentity = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  margin-bottom: 20px;
+
+  @media (max-width: 480px) {
+    gap: 12px;
+  }
+`;
+
+const InviteIdentityName = styled.p`
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: #425239;
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+`;
+
+const InviteLogo = styled.img`
+  width: 88px;
+  height: 64px;
+  flex: 0 0 auto;
+  object-fit: contain;
+
+  @media (max-width: 480px) {
+    width: 64px;
+    height: 56px;
+  }
 `;
 
 const ErrorText = styled.p`
