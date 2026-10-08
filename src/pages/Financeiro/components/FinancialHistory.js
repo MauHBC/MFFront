@@ -180,7 +180,13 @@ const eventType = PropTypes.shape({
   reference: PropTypes.string,
   original_amount_cents: PropTypes.number,
   adjustment_reason: PropTypes.string,
-  original_operation: PropTypes.object,
+  original_operation: PropTypes.shape({
+    kind: PropTypes.string,
+    reference: PropTypes.string,
+    original_amount_cents: PropTypes.number,
+    occurred_at: PropTypes.string,
+    payment_method_name: PropTypes.string,
+  }),
   historical_details_available: PropTypes.bool,
   voided: PropTypes.bool,
 });
