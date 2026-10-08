@@ -5216,13 +5216,6 @@ export default function Agendamentos() {
   let purchaseSubmitLabel = "Lançar e agendar depois";
   if (purchaseCommand.uncertain) purchaseSubmitLabel = "Verificar lançamento";
   const purchaseQuantity = repeatEnabled && repeatMode === "count" ? repeatCount : form.purchase_quantity;
-  useEffect(() => {
-    if (isInitialOriginFlow && originReady && !patientRights.options.length && !patientRights.replacements.length && !selectedOrigin) {
-      setSelectedOrigin("new");
-      setCreationStep("details");
-    }
-  }, [isInitialOriginFlow, originReady, patientRights.options.length, patientRights.replacements.length, selectedOrigin]);
-
   const selectOwnOrNewOrigin = (pkg) => {
     if (purchasePending) return;
     creationSelectionVersionRef.current += 1;
