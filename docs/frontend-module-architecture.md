@@ -1043,10 +1043,11 @@ incompatível com o pacote, mesmo em payload adulterado.
 ### Compartilhamento de pacote em Novo agendamento
 
 A opção **Usar pacote de outro paciente** existe somente para quem recebe
-`schedule.package.share` e fica no bloco **Valor da sessão**, ao lado de **Sem
-cobrança**; as duas opções são mutuamente exclusivas. Ela já é visível ao abrir
-o Novo agendamento e permanece desabilitada até existir paciente atendido. Ao
-ativá-la, o drawer expande apenas **De quem é o pacote?**. Serviço, profissional,
+`schedule.package.share` e fica no início do formulário, junto à escolha de
+direito próprio ou novo lançamento. São decisões de origem/cobertura. Ela só
+aparece após selecionar o paciente e concluir a consulta de direitos, no mesmo
+grupo de radios das outras origens. Após selecioná-la e usar **Avançar**,
+os detalhes do mesmo formulário mostram **De quem é o pacote?**. Serviço, profissional,
 data, horário e observações continuam no formulário comum, e alterações nesses
 campos não limpam silenciosamente o paciente dono do pacote.
 
@@ -2025,3 +2026,144 @@ real com Redux: 403 comercial conserva token/sessão e não navega ao login.
 ### Refinamentos visuais da landing
 
 O Hero usa altura limitada por viewport e largura, preserva `object-fit: cover` e aceita `title_line_2` como continuação editorial dentro do mesmo `h1`. `eyebrow`, `title` e `title_line_2` são lidos separadamente do documento modular; um `eyebrow` vazio não reativa texto legado. Seções usam revelação progressiva nativa com fallback visível e respeito a `prefers-reduced-motion`. O carrossel inicia automaticamente apenas com múltiplas imagens, pausa em hover ou foco e não expõe controle de play/pausa. Biografias longas são recolhidas com reticências e podem ser expandidas individualmente por botão semântico com rótulo visual "Ver mais" ou "Ver menos".
+
+
+## Compra e agendamento na Agenda
+
+Novo agendamento começa somente com `PatientSearchField`. Após a seleção,
+consulta automaticamente os direitos. Loading e erro não liberam os detalhes
+nem assumem novo lançamento; erro permite tentar novamente. Respostas atrasadas
+de outro paciente são descartadas. Havendo saldo, apresenta opções por
+serviço/pacote, **Usar pacote de outro paciente** (conforme permissão) e
+**Registrar novas sessões** no mesmo grupo mutuamente exclusivo. Nenhuma origem vem
+selecionada. Sem saldo, mostra aviso discreto e segue automaticamente como
+novo lançamento, mantendo o compartilhamento acessível sem confirmação extra.
+
+A consulta inicial é conjunta: direitos em `/patients/:id/available-rights` e
+créditos pendentes em `/session-replacement-credits`. O formulário só avança
+quando ambas respondem para a seleção atual; erro em qualquer uma bloqueia as
+origens, e tentar novamente consulta ambas. Respostas de outra seleção são
+ignoradas. Os pacotes usam `purchased_free_rights` como saldo comum, mantendo
+`quantity` como total contratado. Unidades disponíveis vinculadas a reposição
+não aparecem outra vez como saldo comum; não se calcula esse saldo por subtração
+no navegador. Prévia e confirmação de direito próprio enviam
+`own_package_right_kind: "purchased"`, respeitando a seleção autoritativa do
+Backend. Contrato ausente ou inválido bloqueia o avanço.
+
+Reposições elegíveis aparecem no mesmo grupo de origem, com serviço e origem
+clínica já usados pela Agenda. A escolha é explícita inclusive quando só existe
+reposição. Status, uso, paciente e validade civil da clínica são conferidos; o
+Backend preserva autorização, escopo e coerência da origem. A escolha reutiliza o
+formulário e a revisão existentes, com `session_replacement_credit_id`, sem
+novo lançamento financeiro, preço sobrescrito, observação de compra ou **Mais
+sessões**. Reposição de pacote fixa o serviço; profissional, data, horário e
+observações continuam editáveis. Trocar a origem invalida prévias atrasadas.
+O modo e as datas do ciclo vêm da origem real para manter a confirmação mensal
+fora do ciclo; não são inferidos no navegador. A entrada pela Central de
+Pendências mantém seu caminho existente. A aprovação visual pertence a Maurício.
+
+Somente em **Registrar novas sessões** aparecem **Agendar agora** e **Agendar depois**,
+usando os controles existentes da Agenda. Ambos usam a mesma seleção de paciente,
+serviço e valor. Depois solicita quantidade e oculta profissional, data e horário;
+não existe formulário paralelo. Observações permanece como único campo nos dois
+modos, no último bloco. A troca conserva o rascunho e os campos comuns. A programação por quantidade conserva o mesmo número
+ao trocar agora/depois; rascunhos por semanas/meses continuam próprios da
+programação e não inventam datas para uma compra posterior.
+
+Direito próprio comprado fixa o serviço e mostra **Quantas sessões serão agendadas?**.
+A quantidade vai de 1 até o saldo `purchased_free_rights` do pacote escolhido,
+limitada a 500; reposições não aumentam esse limite. A quantidade antecede data/horário e recorrência, sem apoio redundante de saldo.
+Uma unidade mostra somente data/horário e usa a revisão individual existente. Mais unidades reutilizam o gerador por quantidade,
+dias da semana e cadência semanal/alternada, sem controles de compra ou preço.
+A observação do agendamento é geral e acompanha todas as sessões do lote.
+Selecionar parte do saldo existente deixa as demais unidades disponíveis;
+isso não altera a regra de compra nova agora, que programa todas as sessões.
+
+Lote próprio usa `/scheduling/occurrences-preview` e confirma em `/session-series`
+com `use_own_package: true`, `own_package_right_kind: "purchased"`, pacote/token
+de revisão e `creation_mode: "all_or_nothing"`. Não envia compra, observação da
+compra, preço, unidades escolhidas no navegador ou crédito de reposição.
+Todas as datas do lote precisam estar disponíveis; conflito não é ignorado nem
+forçado. Datas podem ser corrigidas na revisão existente, com revalidação do lote.
+Atomicidade, limite real, autorização e concorrência pertencem ao Backend.
+
+Resposta perdida congela o rascunho e permite **Verificar distribuição** com o
+mesmo payload/chave; alterar a programação confirmada gera outra chave. Saldo
+ou revisão alterados por concorrência recarregam os direitos e exigem nova escolha.
+Compartilhamento e reposição continuam individuais, sem geração de lote.
+Prévias atrasadas de outra seleção de paciente/origem/modo não são reabertas nem
+confirmadas. Trocar paciente limpa origem, observações e seleção anterior antes
+de consultar seus direitos. Edição e reposição pela Central de Pendências
+mantêm seus caminhos existentes.
+
+Uma unidade aparece como Avulsa e duas ou mais como Pacote no histórico e
+Financeiro. A revisão de compra programada exige selecionar todas as sessões;
+as datas podem ser corrigidas, mas não há compra parcialmente programada.
+Reserva própria usa a revisão normal de disponibilidade/alertas. Observações é um único campo,
+com destino definido pelo comando atual. Comandos repetidos
+reutilizam a chave do mesmo payload; alterações geram outra confirmação.
+
+O grupo **Como deseja continuar?** apresenta opções compactas: serviço e quantidade total contratada na primeira linha, saldo não agendado na segunda. `quantity` é o total real do contrato, não o saldo; ausência de total não inventa quantidade. Pacotes do mesmo serviço usam a data de contratação já disponível no DTO. Datas iguais ou ausentes usam a posição visual (Opção 1, Opção 2), sem expor IDs internos; a seleção continua usando a identidade e o token originais. **Usar pacote de outro paciente** e **Registrar novas sessões** mantêm as origens existentes. Os apoios explicativos do grupo e de agora/depois foram removidos. A entrada externa continua **Novo agendamento**.
+
+A escolha de origem usa `fieldset/legend` acessível. Novo agendamento tem dois
+passos no mesmo formulário: paciente/origem e, após **Avançar**, detalhes com
+resumo compacto com rótulos discretos **Paciente:** e **Origem:**, nome com
+destaque moderado e espaçamento reduzido no cabeçalho. A consulta completa governa o avanço; havendo
+direitos, nenhuma origem é presumida. Sem direitos, o novo lançamento é
+selecionado e os detalhes aparecem automaticamente, com aviso discreto, sem
+confirmação adicional. **Voltar** preserva o rascunho e invalida a revisão anterior; fica bloqueado
+durante a preparação e permite selecionar compartilhamento mesmo sem saldo próprio.
+Trocar paciente limpa a origem e as observações antes de consultar novamente.
+Uma resposta tardia não reabre a revisão da escolha anterior.
+
+A seção de detalhes usa divisória e espaçamentos dos tokens existentes. O
+título contextual é **Agendar sessão**, **Agendar reposição**, **Pacote de outro
+paciente** ou **Novas sessões**. O titular compartilhado fica nessa seção;
+**Agendar agora/depois** fica dentro de **Novas sessões**, em grupo acessível.
+Saldo usa tipografia secundária e os grids mantêm uma coluna no mobile. Edição
+e entrada direta pela Central de Pendências preservam sua estrutura.
+
+A preparação da revisão no novo agendamento mantém o painel visível. O spinner
+existente fica somente no botão, com **Preparando revisão...**, status acessível
+e aria-busy. Campos e ações de retorno/envio ficam bloqueados enquanto a consulta
+está pendente; a trava síncrona impede submissões duplicadas. Erro libera a mesma
+ação para tentar novamente, conservando o rascunho. Outros fluxos conservam seus
+indicadores de carregamento. **Observações** é o último bloco do formulário.
+
+Há um único campo **Observações**, opcional e no último bloco. Agora, direito
+próprio e compartilhamento conservam notes e os destinos de sessão do baseline
+publicado ac8755ab2f4a, incluindo séries. Edição preserva **Motivo da alteração**.
+A edição mantém o formulário validado e o campo existente **Motivo da alteração**.
+Seu valor vai em `change_reason`, no topo do PUT `/sessions/:id`, da remarcação
+formal com `rescheduled_from_id` e da alteração de escopo do pacote; neste último
+comando fica fora de `data`. O formulário nativo omite `notes` nesses comandos:
+o motivo não substitui a observação da sessão nem a nota da compra. O Backend
+registra o motivo na auditoria; na remarcação formal, a sucessora conserva a
+observação da origem quando `notes` é omitido. A realocação explícita conserva seu
+comando de compartilhamento e envia o motivo separado no topo.
+PUT e alteração de escopo enviam `idempotency_key` estável para o mesmo endpoint
+e payload, incluindo motivo. Retry reutiliza a chave; mudança do comando gera
+outra. A remarcação formal conserva as proteções nativas contra repetição.
+O Backend aceita motivo de até 500 caracteres e mantém compatibilidade com
+clientes legados. A obrigatoriedade existente do motivo na UI permanece;
+não há campo adicional nem alteração de layout, origem, escopo ou regra financeira.
+
+Depois usa o mesmo campo e envia apenas launch_notes em /package-purchases,
+até 2000 caracteres; espaços externos são removidos e vazio vira null.
+O Backend persiste em Package.launch_notes e devolve a nota na compra e no
+Histórico autorizado. O detalhe do pacote mostra **Observações** somente com
+conteúdo. A nota do lançamento não preenche Session.notes ao agendar direitos,
+não preenche o próximo formulário e não é copiada nem exibida como nota financeira.
+Comandos novos de adiamento incluem a nota na identidade idempotente; alteração
+ou remoção muda o comando. Resultado incerto conserva a tentativa original.
+Replays legados e valores históricos continuam compatíveis sem migration.
+Não há segundo campo ou cópia automática para sessões futuras. O antigo aviso
+de registro da compra hoje foi removido; os contratos financeiros permanecem.
+
+Cancelar unidades disponíveis está somente em Paciente → Histórico → Pacotes e sessões avulsas, junto de cada pacote e seu saldo disponível, para
+gestão da Agenda com alcance de clínica. Mostra contagem e aviso de manutenção
+das cobranças, motivo opcional, prévia e confirmação. Resultado incerto congela
+o comando e permite verificar a mesma tentativa; revisão vencida exige outra
+prévia. Pendência financeira de direito sem sessão usa o modal de acerto
+existente, sem data fictícia. IDs canônicos `key` evitam colisão de contrato
+sem série com séries legadas. Regras autoritativas: AGE-015 e FIN-016 do Backend.

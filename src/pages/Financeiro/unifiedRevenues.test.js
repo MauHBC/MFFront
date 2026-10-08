@@ -769,6 +769,15 @@ describe("Detalhes da cobrança e sessões canônicas da mensalidade", () => {
     expectCompactChargeDetails(dialog);
   });
 
+  test("observação da compra retirada não reaparece via dados legados da cobrança", async () => {
+    detail = makeDetail([{ ...pkg, launch_notes: "Compra para uso futuro\nCondição combinada",
+      sessions: pkg.sessions.map((session) => ({ ...session, notes: "Observação do agendamento" })) }]);
+    open("?month=2026-09&patient_id=30");
+    const dialog = await openChargeDetails("Fisioterapia");
+    expect(within(dialog).queryByLabelText("Observação da compra")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/Compra para uso futuro/)).not.toBeInTheDocument();
+  });
+
   test("pacote sem quantidade contratada não infere direitos pela quantidade de linhas", async () => {
     detail = makeDetail([{ ...pkg, total_sessions: undefined }]);
     open("?month=2026-09&patient_id=30");

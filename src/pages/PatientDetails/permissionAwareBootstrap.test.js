@@ -1109,4 +1109,63 @@ describe("PatientDetails permission-aware bootstrap", () => {
       .toEqual(["1", "1", "0", "0", "0"]);
     expect(screen.queryByRole("button", { name: "Ver sessões" })).not.toBeInTheDocument();
   });
+
+  test.each([
+    [true, "active", "available", true],
+    [false, "active", "available", false],
+    [true, "active", "reserved", false],
+    [true, "active", "consumed", false],
+    [true, "closed", "available", false],
+  ])("cancelamento no Histórico respeita gestão de clínica=%s, status=%s, unidade=%s", async (canManage, status, unitState, visible) => {
+    authorize(["patients", "schedule"]);
+    useAuthorization.mockReturnValue({
+      ...useAuthorization(),
+      context: { catalog_version: 8, modules: [{ module_key: "schedule", scope_level: "clinic" }] },
+      canAccessModule: (key, level) => ["patients", "schedule"].includes(key) && (level !== "manage" || canManage),
+    });
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/patients/101/package-history") {
+        const payload = buildPackageHistoryPayloadWithSession({ unit_state: unitState, status: unitState });
+        if (["reserved", "consumed"].includes(unitState)) {
+          Object.assign(payload[0].sessions[0], { current_session_id: 901, id: 901, starts_at: "2026-08-25T10:00:00", status: unitState === "reserved" ? "scheduled" : "done", attended_patient: { id: 101, name: "Ana Modular", can_view_profile: true } });
+        }
+        payload[0].status = status;
+        return response(payload);
+      }
+      return configureResponse(url, config);
+    });
+    renderPage();
+    await screen.findByRole("heading", { name: "Ana Modular" });
+    fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    await screen.findByText(unitState === "available" ? "1 sessão disponível" : "0 sessões disponíveis");
+    const buttons = screen.queryAllByRole("button", { name: "Cancelar unidades disponíveis" });
+    expect(buttons).toHaveLength(visible ? 1 : 0);
+    if (visible) {
+      fireEvent.click(buttons[0]);
+      expect(screen.getByText(/cobranças abertas ou pagas permanecerão/)).toBeInTheDocument();
+      expect(screen.getByLabelText("Motivo (opcional)")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Conferir unidades" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Confirmar cancelamento" })).not.toBeInTheDocument();
+    }
+  });
+
+  test("histórico lê Observações da compra sem substituir a nota da sessão", async () => {
+    authorize(["patients", "schedule"]);
+    axios.get.mockImplementation((url, config) => {
+      if (url === "/patients/101/package-history") {
+        const payload = buildPackageHistoryPayloadWithSession({ unit_state: "available", status: "available", notes: "Nota do agendamento" });
+        payload[0].launch_notes = "Compra para uso futuro";
+        return response(payload);
+      }
+      return configureResponse(url, config);
+    });
+    renderPage();
+    await screen.findByRole("heading", { name: "Ana Modular" });
+    fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ver sessões" }));
+    expect(screen.getByText("Observações")).toBeInTheDocument();
+    expect(screen.getByText("Compra para uso futuro")).toBeInTheDocument();
+    expect(screen.queryByText("Nota do agendamento")).not.toBeInTheDocument();
+  });
+
 });

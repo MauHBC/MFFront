@@ -6665,6 +6665,7 @@ export default function Financeiro() {
                                   ))}
                                 </div>}
                               </AttendanceChargeMetadata>}
+
                               {item.kind !== "entry" && !sessionsLoading && !sessionsError && summaryParts.length > 0 && <AttendancePackageSummarySection>
 			                            <AttendancePackageSummaryTitle>
                                       Sessões

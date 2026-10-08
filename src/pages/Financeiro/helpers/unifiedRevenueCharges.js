@@ -51,7 +51,7 @@ export const validateUnifiedRevenueDetail = (detail, patientId) => {
   const keys = new Set();
   const entries = new Set();
   detail.charges.forEach((charge) => {
-    const key = `${charge.kind}:${charge.sourceId}`;
+    const key = charge.key || `${charge.kind}:${charge.sourceId}`;
     if (!["billing_cycle", "series", "entry"].includes(charge.kind)
       || !Number.isSafeInteger(charge.sourceId) || charge.sourceId <= 0 || keys.has(key)
       || ![charge.amount_cents, charge.paid_cents, charge.open_cents, charge.overdue_cents].every(cents)
@@ -84,7 +84,7 @@ const revenueStatus = (charge) => {
 
 export const mapUnifiedRevenueCharge = (charge) => ({
   ...charge,
-  id: `${charge.kind}-${charge.sourceId}`,
+  id: charge.key || `${charge.kind}-${charge.sourceId}`,
   sourceId: charge.sourceId,
   serviceName: charge.service_name || "Nome não registrado",
   referenceDate: charge.reference_date || null,

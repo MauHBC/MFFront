@@ -20,6 +20,18 @@ const preview = (override = {}) => ({
 });
 const money = (value) => `R$ ${(value / 100).toFixed(2)}`;
 
+test("acerto de direito sem sessão exige identidade explícita e não inventa data", () => {
+  const data = preview({ session: { id: null, starts_at: null },
+    entry: { id: 501, session_id: null, package_unit_id: 80 } });
+  const purchaseTarget = { patient_id: 30, entry_id: 501 };
+  expect(validCancellationPreview(data, purchaseTarget)).toBe(true);
+  expect(validCancellationPreview(data, target)).toBe(false);
+  expect(validCancellationPreview({ ...data, entry: { id: 501, session_id: null } }, purchaseTarget)).toBe(false);
+  render(<SessionCancellationSummary preview={data} formatCurrency={money}/>);
+  expect(screen.getByText("Cancelar a cobrança do direito encerrado?")).toBeInTheDocument();
+  expect(screen.queryByText(/Invalid Date/)).not.toBeInTheDocument();
+});
+
 test("mostra valor do pacote e crédito da prévia sem deduzir um do outro", () => {
   render(<SessionCancellationSummary preview={preview()} formatCurrency={money} />);
   expect(screen.getByRole("region", { name: "Prévia do cancelamento" })).toHaveTextContent("Cancelar a sessão de 28/10?");
