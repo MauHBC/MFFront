@@ -2056,6 +2056,9 @@ do valor, embora Avançar ainda exija o motivo. Valor acima do limite continua
 bloqueado. Valor, desconto e motivo reutilizam os campos de Registrar recebimento.
 O menu mostra somente Ações, com as cores e espaçamentos neutros do dropdown
 diário da Agenda. Os modais identificam paciente, serviço e pagamento de forma curta.
+No desfazimento, Avançar abre a confirmação com paciente, serviço, pagamento
+identificado em Selecionado, Motivo e Crédito a restaurar. Confirmar executa a
+operação; respostas incertas mantêm Verificar resultado e a tentativa idempotente.
 Seleção e Histórico identificam operações por data, valor original, forma/origem
 e referência curta estável por paciente, retornada pelo Backend. Desconto, crédito
 consumido, motivo e responsável ficam explícitos em Ver detalhes no Histórico.

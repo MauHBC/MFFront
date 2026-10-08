@@ -20,8 +20,8 @@ const setup = () => {
 const advance = async () => {
   await userEvent.click(await screen.findByRole('radio', { name: /Rec. 01/ }));
   await userEvent.type(screen.getByLabelText('Motivo'), 'Destino errado');
-  await userEvent.click(screen.getByRole('button', { name: 'Conferir desfazimento' }));
-  await screen.findByRole('button', { name: 'Confirmar desfazimento' });
+  await userEvent.click(screen.getByRole('button', { name: 'Avançar' }));
+  await screen.findByRole('button', { name: 'Confirmar' });
 };
 beforeEach(() => {
   jest.clearAllMocks();
@@ -36,16 +36,19 @@ test('seleciona baixa rastreável, omite inelegíveis e restaura somente dinheir
   expect(screen.getAllByRole('radio')).toHaveLength(1);
   await advance();
   expect(previewPaymentUnapplication).toHaveBeenCalledWith({ ...query, operation_key: 'receipt:7', reason: 'Destino errado' });
-  expect(screen.getByText(/Desconto a desfazer/)).toBeVisible();
+  expect(screen.getByText(/^Selecionado:/)).toHaveTextContent(/Recebimento.*R\$ 90.*Pix.*Rec\. 01/);
+  expect(screen.getByText(/Crédito a restaurar/)).toHaveTextContent('R$ 90');
+  expect(screen.queryByText(/Crédito disponível após confirmar/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Desconto a desfazer/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Não haverá devolução/)).not.toBeInTheDocument();
-  await userEvent.click(screen.getByRole('button', { name: 'Confirmar desfazimento' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
   await waitFor(() => expect(onCompleted).toHaveBeenCalledTimes(1));
 });
 test('timeout mantém corpo e chave da mesma tentativa e impede saída ambígua', async () => {
   confirmPaymentUnapplication.mockRejectedValueOnce(new Error('timeout'));
   const { onCompleted, onClose } = setup();
   await advance();
-  await userEvent.click(screen.getByRole('button', { name: 'Confirmar desfazimento' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
   await screen.findByRole('button', { name: 'Verificar resultado' });
   expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Voltar' })).toBeDisabled();
@@ -60,9 +63,9 @@ test('resposta de outra cobrança não permite confirmação', async () => {
   setup();
   await userEvent.click(await screen.findByRole('radio', { name: /Rec. 01/ }));
   await userEvent.type(screen.getByLabelText('Motivo'), 'Destino errado');
-  await userEvent.click(screen.getByRole('button', { name: 'Conferir desfazimento' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Avançar' }));
   await screen.findByRole('alert');
-  expect(screen.queryByRole('button', { name: 'Confirmar desfazimento' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument();
   expect(confirmPaymentUnapplication).not.toHaveBeenCalled();
 });
 
@@ -71,5 +74,5 @@ test('abertura repetida sem operações elegíveis não oferece baixas já desfe
   setup();
   expect(await screen.findByText('Nenhum pagamento disponível para desfazer nesta cobrança.')).toBeVisible();
   expect(screen.queryByRole('radio')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Conferir desfazimento' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Avançar' })).toBeDisabled();
 });

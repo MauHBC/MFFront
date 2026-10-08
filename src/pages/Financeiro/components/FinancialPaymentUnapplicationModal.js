@@ -109,11 +109,9 @@ export default function FinancialPaymentUnapplicationModal({ target, formatCurre
       </PaymentField>}
     </>}
     {preview && <section aria-label="Conferir desfazimento">
-      <p>Baixa: <strong>{formatPaymentOperationIdentity(operations?.find((row) => row.operation_key === selected) || {}, formatCurrency)}</strong></p>
+      <p>Selecionado: <strong>{formatPaymentOperationIdentity(operations?.find((row) => row.operation_key === selected) || {}, formatCurrency)}</strong></p>
       <p>Motivo: {reason.trim()}</p>
       <p>Crédito a restaurar: <strong>{formatCurrency(preview.amount_cents)}</strong></p>
-      <p>Crédito disponível após confirmar: <strong>{formatCurrency(preview.credit_after_cents)}</strong></p>
-      {preview.discount_cents > 0 && <p>Desconto a desfazer: {formatCurrency(preview.discount_cents)}</p>}
       {preview.surcharge_cents > 0 && <p>Acréscimo a desfazer: {formatCurrency(preview.surcharge_cents)}.</p>}
     </section>}
     {busy && <p role="status">Conferindo...</p>}
@@ -123,8 +121,8 @@ export default function FinancialPaymentUnapplicationModal({ target, formatCurre
       {!operations && !busy && <GhostButton type="button" onClick={load}>Tentar novamente</GhostButton>}
       {preview ? <>
         <GhostButton type="button" disabled={busy || uncertain} onClick={() => { setPreview(null); attempt.current = null; }}>Voltar</GhostButton>
-        <PrimaryButton type="button" disabled={busy} onClick={confirm}>{uncertain ? 'Verificar resultado' : 'Confirmar desfazimento'}</PrimaryButton>
-      </> : operations && <PrimaryButton type="button" disabled={busy || !selected || !reason.trim()} onClick={advance}>Conferir desfazimento</PrimaryButton>}
+        <PrimaryButton type="button" disabled={busy} onClick={confirm}>{uncertain ? 'Verificar resultado' : 'Confirmar'}</PrimaryButton>
+      </> : operations && <PrimaryButton type="button" disabled={busy || !selected || !reason.trim()} onClick={advance}>Avançar</PrimaryButton>}
     </Actions>
   </Dialog></Overlay>;
 }
