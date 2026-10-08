@@ -2036,8 +2036,10 @@ nem assumem novo lançamento; erro permite tentar novamente. Respostas atrasadas
 de outro paciente são descartadas. Havendo saldo, apresenta opções por
 serviço/pacote, **Usar pacote de outro paciente** (conforme permissão) e
 **Registrar novas sessões** no mesmo grupo mutuamente exclusivo. Nenhuma origem vem
-selecionada. Sem saldo, mostra aviso discreto e segue automaticamente como
-novo lançamento, mantendo o compartilhamento acessível sem confirmação extra.
+selecionada. Sem saldo, mostra aviso discreto e mantém **Registrar novas sessões**
+e **Usar pacote de outro paciente** (conforme permissão) disponíveis no mesmo
+passo. A pessoa escolhe a origem e clica em **Avançar**; selecionar um paciente
+não escolhe novo lançamento nem abre os detalhes automaticamente.
 
 A consulta inicial é conjunta: direitos em `/patients/:id/available-rights` e
 créditos pendentes em `/session-replacement-credits`. O formulário só avança
@@ -2109,9 +2111,10 @@ A escolha de origem usa `fieldset/legend` acessível. Novo agendamento tem dois
 passos no mesmo formulário: paciente/origem e, após **Avançar**, detalhes com
 resumo compacto com rótulos discretos **Paciente:** e **Origem:**, nome com
 destaque moderado e espaçamento reduzido no cabeçalho. A consulta completa governa o avanço; havendo
-direitos, nenhuma origem é presumida. Sem direitos, o novo lançamento é
-selecionado e os detalhes aparecem automaticamente, com aviso discreto, sem
-confirmação adicional. **Voltar** preserva o rascunho e invalida a revisão anterior; fica bloqueado
+direitos ou sem saldo próprio, nenhuma origem é presumida: a escolha explícita
+e o clique em **Avançar** são necessários. Sem direitos, o aviso é discreto e
+as opções de nova sessão/compartilhamento permanecem no início.
+**Voltar** preserva o rascunho e invalida a revisão anterior; fica bloqueado
 durante a preparação e permite selecionar compartilhamento mesmo sem saldo próprio.
 Trocar paciente limpa a origem e as observações antes de consultar novamente.
 Uma resposta tardia não reabre a revisão da escolha anterior.
