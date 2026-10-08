@@ -345,6 +345,11 @@ const chooseCreationOrigin = async (name) => {
   return choice;
 };
 const selectAssignedProfessional = async (container) => {
+  const form = document.querySelector("form");
+  if (form && within(form).queryByRole("button", { name: "Avançar" })) {
+    const newOrigin = await within(form).findByLabelText("Registrar novas sessões");
+    if (!form.querySelector('input[name="attendance-origin"]:checked')) fireEvent.click(newOrigin);
+  }
   await advanceCreation();
   await waitFor(() => expect(axios.get.mock.calls.some(
     ([url, config]) => url === "/schedule/references/professionals"
@@ -2088,7 +2093,7 @@ describe("Agendamentos - editar agendamento", () => {
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
 
-    await advanceCreation();
+    await chooseCreationOrigin("Registrar novas sessões");
     const assignmentOption = await screen.findByText("Profissional Alternativo");
     fireEvent.change(container.querySelector('select[name="professional_user_id"]'), {
       target: { value: assignmentOption.value },
@@ -2292,7 +2297,7 @@ describe("Agendamentos - editar agendamento", () => {
     });
     const patientSuggestions = await screen.findAllByText("Paciente Teste");
     fireEvent.click(patientSuggestions.find((element) => element.tagName === "BUTTON"));
-    await advanceCreation();
+    await chooseCreationOrigin("Registrar novas sessões");
     await waitFor(() => expect(container.querySelector('select[name="service_id"]')).not.toBeNull());
 
     fireEvent.change(container.querySelector('select[name="service_id"]'), {
@@ -3443,7 +3448,7 @@ describe("Agendamentos - editar agendamento", () => {
     expect(axios.get.mock.calls.some(([url]) => String(url).includes("available-rights"))).toBe(false);
   });
 
-  it("fluxo aprovado: loading e erro bloqueiam detalhes e comandos; retry resolve zero saldo sem confirmação", async () => {
+  it("origem explícita: loading e erro bloqueiam detalhes; zero saldo exige escolha e Avançar", async () => {
     const get = axios.get.getMockImplementation();
     let reject;
     let requests = 0;
@@ -3467,12 +3472,63 @@ describe("Agendamentos - editar agendamento", () => {
     expect(axios.post).not.toHaveBeenCalled();
     fireEvent.click(within(form).getByRole("button", { name: "Tentar novamente" }));
     expect(await within(form).findByText(/Nenhuma sessão disponível/)).toBeInTheDocument();
+    expect(within(form).queryByText("Tipo de atendimento")).not.toBeInTheDocument();
+    expect(within(form).getByLabelText("Usar pacote de outro paciente")).toBeEnabled();
+    expect(within(form).getByLabelText("Registrar novas sessões")).not.toBeChecked();
+    expect(within(form).getByRole("button", { name: "Avançar" })).toBeDisabled();
+    fireEvent.submit(form);
+    expect(axios.post).not.toHaveBeenCalled();
+    fireEvent.click(within(form).getByLabelText("Registrar novas sessões"));
+    expect(within(form).queryByText("Tipo de atendimento")).not.toBeInTheDocument();
+    expect(within(form).getByRole("button", { name: "Avançar" })).toBeEnabled();
+    fireEvent.click(within(form).getByRole("button", { name: "Avançar" }));
     expect(await within(form).findByText("Tipo de atendimento")).toBeInTheDocument();
-    expect(within(form).queryByRole("button", { name: "Avançar" })).not.toBeInTheDocument();
     expect(within(form).getByLabelText("Resumo do paciente e origem")).toHaveTextContent("Registrar novas sessões");
     fireEvent.click(within(form).getByRole("button", { name: "Voltar", exact: true }));
     expect(within(form).getByLabelText("Registrar novas sessões")).toBeChecked();
     expect(within(form).getByLabelText("Usar pacote de outro paciente")).toBeEnabled();
+  });
+
+  it("origem explícita: sem saldo pode escolher pacote de outro paciente antes de Avançar", async () => {
+    renderAgendamentos();
+    const form = await openCreationForm();
+    await selectCreationPatient();
+    const newOrigin = await within(form).findByLabelText("Registrar novas sessões");
+    const sharedOrigin = within(form).getByLabelText("Usar pacote de outro paciente");
+    expect(newOrigin).not.toBeChecked();
+    expect(sharedOrigin).not.toBeChecked();
+    expect(within(form).getByRole("button", { name: "Avançar" })).toBeDisabled();
+    fireEvent.click(sharedOrigin);
+    expect(within(form).queryByText("De quem é o pacote?")).not.toBeInTheDocument();
+    expect(within(form).getByRole("button", { name: "Avançar" })).toBeEnabled();
+    await advanceCreation();
+    expect(within(form).getByRole("region", { name: "Pacote de outro paciente" })).toBeInTheDocument();
+    expect(within(form).getByText("De quem é o pacote?")).toBeInTheDocument();
+    expect(within(form).queryByRole("button", { name: "Agendar depois" })).not.toBeInTheDocument();
+    expect(axios.post).not.toHaveBeenCalled();
+    fireEvent.click(within(form).getByRole("button", { name: "Voltar" }));
+    expect(within(form).getByLabelText("Usar pacote de outro paciente")).toBeChecked();
+    expect(within(form).queryByText("De quem é o pacote?")).not.toBeInTheDocument();
+    fireEvent.click(within(form).getByLabelText("Registrar novas sessões"));
+    expect(within(form).queryByText("Tipo de atendimento")).not.toBeInTheDocument();
+    await advanceCreation();
+    expect(within(form).getByRole("region", { name: "Novas sessões" })).toBeInTheDocument();
+  });
+
+  it("origem explícita: sem permissão de compartilhar mantém escolha e Avançar sem ampliar acesso", async () => {
+    mockAuthorization = { ...mockAuthorization, hasCapability: jest.fn(() => false) };
+    renderAgendamentos();
+    const form = await openCreationForm();
+    await selectCreationPatient();
+    const newOrigin = await within(form).findByLabelText("Registrar novas sessões");
+    expect(within(form).queryByLabelText("Usar pacote de outro paciente")).not.toBeInTheDocument();
+    expect(newOrigin).not.toBeChecked();
+    expect(within(form).getByRole("button", { name: "Avançar" })).toBeDisabled();
+    fireEvent.click(newOrigin);
+    expect(within(form).queryByText("Tipo de atendimento")).not.toBeInTheDocument();
+    await advanceCreation();
+    expect(within(form).getByRole("region", { name: "Novas sessões" })).toBeInTheDocument();
+    expect(axios.post).not.toHaveBeenCalled();
   });
 
   it("fluxo aprovado: saldo exige origem explícita; próprio, outro e novo são exclusivos", async () => {
@@ -3553,6 +3609,9 @@ describe("Agendamentos - editar agendamento", () => {
     await selectCreationPatient();
     expect(within(form).queryByText("Tipo de atendimento")).not.toBeInTheDocument();
     await act(async () => first({ data: [] }));
+    expect(within(form).getByLabelText("Registrar novas sessões")).not.toBeChecked();
+    expect(within(form).getByRole("button", { name: "Avançar" })).toBeDisabled();
+    fireEvent.click(within(form).getByLabelText("Registrar novas sessões"));
     await advanceCreation();
     await within(form).findByText("Tipo de atendimento");
     expect(form.querySelector('textarea[name="launch_notes"]')).toBeNull();
@@ -3615,6 +3674,7 @@ describe("Agendamentos - editar agendamento", () => {
     });
     const { container } = renderAgendamentos();
     const form = await openCreationForm(); await selectCreationPatient();
+    await chooseCreationOrigin("Registrar novas sessões");
     await within(form).findByText("Tipo de atendimento");
     fireEvent.change(form.querySelector('select[name="service_id"]'), { target: { value: "40" } });
     await waitFor(() => expect(within(form).getByRole("button", { name: "Agendar depois" })).toBeEnabled());
@@ -3666,7 +3726,7 @@ describe("Agendamentos - editar agendamento", () => {
     axios.post.mockRejectedValueOnce(new Error("Resposta perdida")).mockResolvedValueOnce({ data: {} });
     renderAgendamentos();
     const form = await openCreationForm();
-    await selectCreationPatient(); await advanceCreation(); await within(form).findByText("Tipo de atendimento");
+    await selectCreationPatient(); await chooseCreationOrigin("Registrar novas sessões"); await within(form).findByText("Tipo de atendimento");
     fireEvent.change(form.querySelector('select[name="service_id"]'), { target: { value: "40" } });
     fireEvent.click(within(form).getByRole("button", { name: "Agendar depois" }));
     fireEvent.click(within(form).getByRole("button", { name: "Lançar e agendar depois" }));
