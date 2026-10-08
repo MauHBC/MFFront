@@ -927,7 +927,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expect(screen.queryByText(/Contas consultadas:/)).not.toBeInTheDocument();
     const historySection = screen.getByLabelText("Histórico financeiro do paciente");
     expect(within(historySection).getAllByRole("row")).toHaveLength(3);
-    const canceledHistoryRow = within(historySection).getByText(/liberados como crédito/).closest("tr");
+    const canceledHistoryRow = within(historySection).getByText("Cancelamento da sessão").closest("tr");
     await userEvent.click(within(canceledHistoryRow).getByText("Ver detalhes"));
     expect(canceledHistoryRow.querySelectorAll("dl")).toHaveLength(1);
     expect(within(canceledHistoryRow).getByText("Sessão").nextSibling).toHaveTextContent(/Fisioterapia.*10\/06\/2026.*10:00/);
