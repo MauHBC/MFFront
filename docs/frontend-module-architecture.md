@@ -2060,8 +2060,10 @@ No desfazimento, Avançar abre a confirmação com paciente, serviço, pagamento
 identificado em Selecionado, Motivo e Crédito a restaurar. Confirmar executa a
 operação; respostas incertas mantêm Verificar resultado e a tentativa idempotente.
 Seleção e Histórico identificam operações por data, valor original, forma/origem
-e referência curta estável por paciente, retornada pelo Backend. Desconto, crédito
-consumido, motivo e responsável ficam explícitos em Ver detalhes no Histórico.
+e referência curta estável por paciente, retornada pelo Backend. O identificador
+Uso de crédito omite a origem redundante Crédito disponível; isso não remove os
+valores de saldo apresentados em outros contextos. Desconto, crédito consumido,
+motivo e responsável ficam explícitos em Ver detalhes no Histórico.
 Movimento contém somente o tipo principal, sem valor, forma de pagamento ou
 referência repetidos. As quatro colunas têm larguras estáveis; a expansão permanece
 na célula Detalhes à direita e não desloca o acionador. Em largura reduzida, a

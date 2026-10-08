@@ -10,6 +10,7 @@ export const formatPaymentOperationIdentity = (operation, formatCurrency) => {
   const amount = operation.original_amount_cents ?? operation.amount_cents;
   return [receipt ? "Recebimento" : "Uso de crédito", date || "Data não registrada",
     Number.isSafeInteger(amount) ? formatCurrency(amount) : "Valor não registrado",
-    operation.payment_method_name || (receipt ? "Forma não registrada" : "Crédito disponível"),
+    receipt ? operation.payment_method_name || "Forma não registrada"
+      : operation.payment_method_name === "Crédito disponível" ? null : operation.payment_method_name,
     operation.reference].filter(Boolean).join(" · ");
 };

@@ -44,6 +44,22 @@ test('seleciona baixa rastreável, omite inelegíveis e restaura somente dinheir
   await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
   await waitFor(() => expect(onCompleted).toHaveBeenCalledTimes(1));
 });
+test('uso de crédito omite origem redundante na seleção e na confirmação', async () => {
+  const credit = { ...selected, operation_key: 'credit:9', kind: 'credit', reference: 'Créd. 01', payment_method_name: 'Crédito disponível' };
+  listPaymentUnapplications.mockResolvedValue({ data: { ...query, operations: [credit] } });
+  previewPaymentUnapplication.mockResolvedValue({ data: { ...reviewed, operation_key: credit.operation_key } });
+  setup();
+  const option = await screen.findByRole('radio', { name: /Uso de crédito.*Créd\. 01/ });
+  expect(option).not.toHaveAccessibleName(/Crédito disponível/);
+  await userEvent.click(option);
+  await userEvent.type(screen.getByLabelText('Motivo'), 'Destino errado');
+  await userEvent.click(screen.getByRole('button', { name: 'Avançar' }));
+  await screen.findByRole('button', { name: 'Confirmar' });
+  expect(screen.getByText(/^Selecionado:/)).toHaveTextContent(/Uso de crédito.*R\$ 90.*Créd\. 01/);
+  expect(screen.getByText(/^Selecionado:/)).not.toHaveTextContent('Crédito disponível');
+  expect(screen.getByText(/Crédito a restaurar/)).toHaveTextContent('R$ 90');
+  expect(confirmPaymentUnapplication).not.toHaveBeenCalled();
+});
 test('timeout mantém corpo e chave da mesma tentativa e impede saída ambígua', async () => {
   confirmPaymentUnapplication.mockRejectedValueOnce(new Error('timeout'));
   const { onCompleted, onClose } = setup();
