@@ -86,7 +86,7 @@ import {
 } from "./helpers/clinicExpensePayment";
 import FinancialPaymentModal from "./components/FinancialPaymentModal";
 import FinancialOverviewSection from "./components/FinancialOverviewSection";
-import AppActionMenu from "../../components/AppActionMenu";
+import AppActionMenu, { AgendaActionMenuItem } from "../../components/AppActionMenu";
 import FinancialPaymentUnapplicationModal from "./components/FinancialPaymentUnapplicationModal";
 import FinancialHistory from "./components/FinancialHistory";
 import FinancialCancellationDetails from "./components/FinancialCancellationDetails";
@@ -5429,12 +5429,12 @@ export default function Financeiro() {
                       </td>
                       <td>
                           <AttendanceRowActions>
-                            <AppActionMenu label={`Ações da cobrança ${item.serviceName}`}>
-                                <AttendanceSmallAction type="button" onClick={(event) => {
+                            <AppActionMenu label={`Ações da cobrança ${item.serviceName}`} showIndicator={false} agendaAppearance>
+                                <AgendaActionMenuItem type="button" onClick={(event) => {
                                   event.currentTarget.closest("tr")?.querySelector("button[aria-haspopup=menu]")?.focus();
                                   handleOpenPackageSessions(item);
-                                }}>Ver sessões</AttendanceSmallAction>
-                                {item.paidCents > 0 && <AttendanceSmallAction type="button"
+                                }}>Ver sessões</AgendaActionMenuItem>
+                                {item.paidCents > 0 && <AgendaActionMenuItem type="button"
                                   disabled={!authorization.isAdministrator || !canResolveFinancialCancellation}
                                   title={!authorization.isAdministrator || !canResolveFinancialCancellation ? "Exige Administrador com permissão para liquidar no Financeiro." : undefined}
                                   onClick={(event) => {
@@ -5445,7 +5445,7 @@ export default function Financeiro() {
                                     chargeName: item.serviceName,
                                     query: { patient_id: Number(selectedAttendancePatientId), charge_key: item.key || item.id,
                                       period_start: attendanceFilters.start, period_end: attendanceFilters.end },
-                                  }); }}>Desfazer pagamento</AttendanceSmallAction>}
+                                  }); }}>Desfazer pagamento</AgendaActionMenuItem>}
                               </AppActionMenu>
                           </AttendanceRowActions>
                       </td>

@@ -10,7 +10,7 @@ jest.mock('../../../services/financialUnapplication', () => ({
 }));
 jest.mock('../../../services/axios', () => ({ getUserFacingApiError: (_error, fallback) => fallback }));
 const query = { patient_id: 1, charge_key: 'entry-10', period_start: '2026-09-01', period_end: '2026-09-30' };
-const selected = { operation_key: 'receipt:7', label: 'Recebimento #7', amount_cents: 9000, eligible: true, blockers: [] };
+const selected = { operation_key: 'receipt:7', label: 'Recebimento', kind: 'receipt', reference: 'Rec. 01', occurred_at: '2026-09-28T12:00:00Z', payment_method_name: 'Pix', original_amount_cents: 9000, amount_cents: 9000, eligible: true, blockers: [] };
 const reviewed = { ...query, operation_key: selected.operation_key, eligible: true, amount_cents: 9000, discount_cents: 1000, surcharge_cents: 0, credit_before_cents: 0, credit_after_cents: 9000, preview_fingerprint: 'snapshot' };
 const setup = () => {
   const onCompleted = jest.fn(); const onClose = jest.fn();
@@ -18,8 +18,8 @@ const setup = () => {
   return { onCompleted, onClose };
 };
 const advance = async () => {
-  await userEvent.click(await screen.findByRole('radio', { name: /Recebimento #7/ }));
-  await userEvent.type(screen.getByLabelText('Motivo do desfazimento'), 'Destino errado');
+  await userEvent.click(await screen.findByRole('radio', { name: /Rec. 01/ }));
+  await userEvent.type(screen.getByLabelText('Motivo'), 'Destino errado');
   await userEvent.click(screen.getByRole('button', { name: 'Conferir desfazimento' }));
   await screen.findByRole('button', { name: 'Confirmar desfazimento' });
 };
@@ -29,13 +29,15 @@ beforeEach(() => {
   previewPaymentUnapplication.mockResolvedValue({ data: reviewed });
   confirmPaymentUnapplication.mockResolvedValue({ data: { ...reviewed, id: 2 } });
 });
-test('seleciona baixa identificada, explica bloqueio legado e restaura somente dinheiro', async () => {
+test('seleciona baixa rastreável, omite inelegíveis e restaura somente dinheiro', async () => {
   const { onCompleted } = setup();
-  expect(await screen.findByText('Origem sem rastreio seguro')).toBeVisible();
-  expect(screen.getByRole('radio', { name: /Recebimento #8/ })).toBeDisabled();
+  await screen.findByRole('radio', { name: /Rec. 01/ });
+  expect(screen.queryByText('Origem sem rastreio seguro')).not.toBeInTheDocument();
+  expect(screen.getAllByRole('radio')).toHaveLength(1);
   await advance();
   expect(previewPaymentUnapplication).toHaveBeenCalledWith({ ...query, operation_key: 'receipt:7', reason: 'Destino errado' });
-  expect(screen.getByText(/Desconto não vira crédito/)).toBeVisible();
+  expect(screen.getByText(/Desconto a desfazer/)).toBeVisible();
+  expect(screen.queryByText(/Não haverá devolução/)).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Confirmar desfazimento' }));
   await waitFor(() => expect(onCompleted).toHaveBeenCalledTimes(1));
 });
@@ -56,10 +58,18 @@ test('timeout mantém corpo e chave da mesma tentativa e impede saída ambígua'
 test('resposta de outra cobrança não permite confirmação', async () => {
   previewPaymentUnapplication.mockResolvedValue({ data: { ...reviewed, charge_key: 'entry-99' } });
   setup();
-  await userEvent.click(await screen.findByRole('radio', { name: /Recebimento #7/ }));
-  await userEvent.type(screen.getByLabelText('Motivo do desfazimento'), 'Destino errado');
+  await userEvent.click(await screen.findByRole('radio', { name: /Rec. 01/ }));
+  await userEvent.type(screen.getByLabelText('Motivo'), 'Destino errado');
   await userEvent.click(screen.getByRole('button', { name: 'Conferir desfazimento' }));
   await screen.findByRole('alert');
   expect(screen.queryByRole('button', { name: 'Confirmar desfazimento' })).not.toBeInTheDocument();
   expect(confirmPaymentUnapplication).not.toHaveBeenCalled();
+});
+
+test('abertura repetida sem operações elegíveis não oferece baixas já desfeitas', async () => {
+  listPaymentUnapplications.mockResolvedValue({ data: { ...query, operations: [{ ...selected, eligible: false, blockers: ['Já desfeita'] }] } });
+  setup();
+  expect(await screen.findByText('Nenhum pagamento disponível para desfazer nesta cobrança.')).toBeVisible();
+  expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Conferir desfazimento' })).toBeDisabled();
 });

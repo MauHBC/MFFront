@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import FinancialReceiptDetails from "./FinancialReceiptDetails";
+import { formatPaymentOperationIdentity } from "../helpers/financialOperationIdentity";
 import { formatCivilDate } from "../../../utils/canonicalDateTime";
 import {
   formatFinancialInstant,
@@ -176,6 +177,10 @@ const eventType = PropTypes.shape({
   reason: PropTypes.string,
   context: PropTypes.string,
   payment_method_name: PropTypes.string,
+  reference: PropTypes.string,
+  original_amount_cents: PropTypes.number,
+  adjustment_reason: PropTypes.string,
+  original_operation: PropTypes.object,
   historical_details_available: PropTypes.bool,
   voided: PropTypes.bool,
 });
@@ -194,7 +199,11 @@ function EventDetails({ event, serviceName, formatCurrency }) {
   return (
     <EventDetail>
       <dl>
+        {(event.type === "RECEIPT" || isCreditUse) && <><dt>Pagamento</dt><dd>{formatPaymentOperationIdentity(event, formatCurrency)}</dd></>}
+        {event.type === "PAYMENT_UNAPPLICATION" && event.original_operation && <><dt>Pagamento original</dt><dd>{formatPaymentOperationIdentity(event.original_operation, formatCurrency)}</dd></>}
         {isCreditUse && <>
+          <dt>Crédito consumido</dt><dd>{formatCurrency(event.amount_cents)}</dd>
+          {event.discount_cents > 0 && <><dt>Desconto</dt><dd>{formatCurrency(event.discount_cents)}</dd><dt>Motivo do desconto</dt><dd>{event.adjustment_reason?.trim() || "Não registrado nesta operação"}</dd></>}
           <dt>{appliedDestinations.length > 1 ? "Destinos" : "Destino"}</dt>
           <dd>{appliedDestinations.length ? <AppliedSessionsList>
             {appliedDestinations.map((destination, index) => <li key={`${destination.kind || "destination"}:${destination.session_id || destination.billing_cycle_id || index}`}>
@@ -286,7 +295,10 @@ export default function FinancialHistory({ events, receipts, sessions, filter, f
                     timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
                   })}</small>
                 </RecordedDate>}</td>
-                <td>{movementLabel(row)}</td>
+                <td>{movementLabel(row)}
+                  {["RECEIPT", "CREDIT_APPLIED"].includes(row.type) && <small>{formatPaymentOperationIdentity(row, formatCurrency)}</small>}
+                  {row.type === "CREDIT_APPLIED" && row.discount_cents > 0 && <small>Crédito consumido: {formatCurrency(row.amount_cents)} · Desconto: {formatCurrency(row.discount_cents)}</small>}
+                </td>
                 <td>{Number.isSafeInteger(row.amount_cents) ? formatCurrency(row.amount_cents) : "Valor não registrado"}</td>
                 <td><HistoryDetails row={row}
                   serviceName={sessionById.get(Number(row.session_id))?.Service?.name}
@@ -340,6 +352,7 @@ const HistoryTable = styled.table`
   font-size: 0.9rem;
   th, td { padding: 10px 12px; border-bottom: 1px solid #e2e7e1; vertical-align: top; }
   th { color: #59645d; font-weight: 600; }
+  td:nth-child(2) small { display: block; margin-top: 4px; color: #59645d; font-size: 0.8rem; }
   td:first-child, td:nth-child(3) { white-space: nowrap; }
 `;
 const HistoryDetailButton = styled.button`

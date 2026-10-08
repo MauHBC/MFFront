@@ -3,8 +3,8 @@ import PropTypes from "prop-types";
 import styled from "styled-components";
 import { v4 as uuidv4 } from "uuid";
 import { GhostButton, PrimaryButton } from "../../../components/AppButton";
-import { colors, fontSizes, radii, spacing, typography } from "../../../styles/tokens";
-import { CurrencyInputGroup, CurrencyPrefix, CurrencyInput } from "./FinancialPaymentModal";
+import { colors, fontSizes, spacing, typography } from "../../../styles/tokens";
+import { CurrencyInputGroup, CurrencyPrefix, CurrencyInput, PaymentFormGrid, PaymentField, PaymentLabel, PaymentTextArea } from "./FinancialPaymentModal";
 import { getUserFacingApiError } from "../../../services/axios";
 import {
   getFinancialCreditDestinations,
@@ -142,7 +142,7 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
         if (!stateRef.current.busy && !stateRef.current.uncertain) closeRef.current();
       }
       if (event.key !== "Tab") return;
-      const focusable = Array.from(dialog.current?.querySelectorAll("button:not(:disabled), input:not(:disabled), [tabindex='0']") || []);
+      const focusable = Array.from(dialog.current?.querySelectorAll("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex='0']") || []);
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (!first) { event.preventDefault(); return; }
@@ -179,10 +179,11 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
     setAmount(formatCurrencyInputFromCents(maximum));
   }, [maximum, destinationsAvailable]);
   const amountCents = parseCurrencyInputToCents(amount);
-  const validAmount = selected.length > 0 && cents(amountCents) && amountCents > 0 && amountCents <= maximum
-    && discountValid && (discountCents === 0 || Boolean(adjustmentReason.trim()));
+  const amountValid = selected.length > 0 && cents(amountCents) && amountCents > 0 && amountCents <= maximum;
+  const reasonValid = discountCents === 0 || Boolean(adjustmentReason.trim());
+  const validAmount = amountValid && discountValid && reasonValid;
   let amountError = "";
-  if (destinationsAvailable && selected.length && !validAmount) {
+  if (destinationsAvailable && selected.length && !amountValid) {
     amountError = amountCents > maximum
       ? `O valor não pode ultrapassar ${formatCurrency(maximum)}.`
       : `Informe um valor maior que zero, até ${formatCurrency(maximum)}.`;
@@ -294,7 +295,6 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
         <Header>
           <h2 ref={heading} tabIndex={-1} id="credit-use-title">{preview ? "Conferir uso do crédito" : "Onde usar o crédito?"}</h2>
           <PatientName>{displayed?.patient?.full_name || displayed?.patient?.name || context.patientName}</PatientName>
-          {context.periodLabel && <small>Período consultado: {context.periodLabel}</small>}
           <CreditAvailable><strong>Crédito disponível:</strong><span>{displayed ? formatCurrency(displayed.credit_available_cents) : "—"}</span></CreditAvailable>
         </Header>
         <Body>
@@ -330,30 +330,29 @@ export default function FinancialCreditUseModal({ context, formatCurrency, onClo
                 </Group>;
               })}
             </GroupList>
-            <AmountField>
-              <AmountLabel htmlFor="credit-use-amount">Valor a usar</AmountLabel>
-              <CreditCurrencyInputGroup>
+            <PaymentFormGrid><PaymentField>
+              <PaymentLabel htmlFor="credit-use-amount">Valor a usar</PaymentLabel>
+              <CurrencyInputGroup>
                 <CurrencyPrefix aria-hidden="true">R$</CurrencyPrefix>
                 <CurrencyInput id="credit-use-amount" inputMode="decimal" placeholder="0,00" value={amount} disabled={Boolean(busy) || !selected.length}
                   aria-invalid={Boolean(amountError)} aria-describedby={amountError ? "credit-use-limit" : undefined}
                   onBlur={() => setAmount((current) => current ? formatCurrencyInput(current) : "")}
                   onChange={(event) => { amountInitialized.current = true; setAmount(sanitizePositiveCurrencyInput(event.target.value)); invalidate(); }} />
-              </CreditCurrencyInputGroup>
+              </CurrencyInputGroup>
               {amountError && <AmountError id="credit-use-limit" role="alert">{amountError}</AmountError>}
-            </AmountField>
-            <AmountField>
-              <AmountLabel htmlFor="credit-use-discount">Desconto nesta aplicação</AmountLabel>
-              <CreditCurrencyInputGroup><CurrencyPrefix aria-hidden="true">R$</CurrencyPrefix>
+            </PaymentField>
+            <PaymentField>
+              <PaymentLabel htmlFor="credit-use-discount">Desconto nesta aplicação</PaymentLabel>
+              <CurrencyInputGroup><CurrencyPrefix aria-hidden="true">R$</CurrencyPrefix>
                 <CurrencyInput id="credit-use-discount" inputMode="decimal" placeholder="0,00" value={discount} disabled={Boolean(busy) || !selected.length}
                   onBlur={() => setDiscount((current) => current ? formatCurrencyInput(current) : "")}
                   onChange={(event) => { setDiscount(sanitizePositiveCurrencyInput(event.target.value)); invalidate(); }} />
-              </CreditCurrencyInputGroup>
-              <small>Desconto não consome crédito. Esta ação exige uso de crédito maior que zero.</small>
-              {discountCents > 0 && <><AmountLabel htmlFor="credit-use-adjustment-reason">Motivo do desconto</AmountLabel>
-                <textarea id="credit-use-adjustment-reason" rows={2} maxLength={1000} value={adjustmentReason} disabled={Boolean(busy)}
-                  onChange={(event) => { setAdjustmentReason(event.target.value); invalidate(); }} /></>}
+              </CurrencyInputGroup>
               {selected.length > 0 && !discountValid && <AmountError role="alert">O desconto deve ser menor que a dívida selecionada.</AmountError>}
-            </AmountField>
+            </PaymentField></PaymentFormGrid>
+              {discountCents > 0 && <PaymentField><PaymentLabel htmlFor="credit-use-adjustment-reason">Motivo do desconto</PaymentLabel>
+                <PaymentTextArea id="credit-use-adjustment-reason" required rows={2} maxLength={1000} value={adjustmentReason} disabled={Boolean(busy)}
+                  onChange={(event) => { setAdjustmentReason(event.target.value); invalidate(); }} /></PaymentField>}
           </>}
           {preview && <>
             <GroupList aria-label="Destinos conferidos">
@@ -434,36 +433,28 @@ const Dialog = styled.div`
   input[type="checkbox"] { margin: 3px 0 0; width: 17px; height: 17px; flex-shrink: 0; }
   button:focus-visible, input:focus-visible { outline: 2px solid #28643e; outline-offset: 3px; }
 `;
-const Header = styled.header`padding: 22px 24px 14px; border-bottom: 1px solid #e3e9e4; flex-shrink: 0;`;
+const Header = styled.header`padding: 18px 18px 12px; border-bottom: 1px solid #e3e9e4; flex-shrink: 0;`;
 const PatientName = styled.p`font-size: ${fontSizes.body}; color: ${colors.textSecondary};`;
 const CreditAvailable = styled.p`
   display: flex; flex-wrap: wrap; align-items: baseline; gap: ${spacing.xs};
-  font-size: ${fontSizes.body};
+  font-size: ${fontSizes.body}; margin-bottom: 0;
   strong { font-weight: ${typography.weightSemibold}; }
   span { font-weight: ${typography.weightRegular}; }
 `;
-const Body = styled.div`padding: 16px 24px; overflow-y: auto; min-height: 0;`;
+const Body = styled.div`padding: 12px 18px; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 12px;`;
 const Footer = styled.footer`
-  padding: 16px 24px; border-top: 1px solid #e3e9e4; display: flex; justify-content: flex-end; gap: 10px; flex-shrink: 0;
+  padding: 12px 18px; border-top: 1px solid #e3e9e4; display: flex; justify-content: flex-end; gap: 12px; flex-shrink: 0;
   @media (max-width: 440px) { padding: 12px; button { white-space: normal; } }
 `;
 const GroupList = styled.ul`list-style: none; margin: 0; padding: 0;`;
 const Group = styled.li`
-  padding: 12px 0; border-bottom: 1px solid #e3e9e4; overflow-wrap: anywhere;
+  padding: 8px 0; border-bottom: 1px solid #e3e9e4; overflow-wrap: anywhere;
   label { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; }
   > button { margin: 8px 0 0 26px; padding: 5px 8px; font-size: 12px; }
 `;
 const SessionList = styled.ul`
   list-style: none; padding: 0 0 0 26px; margin: 8px 0;
   li { padding: 8px 0; }
-`;
-const AmountField = styled.div`
-  display: flex; flex-direction: column; gap: 6px; margin: ${spacing.lg} 0 6px;
-`;
-const AmountLabel = styled.label`font-weight: ${typography.weightSemibold}; color: ${colors.textSecondary};`;
-const CreditCurrencyInputGroup = styled(CurrencyInputGroup)`
-  width: 240px; max-width: 100%; border-radius: ${radii.md};
-  input { width: 100%; height: 42px; font-family: inherit; font-size: ${fontSizes.body}; font-weight: ${typography.weightRegular}; }
 `;
 const AmountError = styled.small`&& { color: ${colors.danger}; }`;
 const ReviewGroup = styled.li`

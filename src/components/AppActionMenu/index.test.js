@@ -1,7 +1,7 @@
 import React from "react";
 import "@testing-library/jest-dom";
 import { fireEvent, render, screen } from "@testing-library/react";
-import AppActionMenu, { AppActionMenuItem } from ".";
+import AppActionMenu, { AppActionMenuItem, AgendaActionMenuItem } from ".";
 
 function MenuFixture() {
   return (
@@ -17,6 +17,20 @@ function MenuFixture() {
 }
 
 describe("AppActionMenu", () => {
+  it("permite Ações sem indicador com itens neutros e mantém navegação", () => {
+    render(<AppActionMenu label="Ações da cobrança" showIndicator={false} agendaAppearance>
+      <AgendaActionMenuItem type="button">Ver sessões</AgendaActionMenuItem>
+      <AgendaActionMenuItem type="button">Desfazer pagamento</AgendaActionMenuItem>
+    </AppActionMenu>);
+    const trigger = screen.getByRole("button", { name: "Ações da cobrança" });
+    expect(trigger.textContent).toBe("Ações");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menuitem", { name: "Ver sessões" })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowDown" });
+    expect(screen.getByRole("menuitem", { name: "Desfazer pagamento" })).toHaveFocus();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(trigger).toHaveFocus();
+  });
   it("abre com foco inicial, navega por teclado e restaura foco com Escape", () => {
     render(<MenuFixture />);
     const trigger = screen.getByRole("button", { name: "Ações do registro" });

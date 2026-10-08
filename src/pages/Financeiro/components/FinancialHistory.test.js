@@ -273,7 +273,7 @@ test("somente a frase genérica exata do uso de crédito é ocultada, preservand
   ] });
   expect(screen.getAllByText("Aplicação de crédito em cobrança")).toHaveLength(1);
   expect(screen.getByText("Aplicação de crédito em cobrança: solicitado pela paciente")).toBeInTheDocument();
-  expect(rows()[2].querySelectorAll("dt")).toHaveLength(3);
+  expect(rows()[2].querySelectorAll("dt")).toHaveLength(5);
   expect(rows()[2]).not.toHaveTextContent("Observação");
 });
 
@@ -416,4 +416,26 @@ test.each(["created_at", "createdAt"])("compatibilidade sem eventos usa criaçã
   expect(cell).toHaveTextContent("30/09/2026");
   expect(cell).toHaveTextContent("10:27");
   expect(cell.querySelector("time")).toHaveAttribute("datetime", "2026-09-30T13:27:15.000Z");
+});
+
+test("uso de crédito explicita consumo, desconto, motivo e autoria sem confundir caixa", () => {
+  renderHistory({ events: [{ id: "credit-command-81", type: "CREDIT_APPLIED", amount_cents: 23000,
+    original_amount_cents: 23000, discount_cents: 1000, adjustment_reason: "Ajuste autorizado",
+    reference: "Créd. 01", payment_method_name: "Crédito disponível", occurred_at: "2026-10-08T12:00:00Z",
+    recorded_at: "2026-10-08T12:00:00Z", actor: { name: "Administrador sintético" },
+    source: {}, historical_details_available: true, credit_destination_details_available: true, applied_destinations: [],
+  }] });
+  fireEvent.click(screen.getByText("Ver detalhes"));
+  expect(screen.getByText("Crédito consumido").nextSibling).toHaveTextContent("R$ 230.00");
+  expect(screen.getByText("Desconto").nextSibling).toHaveTextContent("R$ 10.00");
+  expect(screen.getByText("Motivo do desconto").nextSibling).toHaveTextContent("Ajuste autorizado");
+  expect(screen.getByText("Responsável").nextSibling).toHaveTextContent("Administrador sintético");
+  expect(screen.getByText("Pagamento").nextSibling).toHaveTextContent("Créd. 01");
+});
+
+test("desconto histórico sem motivo persistido não inventa informação", () => {
+  renderHistory({ events: [{ id: "credit-command-82", type: "CREDIT_APPLIED", amount_cents: 23000,
+    discount_cents: 1000, occurred_at: "2026-10-08T12:00:00Z", source: {}, actor: { name: "Administrador" } }] });
+  fireEvent.click(screen.getByText("Ver detalhes"));
+  expect(screen.getByText("Motivo do desconto").nextSibling).toHaveTextContent("Não registrado nesta operação");
 });

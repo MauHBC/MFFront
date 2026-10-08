@@ -2035,8 +2035,9 @@ contexto de autorização estável durante o modal. A autoridade e as regras
 financeiras permanecem no Backend; ver a
 [regra canônica](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#desfazer-pagamento-na-cobrança).
 
-FinancialPaymentUnapplicationModal consulta baixas identificadas na cobrança,
-explica bloqueios legados e exige motivo e prévia válida. A seleção corresponde
+FinancialPaymentUnapplicationModal consulta somente baixas elegíveis na cobrança
+e exige Motivo e prévia válida. Baixas já desfeitas ou sem rastreio suficiente
+permanecem no Histórico, sem aparecer como opções acionáveis. A seleção corresponde
 a uma baixa integral somente nessa cobrança, sem valor livre. O dinheiro
 aplicado volta ao crédito do mesmo paciente; desconto não vira crédito.
 Recebimento, caixa, demais cobranças e direitos são preservados.
@@ -2049,6 +2050,16 @@ recarrega detalhe, cards, resumo e Visão geral, preservando filtros.
 
 Usar crédito aceita desconto com motivo e consumo monetário positivo. Mostra
 limites após desconto e a revisão distingue desconto de crédito consumido.
+Valor monetário e motivo obrigatório são validados separadamente: informar
+R$ 230,00 para uma dívida de R$ 240,00 com desconto de R$ 10,00 elimina o erro
+do valor, embora Avançar ainda exija o motivo. Valor acima do limite continua
+bloqueado. Valor, desconto e motivo reutilizam os campos de Registrar recebimento.
+O menu mostra somente Ações, com as cores e espaçamentos neutros do dropdown
+diário da Agenda. Os modais identificam paciente, serviço e pagamento de forma curta.
+Seleção e Histórico identificam operações por data, valor original, forma/origem
+e referência curta estável por paciente, retornada pelo Backend. Desconto, crédito
+consumido, motivo e responsável ficam explícitos no Histórico. Para operações
+antigas sem motivo persistido, apresenta-se Não registrado nesta operação.
 Desconto de 100% não pertence a esse comando. Os detalhes de sessão continuam
 usando o modal existente e devolvem foco ao menu Ações da cobrança.
 
