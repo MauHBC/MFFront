@@ -2171,6 +2171,22 @@ prévia. Pendência financeira de direito sem sessão usa o modal de acerto
 existente, sem data fictícia. IDs canônicos `key` evitam colisão de contrato
 sem série com séries legadas. Regras autoritativas: AGE-015 e FIN-016 do Backend.
 
+## Devolução de crédito no paciente
+
+O detalhe financeiro do paciente apresenta **Registrar devolução de crédito**
+junto ao saldo, em Cobranças e Mensalidades, para Administrador com permissão
+de liquidação. O formulário aceita valor parcial ou saldo total e exige motivo.
+Antes de confirmar, apresenta paciente, crédito atual, valor da devolução e
+saldo resultante retornados pela prévia do Backend. Explica que nenhuma
+transferência ou reembolso bancário será realizado.
+
+POST `/financial-payments/credit-return-preview` e `/financial-payments/return-credit`
+seguem a regra autoritativa do Backend. O modal bloqueia duplo envio; resultado
+incerto preserva comando e chave para retry. Mudança de autorização desmonta
+o modal e ignora respostas anteriores. Sucesso recarrega saldo e histórico do
+paciente; **Devolução de crédito registrada** apresenta motivo e saldos
+antes/depois. Aprovação visual é responsabilidade do usuário.
+
 ## Desfazer pagamento em Cobranças
 
 O menu Ações da cobrança reutiliza AppActionMenu e oferece Ver sessões e

@@ -16,6 +16,7 @@ const labels = {
   CREDIT_RELEASE: "Liberação de crédito",
   PAYMENT_CORRECTION: "Correção de recebimento",
   PAYMENT_UNAPPLICATION: "Pagamento desfeito",
+  CREDIT_RETURN: "Devolução de crédito registrada",
 };
 
 export const formatFinancialEventDate = (value, { dateOnly = false, short = false } = {}) => {
@@ -37,6 +38,7 @@ const detailDateLabels = {
   CREDIT_RELEASE: "Crédito liberado em",
   PAYMENT_CORRECTION: "Corrigido em",
   PAYMENT_UNAPPLICATION: "Desfeito em",
+  CREDIT_RETURN: "Devolução registrada em",
 };
 
 const formatDetailDate = (value) => {
@@ -141,6 +143,17 @@ const eventType = PropTypes.shape({
   id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
   type: PropTypes.string.isRequired,
   amount_cents: PropTypes.number,
+  credit_before_cents: PropTypes.number,
+  credit_after_cents: PropTypes.number,
+  return_sources: PropTypes.arrayOf(PropTypes.shape({
+    key: PropTypes.string,
+    amount_cents: PropTypes.number,
+    operation: PropTypes.shape({
+      kind: PropTypes.string, reference: PropTypes.string,
+      original_amount_cents: PropTypes.number, occurred_at: PropTypes.string,
+      payment_method_name: PropTypes.string,
+    }),
+  })),
   discount_cents: PropTypes.number,
   surcharge_cents: PropTypes.number,
   recorded_at: PropTypes.string,
@@ -232,6 +245,16 @@ function EventDetails({ event, serviceName, formatCurrency }) {
         <dt>Responsável</dt><dd>{event.actor?.name?.trim() || "Não registrado"}</dd>
         {event.type === "RECEIPT" && <><dt>Forma de pagamento</dt><dd>{event.payment_method_name?.trim() || "—"}</dd></>}
         {event.type === "PAYMENT_UNAPPLICATION" && <><dt>Crédito restaurado</dt><dd>{formatCurrency(event.amount_cents)}</dd>{event.discount_cents > 0 && <><dt>Desconto desfeito</dt><dd>{formatCurrency(event.discount_cents)}</dd></>}{event.surcharge_cents > 0 && <><dt>Acréscimo desfeito</dt><dd>{formatCurrency(event.surcharge_cents)}</dd></>}</>}
+        {event.type === "CREDIT_RETURN" && <>
+          <dt>Crédito antes do registro</dt><dd>{formatCurrency(event.credit_before_cents)}</dd>
+          <dt>Saldo após o registro</dt><dd>{formatCurrency(event.credit_after_cents)}</dd>
+          {event.return_sources?.length > 0 && <><dt>Origens do crédito retirado</dt><dd><AppliedSessionsList>
+            {event.return_sources.map((source) => <li key={source.key}>
+              {source.operation ? formatPaymentOperationIdentity(source.operation, formatCurrency) : "Recebimento de origem"}
+              <span>Crédito retirado: <strong>{formatCurrency(source.amount_cents)}</strong></span>
+            </li>)}
+          </AppliedSessionsList></dd></>}
+        </>}
         {!hideGenericObservation && <><dt>{reasonLabel}</dt><dd>{event.reason?.trim() || "Não registrado"}</dd></>}
       </dl>
     </EventDetail>

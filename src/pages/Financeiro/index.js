@@ -92,6 +92,7 @@ import FinancialHistory from "./components/FinancialHistory";
 import FinancialCancellationDetails from "./components/FinancialCancellationDetails";
 import FinancialCancellationModal from "./components/FinancialCancellationModal";
 import FinancialCreditUseModal from "./components/FinancialCreditUseModal";
+import FinancialCreditReturnModal from "./components/FinancialCreditReturnModal";
 import useFinancialPaymentFlow from "./hooks/useFinancialPaymentFlow";
 import currentObligationCents, { currentObligationFinancial } from "./helpers/currentObligation";
 import {
@@ -877,6 +878,8 @@ export default function Financeiro() {
   const [paymentPatientQuery, setPaymentPatientQuery] = useState("");
   const [isPaymentPatientSearchFocused, setIsPaymentPatientSearchFocused] = useState(false);
   const [creditUseModalContext, setCreditUseModalContext] = useState(null);
+  const [creditReturnTarget, setCreditReturnTarget] = useState(null);
+  useEffect(() => { setCreditReturnTarget(null); }, [authorization.context]);
   const [isMethodOpen, setIsMethodOpen] = useState(false);
   const [methodForm, setMethodForm] = useState({ name: "" });
   const [editingMethodId, setEditingMethodId] = useState(null);
@@ -5518,6 +5521,17 @@ export default function Financeiro() {
                   Usar crédito
                 </AttendanceCreditUseAction>
               )}
+            {authorization.isAdministrator && canSettleClinicExpenses
+              && !attendanceDetailSessions.isLoading && !attendanceDetailSessions.error
+              && attendanceDetailPatientSummary.creditsAvailable > 0 && (
+                <AttendanceCreditUseAction type="button" onClick={() => setCreditReturnTarget({
+                  authorizationContext: authorization.context,
+                  patientId: attendanceSelectedPatientSummary.patientId,
+                  patientName: attendanceSelectedPatientSummary.patientName,
+                  creditAvailableCents: attendanceDetailPatientSummary.creditsAvailable,
+                  view: "attendance",
+                })}>Registrar devolução de crédito</AttendanceCreditUseAction>
+              )}
           </AttendancePatientStats>
           <PatientDetailToolbar>
             <PatientDetailTabsRow>
@@ -6050,6 +6064,17 @@ export default function Financeiro() {
                 <AttendanceCreditUseAction type="button" onClick={openBillingCyclesCreditUseModal}>
                   Usar crédito
                 </AttendanceCreditUseAction>
+              )}
+            {authorization.isAdministrator && canSettleClinicExpenses
+              && !billingCyclesPatientDetail.isLoading && !billingCyclesPatientDetail.error
+              && billingCyclesCreditAvailableCents > 0 && (
+                <AttendanceCreditUseAction type="button" onClick={() => setCreditReturnTarget({
+                  authorizationContext: authorization.context,
+                  patientId: selectedBillingCyclesPatientSummary.patientId,
+                  patientName: selectedBillingCyclesPatientSummary.patientName,
+                  creditAvailableCents: billingCyclesCreditAvailableCents,
+                  view: "billing_cycle",
+                })}>Registrar devolução de crédito</AttendanceCreditUseAction>
               )}
           </AttendancePatientStats>
           {billingCyclesPatientDetail.error && (
@@ -7158,6 +7183,26 @@ export default function Financeiro() {
           />
         )}
 
+      {creditReturnTarget && authorization.isAdministrator && canSettleClinicExpenses
+        && creditReturnTarget.authorizationContext === authorization.context && (
+          <FinancialCreditReturnModal key={`${creditReturnTarget.patientId}:${authorization.context}`}
+            target={creditReturnTarget} formatCurrency={formatCurrency}
+            onClose={() => setCreditReturnTarget(null)}
+            onCompleted={async () => {
+              const { patientId } = creditReturnTarget;
+              setCreditReturnTarget(null);
+              toast.success("Devolução de crédito registrada.");
+              invalidateAttendanceDetailCacheForPatient(patientId);
+              if (creditReturnTarget.view === "billing_cycle") {
+                await loadBillingCycles();
+                await loadBillingCyclesPatientDetail(patientId, { keepTab: true });
+              } else {
+                await handleViewPatientSessions(patientId, { keepTab: true });
+              }
+              await loadRevenuesSummary();
+            }}
+          />
+        )}
       <FinancialPaymentModal
         flow={financialPaymentFlow}
         formatCurrency={formatCurrency}
