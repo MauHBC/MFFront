@@ -8,7 +8,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { useLogout } from "../../hooks/useLogout";
 import { usePublicClinicContext } from "../../contexts/PublicClinicContext";
 import TenantLoading from "../TenantLoading";
-import { isPlansModuleEnabled } from "../../config/features";
+import { isDashboardNavigationVisible, isPlansModuleEnabled } from "../../config/features";
 
 
 export default function Sidebar({ sidebarOpen, toggleSidebar }) {
@@ -124,14 +124,14 @@ export default function Sidebar({ sidebarOpen, toggleSidebar }) {
               </Link>
             </li>
 
-            <li className="semiBold font15 pointer flexCenter">
+            {isDashboardNavigationVisible && (<li className="semiBold font15 pointer flexCenter">
               <Link
                 to="/painel"
                 style={{ padding: "10px 15px", textDecoration: "none" }}
               >
                 Painel
               </Link>
-            </li>
+            </li>)}
 
             <li className="semiBold font15 pointer flexCenter">
               <Link

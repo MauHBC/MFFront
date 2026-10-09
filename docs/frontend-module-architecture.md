@@ -1245,7 +1245,7 @@ sidebar fixada usa `localStorage` e a chave
 | Item | Tipo | Destinos reais |
 |---|---|---|
 | Agenda | Expansível | Agenda: `/agendamentos`; Configurações: `/agendamentos/eventos` |
-| Painel | Link direto | `/painel`; `/dashboard` é alias ativo |
+| Painel | Link direto oculto globalmente | `/painel`; `/dashboard` é alias ativo |
 | Pacientes | Link direto | `/pacientes`; detalhes em `/pacientes/:id` e demais subrotas protegidas |
 | Planos | Expansível e sujeito a `isPlansModuleEnabled` | Pacientes com plano: `/planos?tab=patient-plans`; Planos mensais: `/planos?tab=service-plans`; Serviços: `/planos?tab=services`; detalhes: `/planos/pacientes/:patientPlanId` |
 | Financeiro | Expansível | `/financeiro/visao-geral`, `/financeiro/receitas`, `/financeiro/despesas` e `/financeiro/configuracoes` |
@@ -1259,6 +1259,16 @@ subrotas próprias. Mensal/anual permanece modo interno da Visão geral.
 Não existe hoje rota nem item declarativo de **Ajuda e suporte**. Ele só deve
 ser documentado ou adicionado à árvore depois que houver um destino real
 aprovado; não invente uma rota para completar visualmente a lista.
+
+O Painel fica oculto na sidebar desktop, no drawer mobile, nos atalhos de
+`/menu` e no link legado do navbar. A flag de apresentação
+`isDashboardNavigationVisible = false` em `src/config/features.js` controla
+esses pontos. Para reativar, altere somente essa flag para `true`, valide os
+menus e publique pelo procedimento habitual. A flag não bloqueia endpoints
+nem altera permissões: favoritos e acesso direto a `/painel` e `/dashboard`
+continuam sujeitos a `requiredModule="dashboard"`. Login mantém a Agenda como
+entrada conforme autorização. O código do Painel e a Central de pendências
+compartilhada permanecem disponíveis. A ocultação não comprova ausência de uso.
 
 ### Tipos e hierarquia
 
