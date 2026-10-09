@@ -1459,7 +1459,8 @@ describe("Agendamentos - editar agendamento", () => {
     if (fillReason) fireEvent.change(screen.getByPlaceholderText("Descreva o motivo"), { target: { value: "Pedido definitivo" } });
     return rendered;
   };
-  const confirmCancellationButton = () => screen.getByRole("button", { name: "Confirmar cancelamento" });
+  const cancellationModal = () => within(screen.getByRole("heading", { name: "Cancelamento/falta" }).parentElement.parentElement);
+  const confirmCancellationButton = () => cancellationModal().getByRole("button", { name: "Confirmar cancelamento" });
   const flushFinancialPreviewDebounce = async () => {
     await act(async () => {
       jest.advanceTimersByTime(250);
