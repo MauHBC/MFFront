@@ -11,7 +11,7 @@ const currency = (value) => `R$ ${(value / 100).toFixed(2).replace('.', ',')}`;
 const proposed = (amount) => ({ patient: { id: 30, full_name: 'Paciente sintético' }, amount_cents: amount, reason: 'Solicitação sintética', credit_before_cents: 10000, credit_after_cents: 10000 - amount, preview_fingerprint: 'a'.repeat(64) });
 const prepare = async (amount = '25,00') => {
   fireEvent.change(screen.getByLabelText('Valor da devolução'), { target: { value: amount } });
-  fireEvent.change(screen.getByLabelText('Motivo obrigatório'), { target: { value: 'Solicitação sintética' } });
+  fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Solicitação sintética' } });
   fireEvent.click(screen.getByText('Avançar'));
   await screen.findByText('Confirmar');
 };
@@ -30,9 +30,13 @@ test('partial confirmation identifies patient, money and remaining balance', asy
 });
 test('full balance, invalid amount and missing reason', async () => {
   render(<FinancialCreditReturnModal target={target} formatCurrency={currency} onClose={jest.fn()} onCompleted={jest.fn()} />);
-  fireEvent.click(screen.getByText('Usar saldo total'));
+  expect(screen.queryByRole('button', { name: 'Usar saldo total' })).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Motivo')).toHaveAttribute('aria-required', 'true');
+  fireEvent.change(screen.getByLabelText('Valor da devolução'), { target: { value: '100,00' } });
   expect(screen.getByText('Avançar')).toBeDisabled();
-  fireEvent.change(screen.getByLabelText('Motivo obrigatório'), { target: { value: 'Solicitação sintética' } });
+  fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: '   ' } });
+  expect(screen.getByText('Avançar')).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Solicitação sintética' } });
   fireEvent.click(screen.getByText('Avançar'));
   await screen.findByText('Confirmar'); expect(screen.getByText('R$ 0,00')).toBeInTheDocument();
   fireEvent.click(screen.getByText('Editar'));
@@ -65,7 +69,7 @@ test('remaining balance follows partial and total amounts without pretending exc
   fireEvent.change(screen.getByLabelText('Valor da devolução'), { target: { value: '25,00' } });
   expect(remaining()).toHaveTextContent('R$ 75,00');
   expect(remaining()).not.toHaveTextContent('R$ 0,00');
-  fireEvent.click(screen.getByText('Usar saldo total'));
+  fireEvent.change(screen.getByLabelText('Valor da devolução'), { target: { value: '100,00' } });
   expect(remaining()).toHaveTextContent('R$ 0,00');
   fireEvent.change(screen.getByLabelText('Valor da devolução'), { target: { value: '101,00' } });
   expect(screen.queryByText('Saldo após a devolução:')).not.toBeInTheDocument();

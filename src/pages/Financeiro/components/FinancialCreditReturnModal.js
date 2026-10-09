@@ -4,7 +4,8 @@ import styled from 'styled-components';
 import { v4 as uuidv4 } from 'uuid';
 import { PrimaryButton, GhostButton } from '../../../components/AppButton';
 import { CurrencyInput, CurrencyInputGroup, CurrencyPrefix, PaymentField, PaymentLabel, PaymentTextArea } from './FinancialPaymentModal';
-import { parseCurrencyInputToCents, sanitizePositiveCurrencyInput, formatCurrencyInputFromCents } from '../helpers/expenseFormatters';
+import { parseCurrencyInputToCents, sanitizePositiveCurrencyInput } from '../helpers/expenseFormatters';
+import { colors } from '../../../styles/tokens';
 import { getUserFacingApiError } from '../../../services/axios';
 import { previewCreditReturn, confirmCreditReturn } from '../../../services/financialCreditReturn';
 
@@ -72,24 +73,28 @@ export default function FinancialCreditReturnModal({ target, formatCurrency, onC
   if (preview) actionLabel = uncertain ? 'Tentar novamente' : 'Confirmar';
   if (busy) actionLabel = 'Aguarde…';
   return <Overlay><Dialog ref={dialog} role="dialog" aria-modal="true" aria-labelledby="credit-return-title" tabIndex={-1} onKeyDown={keyDown}>
-    <h2 id="credit-return-title">Devolver valor</h2>
-    <p><strong>{preview?.patient?.full_name || target.patientName}</strong></p>
+    <Header><h2 id="credit-return-title">Devolver valor</h2>
+      <PatientName>{preview?.patient?.full_name || target.patientName}</PatientName>
+    </Header>
+    <Body>
     {preview ? <>
-      <p>Crédito disponível: <strong>{formatCurrency(preview.credit_before_cents)}</strong></p>
-      <p>Valor da devolução: <strong>{formatCurrency(preview.amount_cents)}</strong></p>
-      <p>Saldo após a devolução: <strong>{formatCurrency(preview.credit_after_cents)}</strong></p>
-      <p>Motivo: {preview.reason}</p>
+      <Summary>
+        <SummaryLine><span>Crédito disponível:</span> <strong>{formatCurrency(preview.credit_before_cents)}</strong></SummaryLine>
+        <SummaryLine><span>Valor da devolução:</span> <strong>{formatCurrency(preview.amount_cents)}</strong></SummaryLine>
+        <SummaryLine><span>Saldo após a devolução:</span> <strong>{formatCurrency(preview.credit_after_cents)}</strong></SummaryLine>
+      </Summary>
+      <ReasonSummary><PaymentLabel as="span">Motivo</PaymentLabel><p>{preview.reason}</p></ReasonSummary>
     </> : <>
-      <p>Crédito disponível: <strong>{formatCurrency(target.creditAvailableCents)}</strong></p>
-      <PaymentField><PaymentLabel htmlFor="credit-return-amount">Valor da devolução</PaymentLabel>
+      <SummaryLine><span>Crédito disponível:</span> <strong>{formatCurrency(target.creditAvailableCents)}</strong></SummaryLine>
+      <Field><PaymentLabel htmlFor="credit-return-amount">Valor da devolução</PaymentLabel>
         <CurrencyInputGroup><CurrencyPrefix aria-hidden="true">R$</CurrencyPrefix><CurrencyInput id="credit-return-amount" inputMode="decimal" value={amount} disabled={busy} onChange={(event) => setAmount(sanitizePositiveCurrencyInput(event.target.value))} /></CurrencyInputGroup>
-        <GhostButton type="button" disabled={busy} onClick={() => setAmount(formatCurrencyInputFromCents(target.creditAvailableCents))}>Usar saldo total</GhostButton>
-      </PaymentField>
-      {validMoney(value) && value <= target.creditAvailableCents && <p>Saldo após a devolução: <strong>{formatCurrency(target.creditAvailableCents - value)}</strong></p>}
+      {validMoney(value) && value <= target.creditAvailableCents && <RemainingLine><span>Saldo após a devolução:</span> <strong>{formatCurrency(target.creditAvailableCents - value)}</strong></RemainingLine>}
       {value > target.creditAvailableCents && <p role="alert">O valor não pode ultrapassar o crédito disponível.</p>}
-      <PaymentField><PaymentLabel htmlFor="credit-return-reason">Motivo obrigatório</PaymentLabel><PaymentTextArea id="credit-return-reason" maxLength={1000} value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} /></PaymentField>
+      </Field>
+      <Field><PaymentLabel htmlFor="credit-return-reason">Motivo</PaymentLabel><PaymentTextArea id="credit-return-reason" aria-required="true" maxLength={1000} value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} /></Field>
     </>}
     {error && <p role="alert">{error}</p>}
+    </Body>
     <Actions><GhostButton type="button" disabled={busy} onClick={onClose}>Fechar</GhostButton>
       {preview && !uncertain && <GhostButton type="button" disabled={busy} onClick={() => { setPreview(null); attempt.current = null; }}>Editar</GhostButton>}
       <PrimaryButton type="button" disabled={busy || (!preview && !valid)} onClick={preview ? confirm : advance}>{actionLabel}</PrimaryButton>
@@ -101,5 +106,13 @@ FinancialCreditReturnModal.propTypes = {
   formatCurrency: PropTypes.func.isRequired, onClose: PropTypes.func.isRequired, onCompleted: PropTypes.func.isRequired,
 };
 const Overlay = styled.div`position: fixed; inset: 0; z-index: 1400; background: rgba(0,0,0,.38); display: flex; align-items: center; justify-content: center; padding: 18px;`;
-const Dialog = styled.div`background: white; color: #1b1b1b; border-radius: 16px; padding: 20px; width: min(100%, 560px); max-height: 90vh; overflow-y: auto; h2 { margin: 0 0 12px; font-size: 20px; } p { line-height: 1.5; overflow-wrap: anywhere; }`;
-const Actions = styled.div`display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; flex-wrap: wrap;`;
+const Dialog = styled.div`background: ${colors.surface}; color: ${colors.textPrimary}; border-radius: 16px; width: min(100%, 560px); max-height: 92dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }`;
+const Header = styled.div`padding: 18px 20px 16px; border-bottom: 1px solid ${colors.borderSubtle}; flex-shrink: 0; h2 { margin: 0 0 8px; font-size: 20px; }`;
+const PatientName = styled.p`color: ${colors.textSecondary};`;
+const Body = styled.div`padding: 20px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; min-height: 0; @media (max-width: 440px) { padding: 16px; gap: 16px; }`;
+const Field = styled(PaymentField)`display: flex; flex-direction: column; gap: 8px; margin: 0; min-width: 0;`;
+const Summary = styled.div`display: flex; flex-direction: column; gap: 12px;`;
+const SummaryLine = styled.p`display: flex; justify-content: space-between; align-items: baseline; gap: 8px 16px; flex-wrap: wrap; strong { white-space: nowrap; }`;
+const RemainingLine = styled(SummaryLine)`font-size: 14px; color: ${colors.textSecondary};`;
+const ReasonSummary = styled.div`display: flex; flex-direction: column; gap: 8px;`;
+const Actions = styled.div`padding: 16px 20px; border-top: 1px solid ${colors.borderSubtle}; display: flex; justify-content: flex-end; gap: 12px; flex-shrink: 0; flex-wrap: wrap; @media (max-width: 440px) { padding: 12px 16px; button { white-space: normal; } }`;
