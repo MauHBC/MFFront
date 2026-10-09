@@ -10,6 +10,7 @@ export const FORWARDING_HOSTS = Object.freeze([
   "camila.motria.com.br", "gabi.motria.com.br",
 ]);
 export const INTERNAL_PATHS = Object.freeze([
+  /^\/whatsapp(?:-cenarios)?\/?$/i,
   /^\/(login|menu|register|painel|dashboard|equipe)\/?$/i,
   /^\/agendamentos(?:\/eventos)?\/?$/i,
   /^\/pacientes(?:\/(?:novo|consultar|[0-9]+(?:\/avaliacoes\/(?:nova|[0-9]+))?))?\/?$/i,

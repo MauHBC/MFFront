@@ -33,6 +33,7 @@ export const whatsappLabels = {
   queued: 'Aguardando envio', attempting: 'Enviando', accepted: 'Enviado', delivered: 'Entregue',
   failed: 'Não enviado', delivery_failed: 'Falha de entrega', unknown: 'Resultado incerto — acompanhamento necessário',
   obsolete: 'Lembrete desatualizado', blocked_shutdown: 'Envio interrompido', blocked_limit: 'Limite diário atingido',
+  blocked_module: 'WhatsApp desabilitado para este prestador',
   blocked_access: 'Acesso alterado', blocked_configuration: 'Envio indisponível', blocked_consent: 'Contato não autorizado',
   pending: 'Sem resposta', confirm: 'Presença confirmada', unavailable: 'Não poderá ir — acompanhar',
   conflict: 'Respostas conflitantes — acompanhar',
@@ -47,7 +48,7 @@ const errors = {
 const nameFor = (s) => s.Patient?.full_name || s.patient?.full_name || s.patient_name || `Paciente #${s.patient_id}`;
 const formatAgendaDateTime = (value) => `${formatAgendaDate(value)} às ${formatAgendaTime(value)}`;
 
-export default function WhatsAppReminders({ sessions, getPatientName }) {
+export default function WhatsAppReminders({ sessions, getPatientName, autoOpen }) {
   const authorization = useAuthorization();
   const authorizationContext = authorization.context;
   const activeContext = useRef(authorizationContext);
@@ -65,16 +66,17 @@ export default function WhatsAppReminders({ sessions, getPatientName }) {
   const [explicit, setExplicit] = useState(false);
   const [proof, setProof] = useState('');
   const displayName = (session) => getPatientName?.(session) || nameFor(session);
-  const canManage = authorization.canAccessModule?.('schedule', 'manage') === true;
+  const canView = authorization.canAccessModule?.('whatsapp') === true && authorization.canAccessModule?.('schedule') === true;
+  const canManage = canView && authorization.canAccessModule?.('whatsapp', 'manage') === true && authorization.canAccessModule?.('schedule', 'manage') === true;
   useEffect(() => {
     setSettings(null); setOpen(false); setSelection([]); setReview(null); setItems([]); setContacts([]); setGrant(null); setBusy(false); setError(''); setNotice('');
-    if (authorization.status !== 'ready') return undefined;
+    if (authorization.status !== 'ready' || !canView) return undefined;
     let live = true;
     Promise.resolve().then(() => api.get('/whatsapp/settings')).then(({ data }) => {
-      if (live) setSettings({ ...data, authorizationContext });
+      if (live) { setSettings({ ...data, authorizationContext }); if (autoOpen && data.enabled) setOpen(true); }
     }).catch(() => {});
     return () => { live = false; };
-  }, [authorization.status, authorizationContext]);
+  }, [authorization.status, authorizationContext, canView, autoOpen]);
   const reload = async () => {
     const requestedContext = authorizationContext;
     const ids = sessions.map((s) => s.id).slice(0, 1000);
@@ -102,7 +104,7 @@ export default function WhatsAppReminders({ sessions, getPatientName }) {
       if (activeContext.current === requestedContext) setError(errors[e.response?.data?.error] || 'Não foi possível concluir. Revise os dados e tente novamente.');
     } finally { if (activeContext.current === requestedContext) setBusy(false); }
   }
-  if (!settings?.enabled || settings.authorizationContext !== authorizationContext || authorization.status !== 'ready') return null;
+  if (!canView || !settings?.enabled || settings.authorizationContext !== authorizationContext || authorization.status !== 'ready') return null;
   const eligible = sessions.filter((s) => s.status === 'scheduled' && new Date(s.starts_at).getTime() > Date.now());
   return <>
     <Button type="button" onClick={() => { setOpen(true); setReview(null); setError(''); }}>Lembretes WhatsApp</Button>
@@ -176,5 +178,6 @@ WhatsAppReminders.propTypes = {
     starts_at: PropTypes.string, status: PropTypes.string,
   })).isRequired,
   getPatientName: PropTypes.func,
+  autoOpen: PropTypes.bool,
 };
-WhatsAppReminders.defaultProps = { getPatientName: null };
+WhatsAppReminders.defaultProps = { getPatientName: null, autoOpen: false };

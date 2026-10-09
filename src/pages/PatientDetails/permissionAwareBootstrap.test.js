@@ -1116,11 +1116,13 @@ describe("PatientDetails permission-aware bootstrap", () => {
     [true, "active", "reserved", false],
     [true, "active", "consumed", false],
     [true, "closed", "available", false],
-  ])("cancelamento no Histórico respeita gestão de clínica=%s, status=%s, unidade=%s", async (canManage, status, unitState, visible) => {
+    [true, "active", "available", true, 9],
+    [false, "active", "available", false, 9],
+  ])("cancelamento no Histórico respeita gestão de clínica=%s, status=%s, unidade=%s", async (canManage, status, unitState, visible, catalogVersion = 8) => {
     authorize(["patients", "schedule"]);
     useAuthorization.mockReturnValue({
       ...useAuthorization(),
-      context: { catalog_version: 8, modules: [{ module_key: "schedule", scope_level: "clinic" }] },
+      context: { catalog_version: catalogVersion, modules: [{ module_key: "schedule", scope_level: "clinic" }] },
       canAccessModule: (key, level) => ["patients", "schedule"].includes(key) && (level !== "manage" || canManage),
     });
     axios.get.mockImplementation((url, config) => {

@@ -2257,3 +2257,8 @@ MOTRIA_LOCAL_STACK_SLOT=financeiro-estorno em .env.local ignorado e inicia
 com npm run dev. A API usa o MariaDB descartável próprio e preserva a fixture
 sintética existente; nunca usa banco persistente nem movimentos reais.
 A aprovação visual final pertence ao usuário.
+
+
+WhatsApp é módulo opcional do tenant no contrato canônico 9, cumulativo com Agenda
+e opt-in de contato. Menu e entrada `/whatsapp` usam esse contrato; implementação e
+compatibilidade 7/8/9 estão em [piloto WhatsApp](whatsapp-piloto-local.md).

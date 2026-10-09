@@ -6695,7 +6695,7 @@ export default function Agendamentos() {
             </p>
           </div>
           <ToolbarActions>
-            <WhatsAppReminders sessions={filteredSessions} getPatientName={getSessionPatientName} />
+            <WhatsAppReminders sessions={filteredSessions} getPatientName={getSessionPatientName} autoOpen={routeLocation.pathname === "/whatsapp"} />
             <PrimaryButton
               type="button"
               $topAction

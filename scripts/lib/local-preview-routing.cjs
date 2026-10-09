@@ -1,6 +1,6 @@
 // Restricted to the authorized WhatsApp preview; other local stacks are unchanged.
 const appRouteRoots = new Set([
-  'login', 'menu', 'agendamentos', 'whatsapp-cenarios', 'painel', 'dashboard',
+  'login', 'menu', 'agendamentos', 'whatsapp-cenarios', 'whatsapp', 'painel', 'dashboard',
   'pacientes', 'equipe', 'planos', 'financeiro', 'configuracoes', 'register',
   'cadastro', 'confirmar-email', 'termos', 'privacidade', 'situacao-comercial',
   'recuperar-senha', 'credencial', 'politica', 'c', 'platform', 'semAcesso',

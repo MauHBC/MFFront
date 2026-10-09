@@ -59,3 +59,44 @@ Menu/pacientes/configurações também verificados com Accept vazio:200 com Reac
 Lint focado e diffcheck PASS. No Chrome, login fictício realizado, navegação direta
 à Agenda e refresh confirmados com sessão mantida, Agendamentos e Lembretes WhatsApp
 presentes. Verificação técnica de acesso; avaliação visual permanece com Maurício.
+
+
+## Módulo por prestador (extensão local de 09/10)
+
+O menu WhatsApp e o botão na Agenda dependem do contrato canônico de autorização 9:
+permissão individual WhatsApp + Agenda e `available: true`, catálogo de disponibilidade 1.
+Não existe flag comercial no navegador. Os contratos 7/8 continuam compatíveis com oito
+módulos e não habilitam WhatsApp; versões desconhecidas falham fechados. O editor de
+perfis usa o catálogo da API, incluindo WhatsApp view/manage e alcance own/clinic.
+A autorização de contato continua explícita e independente da disponibilidade comercial.
+
+`/whatsapp` abre o painel já integrado à Agenda. A entrada direta também exige Agenda;
+endpoints do servidor e worker revalidam disponibilidade e interseção de permissões.
+O Platform Admin configurará o tenant na aba Módulos; desligar interrompe itens pendentes
+e reativar não retoma backlog. `blocked_module` explica o encerramento no histórico.
+A disponibilidade não ativa a Meta e não equivale à aprovação final da UX.
+
+Prévia: http://127.0.0.1:3050/whatsapp. Cenários separados em
+http://127.0.0.1:3050/whatsapp-cenarios; administração em http://127.0.0.1:3057/clinicas/4.
+Somente simulação com dados fictícios, sem credenciais ou chamadas reais.
+
+
+A rota WhatsApp usa somente o App Shell vigente, sem montar a navbar legada.
+O hostname público reconhece essas rotas como internas, sem expor o aplicativo clínico.
+Na conferência técnica de 09/10, o módulo desativado não apareceu na Agenda e a API
+retornou 403. Reativar não reaplicou a revisão anterior: `blocked_module`, zero tentativas
+e confirmação HTTP 403. O módulo do tenant fictício fica desligado ao final; habilitá-lo
+na aba Módulos permite revisar a experiência simulada. Nenhuma habilitação comercial
+liga o transporte real.
+
+
+Fechamento técnico: 99/99 testes em sete suítes pertinentes; oito regressões selecionadas
+da Agenda, launcher 11/11, build, lint focado e UTF-8 aprovados. O resultado da execução
+integral de 134 casos da Agenda não foi obtido durante a perda do executor; ela não foi
+repetida para preservar contenção com a investigação de timeouts de Relatórios.
+Esse gate integral permanece explicitamente não confirmado nesta extensão.
+`DOCUMENTATION_IMPACT = UPDATE_REQUIRED`: este guia e frontend-module-architecture.md.
+
+A promoção para catálogo 9 também preserva o contrato de histórico de unidades de pacote:
+sete casos selecionados de autorização/cancelamento em 8/9 PASS, sem alterar as regras
+de pacote ou financeiro.

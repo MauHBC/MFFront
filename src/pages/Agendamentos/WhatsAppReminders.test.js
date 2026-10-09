@@ -35,7 +35,7 @@ test('resultado incerto não disponibiliza retentativa', async () => {
   expect(screen.queryByRole('button', { name: 'Solicitar nova tentativa' })).not.toBeInTheDocument();
 });
 test('perfil de leitura acompanha sem selecionar ou enviar', async () => {
-  useAuthorization.mockReturnValue({ status: 'ready', context: { authorization_state: 'authorized' }, canAccessModule: () => false });
+  useAuthorization.mockReturnValue({ status: 'ready', context: { authorization_state: 'authorized' }, canAccessModule: (key, level) => level !== 'manage' });
   render(<WhatsAppReminders sessions={sessions} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Lembretes WhatsApp' }));
   expect(screen.getByRole('checkbox', { name: 'Selecionar Ana Costa' })).toBeDisabled();
@@ -53,4 +53,17 @@ test('mudança de clínica fecha o painel e descarta respostas pendentes', async
   resolveReview({ data: { items: [{ id: 'old', text: 'Dados da clínica anterior' }] } });
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   expect(screen.queryByText('Dados da clínica anterior')).not.toBeInTheDocument();
+});
+
+test('módulo indisponível não mostra botão nem consulta endpoints', async () => {
+  useAuthorization.mockReturnValue({ status: 'ready', context: {}, canAccessModule: (key) => key !== 'whatsapp' });
+  render(<WhatsAppReminders sessions={sessions} />);
+  await Promise.resolve();
+  expect(screen.queryByRole('button', { name: 'Lembretes WhatsApp' })).not.toBeInTheDocument();
+  expect(api.get).not.toHaveBeenCalled();
+});
+
+test('entrada do módulo abre o painel integrado depois de validar disponibilidade', async () => {
+  render(<WhatsAppReminders sessions={sessions} autoOpen />);
+  expect(await screen.findByRole('dialog', { name: 'Lembretes WhatsApp' })).toBeInTheDocument();
 });
