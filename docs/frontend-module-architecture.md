@@ -2340,3 +2340,38 @@ O modal de exportação consolidada apresenta um radio group: Todo o prontuário
 Na timeline de evolução, Exportar PDF compartilha a linha de ações e o componente visual de Editar rascunho. As tags continuam no cabeçalho, e a exportação não depende de permissão de edição. A apresentação de autoria lê os vínculos tenant-scoped clinicalAuthorMembership.person e createdByMembership.person enviados pelo Backend, preservando os fallbacks históricos e não inferindo CREFITO.
 
 O prontuário omite autoria/CREFITO ausentes e a data operacional de criação do caso; não mostra badge ou tooltip do estado interno legacy. Autoria existente, rascunhos e evidências de assinatura permanecem. Date-only é apresentado em DD/MM/AAAA sem deslocamento UTC; instantes clínicos usam America/Sao_Paulo. Objetivos estruturados aceitam array ou JSON antigo e exibem rótulos humanos; texto clínico livre não é traduzido. O PDF omite a linha operacional sob o título e a data de exportação do rodapé, conforme a fonte canônica do Backend.
+
+## Central de Relatórios
+
+`/relatorios` usa AppShell e aparece após Painel, preservando Agenda primeiro.
+A entrada depende de leitura de schedule, patients ou finance. O catálogo tem
+seis documentos: Recebimentos e devoluções, Movimentação de caixa, Contas a receber
+e atrasos, Produção por profissional/serviço, Faltas e cancelamentos e Aniversariantes.
+Recebimentos/caixa exigem administrador; os demais respeitam o módulo de origem.
+
+Fluxo explícito: escolher documento, definir mês/ano ou intervalo e filtros úteis,
+Gerar relatório, conferir documento e baixar PDF ou CSV autenticado. Não há ação
+Imprimir duplicada. Aniversariantes mostra Nome, Data de nascimento completa e
+Idade a completar (idade no aniversário selecionado), acrescentando ocorrência somente
+em intervalos que atravessam anos. O modelo de referência não inclui emissão
+e não expõe coluna Convenção; ajuste de 29/02 usa nota apenas quando aplicável.
+Nenhuma leitura de relatório é disparada automaticamente. Pacotes está fora do catálogo.
+A fonte funcional é MFBackend/docs/regras-negocio/relatorios.md.
+
+Resultados e referências pertencem ao contexto autorizado e filtros da geração.
+Mudanças invalidam resultado; respostas interrompidas não repopulam a tela. Revogação
+oculta os dados e seleciona documento ainda permitido. Exportação exige can_export,
+revalidação no servidor e version; resultado alterado exige nova geração.
+
+Prévia usa AppForm/Field, AppButton, AppModuleShell/AppLayout, AppToolbar,
+AppTable, AppPagination e DataLoadingState. Campos têm 42px com box-sizing
+border-box; Ano ocupa 96px e filtros quebram por conteúdo no mobile. Identidade
+e ações ficam no mesmo cabeçalho compacto; período, critério e agrupamento
+continuam explícitos. Tabelas têm rolagem horizontal e paginação de 20 linhas. Exportação contém todas as linhas,
+totais e detalhes, sem limitar ao que está visível. Não persiste snapshot nem envia
+comunicações/notificações. A validação visual final pertence ao usuário.
+
+O slot reports-preview mantém Frontend 3040 e API loopback 3046, selecionado por
+MOTRIA_LOCAL_STACK_SLOT antes de npm run dev. Overrides continuam rejeitados; não
+inicia serviços automaticamente. Prévia manual exige autorização e dados sintéticos.
+Gates: Reports, navegação, regressões pertinentes, lint, mojibake e build.

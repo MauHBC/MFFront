@@ -47,6 +47,14 @@ const navigationItems = [
     isVisible: ({ canAccessModule } = {}) => canAccessModule?.("dashboard") === true,
   },
   {
+    key: "reports",
+    label: "Relatórios",
+    path: "/relatorios",
+    matchPaths: ["/relatorios"],
+    icon: FaClipboardList,
+    isVisible: ({ canAccessModule } = {}) => ["schedule", "patients", "finance"].some((key) => canAccessModule?.(key) === true),
+  },
+  {
     key: "patients",
     label: "Pacientes",
     path: "/pacientes",
