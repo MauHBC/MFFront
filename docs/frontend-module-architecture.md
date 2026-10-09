@@ -2179,3 +2179,57 @@ o comando e permite verificar a mesma tentativa; revisão vencida exige outra
 prévia. Pendência financeira de direito sem sessão usa o modal de acerto
 existente, sem data fictícia. IDs canônicos `key` evitam colisão de contrato
 sem série com séries legadas. Regras autoritativas: AGE-015 e FIN-016 do Backend.
+
+## Desfazer pagamento em Cobranças
+
+O menu Ações da cobrança reutiliza AppActionMenu e oferece Ver sessões e
+Desfazer pagamento. Histórico é somente consulta. A confirmação exige
+Administrador canônico, gerenciamento de Financeiro e finance.settle, com
+contexto de autorização estável durante o modal. A autoridade e as regras
+financeiras permanecem no Backend; ver a
+[regra canônica](https://github.com/MauHBC/MFBackend/blob/main/docs/regras-negocio/financeiro.md#desfazer-pagamento-na-cobrança).
+
+FinancialPaymentUnapplicationModal consulta somente baixas elegíveis na cobrança
+e exige Motivo e prévia válida. Baixas já desfeitas ou sem rastreio suficiente
+permanecem no Histórico, sem aparecer como opções acionáveis. A seleção corresponde
+a uma baixa integral somente nessa cobrança, sem valor livre. O dinheiro
+aplicado volta ao crédito do mesmo paciente; desconto não vira crédito.
+Recebimento, caixa, demais cobranças e direitos são preservados.
+
+Duplo clique é bloqueado. Timeout, erro de rede e resposta incerta conservam
+corpo e chave idempotente; saída e edição aguardam Verificar resultado.
+Respostas incompatíveis com paciente, cobrança ou operação não autorizam
+confirmação. Depois do sucesso, o fluxo compartilhado invalida cache e
+recarrega detalhe, cards, resumo e Visão geral, preservando filtros.
+
+Usar crédito aceita desconto com motivo e consumo monetário positivo. Mostra
+limites após desconto e a revisão distingue desconto de crédito consumido.
+Valor monetário e motivo obrigatório são validados separadamente: informar
+R$ 230,00 para uma dívida de R$ 240,00 com desconto de R$ 10,00 elimina o erro
+do valor, embora Avançar ainda exija o motivo. Valor acima do limite continua
+bloqueado. Valor, desconto e motivo reutilizam os campos de Registrar recebimento.
+O menu mostra somente Ações, com as cores e espaçamentos neutros do dropdown
+diário da Agenda. Os modais identificam paciente, serviço e pagamento de forma curta.
+No desfazimento, Avançar abre a confirmação com paciente, serviço, pagamento
+identificado em Selecionado, Motivo e Crédito a restaurar. Confirmar executa a
+operação; respostas incertas mantêm Verificar resultado e a tentativa idempotente.
+Seleção e Histórico identificam operações por data, valor original, forma/origem
+e referência curta estável por paciente, retornada pelo Backend. O identificador
+Uso de crédito omite a origem redundante Crédito disponível; isso não remove os
+valores de saldo apresentados em outros contextos. Desconto, crédito consumido,
+motivo e responsável ficam explícitos em Ver detalhes no Histórico.
+Movimento contém somente o tipo principal, sem valor, forma de pagamento ou
+referência repetidos. As quatro colunas têm larguras estáveis; a expansão permanece
+na célula Detalhes à direita e não desloca o acionador. Em largura reduzida, a
+tabela conserva a rolagem horizontal e o conteúdo expandido quebra dentro da
+mesma coluna. Para operações
+antigas sem motivo persistido, apresenta-se Não registrado nesta operação.
+Desconto de 100% não pertence a esse comando. Os detalhes de sessão continuam
+usando o modal existente e devolvem foco ao menu Ações da cobrança.
+
+O perfil local fechado da sprint financeiro estorno usa Frontend
+127.0.0.1:3020 e API 127.0.0.1:3026. A worktree persiste somente
+MOTRIA_LOCAL_STACK_SLOT=financeiro-estorno em .env.local ignorado e inicia
+com npm run dev. A API usa o MariaDB descartável próprio e preserva a fixture
+sintética existente; nunca usa banco persistente nem movimentos reais.
+A aprovação visual final pertence ao usuário.

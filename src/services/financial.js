@@ -116,6 +116,11 @@ export const listFinancialPayments = (params) =>
 export const getFinancialReceiptDetails = (id) =>
   api.get(`/financial-payments/${id}`, { params: { include_receipt_details: true } });
 
+export const voidFinancialPayment = (id, payload, idempotencyKey) =>
+  api.post(`/financial-payments/${id}/corrections`, payload, {
+    headers: { 'Idempotency-Key': idempotencyKey },
+  });
+
 export const createFinancialPayment = (payload, idempotencyKey) =>
   api.post('/financial-payments', payload, {
     headers: { 'Idempotency-Key': idempotencyKey },

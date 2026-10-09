@@ -3,10 +3,13 @@ import "@testing-library/jest-dom";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import FinancialHistory from "./FinancialHistory";
 import { getFinancialReceiptDetails } from "../../../services/financial";
+import { useAuthorization } from "../../../contexts/AuthorizationContext";
 
 jest.mock("../../../services/financial", () => ({ getFinancialReceiptDetails: jest.fn() }));
+jest.mock("../../../contexts/AuthorizationContext", () => ({ useAuthorization: jest.fn() }));
 
 beforeEach(() => {
+  useAuthorization.mockReturnValue({ isAdministrator: false, canAccessModule: () => true, hasCapability: () => true });
   getFinancialReceiptDetails.mockResolvedValue({ data: { receipt_details: { groups: [] } } });
 });
 
@@ -37,6 +40,20 @@ const renderHistory = (props = {}) => render(<FinancialHistory events={[receipt]
 const rows = () => within(screen.getByRole("table")).getAllByRole("row").slice(1);
 const mainValues = () => rows().map((row) => within(row).getAllByRole("cell")[2].textContent);
 
+test("Histórico permanece somente consulta mesmo para Administrador autorizado", () => {
+  const context = { patientId: 2, patientName: "Paciente sintético", onPaymentVoided: jest.fn() };
+  const view = renderHistory(context);
+  expect(screen.queryByRole("button", { name: /Anular recebimento/ })).not.toBeInTheDocument();
+  useAuthorization.mockReturnValue({ isAdministrator: true, canAccessModule: () => true, hasCapability: () => false });
+  view.rerender(<FinancialHistory events={[receipt]} formatCurrency={money} {...context} />);
+  expect(screen.queryByRole("button", { name: /Anular recebimento/ })).not.toBeInTheDocument();
+  useAuthorization.mockReturnValue({ isAdministrator: true, canAccessModule: () => true, hasCapability: () => true });
+  view.rerender(<FinancialHistory events={[receipt]} formatCurrency={money} {...context} />);
+  expect(screen.queryByRole("button", { name: /Anular recebimento/ })).not.toBeInTheDocument();
+  view.rerender(<FinancialHistory events={[{ ...receipt, voided: true }]} formatCurrency={money} {...context} />);
+  expect(screen.queryByRole("button", { name: /Anular recebimento/ })).not.toBeInTheDocument();
+});
+
 test("tabela compacta agrupa cancelamento e crédito da mesma operação sem somar duas vezes", () => {
   const events = [receipt, receipt, cancellation, release, {
     id: "usage:1", type: "CREDIT_APPLIED", amount_cents: 4000,
@@ -48,7 +65,7 @@ test("tabela compacta agrupa cancelamento e crédito da mesma operação sem som
   expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Registrado em", "Movimento", "Valor", "Detalhes"]);
   expect(rows()).toHaveLength(3);
   expect(screen.queryByRole("list")).not.toBeInTheDocument();
-  expect(screen.getByText("Sessão de 28/10 cancelada — R$ 100.00 liberados como crédito")).toBeInTheDocument();
+  expect(screen.getByText("Cancelamento da sessão")).toBeInTheDocument();
   expect(mainValues()).toEqual(["R$ 400.00", "R$ 100.00", "R$ 40.00"]);
   expect(screen.queryByText("R$ 200.00")).not.toBeInTheDocument();
   const grouped = rows()[1];
@@ -64,7 +81,7 @@ test("tabela compacta agrupa cancelamento e crédito da mesma operação sem som
   expect(within(grouped).getAllByText("Pessoa autorizada")).toHaveLength(1);
   expect(within(grouped).getAllByText("Cancelamento definitivo")).toHaveLength(1);
   expect(grouped).not.toHaveTextContent(/25\/12\/2026|financial-cancellation|#51|#81|#70|#30/);
-  ["Cancelamento da sessão", "Liberação de crédito", "Valor registrado", "Origem", "Destino", "Operação", "Forma"].forEach((text) => {
+  ["Liberação de crédito", "Valor registrado", "Origem", "Destino", "Operação", "Forma"].forEach((text) => {
     expect(within(grouped).queryByText(text)).not.toBeInTheDocument();
   });
   expect(screen.queryByText(/Contas consultadas:/)).not.toBeInTheDocument();
@@ -181,7 +198,7 @@ test("datas sem horário não inventam meia-noite nem deslocam o dia pelo fuso",
 test("privacidade mascara o movimento agrupado e histórico vazio válido não reconstrói recibos", () => {
   const { rerender } = renderHistory({ events: [cancellation, release], formatCurrency: () => "R$ ••••" });
   expect(mainValues()).toEqual(["R$ ••••"]);
-  expect(screen.getByText("Sessão de 28/10 cancelada — R$ •••• liberados como crédito")).toBeInTheDocument();
+  expect(screen.getByText("Cancelamento da sessão")).toBeInTheDocument();
   expect(screen.queryByText(/100.00/)).not.toBeInTheDocument();
   rerender(<FinancialHistory events={[]} receipts={[{ payment: { id: 81 }, amountCents: 40000 }]}
     formatCurrency={money} />);
@@ -256,7 +273,7 @@ test("somente a frase genérica exata do uso de crédito é ocultada, preservand
   ] });
   expect(screen.getAllByText("Aplicação de crédito em cobrança")).toHaveLength(1);
   expect(screen.getByText("Aplicação de crédito em cobrança: solicitado pela paciente")).toBeInTheDocument();
-  expect(rows()[2].querySelectorAll("dt")).toHaveLength(3);
+  expect(rows()[2].querySelectorAll("dt")).toHaveLength(5);
   expect(rows()[2]).not.toHaveTextContent("Observação");
 });
 
@@ -294,7 +311,7 @@ test("registro real ordena recebimentos futuros e retroativos, crédito e cancel
     expect(cell).not.toHaveTextContent(/25\/10|01\/09|09:00:00/);
   });
   expect(recordCells[0].querySelector("time")).toHaveAttribute("datetime", used.recorded_at);
-  expect(screen.getAllByText(/liberados como crédito/)).toHaveLength(1);
+  expect(screen.getByText("Cancelamento da sessão")).toBeInTheDocument();
   expect(within(rows()[2]).getByText("Recebido em").nextSibling).toHaveTextContent(/^25\/10\/2026$/);
   expect(within(rows()[3]).getByText("Recebido em").nextSibling).toHaveTextContent(/^01\/09\/2026$/);
 });
@@ -399,4 +416,49 @@ test.each(["created_at", "createdAt"])("compatibilidade sem eventos usa criaçã
   expect(cell).toHaveTextContent("30/09/2026");
   expect(cell).toHaveTextContent("10:27");
   expect(cell.querySelector("time")).toHaveAttribute("datetime", "2026-09-30T13:27:15.000Z");
+});
+
+test("uso de crédito explicita consumo, desconto, motivo e autoria sem confundir caixa", () => {
+  renderHistory({ events: [{ id: "credit-command-81", type: "CREDIT_APPLIED", amount_cents: 23000,
+    original_amount_cents: 23000, discount_cents: 1000, adjustment_reason: "Ajuste autorizado",
+    reference: "Créd. 01", payment_method_name: "Crédito disponível", occurred_at: "2026-10-08T12:00:00Z",
+    recorded_at: "2026-10-08T12:00:00Z", actor: { name: "Administrador sintético" },
+    source: {}, historical_details_available: true, credit_destination_details_available: true, applied_destinations: [],
+  }] });
+  fireEvent.click(screen.getByText("Ver detalhes"));
+  expect(screen.getByText("Crédito consumido").nextSibling).toHaveTextContent("R$ 230.00");
+  expect(screen.getByText("Desconto").nextSibling).toHaveTextContent("R$ 10.00");
+  expect(screen.getByText("Motivo do desconto").nextSibling).toHaveTextContent("Ajuste autorizado");
+  expect(screen.getByText("Responsável").nextSibling).toHaveTextContent("Administrador sintético");
+  expect(screen.getByText("Pagamento").nextSibling).toHaveTextContent("Créd. 01");
+});
+
+test("desconto histórico sem motivo persistido não inventa informação", () => {
+  renderHistory({ events: [{ id: "credit-command-82", type: "CREDIT_APPLIED", amount_cents: 23000,
+    discount_cents: 1000, occurred_at: "2026-10-08T12:00:00Z", source: {}, actor: { name: "Administrador" } }] });
+  fireEvent.click(screen.getByText("Ver detalhes"));
+  expect(screen.getByText("Motivo do desconto").nextSibling).toHaveTextContent("Não registrado nesta operação");
+});
+
+test("Movimento mantém somente o tipo e a ação permanece na quarta coluna ao expandir várias linhas", () => {
+  renderHistory({ events: [{ ...receipt, reference: "Rec. 01", payment_method_name: "Pix" }, {
+    id: "credit-command-83", type: "CREDIT_APPLIED", amount_cents: 23000, discount_cents: 1000,
+    reference: "Créd. 01", adjustment_reason: "Ajuste autorizado", occurred_at: "2026-10-08T12:00:00Z",
+  }] });
+  const table = screen.getByRole("table");
+  expect(table).toHaveStyle({ tableLayout: "fixed", minWidth: "620px" });
+  const movements = rows().map((row) => within(row).getAllByRole("cell")[1]);
+  expect(movements.map((cell) => cell.textContent)).toEqual(["Recebimento", "Uso de crédito"]);
+  movements.forEach((cell) => expect(cell).not.toHaveTextContent(/R\$|Pix|Rec\.|Créd\./));
+  const actions = rows().map((row) => within(row).getAllByRole("cell")[3]);
+  actions.forEach((cell) => fireEvent.click(within(cell).getByRole("button", { name: "Ver detalhes" })));
+  expect(actions[0]).toHaveTextContent("Rec. 01");
+  expect(actions[1]).toHaveTextContent("Ajuste autorizado");
+  actions.forEach((cell) => {
+    const button = within(cell).getByRole("button", { name: "Ocultar detalhes" });
+    expect(button.closest("td")).toBe(cell);
+    fireEvent.click(button);
+    expect(within(cell).getByRole("button", { name: "Ver detalhes" })).toHaveAttribute("aria-expanded", "false");
+  });
+  expect(rows().map((row) => within(row).getAllByRole("cell")[1].textContent)).toEqual(["Recebimento", "Uso de crédito"]);
 });

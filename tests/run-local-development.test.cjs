@@ -116,6 +116,20 @@ test('keeps persistent validation closed to its versioned local endpoints', () =
   }
 });
 
+test('persists financeiro estorno only at its closed isolated endpoints', () => {
+  const temporaryRepository = makeTemporaryRepository();
+  try {
+    fs.writeFileSync(path.join(temporaryRepository, '.env.local'), 'MOTRIA_LOCAL_STACK_SLOT=financeiro-estorno\n', 'utf8');
+    const child = buildChildEnvironment(temporaryRepository, {});
+    assert.equal(child.PORT, '3020');
+    assert.equal(proxyTargetForEnvironment(child), 'http://127.0.0.1:3026');
+    assert.equal(setupProxy.proxyTargetForEnvironment(child), 'http://127.0.0.1:3026');
+    assert.throws(() => buildChildEnvironment(temporaryRepository, { PORT: '3000' }), /LOCAL_ENVIRONMENT_CONFLICT/);
+  } finally {
+    fs.rmSync(temporaryRepository, { recursive: true, force: true });
+  }
+});
+
 test('rejects unknown or persisted local stack slots', () => {
   const temporaryRepository = makeTemporaryRepository();
   try {

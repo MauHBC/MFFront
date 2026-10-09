@@ -1,0 +1,61 @@
+import React from "react";
+import "@testing-library/jest-dom";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import FinancialPaymentVoidModal from "./FinancialPaymentVoidModal";
+import { getFinancialReceiptDetails, voidFinancialPayment } from "../../../services/financial";
+
+jest.mock("../../../services/financial", () => ({ getFinancialReceiptDetails: jest.fn(), voidFinancialPayment: jest.fn() }));
+jest.mock("../../../services/axios", () => ({ getUserFacingApiError: (error, fallback) => error?.response?.data?.error || fallback }));
+const props = { target: { paymentId: 81, patientId: 2, patientName: "Paciente sintético" }, formatCurrency: (value) => `R$ ${value / 100}`, onClose: jest.fn(), onCompleted: jest.fn() };
+const payment = { id: 81, patient_id: 2, amount_cents: 10000, paid_at: "2026-10-01", voided: false };
+beforeEach(() => { jest.clearAllMocks(); getFinancialReceiptDetails.mockResolvedValue({ data: payment }); });
+test("confere identidade, exige motivo e confirma o valor integral uma única vez", async () => {
+  let resolve;
+  voidFinancialPayment.mockReturnValue(new Promise((done) => { resolve = done; }));
+  render(<FinancialPaymentVoidModal {...props} />);
+  const confirm = await screen.findByRole("button", { name: "Confirmar anulação integral" });
+  expect(confirm).toBeDisabled();
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "  Duplicidade indevida  " } });
+  fireEvent.click(confirm); fireEvent.click(confirm);
+  expect(voidFinancialPayment).toHaveBeenCalledTimes(1);
+  expect(voidFinancialPayment.mock.calls[0][1]).toEqual({ correction_type: "VOID_WRONG_PAYMENT", reason: "Duplicidade indevida" });
+  await act(async () => resolve({ data: { payment_id: 81, correction_type: "VOID_WRONG_PAYMENT", amount_cents: 10000 } }));
+  expect(props.onCompleted).toHaveBeenCalledTimes(1);
+});
+test("timeout preserva chave e comando e bloqueia edição e saída até verificar resultado", async () => {
+  voidFinancialPayment.mockRejectedValueOnce(new Error("timeout"));
+  render(<FinancialPaymentVoidModal {...props} />);
+  await screen.findByRole("textbox");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Recebimento errado" } });
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar anulação integral" }));
+  await screen.findByRole("button", { name: "Verificar resultado" });
+  expect(screen.getByRole("textbox")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Voltar" })).toBeDisabled();
+  voidFinancialPayment.mockResolvedValue({ data: { payment_id: 81, correction_type: "VOID_WRONG_PAYMENT", amount_cents: 10000 } });
+  fireEvent.click(screen.getByRole("button", { name: "Verificar resultado" }));
+  await waitFor(() => expect(props.onCompleted).toHaveBeenCalled());
+  expect(voidFinancialPayment.mock.calls[1]).toEqual(voidFinancialPayment.mock.calls[0]);
+});
+test("não oferece confirmação para resposta de outro paciente, erro ou recebimento já anulado", async () => {
+  getFinancialReceiptDetails.mockResolvedValue({ data: { ...payment, patient_id: 3 } });
+  const view = render(<FinancialPaymentVoidModal {...props} />);
+  await screen.findByRole("alert");
+  expect(screen.queryByRole("button", { name: "Confirmar anulação integral" })).not.toBeInTheDocument();
+  view.unmount();
+  getFinancialReceiptDetails.mockResolvedValue({ data: { ...payment, voided: true } });
+  render(<FinancialPaymentVoidModal {...props} />);
+  await screen.findByText("Este recebimento já foi anulado.");
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+});
+test("bloqueio conhecido permite corrigir motivo; dupla anulação concorrente atualiza Histórico", async () => {
+  voidFinancialPayment.mockRejectedValueOnce({ response: { status: 409, data: { error: "Histórico incompatível" } } });
+  render(<FinancialPaymentVoidModal {...props} />);
+  await screen.findByRole("textbox");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Motivo" } });
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar anulação integral" }));
+  await screen.findByText("Histórico incompatível");
+  expect(screen.getByRole("textbox")).toBeEnabled();
+  voidFinancialPayment.mockRejectedValueOnce({ response: { status: 409, data: { code: "FINANCIAL_PAYMENT_ALREADY_VOIDED" } } });
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar anulação integral" }));
+  await waitFor(() => expect(props.onCompleted).toHaveBeenCalledTimes(1));
+});
