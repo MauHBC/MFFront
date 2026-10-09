@@ -26,7 +26,7 @@ jest.mock("../pages/PatientSelfSignup", () => () => null);
 jest.mock("../pages/PatientsNew", () => () => null);
 jest.mock("../pages/PatientsSearch", () => () => null);
 jest.mock("../pages/PatientDetails", () => () => null);
-jest.mock("../pages/Agendamentos", () => () => null);
+jest.mock("../pages/Agendamentos", () => () => <h1>Agenda autenticada</h1>);
 jest.mock("../pages/Dashboard", () => () => null);
 jest.mock("../pages/PatientEvaluationNew", () => () => null);
 jest.mock("../pages/PatientEvaluationDetails", () => () => null);
@@ -168,7 +168,17 @@ test("admin membership por URL direta recebe aviso; recuperação autenticada us
   expectNoAccountRequests();
 });
 
-test("voltar ao início usa a rota canônica sem logout", async () => {
+test("voltar ao início abre Agenda permitida sem logout", async () => {
+  const { history, store } = renderAccountRoute();
+  fireEvent.click(await screen.findByRole("link", { name: "Voltar ao início" }));
+  expect(history.location.pathname).toBe("/agendamentos");
+  expect(screen.getByRole("heading", { name: "Agenda autenticada" })).toBeInTheDocument();
+  expect(store.getState().auth.isLoggedIn).toBe(true);
+  expectNoAccountRequests();
+});
+
+test("voltar ao início preserva fallback sem acesso à Agenda e sem logout", async () => {
+  currentContext.modules.find((module) => module.module_key === "schedule").access_level = "none";
   const { history, store } = renderAccountRoute();
   fireEvent.click(await screen.findByRole("link", { name: "Voltar ao início" }));
   expect(history.location.pathname).toBe("/menu");

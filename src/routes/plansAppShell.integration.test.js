@@ -31,7 +31,8 @@ jest.mock("../hooks/useAuth", () => ({
 jest.mock("../hooks/useLogout", () => ({ useLogout: () => jest.fn() }));
 jest.mock("../contexts/AuthorizationContext", () => ({
   useAuthorization: () => ({
-    canViewTeam: false, canAccessModule: () => true, hasCapability: () => true,
+    status: "ready",
+    canViewTeam: false, canAccessModule: (moduleKey) => moduleKey !== "schedule", hasCapability: () => true,
   }),
 }));
 jest.mock("../pages/Equipe", () => () => <div>Equipe</div>);
@@ -77,8 +78,10 @@ function renderRoutes(pathname) {
 describe("rotas de Planos no App Shell", () => {
   afterEach(cleanup);
 
-  it("navega do Menu para /planos pelo fluxo real e remove a navbar antiga", () => {
+  it("navega do fallback sem Agenda para /planos pelo fluxo real e remove a navbar antiga", () => {
     renderRoutes("/menu");
+
+    expect(screen.queryByRole("link", { name: "Agenda" })).not.toBeInTheDocument();
 
     fireEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Planos" }));
 
