@@ -2339,6 +2339,8 @@ O modal de exportação consolidada apresenta um radio group: Todo o prontuário
 
 Na timeline de evolução, Exportar PDF compartilha a linha de ações e o componente visual de Editar rascunho. As tags continuam no cabeçalho, e a exportação não depende de permissão de edição. A apresentação de autoria lê os vínculos tenant-scoped clinicalAuthorMembership.person e createdByMembership.person enviados pelo Backend, preservando os fallbacks históricos e não inferindo CREFITO.
 
+O prontuário omite autoria/CREFITO ausentes e a data operacional de criação do caso; não mostra badge ou tooltip do estado interno legacy. Autoria existente, rascunhos e evidências de assinatura permanecem. Date-only é apresentado em DD/MM/AAAA sem deslocamento UTC; instantes clínicos usam America/Sao_Paulo. Objetivos estruturados aceitam array ou JSON antigo e exibem rótulos humanos; texto clínico livre não é traduzido. O PDF omite a linha operacional sob o título e a data de exportação do rodapé, conforme a fonte canônica do Backend.
+
 ## Central de Relatórios
 
 `/relatorios` usa AppShell e aparece após Painel, preservando Agenda primeiro.

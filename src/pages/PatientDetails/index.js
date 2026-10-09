@@ -851,8 +851,12 @@ function resolveAddress(patient) {
 }
 
 function buildTreatmentGoalState(patient) {
-  const storedOptions = Array.isArray(patient?.treatment_goal_options)
-    ? [...new Set(patient.treatment_goal_options.filter(Boolean))]
+  let sourceOptions = patient?.treatment_goal_options;
+  if (typeof sourceOptions === "string") {
+    try { sourceOptions = JSON.parse(sourceOptions); } catch { sourceOptions = null; }
+  }
+  const storedOptions = Array.isArray(sourceOptions)
+    ? [...new Set(sourceOptions.filter(Boolean))]
     : null;
   const storedOther = cleanText(patient?.treatment_goal_other) || "";
 
@@ -1384,6 +1388,11 @@ export default function PatientDetails() {
     if (!patient) return "-";
 
     const goalState = buildTreatmentGoalState(patient);
+    if (goalState.options.some((item) => !Object.prototype.hasOwnProperty.call(TREATMENT_GOAL_LABELS, item))
+      || (patient.treatment_goal_options != null && !Array.isArray(patient.treatment_goal_options)
+        && typeof patient.treatment_goal_options !== "string")) {
+      return "Não foi possível apresentar os objetivos. Revise o cadastro.";
+    }
     const labels = goalState.options
       .filter((item) => item !== "other")
       .map((item) => TREATMENT_GOAL_LABELS[item] || item);
@@ -2509,7 +2518,6 @@ export default function PatientDetails() {
             const createdAt = formatClinicalRecordMeta(evaluation);
             const clinicalCase = getEvaluationClinicalCase(evaluation);
             const isSession = evaluation.record_type === "session";
-            const signature = evaluation.clinical_signature;
             const revisions = evaluation.clinical_revisions || [];
             const isFinalized = evaluation.clinical_state === "finalized";
             let recordStatus = "legacy";
@@ -2584,11 +2592,6 @@ export default function PatientDetails() {
 	                      {painLabel && (
 	                        <TimelinePainLine>{painLabel}</TimelinePainLine>
 	                      )}
-                          {(recordStatus === "legacy" || (isFinalized && !signature)) && (
-                            <LegacySignatureNotice>
-                              Registro antigo sem assinatura eletrônica retroativa.
-                            </LegacySignatureNotice>
-                          )}
                           {revisions.map((revision) => (
                             <ClinicalAddendumBlock key={revision.id}>
                               <strong>Adendo</strong>
@@ -3127,14 +3130,11 @@ export default function PatientDetails() {
 			                    </ProntuarioSectionTitle>
 			                    {selectedRecordCase && (
 			                      <>
-			                        <ClinicalCaseMeta>
-			                          {formatClinicalCaseMeta(selectedRecordCase)}
-			                        </ClinicalCaseMeta>
-			                        <ClinicalCaseStatusPill $status={selectedRecordCase.clinical_state}>
+			                        {formatClinicalCaseMeta(selectedRecordCase) && <ClinicalCaseMeta>{formatClinicalCaseMeta(selectedRecordCase)}</ClinicalCaseMeta>}
+			                        {selectedRecordCase.clinical_state !== "legacy" && <ClinicalCaseStatusPill $status={selectedRecordCase.clinical_state}>
 			                          {selectedRecordCase.clinical_state === "draft" && "Rascunho"}
 			                          {selectedRecordCase.clinical_state === "finalized" && "Consolidado"}
-			                          {selectedRecordCase.clinical_state === "legacy" && <span title="Criado antes do fluxo atual de rascunho e finalização">Registro anterior</span>}
-			                        </ClinicalCaseStatusPill>
+			                        </ClinicalCaseStatusPill>}
 			                      </>
 			                    )}
 		                  </div>
@@ -6637,14 +6637,6 @@ const TimelinePainLine = styled.div`
   font-weight: 800;
 `;
 
-const LegacySignatureNotice = styled.div`
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-left: 3px solid #a77a44;
-  background: #fff8ef;
-  color: #6b5235;
-  line-height: 1.45;
-`;
 
 const ClinicalAddendumBlock = styled.div`
   display: grid;
