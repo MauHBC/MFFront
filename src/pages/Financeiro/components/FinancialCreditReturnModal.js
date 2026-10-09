@@ -86,11 +86,12 @@ export default function FinancialCreditReturnModal({ target, formatCurrency, onC
       <ReasonSummary><PaymentLabel as="span">Motivo</PaymentLabel><p>{preview.reason}</p></ReasonSummary>
     </> : <>
       <SummaryLine><span>Crédito disponível:</span> <strong>{formatCurrency(target.creditAvailableCents)}</strong></SummaryLine>
-      <Field><PaymentLabel htmlFor="credit-return-amount">Valor da devolução</PaymentLabel>
-        <CurrencyInputGroup><CurrencyPrefix aria-hidden="true">R$</CurrencyPrefix><CurrencyInput id="credit-return-amount" inputMode="decimal" value={amount} disabled={busy} onChange={(event) => setAmount(sanitizePositiveCurrencyInput(event.target.value))} /></CurrencyInputGroup>
-      {validMoney(value) && value <= target.creditAvailableCents && <RemainingLine><span>Saldo após a devolução:</span> <strong>{formatCurrency(target.creditAvailableCents - value)}</strong></RemainingLine>}
+      <AmountBlock><AmountRow><PaymentLabel htmlFor="credit-return-amount">Valor da devolução</PaymentLabel>
+        <AmountInputGroup><CurrencyPrefix aria-hidden="true">R$</CurrencyPrefix><CurrencyInput id="credit-return-amount" inputMode="decimal" value={amount} disabled={busy} onChange={(event) => setAmount(sanitizePositiveCurrencyInput(event.target.value))} /></AmountInputGroup>
+      </AmountRow>
+      {validMoney(value) && value <= target.creditAvailableCents && <SummaryLine><span>Saldo após a devolução:</span> <strong>{formatCurrency(target.creditAvailableCents - value)}</strong></SummaryLine>}
       {value > target.creditAvailableCents && <p role="alert">O valor não pode ultrapassar o crédito disponível.</p>}
-      </Field>
+      </AmountBlock>
       <Field><PaymentLabel htmlFor="credit-return-reason">Motivo</PaymentLabel><PaymentTextArea id="credit-return-reason" aria-required="true" maxLength={1000} value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} /></Field>
     </>}
     {error && <p role="alert">{error}</p>}
@@ -111,8 +112,10 @@ const Header = styled.div`padding: 18px 20px 16px; border-bottom: 1px solid ${co
 const PatientName = styled.p`color: ${colors.textSecondary};`;
 const Body = styled.div`padding: 20px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; min-height: 0; @media (max-width: 440px) { padding: 16px; gap: 16px; }`;
 const Field = styled(PaymentField)`display: flex; flex-direction: column; gap: 8px; margin: 0; min-width: 0;`;
+const AmountBlock = styled.div`display: flex; flex-direction: column; gap: 16px; min-width: 0;`;
+const AmountRow = styled.div`display: flex; justify-content: space-between; align-items: center; gap: 16px; min-width: 0; @media (max-width: 440px) { flex-direction: column; align-items: stretch; gap: 8px; }`;
+const AmountInputGroup = styled(CurrencyInputGroup)`width: 210px; flex: 0 0 210px; min-width: 0; box-sizing: border-box; input { text-align: right; min-width: 0; } @media (max-width: 440px) { width: 100%; flex: none; }`;
 const Summary = styled.div`display: flex; flex-direction: column; gap: 12px;`;
 const SummaryLine = styled.p`display: flex; justify-content: space-between; align-items: baseline; gap: 8px 16px; flex-wrap: wrap; strong { white-space: nowrap; }`;
-const RemainingLine = styled(SummaryLine)`font-size: 14px; color: ${colors.textSecondary};`;
 const ReasonSummary = styled.div`display: flex; flex-direction: column; gap: 8px;`;
 const Actions = styled.div`padding: 16px 20px; border-top: 1px solid ${colors.borderSubtle}; display: flex; justify-content: flex-end; gap: 12px; flex-shrink: 0; flex-wrap: wrap; @media (max-width: 440px) { padding: 12px 16px; button { white-space: normal; } }`;
