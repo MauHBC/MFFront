@@ -8,7 +8,7 @@ import {
 
 describe("clinical record presentation", () => {
   it("apresenta data, hora, profissional e CREFITO no mesmo metadado", () => {
-    const date = new Date(2026, 7, 4, 14, 35, 0);
+    const date = new Date("2026-08-04T17:35:00Z");
     const record = {
       created_at: date.toISOString(),
       clinicalAuthorProfessional: {
@@ -26,7 +26,7 @@ describe("clinical record presentation", () => {
   it("usa nome da conta em registros legados sem atuação vinculada", () => {
     expect(formatClinicalRecordAuthor({
       clinicalAuthorUser: { name: "Profissional legado" },
-    })).toBe("Profissional legado · CREFITO não informado");
+    })).toBe("Profissional legado");
   });
 
   it("resolve CREFITO canônico quando o legado registra somente a conta autora", () => {
@@ -46,7 +46,7 @@ describe("clinical record presentation", () => {
 
   it("falha de forma explícita quando o legado não possui autoria", () => {
     expect(formatClinicalRecordAuthor({})).toBe(
-      "Profissional não identificado · CREFITO não informado",
+      "",
     );
     expect(formatClinicalRecordDateTime(null)).toBe("--/--/---- --:--");
   });
@@ -67,7 +67,7 @@ describe("clinical record presentation", () => {
       },
     };
 
-    expect(formatClinicalCaseMeta(clinicalCase)).toContain("Adicionado em 05/08/2026");
+    expect(formatClinicalCaseMeta(clinicalCase)).not.toContain("Adicionado em");
     expect(formatClinicalCaseMeta(clinicalCase)).toContain(
       "MHBC · CREFITO 15/123456789F",
     );
@@ -111,14 +111,21 @@ describe("clinical record presentation", () => {
     };
 
     expect(formatClinicalCaseAuthor(legacyCase)).toBe(
-      "Autoria não identificada · CREFITO não informado",
+      "",
     );
     expect(formatClinicalCaseMeta(legacyCase)).not.toContain("Usuário atual");
   });
 });
 
+test("preserva a data clínica date-only e omite placeholders e separadores órfãos", () => {
+  expect(formatClinicalRecordDateTime("2026-06-08")).toBe("08/06/2026");
+  expect(formatClinicalRecordMeta({ created_at: "2026-06-08", updated_at: "2026-06-09T15:00:00Z" })).toBe("08/06/2026");
+  expect(formatClinicalRecordDateTime("2026-06-09T01:00:00Z")).toContain("08/06/2026");
+  expect(formatClinicalCaseMeta({ created_at: "2026-06-09T15:00:00Z", started_on: "2026-06-08" })).toBe("");
+});
+
 test("uses the tenant-scoped membership author for clinical records and cases", () => {
   const person = { name: "Autoria sintética do membership" };
-  expect(formatClinicalRecordAuthor({ clinicalAuthorMembership: { person } })).toBe("Autoria sintética do membership · CREFITO não informado");
-  expect(formatClinicalCaseAuthor({ createdByMembership: { person } })).toBe("Autoria sintética do membership · CREFITO não informado");
+  expect(formatClinicalRecordAuthor({ clinicalAuthorMembership: { person } })).toBe("Autoria sintética do membership");
+  expect(formatClinicalCaseAuthor({ createdByMembership: { person } })).toBe("Autoria sintética do membership");
 });

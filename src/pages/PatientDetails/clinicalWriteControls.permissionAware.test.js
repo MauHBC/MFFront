@@ -242,6 +242,32 @@ describe("PatientDetails clinical write controls permission matrix", () => {
     configureRequests();
   });
 
+  test.each([
+    ["array", ["reduce_pain", "recover_movement"]],
+    ["JSON antigo", '["reduce_pain","recover_movement"]'],
+  ])("mostra objetivos estruturados como rótulos humanos: %s", async (_name, options) => {
+    authorize();
+    const originalGet = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url) => url === "/patients/101"
+      ? response({ ...patient, treatment_goal_options: options }) : originalGet(url));
+    renderPage();
+    await waitForPatient();
+    fireEvent.click(screen.getByRole("button", { name: "Dados" }));
+    expect(screen.getByText("Reduzir dor | Recuperar movimento")).toBeInTheDocument();
+    expect(screen.queryByText(/reduce_pain|recover_movement/)).not.toBeInTheDocument();
+  });
+
+  test("caso antigo não expõe ruído técnico nem metadados ausentes", async () => {
+    authorize();
+    listPatientClinicalCases.mockResolvedValue(response([{ ...clinicalCase, clinical_state: "legacy", created_by: null }]));
+    renderPage();
+    await waitForPatient();
+    await openCase();
+    ["Registro anterior", "Autoria não identificada", "CREFITO não informado", "Adicionado em", "Registro antigo sem assinatura"].forEach((label) => {
+      expect(screen.queryByText(new RegExp(label))).not.toBeInTheDocument();
+    });
+  });
+
   test("read-only preserves clinical reading and hides every clinical mutation entry", async () => {
     authorize();
     renderPage();

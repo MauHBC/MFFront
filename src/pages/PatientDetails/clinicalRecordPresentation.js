@@ -5,6 +5,7 @@ const value = (source, ...keys) => keys.reduce(
 
 export function formatClinicalRecordDateTime(input) {
   if (!input) return "--/--/---- --:--";
+  if (typeof input === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input)) return input.split("-").reverse().join("/");
   const date = new Date(input);
   if (Number.isNaN(date.getTime())) return "--/--/---- --:--";
   return date.toLocaleString("pt-BR", {
@@ -13,6 +14,7 @@ export function formatClinicalRecordDateTime(input) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
   });
 }
 
@@ -32,8 +34,7 @@ export function formatClinicalRecordAuthor(record) {
     "clinic_professional",
   );
   const identity = professional || legacyProfessional;
-  const name = String(person?.name || authorPerson?.name || authorUser?.name || "").trim()
-    || "Profissional não identificado";
+  const name = String(person?.name || authorPerson?.name || authorUser?.name || "").trim();
   const region = String(value(
     identity,
     "registration_region",
@@ -46,14 +47,14 @@ export function formatClinicalRecordAuthor(record) {
   ) || "").trim();
   const registration = region && number
     ? `CREFITO ${region}/${number}`
-    : "CREFITO não informado";
-  return `${name} · ${registration}`;
+    : "";
+  return [name, registration].filter(Boolean).join(" · ");
 }
 
 export function formatClinicalRecordMeta(record) {
-  return `${formatClinicalRecordDateTime(
+  return [formatClinicalRecordDateTime(
     record?.created_at || record?.createdAt,
-  )} · ${formatClinicalRecordAuthor(record)}`;
+  ), formatClinicalRecordAuthor(record)].filter(Boolean).join(" · ");
 }
 
 export function formatClinicalCaseAuthor(clinicalCase) {
@@ -63,10 +64,10 @@ export function formatClinicalCaseAuthor(clinicalCase) {
   const professional = value(person, "ClinicProfessional", "clinic_professional");
 
   if (!person) {
-    return "Autoria não identificada · CREFITO não informado";
+    return "";
   }
 
-  const name = String(person.name || "").trim() || "Autoria não identificada";
+  const name = String(person.name || "").trim();
   const region = String(value(
     professional,
     "registration_region",
@@ -79,13 +80,11 @@ export function formatClinicalCaseAuthor(clinicalCase) {
   ) || "").trim();
   const registration = region && number
     ? `CREFITO ${region}/${number}`
-    : "CREFITO não informado";
+    : "";
 
-  return `${name} · ${registration}`;
+  return [name, registration].filter(Boolean).join(" · ");
 }
 
 export function formatClinicalCaseMeta(clinicalCase) {
-  return `Adicionado em ${formatClinicalRecordDateTime(
-    clinicalCase?.created_at || clinicalCase?.createdAt,
-  )} · ${formatClinicalCaseAuthor(clinicalCase)}`;
+  return formatClinicalCaseAuthor(clinicalCase);
 }
