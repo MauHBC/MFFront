@@ -290,7 +290,8 @@ test("legacy mantém edição, troca de senha e desativação com HTTP observáv
     expect(screen.queryByLabelText("Nome:")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Salvar" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("link", { name: "Voltar ao início" }));
-    expect(history.location.pathname).toBe("/menu");
+    expect(history.location.pathname).toBe("/agendamentos");
+    expect(screen.getByRole("heading", { name: "Agenda autenticada" })).toBeInTheDocument();
     expect(store.getState().auth.token).toBe(realBackend.administrator.token);
     expect(actions).not.toContain("LOGIN_FAILURE");
   });
@@ -308,7 +309,8 @@ test("legacy mantém edição, troca de senha e desativação com HTTP observáv
     fireEvent.click(await screen.findByRole("link", { name: "Recuperar senha" }));
     fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: realBackend.administrator.user.email } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar link" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Se a conta estiver apta");
+    expect(await screen.findByText("Se a conta estiver apta, enviaremos um link para o e-mail informado."))
+      .toHaveAttribute("role", "status");
     expect(store.getState().auth.isLoggedIn).toBe(true);
     expect(actions).not.toContain("LOGIN_FAILURE");
     const response = await api.get("/team/authorization-context");
