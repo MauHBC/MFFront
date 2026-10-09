@@ -91,10 +91,18 @@ liga o transporte real.
 
 
 Fechamento técnico: 99/99 testes em sete suítes pertinentes; oito regressões selecionadas
-da Agenda, launcher 11/11, build, lint focado e UTF-8 aprovados. O resultado da execução
-integral de 134 casos da Agenda não foi obtido durante a perda do executor; ela não foi
-repetida para preservar contenção com a investigação de timeouts de Relatórios.
-Esse gate integral permanece explicitamente não confirmado nesta extensão.
+da Agenda, launcher 11/11, build, lint focado e UTF-8 aprovados. Após a reconexão, a
+execução integral inicialmente teve 126 aprovados e oito timeouts de 5.000 ms (463,744 s).
+O recorte desses oito teve sete aprovados e um timeout; o caso restante também falhou
+sozinho e passou em diagnóstico separado com o componente WhatsApp substituído por null.
+O painel agora só monta seus estados e efeitos após disponibilidade e permissão válidas.
+Sem alterar testes ou timeouts, a nova execução integral aprovou 134/134 (216,03 s),
+registrada em `whatsapp-agenda-complete-inert-20261009.log`. O diagnóstico não prova uma
+causa exclusiva para todos os timeouts; o resultado aprovado pertence à execução completa
+da branch após a correção. Os seis testes do painel também passaram.
+Lint do componente alterado, UTF-8, build e diffcheck passaram. Uma invocação adicional
+de lint incluindo o teste do painel apontou `no-nested-ternary` preexistente no mock de
+`WhatsAppReminders.test.js:15`; esse arquivo e a suíte da Agenda não foram alterados.
 `DOCUMENTATION_IMPACT = UPDATE_REQUIRED`: este guia e frontend-module-architecture.md.
 
 A promoção para catálogo 9 também preserva o contrato de histórico de unidades de pacote:

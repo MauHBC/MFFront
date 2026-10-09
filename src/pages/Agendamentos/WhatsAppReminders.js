@@ -50,6 +50,11 @@ const formatAgendaDateTime = (value) => `${formatAgendaDate(value)} às ${format
 
 export default function WhatsAppReminders({ sessions, getPatientName, autoOpen }) {
   const authorization = useAuthorization();
+  if (authorization.status !== 'ready' || authorization.canAccessModule?.('whatsapp') !== true || authorization.canAccessModule?.('schedule') !== true) return null;
+  return <AuthorizedWhatsAppReminders sessions={sessions} getPatientName={getPatientName} autoOpen={autoOpen} authorization={authorization} />;
+}
+
+function AuthorizedWhatsAppReminders({ sessions, getPatientName, autoOpen, authorization }) {
   const authorizationContext = authorization.context;
   const activeContext = useRef(authorizationContext);
   activeContext.current = authorizationContext;
@@ -181,3 +186,13 @@ WhatsAppReminders.propTypes = {
   autoOpen: PropTypes.bool,
 };
 WhatsAppReminders.defaultProps = { getPatientName: null, autoOpen: false };
+AuthorizedWhatsAppReminders.propTypes = {
+  ...WhatsAppReminders.propTypes,
+  authorization: PropTypes.shape({
+    context: PropTypes.shape({}),
+    status: PropTypes.string,
+    canAccessModule: PropTypes.func,
+    isAdministrator: PropTypes.bool,
+  }).isRequired,
+};
+AuthorizedWhatsAppReminders.defaultProps = WhatsAppReminders.defaultProps;
