@@ -1,5 +1,6 @@
 import React from "react";
 import { Redirect, Switch, useLocation } from "react-router-dom";
+import Reports from "../pages/Reports";
 
 import MyRoute from "./MyRoute";
 
@@ -93,6 +94,7 @@ export default function Routes() {
     || location.pathname.startsWith("/configuracoes/");
   const usesAppShell = [
     "/menu",
+    "/relatorios",
     "/painel",
     "/dashboard",
     "/agendamentos",
@@ -126,6 +128,7 @@ export default function Routes() {
         <MyRoute exact path="/c/:token" component={PatientSelfSignup} isClosed={false} />
 
         {/* Rotas protegidas */}
+        <MyRoute exact path="/relatorios" component={Reports} isClosed />
         <MyRoute exact path="/register/" component={Register} isClosed administratorOnly />
         <MyRoute exact path="/pacientes" component={PatientsSearch} isClosed requiredModule="patients" />
         <MyRoute exact path="/pacientes/novo" component={PatientsNew} isClosed requiredModule="patients" minimumAccessLevel="manage" />

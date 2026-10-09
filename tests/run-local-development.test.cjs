@@ -20,6 +20,19 @@ function makeTemporaryRepository() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'motria-frontend-local-'));
 }
 
+test('reports preview uses its own closed loopback slot and rejects endpoint overrides', () => {
+  const child = buildChildEnvironment(repositoryRoot, { MOTRIA_LOCAL_STACK_SLOT: 'reports-preview' });
+  assert.equal(child.PORT, '3040');
+  assert.equal(child.REACT_APP_API_BASE_URL, 'http://127.0.0.1:3046/api');
+  assert.equal(proxyTargetForEnvironment(child), 'http://127.0.0.1:3046');
+  assert.throws(() => buildChildEnvironment(repositoryRoot, {
+    MOTRIA_LOCAL_STACK_SLOT: 'reports-preview', PORT: '3030',
+  }), /PORT/);
+  assert.throws(() => buildChildEnvironment(repositoryRoot, {
+    MOTRIA_LOCAL_STACK_SLOT: 'reports-preview', REACT_APP_API_BASE_URL: 'https://external.example.test/api',
+  }), /REACT_APP_API_BASE_URL/);
+});
+
 test('applies the versioned localhost contract to a new worktree', () => {
   const temporaryRepository = makeTemporaryRepository();
   try {

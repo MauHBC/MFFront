@@ -2251,3 +2251,38 @@ MOTRIA_LOCAL_STACK_SLOT=financeiro-estorno em .env.local ignorado e inicia
 com npm run dev. A API usa o MariaDB descartável próprio e preserva a fixture
 sintética existente; nunca usa banco persistente nem movimentos reais.
 A aprovação visual final pertence ao usuário.
+
+## Central de Relatórios
+
+`/relatorios` usa AppShell e aparece após Painel, preservando Agenda primeiro.
+A entrada existe quando `schedule` ou `patients` permite leitura; acesso direto
+sem esses domínios mostra estado sem acesso e não consulta relatórios.
+Resumo do dia e Agenda e presença exigem Agenda; Aniversariantes exige Pacientes.
+Filtros próprios, totais por estado que filtram a tabela, páginas de 20 registros,
+erro/vazio e controles responsivos consomem as projeções do Backend.
+A fonte funcional é `MFBackend/docs/regras-negocio/relatorios.md`; a UI não
+redefine calendário, escopo, estado realizado ou regras financeiras.
+O atalho Receitas usa o parâmetro mensal existente `month=YYYY-MM` no módulo
+canônico. O link de visão geral não promete aplicar filtros nem conceder acesso
+a Recebido e pago, cuja autorização continua no Financeiro.
+Não há novas exportações, comunicações ou notificações.
+Validação: testes de Reports, AppShell/navegação e rotas, lint, mojibake e build.
+
+A prévia de Relatórios tem o slot fechado `reports-preview`: Frontend 3040,
+API loopback 3046, selecionado por `MOTRIA_LOCAL_STACK_SLOT` antes de
+`npm run dev`. Overrides de host/porta/API continuam rejeitados. O slot não
+inicia serviços automaticamente nem altera os demais slots; a inicialização
+manual depende da autorização do usuário e usa a fixture descartável do Backend.
+Resultados são vinculados ao contexto autorizado e filtros que os produziram;
+respostas anteriores não permanecem visíveis após troca de contexto/filtro.
+
+A troca de permissões seleciona um relatório ainda permitido e invalida dados
+anteriores, inclusive referências profissionais de outro contexto. A rolagem de
+cards e paginação aguarda a resposta dos filtros solicitados; respostas
+interrompidas não atualizam dados nem acionam rolagem de um filtro anterior.
+<!-- Relatórios: refinamento de densidade -->
+Relatórios reutiliza `AppButton`, superfícies e tipografia de `AppMetricCard`,
+`AppTable` e os tokens compartilhados. O cabeçalho é sucinto, os filtros têm
+controles consistentes e os totais abrem a lista correspondente. A seleção é
+anunciada com `aria-pressed`; controles de navegação mantêm altura de 44px.
+Tabelas conservam rolagem horizontal no mobile e paginação de 20 registros.
