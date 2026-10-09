@@ -26,7 +26,7 @@ jest.mock("../pages/PatientSelfSignup", () => () => null);
 jest.mock("../pages/PatientsNew", () => () => null);
 jest.mock("../pages/PatientsSearch", () => () => null);
 jest.mock("../pages/PatientDetails", () => () => null);
-jest.mock("../pages/Agendamentos", () => () => null);
+jest.mock("../pages/Agendamentos", () => () => <h1>Agenda autenticada</h1>);
 jest.mock("../pages/Dashboard", () => () => null);
 jest.mock("../pages/PatientEvaluationNew", () => () => null);
 jest.mock("../pages/PatientEvaluationDetails", () => () => null);
@@ -168,7 +168,17 @@ test("admin membership por URL direta recebe aviso; recuperação autenticada us
   expectNoAccountRequests();
 });
 
-test("voltar ao início usa a rota canônica sem logout", async () => {
+test("voltar ao início abre Agenda permitida sem logout", async () => {
+  const { history, store } = renderAccountRoute();
+  fireEvent.click(await screen.findByRole("link", { name: "Voltar ao início" }));
+  expect(history.location.pathname).toBe("/agendamentos");
+  expect(screen.getByRole("heading", { name: "Agenda autenticada" })).toBeInTheDocument();
+  expect(store.getState().auth.isLoggedIn).toBe(true);
+  expectNoAccountRequests();
+});
+
+test("voltar ao início preserva fallback sem acesso à Agenda e sem logout", async () => {
+  currentContext.modules.find((module) => module.module_key === "schedule").access_level = "none";
   const { history, store } = renderAccountRoute();
   fireEvent.click(await screen.findByRole("link", { name: "Voltar ao início" }));
   expect(history.location.pathname).toBe("/menu");
@@ -280,7 +290,8 @@ test("legacy mantém edição, troca de senha e desativação com HTTP observáv
     expect(screen.queryByLabelText("Nome:")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Salvar" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("link", { name: "Voltar ao início" }));
-    expect(history.location.pathname).toBe("/menu");
+    expect(history.location.pathname).toBe("/agendamentos");
+    expect(screen.getByRole("heading", { name: "Agenda autenticada" })).toBeInTheDocument();
     expect(store.getState().auth.token).toBe(realBackend.administrator.token);
     expect(actions).not.toContain("LOGIN_FAILURE");
   });
@@ -298,7 +309,8 @@ test("legacy mantém edição, troca de senha e desativação com HTTP observáv
     fireEvent.click(await screen.findByRole("link", { name: "Recuperar senha" }));
     fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: realBackend.administrator.user.email } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar link" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Se a conta estiver apta");
+    expect(await screen.findByText("Se a conta estiver apta, enviaremos um link para o e-mail informado."))
+      .toHaveAttribute("role", "status");
     expect(store.getState().auth.isLoggedIn).toBe(true);
     expect(actions).not.toContain("LOGIN_FAILURE");
     const response = await api.get("/team/authorization-context");

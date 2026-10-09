@@ -13,14 +13,6 @@ export const NAVIGATION_BADGE_EVENT = "multifisio:app-shell:navigation-badge";
 
 const navigationItems = [
   {
-    key: "dashboard",
-    label: "Painel",
-    path: "/painel",
-    matchPaths: ["/painel", "/dashboard"],
-    icon: FaChartLine,
-    isVisible: ({ canAccessModule } = {}) => canAccessModule?.("dashboard") === true,
-  },
-  {
     key: "schedule",
     label: "Agenda",
     path: "/agendamentos",
@@ -45,6 +37,14 @@ const navigationItems = [
         ),
       },
     ],
+  },
+  {
+    key: "dashboard",
+    label: "Painel",
+    path: "/painel",
+    matchPaths: ["/painel", "/dashboard"],
+    icon: FaChartLine,
+    isVisible: ({ canAccessModule } = {}) => canAccessModule?.("dashboard") === true,
   },
   {
     key: "patients",

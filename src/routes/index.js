@@ -6,7 +6,7 @@ import MyRoute from "./MyRoute";
 // Páginas públicas (acesso aberto)
 import HomePage from "../pages/Home";
 import Politica from "../pages/Politica";
-import Menu from "../pages/Menu";
+import AuthenticatedEntry from "./AuthenticatedEntry";
 import Login from "../pages/Login";
 import SemAcesso from "../pages/SemAcesso";
 import Page404 from "../pages/Page404";
@@ -116,7 +116,7 @@ export default function Routes() {
         <MyRoute exact path="/privacidade" component={Privacy} isClosed={false} />
         <MyRoute exact path="/situacao-comercial" component={Commercial} isClosed />
         <MyRoute exact path="/" component={HomePage} isClosed={false} />
-        <MyRoute exact path="/menu" component={Menu} isClosed />
+        <MyRoute exact path="/menu" component={AuthenticatedEntry} isClosed />
         <MyRoute exact path="/login/" component={Login} isClosed={false} />
         <MyRoute exact path="/recuperar-senha" component={RecoveryRequest} isClosed={false} />
         <MyRoute exact path="/credencial" component={CredentialAction} isClosed={false} />

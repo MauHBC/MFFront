@@ -70,11 +70,8 @@ const normalizeCellText = (value) => String(value || "").replace(/\u00a0/g, " ")
 
 const addDays = (daysToAdd) => {
   const date = new Date();
-  date.setHours(12, 0, 0, 0);
-  date.setDate(date.getDate() + daysToAdd);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
+  date.setUTCDate(date.getUTCDate() + daysToAdd);
+  return date.toISOString().slice(0, 10);
 };
 
 const defaultProps = {
@@ -116,6 +113,12 @@ const defaultProps = {
 };
 
 describe("ClinicExpensesSection", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    // Midday in the clinic keeps the civil fixture independent of runner timezone.
+    jest.setSystemTime(new Date("2026-06-15T15:00:00.000Z"));
+  });
+  afterEach(() => jest.useRealTimers());
   it("identifica somente recorrentes, inclusive pagas, sem oferecer exclusão de pagas", () => {
     render(<ClinicExpensesSection {...defaultProps} clinicExpenses={[
       { id: 1, name: "Mensal aberta", recurrence_type: "monthly", due_date: addDays(2), paid_at: null },

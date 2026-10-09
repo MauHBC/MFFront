@@ -14,6 +14,7 @@ import {
 import Routes from ".";
 
 let mockPatientAccessLevel = "manage";
+let mockScheduleAccess = true;
 
 jest.mock("../hooks/useAuthRedirect", () => ({ useAuthRedirect: () => null }));
 
@@ -33,6 +34,7 @@ jest.mock("../contexts/AuthorizationContext", () => ({
     status: "ready",
     canViewTeam: false,
     canAccessModule: (moduleKey, minimumAccessLevel = "view") => {
+      if (moduleKey === "schedule") return mockScheduleAccess;
       const levels = { none: 0, view: 1, edit: 2, manage: 3 };
       return moduleKey !== "patients"
         || levels[mockPatientAccessLevel] >= levels[minimumAccessLevel];
@@ -87,7 +89,7 @@ describe("rotas de Pacientes no App Shell", () => {
     expect(screen.queryByTestId("old-navbar")).not.toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: /principal/i })).not.toBeInTheDocument();
   });
-  beforeEach(() => { mockPatientAccessLevel = "manage"; });
+  beforeEach(() => { mockPatientAccessLevel = "manage"; mockScheduleAccess = true; });
   afterEach(cleanup);
 
   it.each(["view", "edit"])(
@@ -104,8 +106,11 @@ describe("rotas de Pacientes no App Shell", () => {
     },
   );
 
-  it("navega do Menu para a rota real de Pacientes sem mockar o App Shell", () => {
+  it("navega do fallback sem Agenda para a rota real de Pacientes sem mockar o App Shell", () => {
+    mockScheduleAccess = false;
     renderRoutes("/menu");
+
+    expect(screen.queryByRole("link", { name: "Agenda" })).not.toBeInTheDocument();
 
     fireEvent.click(within(screen.getByRole("main")).getByRole("link", { name: "Pacientes" }));
 

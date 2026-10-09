@@ -1,6 +1,6 @@
 import React from "react";
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route as MockRoute } from "react-router-dom";
 import MockAppShell from "../components/AppShell";
 import { usePublicClinicContext } from "../contexts/PublicClinicContext";
@@ -24,6 +24,7 @@ jest.mock("../hooks/useLogout", () => ({ useLogout: () => jest.fn() }));
 jest.mock("../contexts/PublicClinicContext", () => ({ usePublicClinicContext: jest.fn() }));
 jest.mock("../contexts/AuthorizationContext", () => ({
   useAuthorization: () => ({
+    status: "ready",
     canViewTeam: false, canAccessModule: () => true, hasCapability: () => true,
   }),
 }));
@@ -96,16 +97,15 @@ describe("fluxo real Menu para Agenda", () => {
     expect(screen.getByTestId("old-navbar")).toBeInTheDocument();
   });
 
-  it("navega para /agendamentos, renderiza a Agenda no App Shell e não monta a navbar antiga", () => {
+  it("abre /agendamentos diretamente na entrada, com App Shell e sem navbar antiga", () => {
     render(
       <MemoryRouter initialEntries={["/menu"]}>
         <Routes />
       </MemoryRouter>,
     );
 
-    const main = screen.getByRole("main");
-    fireEvent.click(within(main).getByRole("link", { name: "Agenda" }));
-
+    expect(screen.queryByRole("heading", { name: "O que você precisa acessar?" })).not.toBeInTheDocument();
+    expect(document.querySelectorAll("main")).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Agendamentos" })).toBeInTheDocument();
     fireEvent.mouseEnter(
       screen.getByRole("complementary", { name: "Navegação principal" }),
