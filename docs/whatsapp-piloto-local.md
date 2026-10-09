@@ -141,3 +141,58 @@ integrada. Lint de todos os arquivos alterados, UTF-8, build e diffcheck passara
 A suíte integral 134/134 acima pertence ao fechamento anterior à extração deste shell;
 não foi repetida neste ajuste de UI. Logs `whatsapp-shared-shell-consumers-20261009.log`
 e `whatsapp-shared-shell-final-{tests,lint,encoding,build}-20261009.log`.
+
+## Complemento de revisão técnica mobile — 09/10/2026
+
+Checklists oficiais consultados via Git: workspace `eea4300d:AGENTS.md`,
+Frontend `352ffa09:AGENTS.md` e `docs/frontend-module-architecture.md`,
+Platform Admin `a05ad588:AGENTS.md` e `README.md`. Esses MD não foram sincronizados
+sobre candidatos em teste; incorporar de forma controlada antes de eventual merge.
+Nenhuma mudança de produto neste complemento. Reuso efetivo do mesmo
+`AgendaDrawerShell`/`AppDrawer` verificado nos dois consumidores, com medidas
+no Chrome da prévia 3050, worktree WhatsApp, código Frontend `a1316e5`.
+
+| Medida CSS | Novo agendamento | Lembretes WhatsApp |
+| --- | --- | --- |
+| Viewport 390 × 844: drawer | 351,35 × 792 px | 351,35 × 792 px |
+| Topo | 52 px | 52 px |
+| Cabeçalho em 390 px | 77,2 px; padding 16px 20px | 77,2 px; padding 16px 20px |
+| Corpo em 390 px | 714,8 px; padding 16px 20px 20px | 714,8 px; padding 16px 20px 20px |
+| Título | 24px; peso 700 | 24px; peso 700 |
+| X | 29,6 × 24,4 px | 29,6 × 24,4 px |
+| Viewport 320 × 844: drawer | 288 × 792 px | 288 × 792 px |
+| Cabeçalho em 320 px | 115,6 px, texto quebra linha | 115,6 px, texto quebra linha |
+
+Sem overflow horizontal no documento, drawer ou corpo em ambos os viewports;
+o corpo mantém scroll interno `auto`. Fundo branco e borda/padding do shell
+compartilhados. Deslocamento horizontal de 12 px entre as capturas em 390 px:
+WhatsApp bloqueia o scroll externo e elimina a reserva do scrollbar; Novo
+agendamento conserva o comportamento anterior. Não há largura paralela.
+O navegador usa escala 1,25: override físico 488 × 1055 corresponde ao viewport
+CSS observado de 390 × 844; 400 × 1055 corresponde a 320 × 844. Medidas usam
+`getBoundingClientRect` e `getComputedStyle`, não dimensões presumidas da captura.
+
+WhatsApp: foco inicial no X; Tab e Shift+Tab contidos no drawer quando o botão
+de revisão está desabilitado; X, backdrop e Escape fecham; foco retorna ao
+botão Lembretes WhatsApp; overflow do body restaura ao valor anterior. Reabertura
+conferida. Estado vazio e histórico fictício não causaram overflow. Nenhuma revisão,
+tentativa, autorização de contato ou alteração de módulo foi criada nesta etapa.
+
+Lacuna preexistente da referência: Novo agendamento não move o foco inicial do
+opener e Escape não fecha o drawer; X fecha. O hook de interação é opt-in do
+WhatsApp, como documentado acima. Não declarar paridade integral desses handlers
+nem expandir a sprint para alterar o fluxo original. A avaliação visual final
+continua sendo exclusivamente do Maurício.
+
+Capturas: `motria-mobile-agenda-390.jpg`, `motria-mobile-whatsapp-390.jpg`;
+medidas: `motria-whatsapp-mobile-metrics-20261009.json`, na pasta temporária do
+executor. Viewport temporário restaurado ao terminar, sessão fictícia preservada.
+Nenhuma suíte pesada executada neste complemento. Gate integral pós-shell:
+134/134 PASS, 1 suíte, 184,921s, sem ampliar timeouts, em
+`whatsapp-agenda-after-shared-shell-20261009.log`.
+
+A API/worker vivos em 3056 ainda carregam a versão anterior ao complemento
+Backend `0c98168`. Esta inspeção valida o drawer servido, não o novo adaptador
+Meta por essa API. O adaptador permanece exclusivamente offline e envio real
+bloqueado. Não houve configuração de credenciais, alteração Meta ou envio.
+`DOCUMENTATION_IMPACT = UPDATE_REQUIRED`: evidência técnica atualizada nesta fonte.
