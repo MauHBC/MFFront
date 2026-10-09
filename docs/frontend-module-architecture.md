@@ -1826,6 +1826,35 @@ deve duplicar o App Shell.
 
 ---
 
+## Fluxo obrigatório de interface em todas as sprints
+
+Vale para tela nova, extensão, correção e refatoração visual, não apenas novos módulos.
+Antes de implementar, registrar no plano/resumo da tarefa (sem criar guia paralelo):
+
+1. **Referências reais:** paths dos componentes, estilos/tokens e telas consumidoras
+   inspecionados; abrir a referência em desktop e mobile quando houver prévia disponível.
+   Ausência de prévia deve ser declarada, nunca substituída por memória visual.
+2. **Decisão por elemento:** `elemento | referência/path | reusar, estender ou novo |
+   limitação comprovada/justificativa | consumidores afetados`. Verificar estrutura e
+   comportamento, não apenas semelhança de nome. Novo componente exige demonstrar por
+   que composição ou extensão segura do existente não atende.
+3. **Composição:** reutilizar drawer, modal, campos e botões e seus estilos; não copiar
+   CSS nem criar override para imitar o existente. Preservar tokens, tipografia,
+   espaçamento e contratos de foco, retorno do foco, Escape, backdrop, scroll e
+   confirmação de descarte/dirty-state. Conferir handlers reais: uma primitiva visual
+   não garante esses comportamentos sozinha. Lacuna existente deve ser registrada.
+4. **Limites:** extrair shell comum somente com repetição estrutural comprovada e
+   consumidores identificados. Manter autorização, API, validação e regras de negócio
+   nos módulos; evitar framework genérico ou abstração para uso futuro hipotético.
+   Aplicar as regras para exceções abaixo e registrar diferença e impacto explicitamente.
+
+Pontos de partida reais, a confirmar na branch da sprint: `src/components/AppDrawer`,
+`AppForm`, `AppButton`, `AppModuleShell` e `src/styles/tokens.js`; telas em
+`src/pages/Planos`, `src/pages/Agendamentos` e `src/pages/Financeiro`. Para modais,
+inspecionar `src/pages/Financeiro/components/ClinicExpenseModal.js`, os estilos `ui`
+fornecidos pelo consumidor e os campos compartilhados `ClinicExpenseSettlementFields`.
+Essa referência não torna automaticamente todo modal um componente global.
+
 ## Regras para exceções
 
 ### Quando criar `styled-component` local
@@ -1836,7 +1865,7 @@ Permitido apenas quando **todas** as condições abaixo forem verdadeiras:
 2. Adicionar uma prop ao compartilhado criaria complexidade desproporcional.
 3. O componente local é genuinamente específico do domínio do módulo.
 
-**Exemplos legítimos em Agendamentos:** `DrawerHeader` local (tem subtítulo e padding diferentes), `DrawerBody` local (padding diferente), `DrawerActions` (sem equivalente em AppDrawer).
+**Exemplos existentes em Agendamentos:** `DrawerHeader` local (subtítulo e padding), `DrawerBody` local (padding) e `DrawerActions`. Sua existência não autoriza cópia: em cada alteração, comprovar as três condições acima, preferir composição/extensão e registrar medidas e comportamento divergentes.
 
 ### Quando parametrizar o compartilhado
 
@@ -1853,9 +1882,9 @@ Preferir sempre a adição de prop opcional com default seguro ao componente com
 
 ---
 
-## Checklist para novo módulo
+## Checklist de revisão de interface
 
-Antes de entregar qualquer novo módulo ou tela administrativa:
+Antes de entregar qualquer alteração de interface, executar este checklist e registrar evidências:
 
 **Shell**
 - [ ] Usa o App Shell global nas rotas autenticadas migradas?
@@ -1876,6 +1905,31 @@ Antes de entregar qualquer novo módulo ou tela administrativa:
 - [ ] Qualquer componente local tem justificativa real documentada no código (comentário inline)?
 - [ ] O build compila sem warnings?
 - [ ] Nenhum `styled-component` foi criado localmente como cópia de um componente compartilhado existente?
+
+**Evidências de entrega (obrigatórias conforme o escopo)**
+- [ ] Referências/path e decisão reusar/estender/criar registrados antes da implementação;
+      componente canônico realmente importado, consumidores e exceções revisados?
+- [ ] Comparação referência versus implementação no mesmo viewport desktop e mobile,
+      com capturas e medidas: largura/altura, padding/gap, tipografia, cores, bordas,
+      alinhamento, overflow e computed styles (`getComputedStyle`)? Informar valores,
+      viewports e diferenças justificadas, não apenas “parece igual”.
+- [ ] Foco inicial/Tab/retorno, Escape, backdrop, scroll, dirty-state e descarte,
+      salvar ocupado/erro e reabertura conferidos nos fluxos afetados?
+- [ ] Estados vazio, loading e erro/retry exercitados com dados fictícios plausíveis,
+      sem dados clínicos reais nem banners técnicos repetidos na interface?
+- [ ] Testes pertinentes e consumidores afetados verificados; comandos, resultados,
+      falhas, skips e gates não executados registrados? Suíte parcial não é “global verde”.
+      Lint, build, mojibake e diff seguem os gates locais aplicáveis.
+- [ ] Bundle **realmente servido** identificado: URL/porta, worktree/commit, processo
+      servidor, assets/hash ou marcador de versão verificado por HTTP e no navegador
+      após recarregar; cache/service worker quando aplicável conferidos? Build novo
+      apenas em disco com preview antigo proíbe declarar “pronto para validar”.
+      Sem permissão para observar o alvo, registrar bloqueio; nunca operar produção
+      para satisfazer este gate sem autorização.
+- [ ] Revisão técnica da interface concluída antes de pedir aprovação visual ao usuário,
+      com evidências, exceções e limitações explícitas? Aprovação visual final pertence
+      ao usuário; capturas, testes ou revisão do executor não a substituem.
+
 ## Prévia editorial da landing
 
 A landing pública continua usando seus componentes reais e o contexto público.
