@@ -93,7 +93,9 @@ const main = async () => {
     const app = backend('app').default;
     // Observe requests without replacing the real application's handlers/guards.
     server = http.createServer((req, res) => {
-      observed.push({ method: req.method, path: req.url });
+      const observation = { method: req.method, path: req.url };
+      observed.push(observation);
+      res.once('finish', () => { observation.status = res.statusCode; });
       app(req, res);
     });
     await new Promise((resolve) => { server.listen(0, '127.0.0.1', resolve); });
@@ -119,6 +121,7 @@ const main = async () => {
     assert.equal(await ClinicalCredentialAction.count(), actionsBefore + 1);
     assert.equal((await User.findByPk(administrator.user.id)).auth_version, 3, 'request must not revoke session');
     assert.equal(observed.filter((req) => req.method === 'POST' && req.path === '/api/public/credential-recovery-requests').length, 1);
+    assert.equal(observed.find((req) => req.method === 'POST' && req.path === '/api/public/credential-recovery-requests').status, 202);
     console.log('OK - real Backend + disposable MariaDB: admin notice, non-admin guard, authenticated recovery 202, session retained, zero /users, one queued intent; no email dispatch');
   } finally {
     if (server) await new Promise((resolve) => { server.close(resolve); });
