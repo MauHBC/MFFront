@@ -1805,8 +1805,8 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     expectTotals("R$ 470,00", "2");
     const search = screen.getByLabelText("Pesquisar paciente");
     const expectSearch = async (query) => {
-      await userEvent.clear(search);
-      await userEvent.type(search, query);
+      fireEvent.change(search, { target: { value: "" } });
+      fireEvent.change(search, { target: { value: query } });
       expect(screen.getByText(patient.patient_name)).toBeInTheDocument();
       await waitFor(() => expect(screen.queryByText("Outro paciente")).not.toBeInTheDocument());
       expectTotals("R$ 400,00", "1");
@@ -1815,13 +1815,13 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await expectSearch("TESTE");
     await expectSearch(fullName);
     await expectSearch("Apelido");
-    await userEvent.clear(search);
-    await userEvent.type(search, "inexistente");
+    fireEvent.change(search, { target: { value: "" } });
+    fireEvent.change(search, { target: { value: "inexistente" } });
     await waitFor(() => expect(screen.queryByText(patient.patient_name)).not.toBeInTheDocument());
     expectTotals("R$ 0,00", "0");
-    await userEvent.clear(search);
+    fireEvent.change(search, { target: { value: "" } });
     await waitFor(() => expectTotals("R$ 470,00", "2"));
-    await userEvent.type(search, "TESTE");
+    fireEvent.change(search, { target: { value: "TESTE" } });
     await waitFor(() => expect(screen.queryByText("Outro paciente")).not.toBeInTheDocument());
     const callsBeforeDetail = getFinancialRevenuesSummary.mock.calls.length;
     await userEvent.click(screen.getByRole("button", { name: "Detalhes" }));
@@ -1843,7 +1843,7 @@ describe("Financeiro - detalhe de receitas por paciente", () => {
     await screen.findByText(patient.patient_name);
     expect(search).toBeEnabled();
     expect(search).toHaveValue("TESTE");
-    await userEvent.clear(search);
+    fireEvent.change(search, { target: { value: "" } });
     await waitFor(() => expectTotals("R$ 470,00", "2"));
     expect(listFinancialEntries).not.toHaveBeenCalled();
     expect(axios.get).not.toHaveBeenCalledWith("/sessions", expect.anything());

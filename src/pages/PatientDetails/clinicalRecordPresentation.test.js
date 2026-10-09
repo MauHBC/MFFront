@@ -116,3 +116,9 @@ describe("clinical record presentation", () => {
     expect(formatClinicalCaseMeta(legacyCase)).not.toContain("Usuário atual");
   });
 });
+
+test("uses the tenant-scoped membership author for clinical records and cases", () => {
+  const person = { name: "Autoria sintética do membership" };
+  expect(formatClinicalRecordAuthor({ clinicalAuthorMembership: { person } })).toBe("Autoria sintética do membership · CREFITO não informado");
+  expect(formatClinicalCaseAuthor({ createdByMembership: { person } })).toBe("Autoria sintética do membership · CREFITO não informado");
+});

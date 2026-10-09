@@ -232,3 +232,34 @@ test('npm run dev exposes a non-starting validation contract', () => {
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout, /Ambiente local do Frontend validado/);
 });
+
+test('keeps clinical export preview bound to its exclusive local endpoints', () => {
+  const repository = makeTemporaryRepository();
+  try {
+    const environment = { MOTRIA_LOCAL_STACK_SLOT: 'clinical-export' };
+    const child = buildChildEnvironment(repository, environment);
+    assert.equal(child.PORT, '3030');
+    assert.equal(child.HOST, '127.0.0.1');
+    assert.equal(child.REACT_APP_API_BASE_URL, 'http://127.0.0.1:3036/api');
+    assert.equal(setupProxy.proxyTargetForEnvironment(environment), 'http://127.0.0.1:3036');
+    assert.throws(() => buildChildEnvironment(repository, { ...environment, PORT: '3010' }));
+  } finally {
+    fs.rmSync(repository, { recursive: true, force: true });
+  }
+});
+
+test('clinical preview serves SPA routes without masking API or missing assets', () => {
+  for (const pathname of ['/', '/login', '/pacientes/1', '/pacientes/1/avaliacoes/2?x=1']) {
+    const req = { method: 'GET', url: pathname, headers: {} }; let called = false;
+    setupProxy.clinicalPreviewFallback(req, {}, () => { called = true; });
+    assert.equal(req.headers.accept, 'text/html'); assert.equal(called, true);
+  }
+  for (const pathname of ['/missing.js', '/static/missing', '/unknown']) {
+    const req = { method: 'GET', url: pathname, headers: { accept: 'text/html' } };
+    setupProxy.clinicalPreviewFallback(req, {}, () => {});
+    assert.equal(req.headers.accept, 'application/octet-stream');
+  }
+  const req = { method: 'GET', url: '/api/missing', headers: { accept: 'application/json' } };
+  setupProxy.clinicalPreviewFallback(req, {}, () => {});
+  assert.equal(req.headers.accept, 'application/json');
+});

@@ -24,7 +24,8 @@ export function formatClinicalRecordAuthor(record) {
   );
   const authorUser = value(record, "clinicalAuthorUser", "clinical_author_user");
   const person = value(professional, "TeamPerson", "team_person");
-  const authorPerson = value(authorUser, "TeamPerson", "team_person");
+  const membership = value(record, "clinicalAuthorMembership", "clinical_author_membership");
+  const authorPerson = value(membership, "person") || value(authorUser, "TeamPerson", "team_person");
   const legacyProfessional = value(
     authorPerson,
     "ClinicProfessional",
@@ -57,10 +58,11 @@ export function formatClinicalRecordMeta(record) {
 
 export function formatClinicalCaseAuthor(clinicalCase) {
   const authorUser = value(clinicalCase, "createdByUser", "created_by_user");
-  const person = value(authorUser, "TeamPerson", "team_person");
+  const membership = value(clinicalCase, "createdByMembership", "created_by_membership");
+  const person = value(membership, "person") || value(authorUser, "TeamPerson", "team_person");
   const professional = value(person, "ClinicProfessional", "clinic_professional");
 
-  if (!authorUser || !person) {
+  if (!person) {
     return "Autoria não identificada · CREFITO não informado";
   }
 
