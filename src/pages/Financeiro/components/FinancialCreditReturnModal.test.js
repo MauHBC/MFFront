@@ -12,36 +12,38 @@ const proposed = (amount) => ({ patient: { id: 30, full_name: 'Paciente sintéti
 const prepare = async (amount = '25,00') => {
   fireEvent.change(screen.getByLabelText('Valor da devolução'), { target: { value: amount } });
   fireEvent.change(screen.getByLabelText('Motivo obrigatório'), { target: { value: 'Solicitação sintética' } });
-  fireEvent.click(screen.getByText('Conferir devolução'));
-  await screen.findByText('Confirmar devolução de crédito');
+  fireEvent.click(screen.getByText('Avançar'));
+  await screen.findByText('Confirmar');
 };
 beforeEach(() => { jest.clearAllMocks(); previewCreditReturn.mockImplementation((body) => Promise.resolve({ data: proposed(body.amount_cents) })); });
 test('partial confirmation identifies patient, money and remaining balance', async () => {
   const completed = jest.fn(); confirmCreditReturn.mockResolvedValue({ data: { ...proposed(2500), id: 1 } });
   render(<FinancialCreditReturnModal target={target} formatCurrency={currency} onClose={jest.fn()} onCompleted={completed} />);
-  expect(screen.getByText(/Nenhuma transferência/)).toBeInTheDocument();
-  expect(screen.getByText('Conferir devolução')).toBeDisabled();
+  expect(screen.getByRole('heading', { name: 'Devolver valor' })).toBeInTheDocument();
+  expect(screen.getAllByText('Esse valor será descontado do crédito do paciente. A devolução do dinheiro deve ser feita por fora do sistema.')).toHaveLength(1);
+  expect(screen.getByText('Avançar')).toBeDisabled();
   await prepare(); expect(screen.getByText('R$ 75,00')).toBeInTheDocument();
-  fireEvent.click(screen.getByText('Confirmar devolução de crédito'));
+  expect(screen.getAllByText('Esse valor será descontado do crédito do paciente. A devolução do dinheiro deve ser feita por fora do sistema.')).toHaveLength(1);
+  fireEvent.click(screen.getByText('Confirmar'));
   await waitFor(() => expect(completed).toHaveBeenCalledTimes(1));
   expect(confirmCreditReturn.mock.calls[0][0]).toMatchObject({ patient_id: 30, amount_cents: 2500, reason: 'Solicitação sintética' });
 });
 test('full balance, invalid amount and missing reason', async () => {
   render(<FinancialCreditReturnModal target={target} formatCurrency={currency} onClose={jest.fn()} onCompleted={jest.fn()} />);
   fireEvent.click(screen.getByText('Usar saldo total'));
-  expect(screen.getByText('Conferir devolução')).toBeDisabled();
+  expect(screen.getByText('Avançar')).toBeDisabled();
   fireEvent.change(screen.getByLabelText('Motivo obrigatório'), { target: { value: 'Solicitação sintética' } });
-  fireEvent.click(screen.getByText('Conferir devolução'));
-  await screen.findByText('Confirmar devolução de crédito'); expect(screen.getByText('R$ 0,00')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('Avançar'));
+  await screen.findByText('Confirmar'); expect(screen.getByText('R$ 0,00')).toBeInTheDocument();
   fireEvent.click(screen.getByText('Editar'));
   fireEvent.change(screen.getByLabelText('Valor da devolução'), { target: { value: '101,00' } });
-  expect(screen.getByText('Conferir devolução')).toBeDisabled();
+  expect(screen.getByText('Avançar')).toBeDisabled();
 });
 test('double click guarded and unknown response retries same body and key', async () => {
   let reject; confirmCreditReturn.mockImplementationOnce(() => new Promise((_, failure) => { reject = failure; }));
   confirmCreditReturn.mockResolvedValueOnce({ data: { ...proposed(2500), id: 1 } });
   render(<FinancialCreditReturnModal target={target} formatCurrency={currency} onClose={jest.fn()} onCompleted={jest.fn()} />);
-  await prepare(); const button = screen.getByText('Confirmar devolução de crédito');
+  await prepare(); const button = screen.getByText('Confirmar');
   fireEvent.click(button); fireEvent.click(button); expect(confirmCreditReturn).toHaveBeenCalledTimes(1);
   await act(async () => reject(new Error('Network interrupted')));
   fireEvent.click(await screen.findByText('Tentar novamente'));
@@ -51,7 +53,7 @@ test('double click guarded and unknown response retries same body and key', asyn
 test('stale response requires fresh preview and no silent confirmation', async () => {
   confirmCreditReturn.mockRejectedValue({ response: { status: 409 } });
   render(<FinancialCreditReturnModal target={target} formatCurrency={currency} onClose={jest.fn()} onCompleted={jest.fn()} />);
-  await prepare(); fireEvent.click(screen.getByText('Confirmar devolução de crédito'));
-  await screen.findByText('Conferir devolução'); expect(screen.queryByText('Confirmar devolução de crédito')).not.toBeInTheDocument();
+  await prepare(); fireEvent.click(screen.getByText('Confirmar'));
+  await screen.findByText('Avançar'); expect(screen.queryByText('Confirmar')).not.toBeInTheDocument();
   expect(confirmCreditReturn).toHaveBeenCalledTimes(1);
 });

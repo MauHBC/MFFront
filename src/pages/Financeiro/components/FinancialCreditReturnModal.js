@@ -68,13 +68,13 @@ export default function FinancialCreditReturnModal({ target, formatCurrency, onC
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     }
   };
-  let actionLabel = 'Conferir devolução';
-  if (preview) actionLabel = uncertain ? 'Tentar novamente' : 'Confirmar devolução de crédito';
+  let actionLabel = 'Avançar';
+  if (preview) actionLabel = uncertain ? 'Tentar novamente' : 'Confirmar';
   if (busy) actionLabel = 'Aguarde…';
   return <Overlay><Dialog ref={dialog} role="dialog" aria-modal="true" aria-labelledby="credit-return-title" tabIndex={-1} onKeyDown={keyDown}>
-    <h2 id="credit-return-title">Registrar devolução de crédito</h2>
+    <h2 id="credit-return-title">Devolver valor</h2>
     <p><strong>{preview?.patient?.full_name || target.patientName}</strong></p>
-    <Notice>Esta ação registra a retirada do crédito no sistema. Nenhuma transferência ou reembolso bancário será realizado.</Notice>
+    <Notice>Esse valor será descontado do crédito do paciente. A devolução do dinheiro deve ser feita por fora do sistema.</Notice>
     {preview ? <>
       <p>Crédito disponível: <strong>{formatCurrency(preview.credit_before_cents)}</strong></p>
       <p>Devolução a registrar: <strong>{formatCurrency(preview.amount_cents)}</strong></p>

@@ -5530,7 +5530,7 @@ export default function Financeiro() {
                   patientName: attendanceSelectedPatientSummary.patientName,
                   creditAvailableCents: attendanceDetailPatientSummary.creditsAvailable,
                   view: "attendance",
-                })}>Registrar devolução de crédito</AttendanceCreditUseAction>
+                })}>Devolver valor</AttendanceCreditUseAction>
               )}
           </AttendancePatientStats>
           <PatientDetailToolbar>
@@ -6074,7 +6074,7 @@ export default function Financeiro() {
                   patientName: selectedBillingCyclesPatientSummary.patientName,
                   creditAvailableCents: billingCyclesCreditAvailableCents,
                   view: "billing_cycle",
-                })}>Registrar devolução de crédito</AttendanceCreditUseAction>
+                })}>Devolver valor</AttendanceCreditUseAction>
               )}
           </AttendancePatientStats>
           {billingCyclesPatientDetail.error && (

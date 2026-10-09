@@ -2173,12 +2173,13 @@ sem série com séries legadas. Regras autoritativas: AGE-015 e FIN-016 do Backe
 
 ## Devolução de crédito no paciente
 
-O detalhe financeiro do paciente apresenta **Registrar devolução de crédito**
+O detalhe financeiro do paciente apresenta **Devolver valor**
 junto ao saldo, em Cobranças e Mensalidades, para Administrador com permissão
 de liquidação. O formulário aceita valor parcial ou saldo total e exige motivo.
 Antes de confirmar, apresenta paciente, crédito atual, valor da devolução e
-saldo resultante retornados pela prévia do Backend. Explica que nenhuma
-transferência ou reembolso bancário será realizado.
+saldo resultante retornados pela prévia do Backend. O fluxo usa **Avançar** e
+**Confirmar**, com um único aviso: o valor sai do crédito do paciente e a
+devolução do dinheiro deve ser feita por fora do sistema.
 
 POST `/financial-payments/credit-return-preview` e `/financial-payments/return-credit`
 seguem a regra autoritativa do Backend. O modal bloqueia duplo envio; resultado
