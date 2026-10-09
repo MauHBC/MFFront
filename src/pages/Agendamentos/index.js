@@ -28,6 +28,7 @@ import { AppDrawer, DrawerBackdrop, UnsavedChangesDialog } from "../../component
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import AppShell from "../../components/AppShell";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
+import WhatsAppReminders from "./WhatsAppReminders";
 import { SessionStatusButton } from "../../components/AppSessionStatus";
 import { PackagePill } from "../../components/AppStatus";
 import PatientSearchField from "../../components/PatientSearchField";
@@ -6694,6 +6695,7 @@ export default function Agendamentos() {
             </p>
           </div>
           <ToolbarActions>
+            <WhatsAppReminders sessions={filteredSessions} getPatientName={getSessionPatientName} />
             <PrimaryButton
               type="button"
               $topAction

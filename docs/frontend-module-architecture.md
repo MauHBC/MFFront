@@ -2,9 +2,9 @@
 
 ## Experimento WhatsApp local
 
-A [prévia local WhatsApp](whatsapp-piloto-local.md) é um experimento parcial
-restrito a development e dados fictícios. Ainda não integra o fluxo autenticado
-da Agenda; sua interface é eliminada do bundle de produção.
+A [prévia local WhatsApp](whatsapp-piloto-local.md) integra revisão, envio sob
+comando e acompanhamento à Agenda autenticada. As ferramentas técnicas ficam
+em rota separada restrita a development, eliminada do bundle de produção.
 
 Este documento é a fonte oficial para a landing pública, seus contextos e os
 padrões dos módulos autenticados.

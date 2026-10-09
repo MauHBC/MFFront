@@ -40,6 +40,9 @@ import SettingsDocuments from "../pages/SettingsDocuments";
 import { PendingCenterProvider } from "../components/PendingCenter";
 import { usePublicClinicContext } from "../contexts/PublicClinicContext";
 
+const WhatsAppScenarioTools = process.env.NODE_ENV === "development"
+  ? require("../pages/Agendamentos/WhatsAppScenarioTools").default : null;
+
 function getPatientsPageTitle(pathname) {
   if (pathname === "/pacientes/novo") return "Novo paciente";
   if (pathname.includes("/avaliacoes/nova")) return "Nova avaliação";
@@ -134,6 +137,7 @@ export default function Routes() {
         <MyRoute exact path="/pacientes/:id/avaliacoes/nova" component={PatientEvaluationNew} isClosed requiredModule="clinical_records" minimumAccessLevel="edit" requiredCapability="clinical_records.write" />
         <MyRoute exact path="/pacientes/:id/avaliacoes/:evaluationId" component={PatientEvaluationDetails} isClosed requiredModule="clinical_records" requiredCapability="clinical_records.read" />
         <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed requiredModule="schedule" />
+        {process.env.NODE_ENV === "development" && <MyRoute exact path="/whatsapp-cenarios" component={WhatsAppScenarioTools} isClosed requiredModule="schedule" minimumAccessLevel="manage" />}
         <MyRoute exact path="/agendamentos/eventos" component={SchedulingEvents} isClosed requiredModule="schedule" minimumAccessLevel="manage" requiredCapability="schedule.configure" />
         <MyRoute exact path="/painel" component={Painel} isClosed requiredModule="dashboard" />
         <MyRoute exact path="/dashboard" component={Painel} isClosed requiredModule="dashboard" />
