@@ -305,17 +305,24 @@ test("legacy mantém edição, troca de senha e desativação com HTTP observáv
   });
 
   test("recuperação autenticada retorna 202 real e mantém o token utilizável", async () => {
-    const { actions, store } = renderAccountRoute(realBackend.administrator);
-    fireEvent.click(await screen.findByRole("link", { name: "Recuperar senha" }));
-    fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: realBackend.administrator.user.email } });
-    fireEvent.click(screen.getByRole("button", { name: "Enviar link" }));
-    expect(await screen.findByText("Se a conta estiver apta, enviaremos um link para o e-mail informado."))
-      .toHaveAttribute("role", "status");
-    expect(store.getState().auth.isLoggedIn).toBe(true);
-    expect(actions).not.toContain("LOGIN_FAILURE");
-    const response = await api.get("/team/authorization-context");
-    expect(response.status).toBe(200);
-    expect(response.data.is_administrator).toBe(true);
-    expect(response.data.authorization_source).toBe("membership");
+    let recoveryStatus;
+    const observer = api.interceptors.response.use((response) => {
+      if (response.config.url === "/public/credential-recovery-requests") recoveryStatus = response.status;
+      return response;
+    });
+    try {
+      const { actions, store } = renderAccountRoute(realBackend.administrator);
+      fireEvent.click(await screen.findByRole("link", { name: "Recuperar senha" }));
+      fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: realBackend.administrator.user.email } });
+      fireEvent.click(screen.getByRole("button", { name: "Enviar link" }));
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Se a conta estiver apta"));
+      expect(recoveryStatus).toBe(202);
+      expect(store.getState().auth.isLoggedIn).toBe(true);
+      expect(actions).not.toContain("LOGIN_FAILURE");
+      const response = await api.get("/team/authorization-context");
+      expect(response.status).toBe(200);
+      expect(response.data.is_administrator).toBe(true);
+      expect(response.data.authorization_source).toBe("membership");
+    } finally { api.interceptors.response.eject(observer); }
   });
 });

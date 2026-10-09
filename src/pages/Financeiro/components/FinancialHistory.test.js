@@ -40,6 +40,21 @@ const renderHistory = (props = {}) => render(<FinancialHistory events={[receipt]
 const rows = () => within(screen.getByRole("table")).getAllByRole("row").slice(1);
 const mainValues = () => rows().map((row) => within(row).getAllByRole("cell")[2].textContent);
 
+test("devolução registrada preserva motivo, saldos e referência do recebimento de origem", async () => {
+  renderHistory({ events: [{ id: "return-1", type: "CREDIT_RETURN", amount_cents: 2500,
+    occurred_at: "2026-10-09T12:00:00Z", recorded_at: "2026-10-09T12:00:00Z",
+    actor: { name: "Administrador sintético" }, reason: "Solicitação sintética",
+    credit_before_cents: 10000, credit_after_cents: 7500,
+    return_sources: [{ key: "1:1", amount_cents: 2500, operation: { kind: "receipt", reference: "Rec. 01", original_amount_cents: 10000, occurred_at: "2026-09-28T12:00:00Z", payment_method_name: "Pix" } }],
+  }] });
+  expect(screen.getByText("Devolução de crédito registrada")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /detalhes/i }));
+  expect(await screen.findByText("Solicitação sintética")).toBeInTheDocument();
+  expect(screen.getByText(money(7500))).toBeInTheDocument();
+  expect(screen.getByText(/Rec\. 01/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Anular/ })).not.toBeInTheDocument();
+});
+
 test("Histórico permanece somente consulta mesmo para Administrador autorizado", () => {
   const context = { patientId: 2, patientName: "Paciente sintético", onPaymentVoided: jest.fn() };
   const view = renderHistory(context);
