@@ -12,6 +12,7 @@ import {
   FaTimes,
   FaUserAlt,
 } from "react-icons/fa";
+import ClinicalExportButton from './ClinicalExportButton';
 import ClinicalSigningIdentitySummary from "../../components/ClinicalSigningIdentitySummary";
 
 import DataLoadingState from "../../components/DataLoadingState";
@@ -2504,7 +2505,7 @@ export default function PatientDetails() {
             const summary = getEvaluationSummary(evaluation);
             const conduct = getEvaluationConduct(evaluation);
             const painLabel = getEvaluationPainLabel(evaluation);
-            const title = templateTitle || summary || typeLabel;
+            const title = templateTitle || typeLabel;
             const createdAt = formatClinicalRecordMeta(evaluation);
             const clinicalCase = getEvaluationClinicalCase(evaluation);
             const isSession = evaluation.record_type === "session";
@@ -2528,7 +2529,7 @@ export default function PatientDetails() {
               >
 	                <TimelineMarker $type={evaluation.record_type} />
 	                <TimelineCard $compact={isSession}>
-	                  {isSession ? (
+{isSession ? (
 	                    <TimelineCardContent>
 	                      <TimelineCardHeader>
 	                        <TimelineCardMeta>
@@ -2547,6 +2548,26 @@ export default function PatientDetails() {
                               </ClinicalRecordTags>
 	                          <TimelineDate>{createdAt}</TimelineDate>
 	                        </TimelineCardMeta>
+<TimelineCardActions>
+{/* eslint-disable-next-line no-use-before-define */}
+<ClinicalExportButton recordId={evaluation.id} buttonComponent={TimelineEditButton} />
+	                      {canWriteClinicalRecords && evaluation.clinical_state === "draft" && (
+                            <TimelineEditButton
+                              type="button"
+                              onClick={() => openQuickEvolutionEditModal(evaluation)}
+                            >
+                              Editar rascunho
+                            </TimelineEditButton>
+                          )}
+                          {canFinalizeClinicalRecords && isFinalized && (
+                            <TimelineEditButton
+                              type="button"
+                              onClick={() => openAddendumModal(evaluation)}
+                            >
+                              Adicionar adendo
+                            </TimelineEditButton>
+                          )}
+	                    </TimelineCardActions>
 	                      </TimelineCardHeader>
 	                      {summary && (
 	                        <TimelineClinicalLine>
@@ -2578,7 +2599,7 @@ export default function PatientDetails() {
                           ))}
 	                    </TimelineCardContent>
 	                  ) : (
-	                    <TimelineCardLink to={`/pacientes/${id}/avaliacoes/${evaluation.id}`}>
+	                    <TimelineCardContent>
 	                    <TimelineCardHeader>
 	                      <TimelineCardMeta>
                             <ClinicalRecordTags>
@@ -2596,7 +2617,17 @@ export default function PatientDetails() {
                             </ClinicalRecordTags>
 	                        <TimelineDate>{createdAt}</TimelineDate>
 	                      </TimelineCardMeta>
+                      <TimelineCardActions>
+                        {/* eslint-disable-next-line no-use-before-define */}
+                        <ClinicalExportButton recordId={evaluation.id} buttonComponent={TimelineEditButton} />
+                        {canWriteClinicalRecords && evaluation.clinical_state === "draft" && (
+                          <TimelineEditButton type="button" onClick={() => history.push(`/pacientes/${id}/avaliacoes/${evaluation.id}`)}>
+                            Editar rascunho
+                          </TimelineEditButton>
+                        )}
+                      </TimelineCardActions>
                     </TimelineCardHeader>
+                    <TimelineCardLink to={`/pacientes/${id}/avaliacoes/${evaluation.id}`}>
                     <TimelineCardTitle>{title}</TimelineCardTitle>
                     {summary && summary !== title && (
                       <TimelineText>{summary}</TimelineText>
@@ -2611,27 +2642,9 @@ export default function PatientDetails() {
 	                      <TimelinePainLine>{painLabel}</TimelinePainLine>
 	                    )}
 	                    </TimelineCardLink>
+                      </TimelineCardContent>
 	                  )}
-                  {isSession && (canWriteClinicalRecords || canFinalizeClinicalRecords) && (
-	                    <TimelineCardActions>
-	                      {canWriteClinicalRecords && evaluation.clinical_state === "draft" && (
-                            <TimelineEditButton
-                              type="button"
-                              onClick={() => openQuickEvolutionEditModal(evaluation)}
-                            >
-                              Editar rascunho
-                            </TimelineEditButton>
-                          )}
-                          {canFinalizeClinicalRecords && isFinalized && (
-                            <TimelineEditButton
-                              type="button"
-                              onClick={() => openAddendumModal(evaluation)}
-                            >
-                              Adicionar adendo
-                            </TimelineEditButton>
-                          )}
-	                    </TimelineCardActions>
-	                  )}
+
 	                </TimelineCard>
               </TimelineItem>
             );
@@ -2642,6 +2655,7 @@ export default function PatientDetails() {
 	    [
         canFinalizeClinicalRecords,
         canWriteClinicalRecords,
+        history,
         id,
         openAddendumModal,
         openQuickEvolutionEditModal,
@@ -3073,6 +3087,7 @@ export default function PatientDetails() {
 
         {profileStatus === "ready" && activeTab === TABS.prontuario && (
           <Section>
+
             {clinicalStatus === "loading" && (
               <InfoCard><DataLoadingState text="Carregando prontuário..." /></InfoCard>
             )}
@@ -3118,13 +3133,14 @@ export default function PatientDetails() {
 			                        <ClinicalCaseStatusPill $status={selectedRecordCase.clinical_state}>
 			                          {selectedRecordCase.clinical_state === "draft" && "Rascunho"}
 			                          {selectedRecordCase.clinical_state === "finalized" && "Consolidado"}
-			                          {selectedRecordCase.clinical_state === "legacy" && "Legado"}
+			                          {selectedRecordCase.clinical_state === "legacy" && <span title="Criado antes do fluxo atual de rascunho e finalização">Registro anterior</span>}
 			                        </ClinicalCaseStatusPill>
 			                      </>
 			                    )}
 		                  </div>
 	                  {patient && (
 		                    <TimelineActions>
+                      {canReadClinicalRecords && <ClinicalExportButton key={`export-patient-${id}`} patientId={id} />}
 		                      {selectedRecordCase && (
 		                        <>
 		                          <CardButton
@@ -6504,12 +6520,6 @@ const TimelineCardLink = styled(Link)`
 
 const TimelineCardContent = styled.div`
   display: block;
-  padding-right: 92px;
-
-  @media (max-width: 640px) {
-    padding-right: 0;
-    padding-top: 38px;
-  }
 `;
 
 const TimelineCardHeader = styled.div`
@@ -6568,14 +6578,14 @@ const TimelineDate = styled.span`
 `;
 
 const TimelineCardActions = styled.div`
-  position: absolute;
-  top: 10px;
-  right: 10px;
   display: inline-flex;
   gap: 6px;
   align-items: center;
   flex-shrink: 0;
+  flex-wrap: wrap;
 `;
+
+
 
 const TimelineEditButton = styled(SubtleCardButton)`
   min-height: 34px;
@@ -6590,6 +6600,8 @@ const TimelineCardTitle = styled.h3`
 `;
 
 const TimelineText = styled.p`
+  font-weight: 400;
+  white-space: pre-wrap;
   margin: 5px 0 0;
   color: #55644c;
   font-size: 0.9rem;
@@ -6597,6 +6609,11 @@ const TimelineText = styled.p`
 `;
 
 const TimelineClinicalLine = styled.div`
+  font-weight: 400;
+
+  span {
+    white-space: pre-wrap;
+  }
   display: grid;
   gap: 3px;
   margin-top: 8px;

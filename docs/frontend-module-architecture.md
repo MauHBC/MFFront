@@ -2251,3 +2251,36 @@ MOTRIA_LOCAL_STACK_SLOT=financeiro-estorno em .env.local ignorado e inicia
 com npm run dev. A API usa o MariaDB descartável próprio e preserva a fixture
 sintética existente; nunca usa banco persistente nem movimentos reais.
 A aprovação visual final pertence ao usuário.
+
+### Exportação de prontuário
+
+`PatientDetails/ClinicalExportButton` oferece exportação individual no cartão
+por `Evaluation.id` e consolidada no nível paciente. O consolidado consulta o
+Backend sem enviar o filtro de caso da tela ou reutilizar apenas a lista
+carregada. A prévia mostra quantidade, período, estados e limites de escopo;
+a confirmação baixa o PDF autenticado com o helper já utilizado por Documentos.
+Cancelar não baixa arquivo. Troca de paciente/desmontagem invalida respostas
+pendentes. Após o download, o usuário abre o PDF e imprime pelo visualizador.
+
+A UI acompanha a leitura de prontuário existente. As regras de autorização,
+conteúdo e fidelidade pertencem à fonte canônica do MFBackend em
+`docs/arquitetura/phase-8-clinical-record-authorization.md`. A exportação mantém
+rascunhos identificados e não substitui o fluxo de assinatura eletrônica.
+A prévia sintética usa exclusivamente `MOTRIA_LOCAL_STACK_SLOT=clinical-export`
+com `npm run dev`: frontend 127.0.0.1:3030 e API 127.0.0.1:3036. Os endpoints
+são fechados pelo launcher; não aceita substituir a porta pelo ambiente. A
+fixture e o ciclo de vida do banco descartável pertencem ao Backend. Botões
+de exportação/cancelamento reutilizam `AppButton` e tokens Motria; baixar é a
+ ação primária do modal. A aprovação visual continua pertencendo ao usuário.
+
+No prontuário, a ação compacta fica em `TimelineActions`, junto de `Voltar aos casos`
+quando um caso está aberto. Seu escopo continua sendo o paciente e todos os casos,
+sem reaproveitar o filtro da tela. O modal oferece todo o prontuário, um dia ou
+período inclusivo. Consulta contagem após seleção, informa rascunhos quando presentes
+e bloqueia baixar se não houver registros. Datas da prévia e do download são iguais;
+alterações na seleção invalidam respostas anteriores. Regras temporais e contexto
+de casos pertencem ao contrato canônico do Backend.
+
+O modal de exportação consolidada apresenta um radio group: Todo o prontuário ou Período. Os campos Data inicial/Data final permanecem visíveis; no primeiro modo mostram limites reais da prévia desabilitados, sem limitar a exportação. No período são editáveis; limites iguais representam um dia. O bloco de contagem de registros fica separado dos campos por espaçamento próprio.
+
+Na timeline de evolução, Exportar PDF compartilha a linha de ações e o componente visual de Editar rascunho. As tags continuam no cabeçalho, e a exportação não depende de permissão de edição. A apresentação de autoria lê os vínculos tenant-scoped clinicalAuthorMembership.person e createdByMembership.person enviados pelo Backend, preservando os fallbacks históricos e não inferindo CREFITO.
