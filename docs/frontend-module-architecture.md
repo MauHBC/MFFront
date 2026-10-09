@@ -1842,7 +1842,12 @@ Permitido apenas quando **todas** as condições abaixo forem verdadeiras:
 2. Adicionar uma prop ao compartilhado criaria complexidade desproporcional.
 3. O componente local é genuinamente específico do domínio do módulo.
 
-**Exemplos legítimos em Agendamentos:** `DrawerHeader` local (tem subtítulo e padding diferentes), `DrawerBody` local (padding diferente), `DrawerActions` (sem equivalente em AppDrawer).
+**Shell da Agenda:** `AgendaDrawerShell`, em `src/pages/Agendamentos/agendaDrawerComponents.js`,
+compõe o `AppDrawer` com cabeçalho, corpo e X extraídos de Novo agendamento. Novo
+agendamento e lembretes WhatsApp usam esse mesmo componente; o shell recebe conteúdo
+e callbacks, sem regras de agendamento ou envio. `DrawerActions` conserva o padrão
+da Agenda e aceita `$wrap` para ações longas. O guia do [piloto WhatsApp](whatsapp-piloto-local.md)
+registra as adaptações de fechamento, foco e estado pendente.
 
 ### Quando parametrizar o compartilhado
 

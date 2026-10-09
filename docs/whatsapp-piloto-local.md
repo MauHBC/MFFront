@@ -108,3 +108,36 @@ de lint incluindo o teste do painel apontou `no-nested-ternary` preexistente no 
 A promoção para catálogo 9 também preserva o contrato de histórico de unidades de pacote:
 sete casos selecionados de autorização/cancelamento em 8/9 PASS, sem alterar as regras
 de pacote ou financeiro.
+
+## Drawer compartilhado com Novo agendamento
+
+`AgendaDrawerShell` em `src/pages/Agendamentos/agendaDrawerComponents.js` foi extraído
+do markup real de Novo agendamento. Ambos os consumidores usam o mesmo `AppDrawer`
+de `src/components/AppDrawer/index.js`, cabeçalho, corpo e X; o shell não conhece APIs,
+permissões, pacientes ou comandos. A estrutura paralela de WhatsApp (painel de 680 px,
+backdrop e cabeçalho próprios, botão Voltar à Agenda) foi removida. Botões, campos e
+tabela usam AppButton, AppForm e AppTable; ações longas podem quebrar linha com `$wrap`.
+
+O shell recebe abertura, título/subtítulo, conteúdo e callback de fechar. WhatsApp usa
+a variante compacta de Novo agendamento, rótulo acessível/ref para foco e desabilita o
+X durante comandos. `useDrawerInteraction`, no AppDrawer, mantém foco com Tab, oferece
+Escape, trava scroll externo e restaura o foco/scroll ao sair. X, backdrop e Escape
+passam pelo mesmo guard: seleção, revisão ou edição de opt-in pendente usam o
+`UnsavedChangesDialog` existente. Continuar editando preserva os dados; descarte é
+explícito. Operação em curso impede fechamento. Revogação de acesso/contexto continua
+fechando o painel imediatamente para impedir vazamento entre tenants.
+
+Na comparação técnica de 09/10 no Chrome, Novo agendamento e WhatsApp apresentaram
+440 px de largura, topo em 52 px, altura de 704 px naquela janela, cabeçalho 16px 20px,
+corpo 16px 20px 20px, título 24px/peso 700 e X de 29,6×24,4px. Ambos mantêm o limite
+responsivo de 90vw. O botão Revisar envio mediu 35,6px de altura. Não é aprovação visual.
+X/Escape/backdrop limpos, guard de seleção e restauração de foco/scroll foram conferidos
+no navegador sem criar revisão ou enviar. A sessão e as configurações do usuário foram
+preservadas; o Admin3057 foi conferido sem ativação/desativação adicional.
+
+Gates deste ajuste: 18/18 testes do painel; 38 casos pertinentes em três suítes dos
+consumidores (121 fora do recorte), 63,573 s, incluindo 19 casos de Agenda e a rota
+integrada. Lint de todos os arquivos alterados, UTF-8, build e diffcheck passaram.
+A suíte integral 134/134 acima pertence ao fechamento anterior à extração deste shell;
+não foi repetida neste ajuste de UI. Logs `whatsapp-shared-shell-consumers-20261009.log`
+e `whatsapp-shared-shell-final-{tests,lint,encoding,build}-20261009.log`.
