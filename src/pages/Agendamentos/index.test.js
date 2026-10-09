@@ -481,7 +481,7 @@ const openScheduledSessionEdit = async (container) => {
     return element;
   });
   fireEvent.click(scheduledCard.querySelector("button[aria-label]"));
-  fireEvent.click(await screen.findByRole("button", { name: "Editar agendamento" }));
+  fireEvent.click(await within(scheduledCard).findByRole("button", { name: "Editar agendamento" }));
   await screen.findByText("Motivo da alteração");
 };
 
@@ -5034,7 +5034,7 @@ describe("Agendamentos - editar agendamento", () => {
     });
     expect(dayCard).toHaveTextContent("Pacote de Maurício Titular");
     fireEvent.click(dayCard.querySelector("button[aria-label]"));
-    fireEvent.click(await screen.findByRole("button", { name: "Editar agendamento" }));
+    fireEvent.click(await within(dayCard).findByRole("button", { name: "Editar agendamento" }));
     await screen.findByText("Motivo da alteração");
     expect((await screen.findAllByText("Pacote de Maurício Titular")).length)
       .toBeGreaterThan(0);
@@ -5046,10 +5046,10 @@ describe("Agendamentos - editar agendamento", () => {
     const editForm = patientSearch.closest("form");
     expect(patientSearch).toHaveValue("Paciente Teste");
     fireEvent.change(patientSearch, { target: { value: "Maurício" } });
-    fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+    fireEvent.click(await within(editForm).findByRole("button", { name: /Maurício Titular/ }));
     expect(within(editForm).queryByText("Pacote de Maurício Titular")).not.toBeInTheDocument();
     fireEvent.change(patientSearch, { target: { value: "Paciente Cancelado" } });
-    fireEvent.click(await screen.findByRole("button", { name: /Paciente Cancelado/ }));
+    fireEvent.click(await within(editForm).findByRole("button", { name: /Paciente Cancelado/ }));
     expect(within(editForm).getByText("Pacote de Maurício Titular")).toBeInTheDocument();
     expect(screen.queryByText("Trocar paciente")).not.toBeInTheDocument();
     first.unmount();
