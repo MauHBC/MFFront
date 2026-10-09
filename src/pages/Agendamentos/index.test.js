@@ -438,12 +438,12 @@ const openNewRecurringReview = async (container, {
   const hourSelect = Array.from(container.querySelectorAll("select"))
     .find((select) => Array.from(select.options).some((option) => option.value === hour));
   fireEvent.change(hourSelect, { target: { value: hour } });
-  fireEvent.click(screen.getByRole("button", { name: "+ Adicionar" }));
+  fireEvent.click(within(container.querySelector("form")).getByRole("button", { name: "+ Adicionar" }));
   fireEvent.change(screen.getByPlaceholderText("Ex.: 10"), {
     target: { value: count },
   });
   if (notes !== undefined) fireEvent.change(container.querySelector('textarea[name="notes"]'), { target: { value: notes } });
-  fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+  fireEvent.click(within(container.querySelector("form")).getByRole("button", { name: "Revisar agendamento" }));
 };
 
 const openPackageShareReview = async (container) => {
@@ -458,7 +458,7 @@ const openPackageShareReview = async (container) => {
   await chooseCreationOrigin("Usar pacote de outro paciente");
   const ownerInput = (await screen.findAllByPlaceholderText("Buscar paciente"))[0];
   fireEvent.change(ownerInput, { target: { value: "Maurício" } });
-  fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+  fireEvent.click(await within(container.querySelector("form")).findByRole("button", { name: /Maurício Titular/ }));
   fireEvent.change(container.querySelector('select[name="service_id"]'), {
     target: { value: "41" },
   });
@@ -468,7 +468,7 @@ const openPackageShareReview = async (container) => {
   const hourSelect = Array.from(container.querySelectorAll("select"))
     .find((select) => Array.from(select.options).some((option) => option.value === "10"));
   fireEvent.change(hourSelect, { target: { value: "10" } });
-  fireEvent.click(screen.getByRole("button", { name: "Revisar agendamento" }));
+  fireEvent.click(within(container.querySelector("form")).getByRole("button", { name: "Revisar agendamento" }));
   await screen.findByText("Qual pacote vamos usar?");
 };
 
@@ -481,7 +481,7 @@ const openScheduledSessionEdit = async (container) => {
     return element;
   });
   fireEvent.click(scheduledCard.querySelector("button[aria-label]"));
-  fireEvent.click(await screen.findByRole("button", { name: "Editar agendamento" }));
+  fireEvent.click(await within(scheduledCard).findByRole("button", { name: "Editar agendamento" }));
   await screen.findByText("Motivo da alteração");
 };
 
@@ -1459,7 +1459,8 @@ describe("Agendamentos - editar agendamento", () => {
     if (fillReason) fireEvent.change(screen.getByPlaceholderText("Descreva o motivo"), { target: { value: "Pedido definitivo" } });
     return rendered;
   };
-  const confirmCancellationButton = () => screen.getByRole("button", { name: "Confirmar cancelamento" });
+  const cancellationModal = () => within(screen.getByRole("heading", { name: "Cancelamento/falta" }).parentElement.parentElement);
+  const confirmCancellationButton = () => cancellationModal().getByRole("button", { name: "Confirmar cancelamento" });
   const flushFinancialPreviewDebounce = async () => {
     await act(async () => {
       jest.advanceTimersByTime(250);
@@ -5033,7 +5034,7 @@ describe("Agendamentos - editar agendamento", () => {
     });
     expect(dayCard).toHaveTextContent("Pacote de Maurício Titular");
     fireEvent.click(dayCard.querySelector("button[aria-label]"));
-    fireEvent.click(await screen.findByRole("button", { name: "Editar agendamento" }));
+    fireEvent.click(await within(dayCard).findByRole("button", { name: "Editar agendamento" }));
     await screen.findByText("Motivo da alteração");
     expect((await screen.findAllByText("Pacote de Maurício Titular")).length)
       .toBeGreaterThan(0);
@@ -5045,10 +5046,10 @@ describe("Agendamentos - editar agendamento", () => {
     const editForm = patientSearch.closest("form");
     expect(patientSearch).toHaveValue("Paciente Teste");
     fireEvent.change(patientSearch, { target: { value: "Maurício" } });
-    fireEvent.click(await screen.findByRole("button", { name: /Maurício Titular/ }));
+    fireEvent.click(await within(editForm).findByRole("button", { name: /Maurício Titular/ }));
     expect(within(editForm).queryByText("Pacote de Maurício Titular")).not.toBeInTheDocument();
     fireEvent.change(patientSearch, { target: { value: "Paciente Cancelado" } });
-    fireEvent.click(await screen.findByRole("button", { name: /Paciente Cancelado/ }));
+    fireEvent.click(await within(editForm).findByRole("button", { name: /Paciente Cancelado/ }));
     expect(within(editForm).getByText("Pacote de Maurício Titular")).toBeInTheDocument();
     expect(screen.queryByText("Trocar paciente")).not.toBeInTheDocument();
     first.unmount();

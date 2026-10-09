@@ -11,7 +11,7 @@ describe("clinical case lifecycle structure", () => {
   test("publishes draft, consolidated and legacy states", () => {
     expect(patientDetails).toContain('"Rascunho"');
     expect(patientDetails).toContain('"Consolidado"');
-    expect(patientDetails).toContain('"Legado"');
+    expect(patientDetails).toContain("Registro anterior</span>");
   });
 
   test("keeps status out of the clinical content form", () => {
