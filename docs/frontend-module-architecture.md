@@ -2178,8 +2178,9 @@ junto ao saldo, em Cobranças e Mensalidades, para Administrador com permissão
 de liquidação. O formulário aceita valor parcial ou saldo total e exige motivo.
 Antes de confirmar, apresenta paciente, crédito atual, valor da devolução e
 saldo resultante retornados pela prévia do Backend. O fluxo usa **Avançar** e
-**Confirmar**, com um único aviso: o valor sai do crédito do paciente e a
-devolução do dinheiro deve ser feita por fora do sistema.
+**Confirmar**. Durante a edição, o saldo após a devolução acompanha o valor
+informado; na confirmação, usa os valores autoritativos da prévia. Valores
+acima do disponível não apresentam saldo zerado como se fossem válidos.
 
 POST `/financial-payments/credit-return-preview` e `/financial-payments/return-credit`
 seguem a regra autoritativa do Backend. O modal bloqueia duplo envio; resultado

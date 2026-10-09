@@ -74,19 +74,18 @@ export default function FinancialCreditReturnModal({ target, formatCurrency, onC
   return <Overlay><Dialog ref={dialog} role="dialog" aria-modal="true" aria-labelledby="credit-return-title" tabIndex={-1} onKeyDown={keyDown}>
     <h2 id="credit-return-title">Devolver valor</h2>
     <p><strong>{preview?.patient?.full_name || target.patientName}</strong></p>
-    <Notice>Esse valor será descontado do crédito do paciente. A devolução do dinheiro deve ser feita por fora do sistema.</Notice>
     {preview ? <>
       <p>Crédito disponível: <strong>{formatCurrency(preview.credit_before_cents)}</strong></p>
-      <p>Devolução a registrar: <strong>{formatCurrency(preview.amount_cents)}</strong></p>
-      <p>Saldo após o registro: <strong>{formatCurrency(preview.credit_after_cents)}</strong></p>
+      <p>Valor da devolução: <strong>{formatCurrency(preview.amount_cents)}</strong></p>
+      <p>Saldo após a devolução: <strong>{formatCurrency(preview.credit_after_cents)}</strong></p>
       <p>Motivo: {preview.reason}</p>
-      <p>Confirme somente após conferir o paciente e o valor.</p>
     </> : <>
       <p>Crédito disponível: <strong>{formatCurrency(target.creditAvailableCents)}</strong></p>
       <PaymentField><PaymentLabel htmlFor="credit-return-amount">Valor da devolução</PaymentLabel>
         <CurrencyInputGroup><CurrencyPrefix aria-hidden="true">R$</CurrencyPrefix><CurrencyInput id="credit-return-amount" inputMode="decimal" value={amount} disabled={busy} onChange={(event) => setAmount(sanitizePositiveCurrencyInput(event.target.value))} /></CurrencyInputGroup>
         <GhostButton type="button" disabled={busy} onClick={() => setAmount(formatCurrencyInputFromCents(target.creditAvailableCents))}>Usar saldo total</GhostButton>
       </PaymentField>
+      {validMoney(value) && value <= target.creditAvailableCents && <p>Saldo após a devolução: <strong>{formatCurrency(target.creditAvailableCents - value)}</strong></p>}
       {value > target.creditAvailableCents && <p role="alert">O valor não pode ultrapassar o crédito disponível.</p>}
       <PaymentField><PaymentLabel htmlFor="credit-return-reason">Motivo obrigatório</PaymentLabel><PaymentTextArea id="credit-return-reason" maxLength={1000} value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} /></PaymentField>
     </>}
@@ -103,5 +102,4 @@ FinancialCreditReturnModal.propTypes = {
 };
 const Overlay = styled.div`position: fixed; inset: 0; z-index: 1400; background: rgba(0,0,0,.38); display: flex; align-items: center; justify-content: center; padding: 18px;`;
 const Dialog = styled.div`background: white; color: #1b1b1b; border-radius: 16px; padding: 20px; width: min(100%, 560px); max-height: 90vh; overflow-y: auto; h2 { margin: 0 0 12px; font-size: 20px; } p { line-height: 1.5; overflow-wrap: anywhere; }`;
-const Notice = styled.p`color: #80401d; background: #fff4e8; padding: 12px; border-radius: 8px;`;
 const Actions = styled.div`display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; flex-wrap: wrap;`;

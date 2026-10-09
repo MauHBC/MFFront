@@ -20,10 +20,10 @@ test('partial confirmation identifies patient, money and remaining balance', asy
   const completed = jest.fn(); confirmCreditReturn.mockResolvedValue({ data: { ...proposed(2500), id: 1 } });
   render(<FinancialCreditReturnModal target={target} formatCurrency={currency} onClose={jest.fn()} onCompleted={completed} />);
   expect(screen.getByRole('heading', { name: 'Devolver valor' })).toBeInTheDocument();
-  expect(screen.getAllByText('Esse valor será descontado do crédito do paciente. A devolução do dinheiro deve ser feita por fora do sistema.')).toHaveLength(1);
+  expect(screen.queryByText(/por fora do sistema/)).not.toBeInTheDocument();
   expect(screen.getByText('Avançar')).toBeDisabled();
   await prepare(); expect(screen.getByText('R$ 75,00')).toBeInTheDocument();
-  expect(screen.getAllByText('Esse valor será descontado do crédito do paciente. A devolução do dinheiro deve ser feita por fora do sistema.')).toHaveLength(1);
+  expect(screen.queryByText(/por fora do sistema/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByText('Confirmar'));
   await waitFor(() => expect(completed).toHaveBeenCalledTimes(1));
   expect(confirmCreditReturn.mock.calls[0][0]).toMatchObject({ patient_id: 30, amount_cents: 2500, reason: 'Solicitação sintética' });
@@ -56,4 +56,19 @@ test('stale response requires fresh preview and no silent confirmation', async (
   await prepare(); fireEvent.click(screen.getByText('Confirmar'));
   await screen.findByText('Avançar'); expect(screen.queryByText('Confirmar')).not.toBeInTheDocument();
   expect(confirmCreditReturn).toHaveBeenCalledTimes(1);
+});
+
+test('remaining balance follows partial and total amounts without pretending excess is zero', () => {
+  render(<FinancialCreditReturnModal target={target} formatCurrency={currency} onClose={jest.fn()} onCompleted={jest.fn()} />);
+  const remaining = () => screen.getByText('Saldo após a devolução:').closest('p');
+  expect(remaining()).toHaveTextContent('R$ 100,00');
+  fireEvent.change(screen.getByLabelText('Valor da devolução'), { target: { value: '25,00' } });
+  expect(remaining()).toHaveTextContent('R$ 75,00');
+  expect(remaining()).not.toHaveTextContent('R$ 0,00');
+  fireEvent.click(screen.getByText('Usar saldo total'));
+  expect(remaining()).toHaveTextContent('R$ 0,00');
+  fireEvent.change(screen.getByLabelText('Valor da devolução'), { target: { value: '101,00' } });
+  expect(screen.queryByText('Saldo após a devolução:')).not.toBeInTheDocument();
+  expect(screen.getByText('Avançar')).toBeDisabled();
+  expect(previewCreditReturn).not.toHaveBeenCalled();
 });
