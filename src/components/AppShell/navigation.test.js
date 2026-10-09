@@ -7,8 +7,10 @@ import {
 
 describe("AppShell navigation", () => {
   it("oculta Relatórios quando nenhum relatório próprio é permitido", () => {
-    expect(getVisibleNavigationItems({ canAccessModule: (key) => key === "finance" })
+    expect(getVisibleNavigationItems({ canAccessModule: (key) => key === "none" })
       .some(({ key }) => key === "reports")).toBe(false);
+    expect(getVisibleNavigationItems({ canAccessModule: (key) => key === "finance" })
+      .some(({ key }) => key === "reports")).toBe(true);
     expect(getVisibleNavigationItems({ canAccessModule: (key) => key === "patients" })
       .some(({ key }) => key === "reports")).toBe(true);
   });

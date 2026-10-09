@@ -1,146 +1,169 @@
 import React from "react";
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import Reports from ".";
+import Reports, { catalog } from ".";
 import api from "../../services/axios";
+import { downloadPdfResponse } from "../../services/documents";
 
 jest.mock("../../components/AppShell", () => function Shell({ children }) { return <div>{children}</div>; });
 jest.mock("../../services/axios", () => ({ __esModule: true, default: { get: jest.fn() } }));
+jest.mock("../../services/documents", () => ({ downloadPdfResponse: jest.fn() }));
 const mockAccess = jest.fn(() => true);
-let mockContext = null;
-jest.mock("../../contexts/AuthorizationContext", () => ({ useAuthorization: () => ({ canAccessModule: mockAccess, context: mockContext }) }));
-jest.mock("../../utils/canonicalDateTime", () => ({ todayInSaoPaulo: () => "2026-10-09" }));
-
-const daily = {
-  from: "2026-10-09", to: "2026-10-09", counts: { scheduled: 2, done: 1, no_show: 0, canceled: 0 },
-  total_sessions: 3, unique_patients: 2, excluded_sessions: 1, total_rows: 3, total_pages: 1,
-  rows: [{ session_id: 1, patient_id: 1, patient_name: "Paciente sintético", starts_at: "2026-10-10T02:30:00Z", date: "2026-10-09", professional_name: "Profissional", service_name: "Serviço", status: "done" }],
-};
-const birthdays = { month: 2, total_rows: 1, total_pages: 1, coverage: { total_patients: 2, missing_birth_date: 1 }, rows: [{ patient_id: 2, name: "Bia sintética", day: 29, month: 2 }] };
+let mockAdmin = true;
+let mockContext;
+jest.mock("../../contexts/AuthorizationContext", () => ({ useAuthorization: () => ({ canAccessModule: mockAccess, context: mockContext, isAdministrator: mockAdmin }) }));
+jest.mock("../../utils/canonicalDateTime", () => ({ ...jest.requireActual("../../utils/canonicalDateTime"), todayInSaoPaulo: () => "2026-10-09" }));
+const report = { kind: "receipts", title: "Recebimentos e devoluções", clinic: { name: "Clínica Jardim das Flores" }, filters: { from: "2026-10-01", to: "2026-10-31" }, date_basis: "Movimentos realizados", generated_at: "2026-10-09T12:00:00Z", version: "a".repeat(64), columns: [{ key: "patient", label: "Paciente" }, { key: "amount", label: "Valor", type: "money" }], rows: [{ patient: "Ana Carolina Almeida", amount: 10000 }], totals: [{ key: "received", label: "Recebido", type: "money", value: 10000 }], notes: [], detail: [], detail_columns: [] };
 const mount = () => render(<MemoryRouter><Reports /></MemoryRouter>);
-
+const generate = () => fireEvent.click(screen.getByRole("button", { name: "Gerar relatório" }));
+it("apresenta devoluções de crédito em seção própria sem reduzir o recebido", async () => {
+  const separated = { ...report, rows_title: "Recebimentos", credit_returns_title: "Devoluções de crédito — informação separada do resultado", credit_returns_columns: report.columns, credit_returns: [{ patient: "Bruno Santos", amount: 4000 }], totals: [...report.totals, { key: "returned", label: "Devoluções de crédito (informativo)", value: 4000, type: "money" }] };
+  api.get.mockImplementation((url) => Promise.resolve({ data: url.includes("/document") ? separated : [] }));
+  mount(); generate();
+  expect(await screen.findByText("Devoluções de crédito — informação separada do resultado")).toBeInTheDocument();
+  expect(screen.getByText("Bruno Santos")).toBeInTheDocument();
+  expect(screen.getAllByText("R$ 100,00").length).toBeGreaterThan(0);
+  expect(screen.queryByText("R$ 60,00")).not.toBeInTheDocument();
+});
 beforeEach(() => {
   jest.clearAllMocks();
-  mockContext = null;
-  Element.prototype.scrollIntoView = jest.fn();
+  mockAdmin = true;
   mockAccess.mockImplementation(() => true);
-  api.get.mockImplementation((url) => {
-    if (url.includes("references")) return Promise.resolve({ data: [{ id: 10, name: "Profissional" }] });
-    return Promise.resolve({ data: url.includes("birthdays") ? birthdays : daily });
-  });
+  mockContext = { modules: ["schedule", "patients", "finance"].map((key) => ({ module_key: key, can_export: true })) };
+  api.get.mockImplementation((url) => Promise.resolve({ data: url.includes("references") || url === "/payment-methods" ? [] : report }));
+  URL.createObjectURL = jest.fn(() => "blob:reports-test"); URL.revokeObjectURL = jest.fn();
 });
-
-it("não consulta relatórios nem referências sem acesso", () => {
-  mockAccess.mockImplementation(() => false);
+it("não gera automaticamente e substitui telas redundantes pelo catálogo de seis relatórios", () => {
   mount();
+  expect(screen.getByRole("option", { name: "Recebimentos e devoluções" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "Aniversariantes" })).toBeInTheDocument();
+  expect(screen.queryByText("Resumo do dia")).not.toBeInTheDocument();
+  expect(screen.queryByText("Agenda e presença")).not.toBeInTheDocument();
+  expect(api.get.mock.calls.some(([url]) => url.includes("/document"))).toBe(false);
+});
+it("gera documento com clínica, período e totais após ação explícita", async () => {
+  mount(); generate();
+  expect(await screen.findByText("Ana Carolina Almeida")).toBeInTheDocument();
+  expect(screen.getByText("Clínica Jardim das Flores")).toBeInTheDocument();
+  expect(screen.getByText("01/10/2026 a 31/10/2026")).toBeInTheDocument();
+  expect(api.get).toHaveBeenCalledWith("/reports/receipts/document", { params: { from: "2026-10-01", to: "2026-10-31", situation: "all" } });
+});
+it("aniversários selecionam ano da ocorrência e intervalo cruzando ano", async () => {
+  mount(); fireEvent.change(screen.getByLabelText("Relatório"), { target: { value: "anniversaries" } });
+  fireEvent.change(screen.getByLabelText("Mês"), { target: { value: "2" } }); fireEvent.change(screen.getByLabelText("Ano"), { target: { value: "2027" } }); generate();
+  await waitFor(() => expect(api.get).toHaveBeenCalledWith("/reports/anniversaries/document", { params: { from: "2027-02-01", to: "2027-02-28" } }));
+  fireEvent.change(screen.getByLabelText("Período"), { target: { value: "range" } });
+  fireEvent.change(screen.getByLabelText("De"), { target: { value: "2026-12-01" } }); fireEvent.change(screen.getByLabelText("Até"), { target: { value: "2027-03-01" } }); generate();
+  await waitFor(() => expect(api.get).toHaveBeenCalledWith("/reports/anniversaries/document", { params: { from: "2026-12-01", to: "2027-03-01" } }));
+});
+it("oculta caixa de não administradores e nega geração sem permissões", () => {
+  mockAdmin = false; mockAccess.mockImplementation((key) => key === "patients"); mount();
+  expect(screen.queryByRole("option", { name: "Movimentação de caixa" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: "Contas a receber e atrasos" })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Relatório")).toHaveValue("anniversaries");
+});
+it("invalida documento ao alterar filtros e ignora resposta atrasada", async () => {
+  let resolve;
+  api.get.mockImplementation((url) => url.includes("document") ? new Promise((done) => { resolve = done; }) : Promise.resolve({ data: [] }));
+  mount(); generate(); fireEvent.change(screen.getByLabelText("Mês"), { target: { value: "11" } });
+  resolve({ data: report }); await waitFor(() => expect(screen.queryByText("Ana Carolina Almeida")).not.toBeInTheDocument());
+  expect(screen.queryByRole("button", { name: "CSV" })).not.toBeInTheDocument();
+});
+it("revogação ou troca de contexto remove dados anteriormente autorizados", async () => {
+  const view = mount(); generate(); await screen.findByText("Ana Carolina Almeida");
+  mockContext = { modules: [] }; mockAdmin = false; mockAccess.mockImplementation(() => false);
+  view.rerender(<MemoryRouter><Reports /></MemoryRouter>);
+  expect(screen.queryByText("Ana Carolina Almeida")).not.toBeInTheDocument();
   expect(screen.getByText("Você não tem acesso aos relatórios disponíveis.")).toBeInTheDocument();
-  expect(api.get).not.toHaveBeenCalled();
 });
-
-it("consulta somente pacientes permitidos, filtra mês e preserva 29/02", async () => {
-  mockAccess.mockImplementation((key) => key === "patients");
-  mount();
-  expect(await screen.findByText("Bia sintética")).toBeInTheDocument();
-  expect(screen.getByText("29/02")).toBeInTheDocument();
-  expect(screen.queryByLabelText("Data")).not.toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText("Mês"), { target: { value: "2" } });
-  await waitFor(() => expect(api.get).toHaveBeenLastCalledWith("/reports/birthdays", { params: { month: 2, page: 1 } }));
-  expect(api.get.mock.calls.every(([url]) => url === "/reports/birthdays")).toBe(true);
-  expect(await screen.findByRole("link", { name: "Bia sintética" })).toHaveAttribute("href", "/pacientes/2");
-});
-
-it("usa hoje, explica exclusões e permite abrir o estado contado", async () => {
-  mount();
-  expect(await screen.findByText("Paciente sintético")).toBeInTheDocument();
-  expect(screen.getByText(/1 sessões suspensas/)).toBeInTheDocument();
-  expect(screen.getByText("09/10/2026 · 23:30")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /Realizados 1 Ver registros/ }));
-  await waitFor(() => expect(api.get).toHaveBeenLastCalledWith("/reports/schedule", { params: { from: "2026-10-09", to: "2026-10-09", status: "done", page: 1 } }));
-});
-
-it("aplica intervalo e profissional e pagina com filtros preservados", async () => {
-  mount();
-  await screen.findByText("Paciente sintético");
-  api.get.mockImplementation((url) => Promise.resolve({ data: url.includes("references") ? [] : { ...daily, total_pages: 2, total_rows: 21 } }));
-  fireEvent.click(screen.getByRole("button", { name: /Agenda e presença/ }));
-  fireEvent.change(screen.getByLabelText("De"), { target: { value: "2026-10-01" } });
-  fireEvent.change(screen.getByLabelText("Profissional"), { target: { value: "10" } });
-  await screen.findByRole("button", { name: "Próxima" });
-  fireEvent.click(screen.getByRole("button", { name: "Próxima" }));
-  await waitFor(() => expect(api.get).toHaveBeenLastCalledWith("/reports/schedule", { params: { from: "2026-10-01", to: "2026-10-09", professional_user_id: "10", status: "all", page: 2 } }));
-});
-
-it("mostra vazio e erro sem manter números antigos", async () => {
-  api.get.mockResolvedValue({ data: { ...daily, rows: [], total_sessions: 0, unique_patients: 0 } });
-  mount();
-  expect(await screen.findByText("Nenhum registro para os filtros selecionados.")).toBeInTheDocument();
-  api.get.mockRejectedValue({ response: { status: 400 } });
-  fireEvent.change(screen.getByLabelText("Data"), { target: { value: "" } });
-  expect(await screen.findByRole("alert")).toHaveTextContent("Confira o período");
-  expect(screen.queryByText("Nenhum registro para os filtros selecionados.")).not.toBeInTheDocument();
-});
-
-it("atalho de receitas preserva o contrato mensal existente", async () => {
-  mount();
-  await screen.findByText("Paciente sintético");
-  expect(screen.getByRole("link", { name: /Receitas por paciente/ })).toHaveAttribute("href", "/financeiro/receitas?month=2026-10");
-});
-
-it("remove imediatamente o resultado anterior ao trocar o contexto autorizado", async () => {
-  const view = mount();
-  await screen.findByText("Paciente sintético");
-  let resolveNewReport;
+it("pagina somente a visualização e exporta consulta completa com versão", async () => {
   api.get.mockImplementation((url) => {
-    if (url.includes("references")) return Promise.resolve({ data: [] });
-    return new Promise((resolve) => { resolveNewReport = resolve; });
+    if (url.includes("/export")) return Promise.resolve({ data: new Blob(["CSV"], { type: "text/csv" }) });
+    if (url.includes("/document")) return Promise.resolve({ data: { ...report, rows: Array.from({ length: 36 }, (_, index) => ({ patient: `Nome ${index + 1}`, amount: 10000 })) } });
+    return Promise.resolve({ data: [] });
   });
-  mockContext = { clinic_id: 22 };
-  view.rerender(<MemoryRouter><Reports /></MemoryRouter>);
-  expect(screen.queryByText("Paciente sintético")).not.toBeInTheDocument();
-  await waitFor(() => expect(resolveNewReport).toBeDefined());
-  resolveNewReport({ data: { ...daily, rows: [] } });
-  await screen.findByText("Nenhum registro para os filtros selecionados.");
+  const click = jest.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  mount(); generate(); await screen.findByText("Nome 1"); expect(screen.queryByText("Nome 21")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Próxima" })); expect(screen.getByText("Nome 36")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "CSV" }));
+  await waitFor(() => expect(api.get).toHaveBeenCalledWith("/reports/receipts/export", { params: { from: "2026-10-01", to: "2026-10-31", situation: "all", format: "csv", version: report.version }, responseType: "blob" }));
+  expect(URL.revokeObjectURL).toHaveBeenCalled(); click.mockRestore();
+});
+it("preserva leitura mas bloqueia exportação sem can_export", async () => {
+  mockContext.modules = mockContext.modules.map((m) => ({ ...m, can_export: false })); mount(); generate(); await screen.findByText("Ana Carolina Almeida");
+  expect(screen.getByRole("button", { name: "Baixar PDF" })).toBeDisabled(); expect(screen.getByRole("button", { name: "CSV" })).toBeDisabled();
+});
+it("mostra estados vazio e erro de consulta sem exibir relatório anterior", async () => {
+  api.get.mockResolvedValue({ data: { ...report, rows: [] } }); mount(); generate(); await screen.findByText("Nenhum registro para os filtros selecionados.");
+  api.get.mockRejectedValue({ response: { status: 400 } }); generate(); expect(await screen.findByRole("alert")).toHaveTextContent("Confira o período");
+  expect(screen.queryByLabelText("Documento do relatório")).not.toBeInTheDocument();
 });
 
-it("ignora resposta interrompida quando o filtro já mudou", async () => {
-  let resolveOld;
-  api.get.mockImplementation((url, options) => {
-    if (url.includes("references")) return Promise.resolve({ data: [] });
-    if (options.params.from === "2026-10-09") return new Promise((resolve) => { resolveOld = resolve; });
-    return Promise.resolve({ data: { ...daily, rows: [{ ...daily.rows[0], patient_name: "Resultado atual" }] } });
+it.each(catalog)("preserva critério, filtros e ações acessíveis em $name", async ({ id, name }) => {
+  const generated = { ...report, kind: id, title: name, filters: { ...report.filters, group_by: "professional" }, date_basis: "Data prevista do atendimento, no horário de Brasília.", filter_labels: { group_by: "Profissional" } };
+  api.get.mockImplementation((url) => Promise.resolve({ data: url.includes("/document") ? generated : [] }));
+  mount();
+  fireEvent.change(screen.getByLabelText("Relatório"), { target: { value: id } });
+  generate();
+  const document = await screen.findByRole("region", { name: "Documento do relatório" });
+  expect(within(document).getByRole("heading", { name })).toBeInTheDocument();
+  expect(within(document).getByText(generated.date_basis)).toBeInTheDocument();
+  expect(within(document).getByText("Agrupamento: Profissional")).toBeInTheDocument();
+  expect(within(document).getByRole("button", { name: "Baixar PDF" })).toBeEnabled();
+  expect(within(document).queryByRole("button", { name: "Imprimir" })).not.toBeInTheDocument();
+  expect(within(document).getByRole("button", { name: "CSV" })).toBeEnabled();
+  expect(within(document).getByRole("columnheader", { name: "Paciente" })).toHaveAttribute("scope", "col");
+});
+
+it("anuncia geração em andamento, bloqueia envio duplicado e limpa o estado ao concluir", async () => {
+  let resolve;
+  api.get.mockImplementation((url) => url.includes("/document") ? new Promise((done) => { resolve = done; }) : Promise.resolve({ data: [] }));
+  mount(); generate();
+  expect(screen.getByRole("status")).toHaveTextContent("Gerando relatório.");
+  expect(screen.getByRole("button", { name: "Gerando…" })).toBeDisabled();
+  await act(async () => resolve({ data: report }));
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Gerar relatório" })).toBeEnabled();
+});
+
+it("expõe preparação de arquivo e impede exportações concorrentes", async () => {
+  let resolve;
+  api.get.mockImplementation((url) => url.includes("/export") ? new Promise((done) => { resolve = done; }) : Promise.resolve({ data: url.includes("/document") ? report : [] }));
+  const click = jest.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  mount(); generate(); await screen.findByText("Ana Carolina Almeida");
+  fireEvent.click(screen.getByRole("button", { name: "CSV" }));
+  expect(screen.getByRole("status")).toHaveTextContent("Preparando arquivo…");
+  expect(screen.getByRole("button", { name: "Baixar PDF" })).toBeDisabled();
+  await act(async () => resolve({ data: new Blob(["CSV"], { type: "text/csv" }) }));
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  click.mockRestore();
+});
+
+it("baixa o PDF autenticado sem abrir outro fluxo de impressão", async () => {
+  const opened = jest.spyOn(window, "open").mockImplementation(() => null);
+  const pdfResponse = { data: new Blob(["%PDF"], { type: "application/pdf" }) };
+  api.get.mockImplementation((url) => {
+    if (url.includes("/export")) return Promise.resolve(pdfResponse);
+    return Promise.resolve({ data: url.includes("/document") ? report : [] });
   });
-  mount();
-  await waitFor(() => expect(resolveOld).toBeDefined());
-  fireEvent.change(screen.getByLabelText("Data"), { target: { value: "2026-10-08" } });
-  await screen.findByText("Resultado atual");
-  resolveOld({ data: daily });
-  await waitFor(() => expect(screen.queryByText("Paciente sintético")).not.toBeInTheDocument());
-  expect(screen.getByText("Resultado atual")).toBeInTheDocument();
+  mount(); generate(); await screen.findByText("Ana Carolina Almeida");
+  fireEvent.click(screen.getByRole("button", { name: "Baixar PDF" }));
+  await waitFor(() => expect(downloadPdfResponse).toHaveBeenCalledWith(pdfResponse, "relatorio"));
+  expect(api.get).toHaveBeenCalledWith("/reports/receipts/export", { params: { from: "2026-10-01", to: "2026-10-31", situation: "all", format: "pdf", version: report.version }, responseType: "blob" });
+  expect(opened).not.toHaveBeenCalled();
+  opened.mockRestore();
 });
 
-it("troca para relatório permitido quando o acesso à Agenda é revogado", async () => {
-  const view = mount();
-  await screen.findByText("Paciente sintético");
-  mockAccess.mockImplementation((key) => key === "patients");
-  mockContext = { clinic_id: 1, permissions_version: 2 };
-  view.rerender(<MemoryRouter><Reports /></MemoryRouter>);
-  expect(screen.queryByText("Paciente sintético")).not.toBeInTheDocument();
-  await screen.findByText("Bia sintética");
-  expect(screen.queryByLabelText("Profissional")).not.toBeInTheDocument();
-  expect(api.get).toHaveBeenLastCalledWith("/reports/birthdays", { params: { month: 10, page: 1 } });
-});
-
-it("o total de um estado abre a primeira página correspondente e rola após carregar", async () => {
-  mount();
-  await screen.findByText("Paciente sintético");
-  let resolveFiltered;
-  api.get.mockImplementation(() => new Promise((resolve) => { resolveFiltered = resolve; }));
-  fireEvent.click(screen.getByRole("button", { name: /Realizados 1 Ver registros/ }));
-  await waitFor(() => expect(resolveFiltered).toBeDefined());
-  expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
-  resolveFiltered({ data: { ...daily, total_rows: 1 } });
-  await screen.findByText("Paciente sintético");
-  await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" }));
-  expect(screen.getByLabelText("Situação")).toHaveValue("done");
+it("exibe nascimento completo e idade por ocorrência sem Convenção ou emissão no modelo mensal", async () => {
+  const birthday = { ...report, kind: "anniversaries", title: "Aniversariantes", columns: [{ key: "patient", label: "Nome" }, { key: "birth_date", label: "Data de nascimento" }, { key: "turns_age", label: "Idade a completar", type: "age" }], rows: [{ patient: "Ana Carolina Almeida", birth_date: "1980-10-02", turns_age: 46 }], date_basis: "Idade a completar: idade em anos no aniversário do período selecionado." };
+  api.get.mockImplementation((url) => Promise.resolve({ data: url.includes("/document") ? birthday : [] }));
+  mount(); fireEvent.change(screen.getByLabelText("Relatório"), { target: { value: "anniversaries" } }); generate();
+  const document = await screen.findByRole("region", { name: "Documento do relatório" });
+  expect(within(document).getByText("02/10/1980")).toBeInTheDocument();
+  expect(within(document).getByText("46 anos")).toBeInTheDocument();
+  expect(within(document).getByRole("columnheader", { name: "Idade a completar" })).toBeInTheDocument();
+  expect(within(document).queryByRole("columnheader", { name: "Convenção" })).not.toBeInTheDocument();
+  expect(within(document).queryByRole("columnheader", { name: "Aniversário no período" })).not.toBeInTheDocument();
+  expect(within(document).queryByText(/Gerado em/)).not.toBeInTheDocument();
 });

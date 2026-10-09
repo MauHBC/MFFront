@@ -52,7 +52,7 @@ const navigationItems = [
     path: "/relatorios",
     matchPaths: ["/relatorios"],
     icon: FaClipboardList,
-    isVisible: ({ canAccessModule } = {}) => ["schedule", "patients"].some((key) => canAccessModule?.(key) === true),
+    isVisible: ({ canAccessModule } = {}) => ["schedule", "patients", "finance"].some((key) => canAccessModule?.(key) === true),
   },
   {
     key: "patients",

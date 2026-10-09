@@ -2255,34 +2255,34 @@ A aprovação visual final pertence ao usuário.
 ## Central de Relatórios
 
 `/relatorios` usa AppShell e aparece após Painel, preservando Agenda primeiro.
-A entrada existe quando `schedule` ou `patients` permite leitura; acesso direto
-sem esses domínios mostra estado sem acesso e não consulta relatórios.
-Resumo do dia e Agenda e presença exigem Agenda; Aniversariantes exige Pacientes.
-Filtros próprios, totais por estado que filtram a tabela, páginas de 20 registros,
-erro/vazio e controles responsivos consomem as projeções do Backend.
-A fonte funcional é `MFBackend/docs/regras-negocio/relatorios.md`; a UI não
-redefine calendário, escopo, estado realizado ou regras financeiras.
-O atalho Receitas usa o parâmetro mensal existente `month=YYYY-MM` no módulo
-canônico. O link de visão geral não promete aplicar filtros nem conceder acesso
-a Recebido e pago, cuja autorização continua no Financeiro.
-Não há novas exportações, comunicações ou notificações.
-Validação: testes de Reports, AppShell/navegação e rotas, lint, mojibake e build.
+A entrada depende de leitura de schedule, patients ou finance. O catálogo tem
+seis documentos: Recebimentos e devoluções, Movimentação de caixa, Contas a receber
+e atrasos, Produção por profissional/serviço, Faltas e cancelamentos e Aniversariantes.
+Recebimentos/caixa exigem administrador; os demais respeitam o módulo de origem.
 
-A prévia de Relatórios tem o slot fechado `reports-preview`: Frontend 3040,
-API loopback 3046, selecionado por `MOTRIA_LOCAL_STACK_SLOT` antes de
-`npm run dev`. Overrides de host/porta/API continuam rejeitados. O slot não
-inicia serviços automaticamente nem altera os demais slots; a inicialização
-manual depende da autorização do usuário e usa a fixture descartável do Backend.
-Resultados são vinculados ao contexto autorizado e filtros que os produziram;
-respostas anteriores não permanecem visíveis após troca de contexto/filtro.
+Fluxo explícito: escolher documento, definir mês/ano ou intervalo e filtros úteis,
+Gerar relatório, conferir documento e baixar PDF ou CSV autenticado. Não há ação
+Imprimir duplicada. Aniversariantes mostra Nome, Data de nascimento completa e
+Idade a completar (idade no aniversário selecionado), acrescentando ocorrência somente
+em intervalos que atravessam anos. O modelo de referência não inclui emissão
+e não expõe coluna Convenção; ajuste de 29/02 usa nota apenas quando aplicável.
+Nenhuma leitura de relatório é disparada automaticamente. Pacotes está fora do catálogo.
+A fonte funcional é MFBackend/docs/regras-negocio/relatorios.md.
 
-A troca de permissões seleciona um relatório ainda permitido e invalida dados
-anteriores, inclusive referências profissionais de outro contexto. A rolagem de
-cards e paginação aguarda a resposta dos filtros solicitados; respostas
-interrompidas não atualizam dados nem acionam rolagem de um filtro anterior.
-<!-- Relatórios: refinamento de densidade -->
-Relatórios reutiliza `AppButton`, superfícies e tipografia de `AppMetricCard`,
-`AppTable` e os tokens compartilhados. O cabeçalho é sucinto, os filtros têm
-controles consistentes e os totais abrem a lista correspondente. A seleção é
-anunciada com `aria-pressed`; controles de navegação mantêm altura de 44px.
-Tabelas conservam rolagem horizontal no mobile e paginação de 20 registros.
+Resultados e referências pertencem ao contexto autorizado e filtros da geração.
+Mudanças invalidam resultado; respostas interrompidas não repopulam a tela. Revogação
+oculta os dados e seleciona documento ainda permitido. Exportação exige can_export,
+revalidação no servidor e version; resultado alterado exige nova geração.
+
+Prévia usa AppForm/Field, AppButton, AppModuleShell/AppLayout, AppToolbar,
+AppTable, AppPagination e DataLoadingState. Campos têm 42px com box-sizing
+border-box; Ano ocupa 96px e filtros quebram por conteúdo no mobile. Identidade
+e ações ficam no mesmo cabeçalho compacto; período, critério e agrupamento
+continuam explícitos. Tabelas têm rolagem horizontal e paginação de 20 linhas. Exportação contém todas as linhas,
+totais e detalhes, sem limitar ao que está visível. Não persiste snapshot nem envia
+comunicações/notificações. A validação visual final pertence ao usuário.
+
+O slot reports-preview mantém Frontend 3040 e API loopback 3046, selecionado por
+MOTRIA_LOCAL_STACK_SLOT antes de npm run dev. Overrides continuam rejeitados; não
+inicia serviços automaticamente. Prévia manual exige autorização e dados sintéticos.
+Gates: Reports, navegação, regressões pertinentes, lint, mojibake e build.
