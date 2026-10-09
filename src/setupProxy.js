@@ -1,7 +1,9 @@
 const { createProxyMiddleware } = require("http-proxy-middleware");
 const { proxyTargetForEnvironment } = require("../scripts/run-local-development.cjs");
+const { localPreviewRouting } = require("../scripts/lib/local-preview-routing.cjs");
 
 function setupProxy(app) {
+  app.use(localPreviewRouting());
   app.use(
     "/api",
     createProxyMiddleware({

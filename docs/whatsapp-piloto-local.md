@@ -36,3 +36,26 @@ O gate final usou --silent --testTimeout=15000. Uma repetição anterior teve do
 timeouts de cinco segundos em casos existentes de cancelamento; os três casos
 envolvidos passaram isoladamente no limite original. Após ajustar a guarda ao
 contexto real de autorização (sem pressupor clinic_id), o painel passou 4/4.
+
+## Correção do acesso direto da prévia — 09/10/2026
+
+Causa comprovada: connect-history-api-fallback do CRA recusava rotas internas
+quando Accept estava ausente/vazio ou preferia application/json. Esses GETs
+retornavam 404; com text/html ou */* a entrada React era servida. Além disso,
+static/missing.js retornava HTML200 quando o fallback aceitava HTML.
+
+`src/setupProxy.js` registra `scripts/lib/local-preview-routing.cjs` somente
+com efeito no slot whatsapp-pilot em development. Raízes canônicas da aplicação
+servem index.html para GET/HEAD direto, independentemente de Accept. API não é
+reescrita; pedidos de arquivos deixam o handler estático responder e impedem
+fallback HTML em recursos ausentes. Outros slots e produção permanecem sem
+esse comportamento. Acesso não substitui autorização: as rotas React e API
+continuam protegidas. Nenhum processo ou porta das outras sprints foi alterado.
+
+Gates:13/13 PASS em `npm run test:local-development -- tests/local-preview-routing.test.cjs`;
+38/38 verificações HTTP no servidor real, incluindo root/login/Agenda/cenários,
+quatro Accepts, query, HEAD, bundle existente, API404 autenticada e assets404.
+Menu/pacientes/configurações também verificados com Accept vazio:200 com React.
+Lint focado e diffcheck PASS. No Chrome, login fictício realizado, navegação direta
+à Agenda e refresh confirmados com sessão mantida, Agendamentos e Lembretes WhatsApp
+presentes. Verificação técnica de acesso; avaliação visual permanece com Maurício.
