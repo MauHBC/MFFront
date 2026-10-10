@@ -13,6 +13,7 @@ import {
 import DataLoadingState from "../../components/DataLoadingState";
 import ClinicalSignatureConfirmModal from "../../components/ClinicalSignatureConfirmModal";
 import StructuredEvaluationTableInput from "../../components/StructuredEvaluationTableInput";
+import { structuredMultiSelectionForEditor } from "../../services/structuredEvaluationOptions";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { LinkGhostButton, PrimaryButton } from "../../components/AppButton";
 import {
@@ -229,7 +230,7 @@ const formatTable = (block, raw) => {
   return lines.filter(Boolean).join("\n");
 };
 
-const formatAnswer = (block, answers) => {
+const formatAnswer = (block, answers, encoding) => {
   if (!block || !Array.isArray(answers) || answers.length === 0) return "";
   const first = answers[0] || {};
 
@@ -258,25 +259,14 @@ const formatAnswer = (block, answers) => {
   }
 
   if (block.type === "multi_select") {
-    const optionIds = answers
-      .map((answer) => answer.option_id)
-      .filter((value) => value !== undefined && value !== null);
-    if (optionIds.length) {
-      return optionIds
-        .map((id) => optionLabelById(block, id) || String(id))
-        .join(", ");
+    try {
+      return structuredMultiSelectionForEditor(block, answers, encoding)
+        .map((id) => optionLabelById(block, id)).join(", ");
+    } catch {
+      // Keep the saved codes visible; never substitute an inferred option.
+      return Array.isArray(first.value_json) ? first.value_json.map(String).join(", ")
+        : "Seleção salva não interpretada";
     }
-    if (Array.isArray(first.value_json)) {
-      return first.value_json
-        .map(
-          (value) =>
-            optionLabelById(block, value) ||
-            optionLabelByValue(block, value) ||
-            String(value),
-        )
-        .join(", ");
-    }
-    return "";
   }
 
   if (block.type === "matrix") {
@@ -297,7 +287,7 @@ const formatAnswer = (block, answers) => {
   return pickText(first.value_text);
 };
 
-const buildSections = (definition, answers) => {
+const buildSections = (definition, answers, encoding) => {
   if (!definition?.sections || !Array.isArray(answers)) return [];
 
   const sectionMap = {};
@@ -334,7 +324,7 @@ const buildSections = (definition, answers) => {
   Object.entries(answersByQuestion).forEach(([questionId, items]) => {
     const meta = blockMap[questionId];
     if (!meta) return;
-    const value = formatAnswer(meta.block, items);
+    const value = formatAnswer(meta.block, items, encoding);
     if (!value) return;
     sectionMap[meta.sectionId].items.push({
       label: meta.block.label,
@@ -380,7 +370,7 @@ const orderedDefinitionSections = (definition) => {
   return [...definition.sections].sort((a, b) => (a.order || 0) - (b.order || 0));
 };
 
-const resolveAnswerValue = (block, answers) => {
+const resolveAnswerValue = (block, answers, encoding) => {
   if (!block || !Array.isArray(answers) || answers.length === 0) return "";
   const first = answers[0] || {};
 
@@ -405,13 +395,7 @@ const resolveAnswerValue = (block, answers) => {
   }
 
   if (block.type === "multi_select") {
-    if (Array.isArray(first.value_json)) {
-      return first.value_json.map((value) => String(value));
-    }
-    return answers
-      .map((answer) => answer.option_id)
-      .filter((value) => value !== undefined && value !== null)
-      .map((value) => String(value));
+    return structuredMultiSelectionForEditor(block, answers, encoding);
   }
 
   if (block.type === "matrix" || block.type === "table") {
@@ -421,7 +405,7 @@ const resolveAnswerValue = (block, answers) => {
   return first.value_json ?? first.value_text ?? first.value_number ?? "";
 };
 
-const buildEditableAnswers = (definition, rawAnswers) => {
+const buildEditableAnswers = (definition, rawAnswers, encoding) => {
   const answersByQuestion = rawAnswers.reduce((acc, answer) => {
     const questionId = answer.form_question_id;
     if (!questionId) return acc;
@@ -435,7 +419,7 @@ const buildEditableAnswers = (definition, rawAnswers) => {
     section.blocks.forEach((block) => {
       const questionId = block?.config?.questionId;
       if (!questionId) return;
-      acc[block.id] = resolveAnswerValue(block, answersByQuestion[String(questionId)] || []);
+      acc[block.id] = resolveAnswerValue(block, answersByQuestion[String(questionId)] || [], encoding);
     });
     return acc;
   }, {});
@@ -500,6 +484,7 @@ export default function PatientEvaluationDetails() {
   const saveAttempt = useRef(null);
   const saving = useRef(false);
   const [saveError, setSaveError] = useState("");
+  const [answerEncodingError, setAnswerEncodingError] = useState("");
   const [templateTitle, setTemplateTitle] = useState("Avaliacao");
   const [summaryText, setSummaryText] = useState("");
   const [planText, setPlanText] = useState("");
@@ -507,6 +492,7 @@ export default function PatientEvaluationDetails() {
   const [definition, setDefinition] = useState(null);
   const [formInstanceId, setFormInstanceId] = useState(null);
   const [rawAnswers, setRawAnswers] = useState([]);
+  const [answerEncoding, setAnswerEncoding] = useState(null);
   const [answers, setAnswers] = useState({});
   const [draftAnswers, setDraftAnswers] = useState({});
   const [selectedClinicalCaseId, setSelectedClinicalCaseId] = useState("");
@@ -578,6 +564,8 @@ export default function PatientEvaluationDetails() {
         setDefinition(null);
         setFormInstanceId(null);
         setRawAnswers([]);
+        setAnswerEncoding(null);
+        setAnswerEncodingError("");
         setAnswers({});
         setDraftAnswers({});
         setSections([]);
@@ -585,6 +573,7 @@ export default function PatientEvaluationDetails() {
       }
 
       const instance = instances[0];
+      setAnswerEncoding(instance.structured_answer_encoding ?? null);
       const templateId = instance.form_template_id;
       const loadedFormInstanceId = instance.id;
 
@@ -592,6 +581,8 @@ export default function PatientEvaluationDetails() {
         setDefinition(null);
         setFormInstanceId(null);
         setRawAnswers([]);
+        setAnswerEncoding(null);
+        setAnswerEncodingError("");
         setAnswers({});
         setDraftAnswers({});
         setSections([]);
@@ -621,14 +612,23 @@ export default function PatientEvaluationDetails() {
       setRawAnswers(loadedAnswers);
 
       if (loadedDefinition?.sections) {
-        const editableAnswers = buildEditableAnswers(loadedDefinition, loadedAnswers);
-        setAnswers(editableAnswers);
-        setDraftAnswers(editableAnswers);
+        try {
+          const editableAnswers = buildEditableAnswers(loadedDefinition, loadedAnswers, instance.structured_answer_encoding);
+          setAnswers(editableAnswers);
+          setDraftAnswers(editableAnswers);
+          setAnswerEncodingError("");
+        } catch (error) {
+          if (error.code !== "STRUCTURED_EVALUATION_OPTIONS_UNRESOLVED") throw error;
+          setAnswerEncodingError(error.message);
+          setAnswers({});
+          setDraftAnswers({});
+        }
         setActiveSectionId((prev) => (
           prev || orderedDefinitionSections(loadedDefinition)[0]?.id || null
         ));
-        setSections(buildSections(loadedDefinition, loadedAnswers));
+        setSections(buildSections(loadedDefinition, loadedAnswers, instance.structured_answer_encoding));
       } else {
+        setAnswerEncodingError("");
         setAnswers({});
         setDraftAnswers({});
         setSections(buildFallbackSections(loadedAnswers));
@@ -703,11 +703,12 @@ export default function PatientEvaluationDetails() {
   }, []);
 
   const startEditing = useCallback(() => {
+    if (isLoading || answerEncodingError) return;
     if (!canWriteClinicalRecords) return;
     if (clinicalState !== "draft") return;
     setDraftAnswers(answers);
     setIsEditing(true);
-  }, [answers, canWriteClinicalRecords, clinicalState]);
+  }, [answers, canWriteClinicalRecords, clinicalState, isLoading, answerEncodingError]);
 
   const cancelEditing = useCallback(() => {
     const discard = () => {
@@ -721,6 +722,7 @@ export default function PatientEvaluationDetails() {
   }, [answers, confirmDiscard, hasUnsavedAnswers]);
 
   const requestSignature = useCallback(() => {
+    if (isLoading || answerEncodingError) return;
     if (!canSaveAndFinalizeClinicalRecords) return;
     if (!signingIdentity?.eligible_to_sign) {
       toast.error("Verifique sua identidade profissional antes de assinar.");
@@ -728,9 +730,10 @@ export default function PatientEvaluationDetails() {
     }
     setSignatureError("");
     setSignatureConfirmOpen(true);
-  }, [canSaveAndFinalizeClinicalRecords, signingIdentity]);
+  }, [canSaveAndFinalizeClinicalRecords, signingIdentity, isLoading, answerEncodingError]);
 
   const handleSave = useCallback(async (shouldSign = false) => {
+    if (isLoading || answerEncodingError) return;
     if (!canWriteClinicalRecords || (shouldSign && !canSaveAndFinalizeClinicalRecords)) return;
     if (saving.current) return;
     if (!definition || !formInstanceId) return;
@@ -800,6 +803,8 @@ export default function PatientEvaluationDetails() {
     loadData,
     recordVersion,
     selectedClinicalCaseId,
+    isLoading,
+    answerEncodingError,
   ]);
 
   const saveAddendum = useCallback(async () => {
@@ -841,9 +846,9 @@ export default function PatientEvaluationDetails() {
   const renderReadOnlyBlock = useCallback((block) => {
     const value = formatAnswer(block, rawAnswers.filter(
       (answer) => String(answer.form_question_id) === String(block.config?.questionId),
-    ));
+    ), answerEncoding);
     return <ReadOnlyValue>{value || "-"}</ReadOnlyValue>;
-  }, [rawAnswers]);
+  }, [rawAnswers, answerEncoding]);
 
   const renderEditableBlock = useCallback((block, fieldId) => {
     const value = draftAnswers[block.id];
@@ -1067,11 +1072,11 @@ export default function PatientEvaluationDetails() {
               )}
               {!isEditing && clinicalState === "draft" && canWriteClinicalRecords && (
                 <>
-                  <SubmitButton type="button" onClick={startEditing}>Editar rascunho</SubmitButton>
+                  <SubmitButton type="button" onClick={startEditing} disabled={isLoading || Boolean(answerEncodingError)}>Editar rascunho</SubmitButton>
                   {canSaveAndFinalizeClinicalRecords && <SubmitButton
                     type="button"
                     onClick={requestSignature}
-                    disabled={!signingIdentity?.eligible_to_sign}
+                    disabled={isLoading || Boolean(answerEncodingError) || !signingIdentity?.eligible_to_sign}
                   >
                     Salvar e assinar
                   </SubmitButton>}
@@ -1152,6 +1157,7 @@ export default function PatientEvaluationDetails() {
           </SectionCard>
         )}
         {saveError && <SectionCard role="alert"><p>{saveError}</p></SectionCard>}
+        {answerEncodingError && <SectionCard role="alert"><p>{answerEncodingError}</p></SectionCard>}
 
         {!isLoading && isQuickEvolution && (
           <SummaryGrid>

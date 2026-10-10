@@ -325,3 +325,57 @@ describe("confirmed structured creation recovery", () => {
     expect(sessionStorage.getItem("motria:structured-evaluation:new:101")).toBe("fictional-other-key");
   });
 });
+
+describe("historical multiple selection semantics", () => {
+  const options = [{ id: 12, value: "A", label: "Opcao textual ficticia" }, { id: 22, value: "12", label: "Opcao numerica ficticia" }];
+  const multiDefinition = { templateId: 9, sections: [{ id: "selection", title: "Selecao ficticia", blocks: [{ id: "selection", type: "multi_select", label: "Selecao", config: { questionId: 91, options } }] }] };
+  const configureSelection = (values, initialEncoding = null, selectedOptions = options) => {
+    let clinicalState = "draft"; let version = 2; let encoding = initialEncoding; let saved = values;
+    configureEvaluation({ clinicalState });
+    const get = axios.get.getMockImplementation();
+    axios.get.mockImplementation(async (url) => {
+      if (url === "/form-instances?evaluation_id=31") return response([{ id: 81, form_template_id: 9, structured_answer_encoding: encoding }]);
+      if (url === "/form-templates/9/definition") return response({ ...multiDefinition, sections: [{ ...multiDefinition.sections[0], blocks: [{ ...multiDefinition.sections[0].blocks[0], config: { questionId: 91, options: selectedOptions } }] }] });
+      if (url === "/form-answers?form_instance_id=81") return response([{ form_question_id: 91, value_json: saved }]);
+      const result = await get(url);
+      return url === "/evaluations/31" ? { data: { ...result.data, clinical_state: clinicalState, version } } : result;
+    });
+    axios.put.mockImplementation(async (url, payload) => {
+      saved = payload.forms[0].answers[0].value_json; encoding = "option_ids_v1"; version = 3;
+      return { data: { id: 31, clinical_state: clinicalState, version } };
+    });
+    axios.post.mockImplementation(async () => { clinicalState = "finalized"; version = 4; return { data: { id: 31, clinical_state: clinicalState, version } }; });
+  };
+  beforeEach(() => {
+    jest.clearAllMocks(); sessionStorage.clear();
+    authorize({ clinicalLevel: "manage", capabilities: ["clinical_records.read", "clinical_records.write", "clinical_records.finalize"] });
+  });
+  it.each([
+    [null, ["12"], 22, "Opcao numerica ficticia"],
+    [null, ["A"], 12, "Opcao textual ficticia"],
+    ["option_ids_v1", [12], 12, "Opcao textual ficticia"],
+  ])("preserves the selected meaning through reading, editing, saving and signing (%s/%j)", async (encoding, values, id, label) => {
+    configureSelection(values, encoding); renderDetails(); await waitForEvaluation();
+    expect(screen.getByText(label)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Editar rascunho" }));
+    expect(screen.getByLabelText(label)).toBeChecked();
+    expect(screen.getByLabelText(options.find((option) => option.id !== id).label)).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar e assinar" }));
+    const dialog = await screen.findByRole("dialog", { name: "Salvar e assinar?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar e assinar" }));
+    await screen.findByRole("button", { name: "Adicionar adendo" });
+    expect(axios.put.mock.calls[0][1].forms[0].answers).toEqual([{ form_question_id: 91, value_json: [id] }]);
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(label)).toBeInTheDocument();
+  });
+  it.each([
+    [["unknown"], options],
+    [["A"], [...options, { id: 32, value: "A", label: "Codigo ambiguo ficticio" }]],
+  ])("blocks unknown or ambiguous historical codes without writes (%j)", async (values, selectedOptions) => {
+    configureSelection(values, null, selectedOptions); renderDetails(); await waitForEvaluation();
+    expect(screen.getByRole("alert")).toHaveTextContent("Não foi possível interpretar");
+    expect(screen.getByRole("button", { name: "Editar rascunho" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Salvar e assinar" })).toBeDisabled();
+    expect(axios.put).not.toHaveBeenCalled(); expect(axios.post).not.toHaveBeenCalled();
+  });
+});

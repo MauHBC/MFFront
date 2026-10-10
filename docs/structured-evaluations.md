@@ -69,3 +69,24 @@ Autoridade de negócio: MFBackend `docs/regras-negocio/prontuario.md` e
 Preservar PDF, relatórios, guards e registros legacy/finalized. A revisão visual
 final pertence ao usuário. Integração do hotfix de hover precede a qualificação
 do commit final. Nenhum deploy é autorizado por este documento.
+## Re-revisão de seleções históricas
+
+Ao carregar respostas JSON de seleção múltipla sem
+`structured_answer_encoding`, os valores são códigos históricos de opção,
+incluindo códigos textuais. O editor resolve cada código para exatamente um ID;
+com `option_ids_v1`, interpreta IDs explícitos. A leitura usa a mesma regra,
+inclusive depois de salvar e assinar. Não há fallback que confunda um código
+numérico com o ID de outra opção.
+
+Códigos desconhecidos ou duplicados exibem erro persistente e bloqueiam edição
+e assinatura sem enviar gravações. As respostas armazenadas ficam preservadas.
+A assinatura direta do backend também valida códigos históricos sem reescrevê-los.
+Esta correção exige nova qualificação e re-revisão dos drafts; gates anteriores
+não bastam para aprová-la.
+
+Qualificação nova: 41 testes focados passaram e a suite global passou com
+141 suítes, 1562 testes e 3 skips preexistentes (431.759 s). Lint global,
+encoding, contratos e build passaram. Backend qualificou 21 cenários reais
+MariaDB/HTTP, assinatura direta/editor e PDF históricos; recursos removidos.
+CI dos novos heads, re-revisão independente e validação visual permanecem gates.
+

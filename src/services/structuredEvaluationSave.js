@@ -8,6 +8,9 @@ export const structuredEvaluationSaveMessage = (error) => {
   if (code === "STRUCTURED_EVALUATION_INCOMPLETE") {
     return "Preencha as respostas obrigatórias antes de assinar a avaliação.";
   }
+  if (code === "STRUCTURED_EVALUATION_OPTIONS_UNRESOLVED") {
+    return "Não foi possível interpretar a seleção salva. Revise as opções do formulário antes de editar ou assinar. O registro não foi alterado.";
+  }
   if (code === "CLINICAL_VERSION_CONFLICT") {
     return "Este rascunho foi alterado em outra sessão. Recarregue e confira as alterações antes de salvar novamente.";
   }
