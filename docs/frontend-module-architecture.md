@@ -1886,7 +1886,10 @@ compõe o `AppDrawer` com cabeçalho, corpo e X extraídos de Novo agendamento. 
 agendamento e lembretes WhatsApp usam esse mesmo componente; o shell recebe conteúdo
 e callbacks, sem regras de agendamento ou envio. `DrawerActions` conserva o padrão
 da Agenda e aceita `$wrap` para ações longas. O guia do [piloto WhatsApp](whatsapp-piloto-local.md)
-registra as adaptações de fechamento, foco e estado pendente.
+registra as adaptações de fechamento, foco e estado pendente. O ciclo de foco de
+`useDrawerInteraction` inclui summary e exclui controles dentro de details
+recolhidos ou regiões hidden/aria-hidden; detalhes aninhados não expõem
+controles ao Tab enquanto o ancestral estiver fechado.
 
 
 ### Quando parametrizar o compartilhado

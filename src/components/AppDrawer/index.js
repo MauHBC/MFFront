@@ -101,7 +101,16 @@ export function useDrawerInteraction({ open, drawerRef, onRequestClose, confirma
       if (event.key !== "Tab") return;
       const activeDialog = current.confirmationOpen
         ? document.querySelector('[aria-labelledby="unsaved-dialog-title"]') : drawerRef.current;
-      const controls = Array.from(activeDialog?.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]') || []);
+      const controls = Array.from(activeDialog?.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]') || [])
+        .filter((control) => {
+          if (control.closest('[hidden], [aria-hidden="true"]')) return false;
+          let ancestor = control.parentElement;
+          while (ancestor && ancestor !== activeDialog) {
+            if (ancestor.tagName === 'DETAILS' && !ancestor.open && ancestor.querySelector(':scope > summary') !== control) return false;
+            ancestor = ancestor.parentElement;
+          }
+          return true;
+        });
       const [first] = controls; const last = controls[controls.length - 1];
       if (!first) { event.preventDefault(); activeDialog?.focus(); return; }
       if (event.shiftKey && (document.activeElement === first || !activeDialog.contains(document.activeElement))) {

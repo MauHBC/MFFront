@@ -275,7 +275,7 @@ function AuthorizedWhatsAppReminders({ sessions, selectedDate, getPatientName, a
             {item.follow_up && <p className="muted">Acompanhamento humano necessário.</p>}
             {item.status === 'failed' && canManage && <Button type="button" disabled={busy}
               onClick={() => command('/whatsapp/reminders/retry', { id: item.id })}>Solicitar nova tentativa</Button>}
-            <details><summary>Histórico de {history.length} lembrete(s)</summary>
+            <details><summary role="button" tabIndex={0}>Histórico de {history.length} lembrete(s)</summary>
               {history.map((entry, index) => <div key={entry.id}>
                 <p>Lembrete {history.length - index}{entry.created_at ? ` · ${formatAgendaDateTime(entry.created_at)}` : ''}</p>
                 <p>{whatsappLabels[entry.status]} · {entry.attempts || 0} tentativa(s)</p>

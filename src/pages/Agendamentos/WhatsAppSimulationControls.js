@@ -5,7 +5,7 @@ import { GhostButton } from '../../components/AppButton';
 
 export default function WhatsAppSimulationControls({ id, busy, onCommand }) {
   const [kind, setKind] = useState('delivered');
-  return <details><summary>Simular resposta</summary>
+  return <details><summary role="button" tabIndex={0}>Simular resposta</summary>
     <Field htmlFor={`simulation-${id}`}>Evento
       <select id={`simulation-${id}`} value={kind} disabled={busy} onChange={(e) => setKind(e.target.value)}>
         <option value="delivered">Entrega</option>

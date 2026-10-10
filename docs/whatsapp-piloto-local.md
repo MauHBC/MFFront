@@ -46,12 +46,16 @@ As quatro imagens Library não foram inspecionadas: o helper de materialização
 falhou no Windows por ausência de os.setxattr; nenhum download foi apresentado
 como artefato qualificado. Usou-se a tela autenticada real conforme a alternativa autorizada.
 
-Gates da correção: 58/58 testes focados em cinco suítes (drawer, histórico, flag,
-menu e integração App Shell). Incluem quatro envios, múltiplos atendimentos,
+Gates da correção: 60/60 testes focados em seis suítes (drawer, histórico, flag,
+menu, integração App Shell e estrutura do drawer). Incluem quatro envios, múltiplos atendimentos,
 repetição de clique/reabertura, HTTP atrasado, dia, atualização por poll, erro,
 contato, permissões e descarte. Lint focado, mojibake e diffcheck PASS; aviso de Browserslist preexistente.
-Build separado e DOM do bundle atualizado aguardam janela CPU de Monitoramento;
-não declarar esta correção disponível no servidor antes desses gates.
+Janela CPU liberada em 10/10 15:47 UTC. Build separado passou para 5365dc8;
+conferência DOM encontrou foco em controles de details recolhidos. A correção
+filtra esses controles e inclui summary no ciclo, preservando Tab/Shift+Tab.
+useDrawerInteraction tem somente WhatsAppReminders como consumidor atual;
+as demais primitivas e a estrutura do drawer permanecem intactas. Rebuild e
+conferência final de foco/móvel estão em andamento; não declarar prontidão antes deles.
 DOCUMENTATION_IMPACT: UPDATE_REQUIRED.
 
 ## Histórico anterior

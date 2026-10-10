@@ -354,3 +354,23 @@ test('administrador simula evento do lembrete específico sem duplicar comando o
   expect(api.post.mock.calls).toEqual([['/whatsapp/simulation', { action: 'event', id: 'one', kind: 'unavailable' }]]);
   await act(async () => finish({ data: { processed: true } }));
 });
+
+test('Tab inclui histórico recolhido e ignora controles escondidos em details fechados', async () => {
+  isLocalWhatsAppSimulation.mockReturnValue(true);
+  useAuthorization.mockReturnValue({ status: 'ready', isAdministrator: true, context: {}, canAccessModule: () => true });
+  items = [{ id: 'one', session_id: 1, status: 'delivered', confirmation: 'confirm' }];
+  render(<WhatsAppReminders sessions={sessions} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Lembretes WhatsApp' }));
+  const summary = await screen.findByText('Histórico de 1 lembrete(s)');
+  const close = screen.getByRole('button', { name: 'Fechar lembretes WhatsApp' });
+  close.focus(); fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+  expect(summary).toHaveFocus();
+  fireEvent.keyDown(document, { key: 'Tab' });
+  expect(close).toHaveFocus();
+  const details = summary.parentElement;
+  details.open = true; fireEvent(details, new Event('toggle'));
+  close.focus(); fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+  expect(screen.getByText('Simular resposta')).toHaveFocus();
+  fireEvent.keyDown(document, { key: 'Tab' });
+  expect(close).toHaveFocus();
+});

@@ -32,7 +32,7 @@ export default function WhatsAppReminderHistory({ id, authorizationContext }) {
     return () => { live = false; };
   }, [open, id, authorizationContext, reload]);
   return <details onToggle={(e) => setOpen(e.currentTarget.open)}>
-    <summary>Eventos do lembrete</summary>
+    <summary role="button" tabIndex={0}>Eventos do lembrete</summary>
     {open && <>
       {!events && !error && <p role="status">Carregando histórico…</p>}
       {error && <><p role="alert">Não foi possível carregar o histórico.</p><GhostButton type="button" onClick={() => setReload((value) => value + 1)}>Atualizar histórico</GhostButton></>}
