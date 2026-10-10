@@ -1,5 +1,37 @@
 # WhatsApp integrado à Agenda — prévia local
 
+## Qualificação para draft — janela liberada após Pacotes
+
+HEAD de código/revisão visual `a13e4378e6d5382e111ea28e7491d8bb9ce035b2`;
+fetch confirmou `origin/main=e6c5af4edd8b368dc9c2d417fab5731cf9e4fed3`.
+Simulação de merge sem alterar checkout não encontrou conflito. Nenhum rebase,
+merge ou incorporação de outras frentes nesta etapa. O guia local mantém as
+referências e checklist registrados na revisão aprovada; a divergência documental
+com main (extensão de UI já registrada) não foi sobrescrita.
+
+271/271 testes em nove suítes: Agenda integral, permissões/paciente, contexto,
+WhatsApp, histórico, menu, integração App Shell e estrutura do drawer. Launcher
+15/15 pelo comando canônico npm e rotas locais 3/3. A primeira invocação direta
+node do launcher falhou apenas por ausência de npm_execpath, corrigida usando
+npm run test:local-development, sem editar teste. Lint de todos os JS/CJS do
+candidato contra main, encoding/mojibake, build e diffcheck passaram.
+
+Build de revisão separado `build-whatsapp-qualified-review`, compilado com sucesso
+em produção, main.b93b0c72.js, SHA256
+`C7A3E2056549DEE3A985EDCA65D4ADE1FA0CE9341F12B1ED2EF5BF55CB1C405D`.
+A API de aplicação resolve `/api`. A busca literal encontrou `http://localhost`
+no fallback não-browser do Axios (usa window.location.href no browser); não é
+configuração de API local. Textos/rota técnica de simulação ainda podem existir
+no JS guardado; não alegar ausência universal de strings. O recurso é negado
+por ambiente/hostname e guardas backend, conforme testes, não pela mera busca
+textual no bundle. A ausência de strings observada em checkpoints anteriores
+não qualifica automaticamente este build.
+
+Nenhuma UI, dado fictício ou processo da prévia 3020 foi alterado/reiniciado.
+A aprovação visual anterior permanece atribuída exclusivamente ao Maurício.
+Draft para revisão não autoriza merge, publicação, credenciais ou envio real.
+Build tem aviso de tamanho e Browserslist desatualizado; nenhuma dependência nova.
+
 ## Checkpoint de revisao visual e tentativa simulada - 10/10/2026
 
 Mauricio aprovou visualmente os ajustes pelo relato encaminhado: "o restante
