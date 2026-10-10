@@ -126,7 +126,7 @@ describe("AppShell", () => {
 
     expect(screen.getAllByText("Clínica de Fisioterapia com Nome Longo")).not.toHaveLength(0);
     expect(screen.getByText("Conteúdo operacional")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Painel" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("link", { name: "Painel" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Agenda" })).not.toHaveAttribute("aria-current");
   });
 
@@ -224,6 +224,7 @@ describe("AppShell", () => {
     const trigger = container.querySelector("button[aria-label='Abrir navegação']");
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("link", { name: "Painel" })).not.toBeInTheDocument();
     expect(container.querySelector("button[aria-label='Fechar navegação']")).not.toBeNull();
 
     fireEvent.keyDown(document, { key: "Escape" });

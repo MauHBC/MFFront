@@ -124,3 +124,9 @@ describe("fluxo real Menu para Agenda", () => {
     expect(screen.queryByTestId("old-navbar")).not.toBeInTheDocument();
   });
 });
+
+it.each(["/painel", "/dashboard"])("preserva acesso direto a %s com a navegacao oculta", (pathname) => {
+  usePublicClinicContext.mockReturnValue({ publicClinic: { has_public_tenant: false } });
+  render(<MemoryRouter initialEntries={[pathname]}><Routes /></MemoryRouter>);
+  expect(screen.getByText("Painel")).toBeInTheDocument();
+});

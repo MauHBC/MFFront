@@ -4,6 +4,12 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import Menu from ".";
 
+let mockDashboardVisible = false;
+jest.mock("../../config/features", () => ({
+  isPlansModuleEnabled: true,
+  get isDashboardNavigationVisible() { return mockDashboardVisible; },
+}));
+
 jest.mock("../../components/AppShell", () => function AppShellMock({ children }) {
   return <div data-testid="app-shell">{children}</div>;
 });
@@ -33,7 +39,7 @@ describe("Menu", () => {
 
     expect(screen.getByTestId("app-shell")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Agenda" })).toHaveAttribute("href", "/agendamentos");
-    expect(screen.getByRole("link", { name: "Painel" })).toHaveAttribute("href", "/painel");
+    expect(screen.queryByRole("link", { name: "Painel" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Financeiro" })).toHaveAttribute("href", "/financeiro");
     expect(screen.getByRole("link", { name: "Pacientes" })).toHaveAttribute("href", "/pacientes");
     expect(screen.getByRole("link", { name: "Planos" })).toHaveAttribute("href", "/planos");
@@ -98,8 +104,16 @@ describe("Menu", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("link", { name: "Painel" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Painel" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Agenda" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Pacientes" })).not.toBeInTheDocument();
+  });
+
+  it("reativa o atalho autorizado pela mesma flag", () => {
+    mockDashboardVisible = true;
+    try {
+      render(<MemoryRouter><Menu /></MemoryRouter>);
+      expect(screen.getByRole("link", { name: "Painel" })).toHaveAttribute("href", "/painel");
+    } finally { mockDashboardVisible = false; }
   });
 });
