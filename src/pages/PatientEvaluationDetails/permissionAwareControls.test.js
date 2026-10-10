@@ -302,3 +302,26 @@ describe("details standard discard dialog", () => {
     expect(axios.post).not.toHaveBeenCalled();
   });
 });
+
+describe("confirmed structured creation recovery", () => {
+  beforeEach(() => { jest.clearAllMocks(); sessionStorage.clear(); authorize(); configureEvaluation({ clinicalState: "draft" }); });
+  it.each(["draft", "finalized"])("consumes the matching creation key after fully loading a %s record", async (clinicalState) => {
+    configureEvaluation({ clinicalState });
+    sessionStorage.setItem("motria:structured-evaluation:new:101", "fictional-pending-01");
+    const get = axios.get.getMockImplementation();
+    axios.get.mockImplementation(async (url) => {
+      const result = await get(url);
+      return url === "/evaluations/31" ? { data: { ...result.data, structured_save_key: "fictional-pending-01" } } : result;
+    });
+    renderDetails();
+    await waitForEvaluation();
+    await waitFor(() => expect(sessionStorage.getItem("motria:structured-evaluation:new:101")).toBeNull());
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+  it("preserves a different pending creation", async () => {
+    sessionStorage.setItem("motria:structured-evaluation:new:101", "fictional-other-key");
+    renderDetails();
+    await waitForEvaluation();
+    expect(sessionStorage.getItem("motria:structured-evaluation:new:101")).toBe("fictional-other-key");
+  });
+});

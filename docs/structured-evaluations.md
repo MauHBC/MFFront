@@ -20,6 +20,22 @@ clínico recuperável após fechar a aba; o guard de beforeunload alerta o usuá
 
 ## Referências e decisões de interface
 
+### Revisão de recuperação e assinatura
+
+Um erro de assinatura conserva o modal e permite repetir a mesma tentativa,
+com o rascunho confirmado e a chave original, sem outro POST de criação.
+Details remove a chave opaca de criação somente após carregar completamente
+o registro correspondente e confirmar paciente/chave. Chaves de outras
+tentativas não são removidas. O rascunho permanece no banco e na timeline;
+assinar e voltar a New na mesma aba permite iniciar outra avaliação.
+Campos numéricos usam `step="any"` porque o contrato aceita números finitos,
+incluindo decimais e zero. Nenhuma nova tela ou componente de navegação.
+
+Regressões leves: 24 testes passaram. Suite global desta revisão: 140 suites,
+1.545 testes aprovados e 3 ignorados. Lint global, mojibake, contrato de retry
+e build passaram. Novos heads ainda dependem de CI/revisão coordenada e de
+aprovação visual do usuário; PR55 incorporado continua sob seu gate próprio.
+
 | Elemento | Referência inspecionada | Decisão e motivo | Consumidores |
 | --- | --- | --- | --- |
 | Cabeçalho, cards e campos | New/Details; AppLayout; AppModuleShell | Reusar estrutura atual | New/Details |

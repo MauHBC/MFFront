@@ -30,6 +30,8 @@ import {
   createStructuredEvaluationSaveKey,
   normalizeStructuredEvaluationAnswers,
   structuredEvaluationSaveMessage,
+  structuredEvaluationPendingKey,
+  clearStructuredEvaluationPendingKey,
 } from "../../services/structuredEvaluationSave";
 
 const formatDate = (value) => {
@@ -631,6 +633,13 @@ export default function PatientEvaluationDetails() {
         setDraftAnswers({});
         setSections(buildFallbackSections(loadedAnswers));
       }
+      // Consume only the creation command confirmed by this fully loaded record.
+      // The persisted draft remains available in the patient's timeline.
+      const pendingKey = structuredEvaluationPendingKey(patientId);
+      if (Number(evalData.patient_id) === Number(patientId)
+        && pendingKey && pendingKey === evalData.structured_save_key) {
+        clearStructuredEvaluationPendingKey(patientId);
+      }
     } catch (error) {
       const message =
         error?.response?.data?.error ||
@@ -639,7 +648,7 @@ export default function PatientEvaluationDetails() {
     } finally {
       setIsLoading(false);
     }
-  }, [evaluationId]);
+  }, [evaluationId, patientId]);
 
   useEffect(() => {
     loadData();
@@ -845,6 +854,7 @@ export default function PatientEvaluationDetails() {
         <FieldInput
           id={fieldId}
           type={block.type === "number" ? "number" : "text"}
+          step={block.type === "number" ? "any" : undefined}
           value={value ?? ""}
           onChange={(event) => handleFieldChange(block, event.target.value)}
         />

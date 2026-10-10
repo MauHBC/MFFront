@@ -1,16 +1,18 @@
 import React from "react";
 import "@testing-library/jest-dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { Route, Router } from "react-router-dom";
+import { Route, Router, Switch } from "react-router-dom";
 import { createMemoryHistory } from "history";
 import PatientEvaluationNew from ".";
+import PatientEvaluationDetails from "../PatientEvaluationDetails";
 import ClinicalRecordNavigationConfirmation from "../../components/ClinicalRecordNavigationConfirmation";
 import { getClinicalRecordUserConfirmation } from "../../services/clinicalRecordNavigationConfirmation";
 import axios from "../../services/axios";
 import { listPatientClinicalCases } from "../../services/patientClinicalCases";
 import { getClinicalSigningIdentity } from "../../services/clinicalRecords";
 
-jest.mock("../../services/axios", () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn() } }));
+jest.mock("../../services/axios", () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn(), put: jest.fn() } }));
+jest.mock("../../contexts/AuthorizationContext", () => ({ useAuthorization: () => ({ canAccessModule: () => true, hasCapability: () => true }) }));
 jest.mock("../../services/patientClinicalCases", () => ({ listPatientClinicalCases: jest.fn() }));
 jest.mock("../../services/clinicalRecords", () => ({ getClinicalSigningIdentity: jest.fn(), finalizeClinicalRecord: jest.fn() }));
 jest.mock("react-toastify", () => ({ toast: { error: jest.fn(), success: jest.fn(), info: jest.fn() } }));
@@ -23,7 +25,7 @@ const definition = {
 };
 const renderPage = () => {
   const history = createMemoryHistory({ initialEntries: ["/pacientes/101", "/pacientes/101/avaliacoes/nova?case=11"], initialIndex: 1, getUserConfirmation: getClinicalRecordUserConfirmation });
-  render(<Router history={history}><Route path="/pacientes/:id/avaliacoes/nova"><PatientEvaluationNew /></Route><ClinicalRecordNavigationConfirmation /></Router>);
+  render(<Router history={history}><Switch><Route path="/pacientes/:id/avaliacoes/nova"><PatientEvaluationNew /></Route><Route path="/pacientes/:id/avaliacoes/:evaluationId"><PatientEvaluationDetails /></Route></Switch><ClinicalRecordNavigationConfirmation /></Router>);
   return history;
 };
 const edit = async () => {
@@ -123,7 +125,7 @@ describe("new evaluation contextual return", () => {
   it("keeps the saved draft visible when signature fails and never reports completion", async () => {
     getClinicalSigningIdentity.mockResolvedValue({ eligible_to_sign: true });
     axios.post.mockResolvedValueOnce({ data: { id: 31, version: 1, clinical_state: "draft" } });
-    renderPage();
+    const history = renderPage();
     const field = await edit();
     const signButton = screen.getByRole("button", { name: "Salvar e assinar" });
     const submitEvent = new Event("submit", { bubbles: true, cancelable: true });
@@ -138,6 +140,68 @@ describe("new evaluation contextual return", () => {
     expect(axios.post.mock.calls[0][0]).toBe("/evaluations/structured");
     expect(axios.post.mock.calls[1][0]).toBe("/clinical-records/evaluation/31/finalize");
     expect(sessionStorage.getItem("motria:structured-evaluation:new:101")).toBeTruthy();
+    // Retry from the still-open confirmation modal after the signature response failed.
+    axios.post.mockResolvedValueOnce({ data: { id: 31, version: 2, clinical_state: "finalized" } });
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Salvar e assinar" })).toBeEnabled());
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar e assinar" }));
+    await waitFor(() => expect(history.location.pathname).toBe("/pacientes/101"));
+    expect(axios.post).toHaveBeenCalledTimes(3);
+    expect(axios.post.mock.calls[2]).toEqual(axios.post.mock.calls[1]);
+    expect(axios.post.mock.calls.filter(([url]) => url === "/evaluations/structured")).toHaveLength(1);
+    expect(sessionStorage.getItem("motria:structured-evaluation:new:101")).toBeNull();
+  });
+  it("submits a decimal through the native form without a step mismatch", async () => {
+    const previousGet = axios.get.getMockImplementation();
+    const decimalDefinition = { templateId: 9, sections: [{ id: "number", title: "Numero", blocks: [
+      { id: "decimal", type: "number", label: "Numero decimal", required: true, config: { questionId: 20 } },
+    ] }] };
+    axios.get.mockImplementation((url) => url.endsWith("/definition") ? Promise.resolve({ data: decimalDefinition }) : previousGet(url));
+    axios.post.mockResolvedValueOnce({ data: { id: 32, version: 1, clinical_state: "draft" } });
+    const history = renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Registro simples" }));
+    const field = await screen.findByRole("spinbutton", { name: /Numero decimal/ });
+    fireEvent.change(field, { target: { value: "2.5" } });
+    expect(field.validity.stepMismatch).toBe(false);
+    expect(field.checkValidity()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Salvar rascunho" }));
+    await waitFor(() => expect(history.location.pathname).toBe("/pacientes/101"));
+    expect(axios.post.mock.calls[0][1].forms[0].answers).toEqual([{ form_question_id: 20, value_number: 2.5 }]);
+  });
+  it("recovers, signs in Details, then creates another evaluation in the same tab", async () => {
+    const oldKey = "fictional-pending-01";
+    sessionStorage.setItem("motria:structured-evaluation:new:101", oldKey);
+    getClinicalSigningIdentity.mockResolvedValue({ eligible_to_sign: true });
+    let clinicalState = "draft";
+    const get = axios.get.getMockImplementation();
+    axios.get.mockImplementation((url) => {
+      if (url === "/evaluations?patient_id=101") return Promise.resolve({ data: [{ id: 31, structured_save_key: oldKey, clinical_state: clinicalState }] });
+      if (url === "/evaluations/31") return Promise.resolve({ data: { id: 31, patient_id: 101, record_type: "evaluation", structured_save_key: oldKey, clinical_state: clinicalState, version: clinicalState === "draft" ? 2 : 4 } });
+      if (url === "/form-instances?evaluation_id=31") return Promise.resolve({ data: [{ id: 81, form_template_id: 9 }] });
+      if (url === "/form-templates/9") return Promise.resolve({ data: { id: 9, title: "Registro recuperado" } });
+      if (url === "/form-answers?form_instance_id=81") return Promise.resolve({ data: [{ form_question_id: 19, value_text: "FICTIONAL_RECOVERED" }] });
+      return get(url);
+    });
+    axios.put.mockResolvedValue({ data: { id: 31, version: 3, clinical_state: "draft" } });
+    axios.post.mockImplementation((url) => {
+      if (url === "/clinical-records/evaluation/31/finalize") { clinicalState = "finalized"; return Promise.resolve({ data: { id: 31, version: 4, clinical_state: clinicalState } }); }
+      if (url === "/evaluations/structured") return Promise.resolve({ data: { id: 32, version: 1, clinical_state: "draft" } });
+      throw new Error("Unexpected synthetic POST");
+    });
+    const history = renderPage();
+    fireEvent.click(await screen.findByRole("link", { name: "Abrir registro salvo" }));
+    await screen.findByRole("heading", { name: "Registro recuperado" });
+    await waitFor(() => expect(sessionStorage.getItem("motria:structured-evaluation:new:101")).toBeNull());
+    fireEvent.click(await screen.findByRole("button", { name: "Salvar e assinar" }));
+    const dialog = await screen.findByRole("dialog", { name: "Salvar e assinar?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar e assinar" }));
+    await screen.findByRole("button", { name: "Adicionar adendo" });
+    act(() => history.push("/pacientes/101/avaliacoes/nova?case=11"));
+    await edit();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar rascunho" }));
+    await waitFor(() => expect(history.location.pathname).toBe("/pacientes/101"));
+    const creations = axios.post.mock.calls.filter(([url]) => url === "/evaluations/structured");
+    expect(creations).toHaveLength(1);
+    expect(creations[0][1].idempotency_key).not.toBe(oldKey);
   });
   it("sends numeric option IDs, zero, false and matrix data together", async () => {
     const complex = { templateId: 9, sections: [{ id: "synthetic", title: "Sintético", blocks: [

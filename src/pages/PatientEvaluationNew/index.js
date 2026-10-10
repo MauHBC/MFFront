@@ -346,6 +346,7 @@ export default function PatientEvaluationNew() {
           id={fieldId}
           aria-labelledby={labelId}
           type={block.type === "number" ? "number" : "text"}
+          step={block.type === "number" ? "any" : undefined}
           value={answers[block.id] ?? ""}
           onChange={(event) => handleChange(block, event.target.value)}
         />
@@ -605,7 +606,7 @@ export default function PatientEvaluationNew() {
   }, [answers, definition, orderedSections]);
 
   const saveEvaluation = useCallback(async (shouldSign) => {
-      if (saving.current || recoveredDraft) return;
+      if (saving.current || (recoveredDraft && (!shouldSign || !saveAttempt.current?.getSavedRecord()))) return;
       if (!selectedTemplate?.id) {
         toast.error("Selecione um formulario.");
         return;
