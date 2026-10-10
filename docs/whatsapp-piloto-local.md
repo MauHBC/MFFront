@@ -1,5 +1,19 @@
 # WhatsApp integrado à Agenda — prévia local
 
+## Checkpoint de revisao visual e tentativa simulada - 10/10/2026
+
+Mauricio aprovou visualmente os ajustes pelo relato encaminhado: "o restante
+conferi e esta ok". O clique posterior nao era envio real: consulta read-only
+mostrou cinco envios/revisoes/tentativas distintas para atendimento 97 (antes
+quatro) e tres para 98. Runtime preservado: simulationOnly=true, provedor
+simulated, WHATSAPP_REAL_DELIVERY_ENABLED=false, externalSent=0 e
+blockedAttempts=0. Nao houve POST externo nem reenvio pelo agente.
+A UI aprovada continua com o aviso explicito de simulacao; Enviado representa
+a aceitacao pelo provedor simulado, nao entrega real. Nenhuma UI foi alterada.
+Preparacao da entrada protegida da chave existente e bloqueios do teste real:
+ver documento canonico Backend docs/arquitetura/whatsapp-piloto-local.md.
+Janela pesada permanece com Monitoramento; sem rebuild/restart nesta verificacao.
+
 ## Correção da revisão autenticada — 10/10/2026
 
 Referências reais relidas antes de editar: AGENTS.md e fluxo/checklist de
