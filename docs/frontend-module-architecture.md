@@ -2420,4 +2420,3 @@ O slot reports-preview mantém Frontend 3040 e API loopback 3046, selecionado po
 MOTRIA_LOCAL_STACK_SLOT antes de npm run dev. Overrides continuam rejeitados; não
 inicia serviços automaticamente. Prévia manual exige autorização e dados sintéticos.
 Gates: Reports, navegação, regressões pertinentes, lint, mojibake e build.
-

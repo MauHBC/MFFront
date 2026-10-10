@@ -200,3 +200,24 @@ bloqueado. Não houve configuração de credenciais, alteração Meta ou envio.
 ### Prévia isolada preservável — 10/10/2026
 
 MOTRIA_LOCAL_STACK_SLOT=whatsapp-preserved seleciona somente endpoints locais fechados. Frontend 3060 e API 3066. Launcher 12/12 PASS. Clínica Aurora fictícia, sem modificar a prévia whatsapp-pilot anterior. Interface e componentes compartilhados permanecem iguais.
+
+### Qualificação sobre a main publicada — 10/10/2026
+
+Base integrada e6c5af4edd8b368dc9c2d417fab5731cf9e4fed3. Preservados o menu
+publicado de Relatórios, Painel oculto e launchers clínico/relatórios. Sem
+redesenho ou alteração do drawer WhatsApp já aceito. O acesso direto corrigido
+agora cobre os dois slots fechados WhatsApp; API e assets ausentes conservam
+seus erros. Gate launcher/routing 18/18; contratos/menu/painel/rotas/paciente
+115/115 em cinco suítes; Agenda/Equipe/drawer 182/182 em três suítes, sem
+alterar timeouts. Lint de todos os JS/CJS do candidato contra main PASS;
+mojibake e UTF-8 PASS. Testes de HTTP da prévia declaram express 4.21.0 e
+connect-history-api-fallback 2.0.0 como devDependencies diretas, versões
+já presentes no lock/node_modules, licenças MIT; nenhuma atualização de
+transitivo ou dependência de produção acrescentada.
+
+A prévia preservada 3060/3066/3067 permanece parada até atualização aditiva do
+schema do seu banco próprio. A revisão automática não aceitou essa mutação
+com a autorização disponível. Não recriar/reseed/resetar a fixture, trocar
+senha ou gerar novas chaves; a retomada deve usar o contexto DPAPI existente.
+Build de produção e conferência da versão/bundle servido são gates separados;
+prévia não foi declarada acessível nesta etapa.

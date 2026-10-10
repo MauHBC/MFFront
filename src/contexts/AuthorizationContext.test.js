@@ -412,7 +412,7 @@ describe("AuthorizationContext", () => {
 test("catálogo 9 exige disponibilidade canônica e catálogos anteriores negam WhatsApp", () => {
   const keys = ["dashboard", "schedule", "patients", "clinical_records", "plans", "finance", "team", "settings", "whatsapp"];
   const context = { catalog_version: 9, availability_catalog_version: 1, authorization_state: "authorized", is_administrator: false, capabilities: [], administrative_powers: [],
-    modules: keys.map(module_key => ({ module_key, access_level: "manage", scope_level: "clinic", can_export: false, available: true })) };
+    modules: keys.map(moduleKey => ({ module_key: moduleKey, access_level: "manage", scope_level: "clinic", can_export: false, available: true })) };
   expect(contextCanAccessModule(context, "whatsapp", "manage")).toBe(true);
   const disabled = { ...context, modules: context.modules.map(module => ({...module, available: module.module_key !== "whatsapp"})) };
   expect(contextCanAccessModule(disabled, "whatsapp")).toBe(false);

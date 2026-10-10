@@ -269,18 +269,17 @@ test('keeps clinical export preview bound to its exclusive local endpoints', () 
 });
 
 test('clinical preview serves SPA routes without masking API or missing assets', () => {
-  for (const pathname of ['/', '/login', '/pacientes/1', '/pacientes/1/avaliacoes/2?x=1']) {
+  ['/', '/login', '/pacientes/1', '/pacientes/1/avaliacoes/2?x=1'].forEach((pathname) => {
     const req = { method: 'GET', url: pathname, headers: {} }; let called = false;
     setupProxy.clinicalPreviewFallback(req, {}, () => { called = true; });
     assert.equal(req.headers.accept, 'text/html'); assert.equal(called, true);
-  }
-  for (const pathname of ['/missing.js', '/static/missing', '/unknown']) {
+  });
+  ['/missing.js', '/static/missing', '/unknown'].forEach((pathname) => {
     const req = { method: 'GET', url: pathname, headers: { accept: 'text/html' } };
     setupProxy.clinicalPreviewFallback(req, {}, () => {});
     assert.equal(req.headers.accept, 'application/octet-stream');
-  }
+  });
   const req = { method: 'GET', url: '/api/missing', headers: { accept: 'application/json' } };
   setupProxy.clinicalPreviewFallback(req, {}, () => {});
   assert.equal(req.headers.accept, 'application/json');
 });
-

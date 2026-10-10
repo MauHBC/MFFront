@@ -1,14 +1,14 @@
 // Restricted to the authorized WhatsApp preview; other local stacks are unchanged.
 const appRouteRoots = new Set([
   'login', 'menu', 'agendamentos', 'whatsapp-cenarios', 'whatsapp', 'painel', 'dashboard',
-  'pacientes', 'equipe', 'planos', 'financeiro', 'configuracoes', 'register',
+  'relatorios', 'pacientes', 'equipe', 'planos', 'financeiro', 'configuracoes', 'register',
   'cadastro', 'confirmar-email', 'termos', 'privacidade', 'situacao-comercial',
   'recuperar-senha', 'credencial', 'politica', 'c', 'platform', 'semAcesso',
 ]);
 
 function localPreviewRouting(environment = process.env) {
   const enabled = environment.NODE_ENV === 'development'
-    && environment.MOTRIA_LOCAL_STACK_SLOT === 'whatsapp-pilot';
+    && ['whatsapp-pilot', 'whatsapp-preserved'].includes(environment.MOTRIA_LOCAL_STACK_SLOT);
   return (req, _res, next) => {
     if (!enabled || !['GET', 'HEAD'].includes(req.method)) return next();
     const pathname = req.url.split('?')[0];
