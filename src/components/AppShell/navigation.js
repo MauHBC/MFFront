@@ -7,7 +7,7 @@ import {
   FaUserFriends,
   FaUsersCog,
 } from "react-icons/fa";
-import { isPlansModuleEnabled } from "../../config/features";
+import { isDashboardNavigationVisible, isPlansModuleEnabled } from "../../config/features";
 
 export const NAVIGATION_BADGE_EVENT = "multifisio:app-shell:navigation-badge";
 
@@ -46,7 +46,15 @@ const navigationItems = [
     path: "/painel",
     matchPaths: ["/painel", "/dashboard"],
     icon: FaChartLine,
-    isVisible: ({ canAccessModule } = {}) => canAccessModule?.("dashboard") === true,
+    isVisible: ({ canAccessModule } = {}) => isDashboardNavigationVisible && canAccessModule?.("dashboard") === true,
+  },
+  {
+    key: "reports",
+    label: "Relatórios",
+    path: "/relatorios",
+    matchPaths: ["/relatorios"],
+    icon: FaClipboardList,
+    isVisible: ({ canAccessModule } = {}) => ["schedule", "patients", "finance"].some((key) => canAccessModule?.(key) === true),
   },
   {
     key: "patients",

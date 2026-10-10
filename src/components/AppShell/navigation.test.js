@@ -5,18 +5,33 @@ import {
   isNavigationItemActive,
 } from "./navigation";
 
+let mockDashboardVisible = false;
+jest.mock("../../config/features", () => ({
+  isPlansModuleEnabled: true,
+  get isDashboardNavigationVisible() { return mockDashboardVisible; },
+}));
+
 describe("AppShell navigation", () => {
+  it("oculta Relatórios quando nenhum relatório próprio é permitido", () => {
+    expect(getVisibleNavigationItems({ canAccessModule: (key) => key === "none" })
+      .some(({ key }) => key === "reports")).toBe(false);
+    expect(getVisibleNavigationItems({ canAccessModule: (key) => key === "finance" })
+      .some(({ key }) => key === "reports")).toBe(true);
+    expect(getVisibleNavigationItems({ canAccessModule: (key) => key === "patients" })
+      .some(({ key }) => key === "reports")).toBe(true);
+  });
   const fullAccess = {
     canAccessModule: () => true,
     hasCapability: () => true,
     canViewTeam: true,
     isAdministrator: true,
   };
-  it("mantém Agenda primeiro, Painel segundo e os demais itens na ordem existente", () => {
+  it("oculta Painel mesmo com acesso e mantém Agenda primeiro", () => {
     expect(getVisibleNavigationItems(fullAccess).map(({ key }) => key))
-      .toEqual(["schedule", "whatsapp", "dashboard", "patients", "team", "plans", "financial"]);
+      .toEqual(["schedule", "whatsapp", "reports", "patients", "team", "plans", "financial"]);
+
     expect(getVisibleNavigationItems({ ...fullAccess, canAccessModule: (key) => key !== "schedule" })
-      .map(({ key }) => key)).toEqual(["dashboard", "patients", "team", "plans", "financial"]);
+      .map(({ key }) => key)).toEqual(["reports", "patients", "team", "plans", "financial"]);
   });
   it("remove o módulo quando ele ou todos os seus submenus estão indisponíveis", () => {
     const hiddenParent = {
@@ -123,7 +138,7 @@ describe("AppShell navigation", () => {
       canViewTeam: false,
       isAdministrator: false,
     });
-    expect(items.map(({ key }) => key)).toEqual(["schedule"]);
+    expect(items.map(({ key }) => key)).toEqual(["schedule", "reports"]);
     expect(items[0].children.map(({ key }) => key)).toEqual(["schedule-calendar"]);
   });
 
@@ -139,6 +154,15 @@ describe("AppShell navigation", () => {
       ...fullAccess,
       isAdministrator: false,
     })).toEqual([]);
+  });
+
+  it("reativa Painel pela flag sem conceder permissao", () => {
+    mockDashboardVisible = true;
+    try {
+      expect(getVisibleNavigationItems(fullAccess).map(({ key }) => key)).toContain("dashboard");
+      expect(getVisibleNavigationItems({ ...fullAccess, canAccessModule: () => false })
+        .map(({ key }) => key)).not.toContain("dashboard");
+    } finally { mockDashboardVisible = false; }
   });
 });
 

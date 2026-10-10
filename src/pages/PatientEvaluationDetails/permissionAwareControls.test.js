@@ -12,6 +12,8 @@ import { createMemoryHistory } from "history";
 import { toast } from "react-toastify";
 
 import PatientEvaluationDetails from ".";
+import ClinicalRecordNavigationConfirmation from "../../components/ClinicalRecordNavigationConfirmation";
+import { getClinicalRecordUserConfirmation } from "../../services/clinicalRecordNavigationConfirmation";
 import axios from "../../services/axios";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
@@ -102,12 +104,13 @@ function configureEvaluation({ clinicalState, eligible = true }) {
 }
 
 function renderDetails() {
-  const history = createMemoryHistory({ initialEntries: ["/pacientes/101/avaliacoes/31"] });
+  const history = createMemoryHistory({ initialEntries: ["/pacientes/101/avaliacoes/31"], getUserConfirmation: getClinicalRecordUserConfirmation });
   return render(
     <Router history={history}>
       <Route path="/pacientes/:id/avaliacoes/:evaluationId">
         <PatientEvaluationDetails />
       </Route>
+      <ClinicalRecordNavigationConfirmation />
     </Router>,
   );
 }
@@ -239,5 +242,30 @@ describe("PatientEvaluationDetails permission characterization", () => {
       "31",
       3,
     ));
+  });
+});
+
+describe("details standard discard dialog", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    authorize({ clinicalLevel: "edit", capabilities: ["clinical_records.read", "clinical_records.write"] });
+    configureEvaluation({ clinicalState: "draft" });
+  });
+  it("keeps edited answers on cancel and Escape, then discards only on confirmation", async () => {
+    renderDetails();
+    fireEvent.click(await screen.findByRole("button", { name: "Editar rascunho" }));
+    fireEvent.change(screen.getByLabelText("Queixa"), { target: { value: "Rascunho exclusivamente sintético" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continuar editando" }));
+    expect(screen.getByLabelText("Queixa")).toHaveValue("Rascunho exclusivamente sintético");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByLabelText("Queixa")).toHaveValue("Rascunho exclusivamente sintético");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Descartar alterações" }));
+    expect(screen.queryByLabelText("Queixa")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Editar rascunho" })).toBeInTheDocument();
+    expect(axios.put).not.toHaveBeenCalled();
+    expect(axios.post).not.toHaveBeenCalled();
   });
 });

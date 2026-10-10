@@ -57,6 +57,15 @@ usa `main`.
 - Mudança de comportamento exige documentação. Concluído requer testes, lint,
   build, mojibake e `git diff --check`, conforme o escopo.
 
+## Gate obrigatório de interface
+
+Antes de implementar qualquer alteração de UI em qualquer sprint, leia e aplique
+[o fluxo e checklist canônico](docs/frontend-module-architecture.md#fluxo-obrigatório-de-interface-em-todas-as-sprints),
+registre referências reais e a decisão reusar/estender/criar. A entrega exige
+revisão técnica e evidência do bundle servido antes da aprovação visual do usuário.
+Registre exceções, gates não executados e limitações; testes isolados não provam
+qualidade global. Worktree antiga deve conferir e carregar a versão vigente do guia.
+
 ## Documentos canônicos
 
 - Antes de propor mecanismo novo, localizar o existente na documentação,

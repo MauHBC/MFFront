@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useHistory, useParams } from "react-router-dom";
 import styled from "styled-components";
 import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
+import { ClinicalRecordButton } from "../../components/ClinicalRecordButton";
+import useClinicalRecordNavigationGuard from "../../hooks/useClinicalRecordNavigationGuard";
 import {
   addSignedClinicalAddendum,
   finalizeClinicalRecord,
@@ -28,6 +30,7 @@ import { useAuthorization } from "../../contexts/AuthorizationContext";
 
 const formatDate = (value) => {
   if (!value) return "--/--/----";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value.split("-").reverse().join("/");
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "--/--/----";
   const day = String(date.getDate()).padStart(2, "0");
@@ -468,6 +471,7 @@ const buildAnswersPayload = (definition, answers) => {
 
 export default function PatientEvaluationDetails() {
   const { id: patientId, evaluationId } = useParams();
+  const history = useHistory();
   const authorization = useAuthorization();
   const hasClinicalRecordEditLevel = authorization.canAccessModule("clinical_records", "edit");
   const canWriteClinicalRecords = hasClinicalRecordEditLevel
@@ -503,6 +507,11 @@ export default function PatientEvaluationDetails() {
   const [signatureError, setSignatureError] = useState("");
   const [addendum, setAddendum] = useState(null);
   const [isSavingAddendum, setIsSavingAddendum] = useState(false);
+  const hasUnsavedAnswers = isEditing && JSON.stringify(draftAnswers) !== JSON.stringify(answers);
+  const { confirmDiscard } = useClinicalRecordNavigationGuard({
+    dirty: hasUnsavedAnswers || Boolean(addendum?.reason || addendum?.content),
+    saving: isSaving || isSavingAddendum,
+  });
 
   useEffect(() => {
     if (!canFinalizeClinicalRecords) {
@@ -677,9 +686,13 @@ export default function PatientEvaluationDetails() {
   }, [answers, canWriteClinicalRecords, clinicalState]);
 
   const cancelEditing = useCallback(() => {
-    setDraftAnswers(answers);
-    setIsEditing(false);
-  }, [answers]);
+    const discard = () => {
+      setDraftAnswers(answers);
+      setIsEditing(false);
+    };
+    if (hasUnsavedAnswers) confirmDiscard(discard);
+    else discard();
+  }, [answers, confirmDiscard, hasUnsavedAnswers]);
 
   const requestSignature = useCallback(() => {
     if (!canSaveAndFinalizeClinicalRecords) return;
@@ -977,6 +990,9 @@ export default function PatientEvaluationDetails() {
         $mobilePaddingTop="20px"
         $mobilePaddingBottom="0"
       >
+        <ClinicalRecordButton type="button" disabled={isSaving || isSavingAddendum} onClick={() => history.push(`/pacientes/${patientId}`, { clinicalReturnFocus: true })}>
+          Voltar
+        </ClinicalRecordButton>
         <Header>
           <div>
             <HeaderTitle>{isQuickEvolution ? "Evolução" : templateTitle}</HeaderTitle>
@@ -992,7 +1008,6 @@ export default function PatientEvaluationDetails() {
               Caso clínico - {clinicalCaseTitle || "Sem caso clínico"}
             </CaseContextTitle>
             <ActionButtonGroup>
-              <CancelButton to={`/pacientes/${patientId}`}>Voltar</CancelButton>
               {canWriteClinicalRecords && isEditing && (
                 <>
                   <CancelButton

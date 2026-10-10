@@ -1251,7 +1251,7 @@ sidebar fixada usa `localStorage` e a chave
 | Item | Tipo | Destinos reais |
 |---|---|---|
 | Agenda | Expansível | Agenda: `/agendamentos`; Configurações: `/agendamentos/eventos` |
-| Painel | Link direto | `/painel`; `/dashboard` é alias ativo |
+| Painel | Link direto oculto globalmente | `/painel`; `/dashboard` é alias ativo |
 | Pacientes | Link direto | `/pacientes`; detalhes em `/pacientes/:id` e demais subrotas protegidas |
 | Planos | Expansível e sujeito a `isPlansModuleEnabled` | Pacientes com plano: `/planos?tab=patient-plans`; Planos mensais: `/planos?tab=service-plans`; Serviços: `/planos?tab=services`; detalhes: `/planos/pacientes/:patientPlanId` |
 | Financeiro | Expansível | `/financeiro/visao-geral`, `/financeiro/receitas`, `/financeiro/despesas` e `/financeiro/configuracoes` |
@@ -1265,6 +1265,16 @@ subrotas próprias. Mensal/anual permanece modo interno da Visão geral.
 Não existe hoje rota nem item declarativo de **Ajuda e suporte**. Ele só deve
 ser documentado ou adicionado à árvore depois que houver um destino real
 aprovado; não invente uma rota para completar visualmente a lista.
+
+O Painel fica oculto na sidebar desktop, no drawer mobile, nos atalhos de
+`/menu` e no link legado do navbar. A flag de apresentação
+`isDashboardNavigationVisible = false` em `src/config/features.js` controla
+esses pontos. Para reativar, altere somente essa flag para `true`, valide os
+menus e publique pelo procedimento habitual. A flag não bloqueia endpoints
+nem altera permissões: favoritos e acesso direto a `/painel` e `/dashboard`
+continuam sujeitos a `requiredModule="dashboard"`. Login mantém a Agenda como
+entrada conforme autorização. O código do Painel e a Central de pendências
+compartilhada permanecem disponíveis. A ocultação não comprova ausência de uso.
 
 ### Tipos e hierarquia
 
@@ -1832,6 +1842,35 @@ deve duplicar o App Shell.
 
 ---
 
+## Fluxo obrigatório de interface em todas as sprints
+
+Vale para tela nova, extensão, correção e refatoração visual, não apenas novos módulos.
+Antes de implementar, registrar no plano/resumo da tarefa (sem criar guia paralelo):
+
+1. **Referências reais:** paths dos componentes, estilos/tokens e telas consumidoras
+   inspecionados; abrir a referência em desktop e mobile quando houver prévia disponível.
+   Ausência de prévia deve ser declarada, nunca substituída por memória visual.
+2. **Decisão por elemento:** `elemento | referência/path | reusar, estender ou novo |
+   limitação comprovada/justificativa | consumidores afetados`. Verificar estrutura e
+   comportamento, não apenas semelhança de nome. Novo componente exige demonstrar por
+   que composição ou extensão segura do existente não atende.
+3. **Composição:** reutilizar drawer, modal, campos e botões e seus estilos; não copiar
+   CSS nem criar override para imitar o existente. Preservar tokens, tipografia,
+   espaçamento e contratos de foco, retorno do foco, Escape, backdrop, scroll e
+   confirmação de descarte/dirty-state. Conferir handlers reais: uma primitiva visual
+   não garante esses comportamentos sozinha. Lacuna existente deve ser registrada.
+4. **Limites:** extrair shell comum somente com repetição estrutural comprovada e
+   consumidores identificados. Manter autorização, API, validação e regras de negócio
+   nos módulos; evitar framework genérico ou abstração para uso futuro hipotético.
+   Aplicar as regras para exceções abaixo e registrar diferença e impacto explicitamente.
+
+Pontos de partida reais, a confirmar na branch da sprint: `src/components/AppDrawer`,
+`AppForm`, `AppButton`, `AppModuleShell` e `src/styles/tokens.js`; telas em
+`src/pages/Planos`, `src/pages/Agendamentos` e `src/pages/Financeiro`. Para modais,
+inspecionar `src/pages/Financeiro/components/ClinicExpenseModal.js`, os estilos `ui`
+fornecidos pelo consumidor e os campos compartilhados `ClinicExpenseSettlementFields`.
+Essa referência não torna automaticamente todo modal um componente global.
+
 ## Regras para exceções
 
 ### Quando criar `styled-component` local
@@ -1849,6 +1888,7 @@ e callbacks, sem regras de agendamento ou envio. `DrawerActions` conserva o padr
 da Agenda e aceita `$wrap` para ações longas. O guia do [piloto WhatsApp](whatsapp-piloto-local.md)
 registra as adaptações de fechamento, foco e estado pendente.
 
+
 ### Quando parametrizar o compartilhado
 
 Preferir sempre a adição de prop opcional com default seguro ao componente compartilhado quando a variação é estrutural mas não semântica (tamanhos, breakpoints, espaçamentos).
@@ -1864,9 +1904,9 @@ Preferir sempre a adição de prop opcional com default seguro ao componente com
 
 ---
 
-## Checklist para novo módulo
+## Checklist de revisão de interface
 
-Antes de entregar qualquer novo módulo ou tela administrativa:
+Antes de entregar qualquer alteração de interface, executar este checklist e registrar evidências:
 
 **Shell**
 - [ ] Usa o App Shell global nas rotas autenticadas migradas?
@@ -1887,6 +1927,31 @@ Antes de entregar qualquer novo módulo ou tela administrativa:
 - [ ] Qualquer componente local tem justificativa real documentada no código (comentário inline)?
 - [ ] O build compila sem warnings?
 - [ ] Nenhum `styled-component` foi criado localmente como cópia de um componente compartilhado existente?
+
+**Evidências de entrega (obrigatórias conforme o escopo)**
+- [ ] Referências/path e decisão reusar/estender/criar registrados antes da implementação;
+      componente canônico realmente importado, consumidores e exceções revisados?
+- [ ] Comparação referência versus implementação no mesmo viewport desktop e mobile,
+      com capturas e medidas: largura/altura, padding/gap, tipografia, cores, bordas,
+      alinhamento, overflow e computed styles (`getComputedStyle`)? Informar valores,
+      viewports e diferenças justificadas, não apenas “parece igual”.
+- [ ] Foco inicial/Tab/retorno, Escape, backdrop, scroll, dirty-state e descarte,
+      salvar ocupado/erro e reabertura conferidos nos fluxos afetados?
+- [ ] Estados vazio, loading e erro/retry exercitados com dados fictícios plausíveis,
+      sem dados clínicos reais nem banners técnicos repetidos na interface?
+- [ ] Testes pertinentes e consumidores afetados verificados; comandos, resultados,
+      falhas, skips e gates não executados registrados? Suíte parcial não é “global verde”.
+      Lint, build, mojibake e diff seguem os gates locais aplicáveis.
+- [ ] Bundle **realmente servido** identificado: URL/porta, worktree/commit, processo
+      servidor, assets/hash ou marcador de versão verificado por HTTP e no navegador
+      após recarregar; cache/service worker quando aplicável conferidos? Build novo
+      apenas em disco com preview antigo proíbe declarar “pronto para validar”.
+      Sem permissão para observar o alvo, registrar bloqueio; nunca operar produção
+      para satisfazer este gate sem autorização.
+- [ ] Revisão técnica da interface concluída antes de pedir aprovação visual ao usuário,
+      com evidências, exceções e limitações explícitas? Aprovação visual final pertence
+      ao usuário; capturas, testes ou revisão do executor não a substituem.
+
 ## Prévia editorial da landing
 
 A landing pública continua usando seus componentes reais e o contexto público.
@@ -2267,3 +2332,92 @@ A aprovação visual final pertence ao usuário.
 WhatsApp é módulo opcional do tenant no contrato canônico 9, cumulativo com Agenda
 e opt-in de contato. Menu e entrada `/whatsapp` usam esse contrato; implementação e
 compatibilidade 7/8/9 estão em [piloto WhatsApp](whatsapp-piloto-local.md).
+
+### Exportação de prontuário
+
+As telas `PatientEvaluationNew` e `PatientEvaluationDetails` oferecem `Voltar`
+antes do cabeçalho, usando `ClinicalRecordButton`, extraído do mesmo botão de
+`Voltar aos casos` em `PatientDetails`. O destino é a página da mesma paciente;
+aba e caso continuam armazenados por clínica/paciente. O hook
+`useClinicalRecordNavigationGuard` protege navegação e unload quando há respostas
+não salvas ou adendo em edição, registra dirty/saving na guarda de troca de clínica
+e bloqueia a saída durante salvamento. A confirmação reutiliza
+`UnsavedChangesDialog` de `AppDrawer`, já usado em Agenda, Equipe, Financeiro e
+Planos; continuar editando e Escape preservam o conteúdo. Na criação, o
+redirecionamento após sucesso libera a guarda antes de navegar. O retorno
+contextual sinaliza foco no título da paciente, aplicado uma vez após carregar
+o perfil. O histórico intercepta somente tokens de confirmação registrados pela
+guarda clínica; outras confirmações mantêm o comportamento nativo. O callback
+do próprio histórico preserva PUSH, REPLACE e POP; a saída é revalidada contra
+saving antes de confirmar. Fechar/recarregar o navegador continua protegido por
+`beforeunload`. Essa proteção não torna o fluxo de múltiplas requisições de
+avaliação/formulário atomicamente persistido.
+
+`PatientDetails/ClinicalExportButton` oferece exportação individual no cartão
+por `Evaluation.id` e consolidada no nível paciente. O consolidado consulta o
+Backend sem enviar o filtro de caso da tela ou reutilizar apenas a lista
+carregada. A prévia mostra quantidade, período, estados e limites de escopo;
+a confirmação baixa o PDF autenticado com o helper já utilizado por Documentos.
+Cancelar não baixa arquivo. Troca de paciente/desmontagem invalida respostas
+pendentes. Após o download, o usuário abre o PDF e imprime pelo visualizador.
+
+A UI acompanha a leitura de prontuário existente. As regras de autorização,
+conteúdo e fidelidade pertencem à fonte canônica do MFBackend em
+`docs/arquitetura/phase-8-clinical-record-authorization.md`. A exportação mantém
+rascunhos identificados e não substitui o fluxo de assinatura eletrônica.
+A prévia sintética usa exclusivamente `MOTRIA_LOCAL_STACK_SLOT=clinical-export`
+com `npm run dev`: frontend 127.0.0.1:3030 e API 127.0.0.1:3036. Os endpoints
+são fechados pelo launcher; não aceita substituir a porta pelo ambiente. A
+fixture e o ciclo de vida do banco descartável pertencem ao Backend. Botões
+de exportação/cancelamento reutilizam `AppButton` e tokens Motria; baixar é a
+ ação primária do modal. A aprovação visual continua pertencendo ao usuário.
+
+No prontuário, a ação compacta fica em `TimelineActions`, junto de `Voltar aos casos`
+quando um caso está aberto. Seu escopo continua sendo o paciente e todos os casos,
+sem reaproveitar o filtro da tela. O modal oferece todo o prontuário, um dia ou
+período inclusivo. Consulta contagem após seleção, informa rascunhos quando presentes
+e bloqueia baixar se não houver registros. Datas da prévia e do download são iguais;
+alterações na seleção invalidam respostas anteriores. Regras temporais e contexto
+de casos pertencem ao contrato canônico do Backend.
+
+O modal de exportação consolidada apresenta um radio group: Todo o prontuário ou Período. Os campos Data inicial/Data final permanecem visíveis; no primeiro modo mostram limites reais da prévia desabilitados, sem limitar a exportação. No período são editáveis; limites iguais representam um dia. O bloco de contagem de registros fica separado dos campos por espaçamento próprio.
+
+Na timeline de evolução, Exportar PDF compartilha a linha de ações e o componente visual de Editar rascunho. As tags continuam no cabeçalho, e a exportação não depende de permissão de edição. A apresentação de autoria lê os vínculos tenant-scoped clinicalAuthorMembership.person e createdByMembership.person enviados pelo Backend, preservando os fallbacks históricos e não inferindo CREFITO.
+
+O prontuário omite autoria/CREFITO ausentes e a data operacional de criação do caso; não mostra badge ou tooltip do estado interno legacy. Autoria existente, rascunhos e evidências de assinatura permanecem. Date-only é apresentado em DD/MM/AAAA sem deslocamento UTC; instantes clínicos usam America/Sao_Paulo. Objetivos estruturados aceitam array ou JSON antigo e exibem rótulos humanos; texto clínico livre não é traduzido. O PDF omite a linha operacional sob o título e a data de exportação do rodapé, conforme a fonte canônica do Backend.
+
+## Central de Relatórios
+
+`/relatorios` usa AppShell e aparece após Painel, preservando Agenda primeiro.
+A entrada depende de leitura de schedule, patients ou finance. O catálogo tem
+seis documentos: Recebimentos e devoluções, Movimentação de caixa, Contas a receber
+e atrasos, Produção por profissional/serviço, Faltas e cancelamentos e Aniversariantes.
+Recebimentos/caixa exigem administrador; os demais respeitam o módulo de origem.
+
+Fluxo explícito: escolher documento, definir mês/ano ou intervalo e filtros úteis,
+Gerar relatório, conferir documento e baixar PDF ou CSV autenticado. Não há ação
+Imprimir duplicada. Aniversariantes mostra Nome, Data de nascimento completa e
+Idade a completar (idade no aniversário selecionado), acrescentando ocorrência somente
+em intervalos que atravessam anos. O modelo de referência não inclui emissão
+e não expõe coluna Convenção; ajuste de 29/02 usa nota apenas quando aplicável.
+Nenhuma leitura de relatório é disparada automaticamente. Pacotes está fora do catálogo.
+A fonte funcional é MFBackend/docs/regras-negocio/relatorios.md.
+
+Resultados e referências pertencem ao contexto autorizado e filtros da geração.
+Mudanças invalidam resultado; respostas interrompidas não repopulam a tela. Revogação
+oculta os dados e seleciona documento ainda permitido. Exportação exige can_export,
+revalidação no servidor e version; resultado alterado exige nova geração.
+
+Prévia usa AppForm/Field, AppButton, AppModuleShell/AppLayout, AppToolbar,
+AppTable, AppPagination e DataLoadingState. Campos têm 42px com box-sizing
+border-box; Ano ocupa 96px e filtros quebram por conteúdo no mobile. Identidade
+e ações ficam no mesmo cabeçalho compacto; período, critério e agrupamento
+continuam explícitos. Tabelas têm rolagem horizontal e paginação de 20 linhas. Exportação contém todas as linhas,
+totais e detalhes, sem limitar ao que está visível. Não persiste snapshot nem envia
+comunicações/notificações. A validação visual final pertence ao usuário.
+
+O slot reports-preview mantém Frontend 3040 e API loopback 3046, selecionado por
+MOTRIA_LOCAL_STACK_SLOT antes de npm run dev. Overrides continuam rejeitados; não
+inicia serviços automaticamente. Prévia manual exige autorização e dados sintéticos.
+Gates: Reports, navegação, regressões pertinentes, lint, mojibake e build.
+

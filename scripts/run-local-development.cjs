@@ -24,6 +24,14 @@ const LOCAL_STACK_PROFILES = Object.freeze({
     HTTPS: 'false',
     REACT_APP_API_BASE_URL: 'http://127.0.0.1:3056/api',
   }),
+  'reports-preview': Object.freeze({
+    NODE_ENV: 'development',
+    HOST: '127.0.0.1',
+    PORT: '3040',
+    HTTPS: 'false',
+    REACT_APP_API_BASE_URL: 'http://127.0.0.1:3046/api',
+
+  }),
   'financeiro-estorno': Object.freeze({
     NODE_ENV: 'development',
     HOST: '127.0.0.1',
@@ -37,6 +45,13 @@ const LOCAL_STACK_PROFILES = Object.freeze({
     PORT: '3000',
     HTTPS: 'false',
     REACT_APP_API_BASE_URL: 'http://127.0.0.1:3006/api',
+  }),
+  'clinical-export': Object.freeze({
+    NODE_ENV: 'development',
+    HOST: '127.0.0.1',
+    PORT: '3030',
+    HTTPS: 'false',
+    REACT_APP_API_BASE_URL: 'http://127.0.0.1:3036/api',
   }),
   'combined-validation': Object.freeze({
     NODE_ENV: 'development',

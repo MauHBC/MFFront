@@ -5,3 +5,6 @@ export const MODULE_FEATURES = Object.freeze({
 });
 
 export const isPlansModuleEnabled = MODULE_FEATURES.plans;
+
+// Presentation only: keep authorized dashboard routes and shared data available.
+export const isDashboardNavigationVisible = false;

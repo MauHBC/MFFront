@@ -20,6 +20,19 @@ function makeTemporaryRepository() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'motria-frontend-local-'));
 }
 
+test('reports preview uses its own closed loopback slot and rejects endpoint overrides', () => {
+  const child = buildChildEnvironment(repositoryRoot, { MOTRIA_LOCAL_STACK_SLOT: 'reports-preview' });
+  assert.equal(child.PORT, '3040');
+  assert.equal(child.REACT_APP_API_BASE_URL, 'http://127.0.0.1:3046/api');
+  assert.equal(proxyTargetForEnvironment(child), 'http://127.0.0.1:3046');
+  assert.throws(() => buildChildEnvironment(repositoryRoot, {
+    MOTRIA_LOCAL_STACK_SLOT: 'reports-preview', PORT: '3030',
+  }), /PORT/);
+  assert.throws(() => buildChildEnvironment(repositoryRoot, {
+    MOTRIA_LOCAL_STACK_SLOT: 'reports-preview', REACT_APP_API_BASE_URL: 'https://external.example.test/api',
+  }), /REACT_APP_API_BASE_URL/);
+});
+
 test('applies the versioned localhost contract to a new worktree', () => {
   const temporaryRepository = makeTemporaryRepository();
   try {
@@ -238,3 +251,36 @@ test('preserved WhatsApp has its own closed slot without replacing the previous 
   assert.equal(result.REACT_APP_API_BASE_URL, 'http://127.0.0.1:3066/api');
   assert.equal(buildChildEnvironment(repositoryRoot, { MOTRIA_LOCAL_STACK_SLOT: 'whatsapp-pilot' }).PORT, '3050');
 });
+
+
+test('keeps clinical export preview bound to its exclusive local endpoints', () => {
+  const repository = makeTemporaryRepository();
+  try {
+    const environment = { MOTRIA_LOCAL_STACK_SLOT: 'clinical-export' };
+    const child = buildChildEnvironment(repository, environment);
+    assert.equal(child.PORT, '3030');
+    assert.equal(child.HOST, '127.0.0.1');
+    assert.equal(child.REACT_APP_API_BASE_URL, 'http://127.0.0.1:3036/api');
+    assert.equal(setupProxy.proxyTargetForEnvironment(environment), 'http://127.0.0.1:3036');
+    assert.throws(() => buildChildEnvironment(repository, { ...environment, PORT: '3010' }));
+  } finally {
+    fs.rmSync(repository, { recursive: true, force: true });
+  }
+});
+
+test('clinical preview serves SPA routes without masking API or missing assets', () => {
+  for (const pathname of ['/', '/login', '/pacientes/1', '/pacientes/1/avaliacoes/2?x=1']) {
+    const req = { method: 'GET', url: pathname, headers: {} }; let called = false;
+    setupProxy.clinicalPreviewFallback(req, {}, () => { called = true; });
+    assert.equal(req.headers.accept, 'text/html'); assert.equal(called, true);
+  }
+  for (const pathname of ['/missing.js', '/static/missing', '/unknown']) {
+    const req = { method: 'GET', url: pathname, headers: { accept: 'text/html' } };
+    setupProxy.clinicalPreviewFallback(req, {}, () => {});
+    assert.equal(req.headers.accept, 'application/octet-stream');
+  }
+  const req = { method: 'GET', url: '/api/missing', headers: { accept: 'application/json' } };
+  setupProxy.clinicalPreviewFallback(req, {}, () => {});
+  assert.equal(req.headers.accept, 'application/json');
+});
+

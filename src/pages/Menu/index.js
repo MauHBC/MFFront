@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { FaCalendarAlt, FaUserFriends, FaMoneyBillWave, FaClipboardList, FaChartLine } from "react-icons/fa";
 // Icone para exames: FaFileMedical
 import styled from "styled-components";
-import { isPlansModuleEnabled } from "../../config/features";
+import { isDashboardNavigationVisible, isPlansModuleEnabled } from "../../config/features";
 import AppShell from "../../components/AppShell";
 import TrialPanel from "../SelfService/TrialPanel";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
@@ -51,7 +51,7 @@ export default function Menu() {
                     <span>Agenda</span>
                   </div>
                 </StyledLink>}
-                {canAccess("dashboard") && <StyledLink to="/painel">
+                {isDashboardNavigationVisible && canAccess("dashboard") && <StyledLink to="/painel">
                   <IconBadge $bg="#edf4f2" $color="#517268">
                     <FaChartLine size={24} />
                   </IconBadge>
