@@ -54,8 +54,25 @@ Janela CPU liberada em 10/10 15:47 UTC. Build separado passou para 5365dc8;
 conferência DOM encontrou foco em controles de details recolhidos. A correção
 filtra esses controles e inclui summary no ciclo, preservando Tab/Shift+Tab.
 useDrawerInteraction tem somente WhatsAppReminders como consumidor atual;
-as demais primitivas e a estrutura do drawer permanecem intactas. Rebuild e
-conferência final de foco/móvel estão em andamento; não declarar prontidão antes deles.
+as demais primitivas e a estrutura do drawer permanecem intactas.
+
+Final qualification: source build 76971303 PASS; final focused tests 60/60 PASS
+(6.976s). HTTP and disk main.82ccca47.js SHA256:
+CBB73310C5561C845600FED970D070B2898B6787309464BA77BE80D4E9717779.
+Authenticated DOM: no WhatsApp principal navigation; Agenda date 2026-10-19;
+12 authorized appointments for that day; distinct groups 97/98; one current
+confirmation in group 97; four/three sends preserved in expandable history.
+Shift+Tab from X focuses the last visible history summary; Tab returns to X.
+With expanded history, the last visible simulation summary enters the cycle.
+Escape closes and restores focus to the Agenda entry; reopening works.
+Mobile override 390x844 (CSS 312px due to zoom): drawer 280.8px; body horizontal
+extent 269/269px; table has its own horizontal scroll 227/330px. Viewport reset.
+No send or simulated event was dispatched during this final DOM verification.
+Same-patient distinct appointments are covered by component tests; live DOM
+fixtures 97/98 belong to two distinct fictitious patients.
+Runtime: Backend 3bd29860, Frontend source 76971303, simulationOnly=true,
+externalSent=0, blockedAttempts=0. Visual approval remains with Mauricio.
+CPU window released to Monitoramento after qualification.
 DOCUMENTATION_IMPACT: UPDATE_REQUIRED.
 
 ## Histórico anterior
