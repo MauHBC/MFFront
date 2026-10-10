@@ -89,3 +89,16 @@ Qualificação nova: 41 testes focados passaram e a suite global passou com
 encoding, contratos e build passaram. Backend qualificou 21 cenários reais
 MariaDB/HTTP, assinatura direta/editor e PDF históricos; recursos removidos.
 CI dos novos heads, re-revisão independente e validação visual permanecem gates.
+
+### Lookup de rótulo após resolução
+
+`optionLabelById` compara somente IDs: após resolver códigos históricos para
+IDs, repetir uma busca por ID OU código poderia selecionar o rótulo de outra
+opção dependendo da ordem. A seleção simples por `option_id` usa a mesma regra
+estrita. Doze regressões adicionais cobrem ambas as ordens de opções e estados
+draft/finalized, histórico textual, IDs marcados e seleção simples. Nenhuma
+alteração de dados, contrato histórico ou PDF decorre desta correção de leitura.
+
+Gates do lookup estrito: 42 focados passaram; global passou com 141 suítes,
+1574 testes, 3 skips preexistentes (344.977 s). Build, lint global, encoding,
+contratos e diff check passaram. CI do novo head e re-revisão são gates separados.

@@ -329,14 +329,14 @@ describe("confirmed structured creation recovery", () => {
 describe("historical multiple selection semantics", () => {
   const options = [{ id: 12, value: "A", label: "Opcao textual ficticia" }, { id: 22, value: "12", label: "Opcao numerica ficticia" }];
   const multiDefinition = { templateId: 9, sections: [{ id: "selection", title: "Selecao ficticia", blocks: [{ id: "selection", type: "multi_select", label: "Selecao", config: { questionId: 91, options } }] }] };
-  const configureSelection = (values, initialEncoding = null, selectedOptions = options) => {
-    let clinicalState = "draft"; let version = 2; let encoding = initialEncoding; let saved = values;
+  const configureSelection = (values, initialEncoding = null, selectedOptions = options, initialState = "draft", type = "multi_select") => {
+    let clinicalState = initialState; let version = 2; let encoding = initialEncoding; let saved = values;
     configureEvaluation({ clinicalState });
     const get = axios.get.getMockImplementation();
     axios.get.mockImplementation(async (url) => {
       if (url === "/form-instances?evaluation_id=31") return response([{ id: 81, form_template_id: 9, structured_answer_encoding: encoding }]);
-      if (url === "/form-templates/9/definition") return response({ ...multiDefinition, sections: [{ ...multiDefinition.sections[0], blocks: [{ ...multiDefinition.sections[0].blocks[0], config: { questionId: 91, options: selectedOptions } }] }] });
-      if (url === "/form-answers?form_instance_id=81") return response([{ form_question_id: 91, value_json: saved }]);
+      if (url === "/form-templates/9/definition") return response({ ...multiDefinition, sections: [{ ...multiDefinition.sections[0], blocks: [{ ...multiDefinition.sections[0].blocks[0], type, config: { questionId: 91, options: selectedOptions } }] }] });
+      if (url === "/form-answers?form_instance_id=81") return response([{ form_question_id: 91, ...(type === "single_select" ? { option_id: saved[0] } : { value_json: saved }) }]);
       const result = await get(url);
       return url === "/evaluations/31" ? { data: { ...result.data, clinical_state: clinicalState, version } } : result;
     });
@@ -349,6 +349,21 @@ describe("historical multiple selection semantics", () => {
   beforeEach(() => {
     jest.clearAllMocks(); sessionStorage.clear();
     authorize({ clinicalLevel: "manage", capabilities: ["clinical_records.read", "clinical_records.write", "clinical_records.finalize"] });
+  });
+  const misleading = { id: 12, value: "22", label: "Opcao enganosa ficticia" };
+  const correct = { id: 22, value: "A", label: "Opcao correta ficticia" };
+  const labelCases = ["draft", "finalized"].flatMap((state) => (
+    [[misleading, correct], [correct, misleading]].flatMap((ordered) => [
+      [state, ordered, null, ["A"], "multi_select"],
+      [state, ordered, "option_ids_v1", [22], "multi_select"],
+      [state, ordered, null, [22], "single_select"],
+    ])
+  ));
+  it.each(labelCases)("labels explicit/resolved IDs strictly (%s/%j/%s/%j/%s)", async (state, ordered, encoding, values, type) => {
+    configureSelection(values, encoding, ordered, state, type); renderDetails(); await waitForEvaluation();
+    expect(screen.getByText(correct.label)).toBeInTheDocument();
+    expect(screen.queryByText(misleading.label)).not.toBeInTheDocument();
+    expect(axios.put).not.toHaveBeenCalled(); expect(axios.post).not.toHaveBeenCalled();
   });
   it.each([
     [null, ["12"], 22, "Opcao numerica ficticia"],

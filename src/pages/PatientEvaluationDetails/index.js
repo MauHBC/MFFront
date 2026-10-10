@@ -180,7 +180,7 @@ const optionLabelById = (block, id) => {
   const raw = block?.config?.options;
   if (!Array.isArray(raw)) return null;
   const match = raw.find(
-    (opt) => String(opt?.id) === String(id) || String(opt?.value) === String(id),
+    (opt) => opt?.id != null && String(opt.id) === String(id),
   );
   return match?.label ? String(match.label) : null;
 };
