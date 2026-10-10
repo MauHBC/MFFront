@@ -12,6 +12,32 @@ jest.mock("../../services/axios", () => ({
 jest.mock("../../services/documents", () => ({ downloadPdfResponse: jest.fn() }));
 const manifest = { count: 23, cases: 3, forms: 2, references: 1, period: "01/10/2026 a 09/10/2026", states: { draft: 2, legacy: 21 }, notice: "Arquivos externos não incorporados." };
 beforeEach(() => jest.clearAllMocks());
+test("modal escapa do ancestral transformado e preserva foco, Escape e backdrop", async () => {
+  api.get.mockResolvedValue({ data: { ...manifest, count: 1 } });
+  const view = render(<div style={{ transform: "translateY(-1px)" }}><ClinicalExportButton recordId={11} /></div>);
+  const trigger = screen.getByRole("button", { name: "Exportar PDF" });
+  fireEvent.click(trigger);
+  await screen.findByText("1 registro");
+  const dialog = screen.getByRole("dialog");
+  expect(view.container).not.toContainElement(dialog);
+  expect(dialog.parentElement.parentElement).toBe(document.body);
+  expect(dialog).toHaveFocus();
+  fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+  expect(screen.getByRole("button", { name: "Baixar PDF" })).toHaveFocus();
+  fireEvent.keyDown(dialog, { key: "Tab" });
+  expect(screen.getByRole("button", { name: "Cancelar" })).toHaveFocus();
+  fireEvent.click(dialog);
+  expect(dialog).toBeInTheDocument();
+  fireEvent.keyDown(dialog, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(trigger).toHaveFocus();
+  fireEvent.click(trigger);
+  await screen.findByText("1 registro");
+  fireEvent.click(screen.getByRole("dialog").parentElement);
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(trigger).toHaveFocus();
+  expect(downloadPdfResponse).not.toHaveBeenCalled();
+});
 test("consulta consolidado no servidor e mostra escopo antes de baixar", async () => {
   api.get.mockResolvedValueOnce({ data: manifest }).mockResolvedValueOnce({ data: new Blob(["synthetic"], { type: "application/pdf" }) });
   render(<ClinicalExportButton patientId={9001} />);

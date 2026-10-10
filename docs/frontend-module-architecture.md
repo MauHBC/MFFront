@@ -2336,6 +2336,13 @@ saving antes de confirmar. Fechar/recarregar o navegador continua protegido por
 `beforeunload`. Essa proteção não torna o fluxo de múltiplas requisições de
 avaliação/formulário atomicamente persistido.
 
+O modal de exportação mantém seu layout e controles existentes, mas é montado
+por portal em `document.body`: o hover dos cartões da timeline cria um ancestral
+transformado e não pode alterar a posição ou recortar o backdrop de um overlay
+fixo. Clique direto no backdrop fecha quando não há consulta/download em curso;
+cliques no painel preservam o modal. Escape, ciclo de Tab e retorno do foco ao
+botão de origem continuam no componente de exportação.
+
 `PatientDetails/ClinicalExportButton` oferece exportação individual no cartão
 por `Evaluation.id` e consolidada no nível paciente. O consolidado consulta o
 Backend sem enviar o filtro de caso da tela ou reutilizar apenas a lista
