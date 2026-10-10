@@ -196,3 +196,7 @@ Backend `0c98168`. Esta inspeção valida o drawer servido, não o novo adaptado
 Meta por essa API. O adaptador permanece exclusivamente offline e envio real
 bloqueado. Não houve configuração de credenciais, alteração Meta ou envio.
 `DOCUMENTATION_IMPACT = UPDATE_REQUIRED`: evidência técnica atualizada nesta fonte.
+
+### Prévia isolada preservável — 10/10/2026
+
+MOTRIA_LOCAL_STACK_SLOT=whatsapp-preserved seleciona somente endpoints locais fechados. Frontend 3060 e API 3066. Launcher 12/12 PASS. Clínica Aurora fictícia, sem modificar a prévia whatsapp-pilot anterior. Interface e componentes compartilhados permanecem iguais.

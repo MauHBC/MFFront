@@ -232,3 +232,9 @@ test('npm run dev exposes a non-starting validation contract', () => {
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout, /Ambiente local do Frontend validado/);
 });
+test('preserved WhatsApp has its own closed slot without replacing the previous preview', () => {
+  const result = buildChildEnvironment(repositoryRoot, { MOTRIA_LOCAL_STACK_SLOT: 'whatsapp-preserved' });
+  assert.equal(result.PORT, '3060');
+  assert.equal(result.REACT_APP_API_BASE_URL, 'http://127.0.0.1:3066/api');
+  assert.equal(buildChildEnvironment(repositoryRoot, { MOTRIA_LOCAL_STACK_SLOT: 'whatsapp-pilot' }).PORT, '3050');
+});
