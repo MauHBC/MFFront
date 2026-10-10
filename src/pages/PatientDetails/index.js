@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useHistory, useParams } from "react-router-dom";
+import { Link, useHistory, useLocation, useParams } from "react-router-dom";
 import styled, { css } from "styled-components";
 import { toast } from "react-toastify";
 import {
@@ -12,6 +12,7 @@ import {
   FaTimes,
   FaUserAlt,
 } from "react-icons/fa";
+import { ClinicalRecordButton as CardButton } from "../../components/ClinicalRecordButton";
 import ClinicalExportButton from './ClinicalExportButton';
 import ClinicalSigningIdentitySummary from "../../components/ClinicalSigningIdentitySummary";
 
@@ -954,6 +955,9 @@ export default function PatientDetails() {
   const sessionScope = clinic?.clinic_id ? `clinic-${clinic.clinic_id}` : null;
   const { id } = useParams();
   const history = useHistory();
+  const location = useLocation();
+  const clinicalReturnHeading = useRef(null);
+  const clinicalReturnFocused = useRef(false);
   const authorization = useAuthorization();
   const canReadClinicalRecords = authorization.canAccessModule("clinical_records", "view")
     && authorization.hasCapability("clinical_records.read");
@@ -1264,6 +1268,13 @@ export default function PatientDetails() {
   }, [patient, editingSection]);
 
   const profileStatus = profileLoad.patientId === id ? profileLoad.status : "loading";
+  useEffect(() => {
+    if (!location.state?.clinicalReturnFocus || clinicalReturnFocused.current || profileStatus === "loading") return;
+    if (clinicalReturnHeading.current) {
+      clinicalReturnHeading.current.focus();
+      clinicalReturnFocused.current = true;
+    }
+  }, [location.state, profileStatus]);
   let clinicalStatus = "unavailable";
   if (canReadClinicalRecords) {
     clinicalStatus = clinicalLoad.patientId === id ? clinicalLoad.status : "loading";
@@ -2683,7 +2694,7 @@ export default function PatientDetails() {
             <BackButton type="button" onClick={() => history.push("/pacientes")}>
               <FaArrowLeft aria-hidden="true" /> Pacientes
             </BackButton>
-            <HeaderTitle>
+            <HeaderTitle ref={clinicalReturnHeading} tabIndex={-1}>
               {profileStatus === "ready" ? getPatientDisplayName(patient) : "Paciente"}
             </HeaderTitle>
           </div>
@@ -5879,29 +5890,7 @@ const CardActions = styled.div`
   flex-wrap: wrap;
 `;
 
-const CardButton = styled.button`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 8px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(106, 121, 92, 0.28);
-  background: ${(props) => (props.$primary ? "#6a795c" : "#fff")};
-  color: ${(props) => (props.$primary ? "#fff" : "#6a795c")};
-  font-weight: 700;
-  cursor: pointer;
-  transition: filter 0.2s ease, opacity 0.2s ease;
 
-  &:hover:not(:disabled) {
-    filter: brightness(0.97);
-  }
-
-  &:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-`;
 
 const SubtleCardButton = styled(CardButton)`
   min-height: 34px;

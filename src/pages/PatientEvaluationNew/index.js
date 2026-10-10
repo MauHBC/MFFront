@@ -4,6 +4,8 @@ import styled from "styled-components";
 import { toast } from "react-toastify";
 
 import axios from "../../services/axios";
+import { ClinicalRecordButton } from "../../components/ClinicalRecordButton";
+import useClinicalRecordNavigationGuard from "../../hooks/useClinicalRecordNavigationGuard";
 import DataLoadingState from "../../components/DataLoadingState";
 import ClinicalSignatureConfirmModal from "../../components/ClinicalSignatureConfirmModal";
 import { listPatientClinicalCases } from "../../services/patientClinicalCases";
@@ -167,6 +169,7 @@ export default function PatientEvaluationNew() {
   const [definition, setDefinition] = useState(null);
   const [activeSectionId, setActiveSectionId] = useState(null);
   const [answers, setAnswers] = useState({});
+  const markSaved = useClinicalRecordNavigationGuard({ dirty: Object.keys(answers).length > 0, saving: isSaving });
   const [loadError, setLoadError] = useState("");
   const [signingIdentity, setSigningIdentity] = useState(null);
   const [signatureConfirmOpen, setSignatureConfirmOpen] = useState(false);
@@ -632,7 +635,8 @@ export default function PatientEvaluationNew() {
         } else {
           toast.success("Rascunho salvo.");
         }
-        history.push(`/pacientes/${patientId}`);
+        markSaved();
+        history.push(`/pacientes/${patientId}`, { clinicalReturnFocus: true });
       } catch (error) {
         const message = getClinicalRecordSaveErrorMessage(
           error,
@@ -649,6 +653,7 @@ export default function PatientEvaluationNew() {
 	    definition,
 	    history,
       isSaving,
+      markSaved,
 	    patientId,
 	    requestedPhase,
 	    selectedTemplate,
@@ -703,6 +708,9 @@ export default function PatientEvaluationNew() {
         $mobilePaddingTop="20px"
         $mobilePaddingBottom="0"
       >
+        <ClinicalRecordButton type="button" disabled={isSaving} onClick={() => history.push(`/pacientes/${patientId}`, { clinicalReturnFocus: true })}>
+          Voltar
+        </ClinicalRecordButton>
         <Header>
 	          <div>
 	            <HeaderTitle>{headerTitle}</HeaderTitle>
@@ -721,7 +729,7 @@ export default function PatientEvaluationNew() {
             )}
             <ActionButtonGroup>
               <CancelButton
-                to={`/pacientes/${patientId}`}
+                to={{ pathname: `/pacientes/${patientId}`, state: { clinicalReturnFocus: true } }}
                 aria-disabled={isSaving}
                 onClick={(event) => {
                   if (isSaving) event.preventDefault();
