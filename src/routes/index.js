@@ -41,15 +41,14 @@ import Equipe from "../pages/Equipe";
 import SettingsDocuments from "../pages/SettingsDocuments";
 import { PendingCenterProvider } from "../components/PendingCenter";
 import { usePublicClinicContext } from "../contexts/PublicClinicContext";
+import { isLocalWhatsAppSimulation } from "../config/whatsappSimulation";
 
 function WhatsAppAgenda() {
   const authorization = useAuthorization();
   return authorization.canAccessModule("schedule") ? <Agendamentos /> : <Redirect to="/semAcesso/" />;
 }
 
-const localWhatsAppTools = process.env.NODE_ENV === "development"
-  || (process.env.REACT_APP_WHATSAPP_SIMULATION_PREVIEW === "true"
-    && ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname));
+const localWhatsAppTools = isLocalWhatsAppSimulation();
 const WhatsAppScenarioTools = localWhatsAppTools
   ? require("../pages/Agendamentos/WhatsAppScenarioTools").default : null;
 

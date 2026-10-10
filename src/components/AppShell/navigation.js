@@ -38,8 +38,6 @@ const navigationItems = [
       },
     ],
   },
-  { key: "whatsapp", label: "WhatsApp", path: "/whatsapp", matchPaths: ["/whatsapp"], icon: FaCalendarAlt,
-    isVisible: ({ canAccessModule } = {}) => canAccessModule?.("whatsapp") === true && canAccessModule?.("schedule") === true },
   {
     key: "dashboard",
     label: "Painel",

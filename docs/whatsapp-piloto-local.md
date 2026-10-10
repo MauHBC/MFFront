@@ -1,5 +1,61 @@
 # WhatsApp integrado à Agenda — prévia local
 
+## Correção da revisão autenticada — 10/10/2026
+
+Referências reais relidas antes de editar: AGENTS.md e fluxo/checklist de
+`docs/frontend-module-architecture.md` da worktree a5fbc9a, confrontados com
+MFFrontend principal (último commit documental 4ca4727 e checklist local ainda
+não commitado). A worktree já contém o fluxo obrigatório e a extensão aprovada
+AgendaDrawerShell; não foram incorporadas alterações alheias. Referências de código:
+`AppShell/navigation.js`, `Agendamentos/index.js`, `agendaDrawerComponents.js`,
+`AppDrawer`, `AppForm`, `AppButton`, `AppToolbar`, `AppTable` e tokens.
+
+Decisão: reusar o drawer compacto vigente, X, foco, Escape, backdrop, dirty-state,
+campo date de AppForm e botões/toolbar; estender somente o conteúdo de lembretes.
+Nenhum styled-component ou override novo. O detalhe de eventos compõe HTML details
+com controles existentes; não há outra página/drawer para o cliente.
+
+WhatsApp não aparece no menu principal clínico. A entrada fica em Agenda >
+Lembretes WhatsApp; permissões e configuração do módulo no Platform Admin
+permanecem intactas. O painel abre na data selecionada, oferece data/Hoje/Amanhã e
+consulta somente o dia civil de São Paulo pelo endpoint canônico de sessões.
+O período do painel independe da pesquisa de paciente da Agenda, com contexto
+visível. Respostas antigas são descartadas ao trocar data, fechar/reabrir ou
+mudar autorização. Loading, vazio e erro/retry não autorizam envio.
+
+Diagnóstico read-only na Modelo: atendimento 97 tinha quatro IDs de lembretes,
+quatro revisões distintas e quatro tentativas distintas; 98 tinha três de cada.
+A API repete a confirmação vigente por lembrete; não eram quatro cópias do mesmo
+registro/evento. A UI consolida exclusivamente por ID de atendimento e mostra a
+confirmação vigente uma vez. Preserva cada envio/tentativa e os eventos técnicos
+no histórico expansível. Nunca reúne por paciente, telefone ou data, nem apaga dados.
+O mutex síncrono impede comandos concorrentes por clique repetido; a confirmação
+persistente da mesma revisão continua idempotente no Backend (gate MariaDB anterior).
+
+Na prévia local, administrador com manage pode expandir o histórico de um lembrete
+aceito e aplicar uma resposta simulada; o controle fica dentro do drawer. O modo
+simulado do servidor e a flag local/loopback são cumulativos. Build normal não
+expõe os controles. Nenhuma chave, Meta, permissão ou atendimento real foi alterado.
+
+Evidências de referência: tela autenticada de http://127.0.0.1:3020/agendamentos,
+Chrome 2018579851. Desktop observado 1536x711: AppDrawer 440px, header 16px 20px,
+body 16px 20px 20px, título Khula 24px; X 17.6px com padding 1px 6px.
+Referência móvel: override solicitado 390x844, viewport CSS efetivo 312x675 por zoom,
+drawer 280.8px (90vw), mesmo padding/tipografia. Capturas reais inspecionadas.
+As quatro imagens Library não foram inspecionadas: o helper de materialização
+falhou no Windows por ausência de os.setxattr; nenhum download foi apresentado
+como artefato qualificado. Usou-se a tela autenticada real conforme a alternativa autorizada.
+
+Gates da correção: 57/57 testes focados em cinco suítes (drawer, histórico, flag,
+menu e integração App Shell). Incluem quatro envios, múltiplos atendimentos,
+repetição de clique/reabertura, HTTP atrasado, dia, atualização por poll, erro,
+contato, permissões e descarte. Lint focado, mojibake e diffcheck PASS; aviso de Browserslist preexistente.
+Build separado e DOM do bundle atualizado aguardam janela CPU de Monitoramento;
+não declarar esta correção disponível no servidor antes desses gates.
+DOCUMENTATION_IMPACT: UPDATE_REQUIRED.
+
+## Histórico anterior
+
 Retomada Modelo 10/10: ferramentas existentes de cenários são reutilizadas no build
 local `build-whatsapp-preview`, com `REACT_APP_WHATSAPP_SIMULATION_PREVIEW=true` e
 `BUILD_PATH=build-whatsapp-preview`. O gerador de versão recusa a flag em outro destino.

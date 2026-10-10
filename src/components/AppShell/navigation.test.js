@@ -28,7 +28,7 @@ describe("AppShell navigation", () => {
   };
   it("oculta Painel mesmo com acesso e mantém Agenda primeiro", () => {
     expect(getVisibleNavigationItems(fullAccess).map(({ key }) => key))
-      .toEqual(["schedule", "whatsapp", "reports", "patients", "team", "plans", "financial"]);
+      .toEqual(["schedule", "reports", "patients", "team", "plans", "financial"]);
 
     expect(getVisibleNavigationItems({ ...fullAccess, canAccessModule: (key) => key !== "schedule" })
       .map(({ key }) => key)).toEqual(["reports", "patients", "team", "plans", "financial"]);
@@ -166,7 +166,7 @@ describe("AppShell navigation", () => {
   });
 });
 
- test("WhatsApp só aparece com disponibilidade e permissão cumulativa", () => {
+ test("WhatsApp permanece na Agenda, sem entrada separada no menu principal", () => {
  expect(getVisibleNavigationItems({canAccessModule: key => key === "schedule"}).some(item => item.key === "whatsapp")).toBe(false);
- expect(getVisibleNavigationItems({canAccessModule: key => ["whatsapp", "schedule"].includes(key)}).some(item => item.key === "whatsapp")).toBe(true);
+ expect(getVisibleNavigationItems({canAccessModule: key => ["whatsapp", "schedule"].includes(key)}).some(item => item.key === "whatsapp")).toBe(false);
  });
