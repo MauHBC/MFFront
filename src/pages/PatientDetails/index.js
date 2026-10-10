@@ -976,7 +976,7 @@ export default function PatientDetails() {
     && authorization.canAccessModule("schedule", "manage")
     && (authorization.isAdministrator || authorization.context?.modules?.some((module) => module.module_key === "schedule" && module.scope_level === "clinic"));
   const [scheduleRefresh, setScheduleRefresh] = useState(0);
-  const usesPackageUnitHistoryContract = authorization.context?.catalog_version === 8;
+  const usesPackageUnitHistoryContract = authorization.context?.catalog_version >= 8;
   const [activeTab, setActiveTab] = useState(() => getStoredPatientDetailsTab(id, sessionScope));
   const [activeProntuarioSection, setActiveProntuarioSection] = useState(
     PRONTUARIO_SECTIONS.records,

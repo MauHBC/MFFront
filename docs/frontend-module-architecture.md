@@ -1,5 +1,11 @@
 # Arquitetura do MFFrontend
 
+## Experimento WhatsApp local
+
+A [prévia local WhatsApp](whatsapp-piloto-local.md) integra revisão, envio sob
+comando e acompanhamento à Agenda autenticada. As ferramentas técnicas ficam
+em rota separada restrita a development, eliminada do bundle de produção.
+
 Este documento é a fonte oficial para a landing pública, seus contextos e os
 padrões dos módulos autenticados.
 
@@ -1875,7 +1881,16 @@ Permitido apenas quando **todas** as condições abaixo forem verdadeiras:
 2. Adicionar uma prop ao compartilhado criaria complexidade desproporcional.
 3. O componente local é genuinamente específico do domínio do módulo.
 
-**Exemplos existentes em Agendamentos:** `DrawerHeader` local (subtítulo e padding), `DrawerBody` local (padding) e `DrawerActions`. Sua existência não autoriza cópia: em cada alteração, comprovar as três condições acima, preferir composição/extensão e registrar medidas e comportamento divergentes.
+**Shell da Agenda:** `AgendaDrawerShell`, em `src/pages/Agendamentos/agendaDrawerComponents.js`,
+compõe o `AppDrawer` com cabeçalho, corpo e X extraídos de Novo agendamento. Novo
+agendamento e lembretes WhatsApp usam esse mesmo componente; o shell recebe conteúdo
+e callbacks, sem regras de agendamento ou envio. `DrawerActions` conserva o padrão
+da Agenda e aceita `$wrap` para ações longas. O guia do [piloto WhatsApp](whatsapp-piloto-local.md)
+registra as adaptações de fechamento, foco e estado pendente. O ciclo de foco de
+`useDrawerInteraction` inclui summary e exclui controles dentro de details
+recolhidos ou regiões hidden/aria-hidden; detalhes aninhados não expõem
+controles ao Tab enquanto o ancestral estiver fechado.
+
 
 ### Quando parametrizar o compartilhado
 
@@ -2315,6 +2330,11 @@ MOTRIA_LOCAL_STACK_SLOT=financeiro-estorno em .env.local ignorado e inicia
 com npm run dev. A API usa o MariaDB descartável próprio e preserva a fixture
 sintética existente; nunca usa banco persistente nem movimentos reais.
 A aprovação visual final pertence ao usuário.
+
+
+WhatsApp é módulo opcional do tenant no contrato canônico 9, cumulativo com Agenda
+e opt-in de contato. Menu e entrada `/whatsapp` usam esse contrato; implementação e
+compatibilidade 7/8/9 estão em [piloto WhatsApp](whatsapp-piloto-local.md).
 
 ### Exportação de prontuário
 

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import styled from "styled-components";
 import { alpha, colors, layout } from "../../styles/tokens";
@@ -79,6 +79,63 @@ export const DrawerFooter = styled.div`
   padding-top: 16px;
   border-top: 1px solid ${alpha.brand010};
 `;
+
+export function useDrawerInteraction({ open, drawerRef, onRequestClose, confirmationOpen, onKeepEditing }) {
+  const callbacks = useRef({ onRequestClose, confirmationOpen, onKeepEditing });
+  callbacks.current = { onRequestClose, confirmationOpen, onKeepEditing };
+  const drawerFocus = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const opener = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    drawerRef.current?.querySelector("button")?.focus();
+    const keydown = (event) => {
+      const { current } = callbacks;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (current.confirmationOpen) current.onKeepEditing();
+        else current.onRequestClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const activeDialog = current.confirmationOpen
+        ? document.querySelector('[aria-labelledby="unsaved-dialog-title"]') : drawerRef.current;
+      const controls = Array.from(activeDialog?.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex="0"]') || [])
+        .filter((control) => {
+          if (control.closest('[hidden], [aria-hidden="true"]')) return false;
+          let ancestor = control.parentElement;
+          while (ancestor && ancestor !== activeDialog) {
+            if (ancestor.tagName === 'DETAILS' && !ancestor.open && ancestor.querySelector(':scope > summary') !== control) return false;
+            ancestor = ancestor.parentElement;
+          }
+          return true;
+        });
+      const [first] = controls; const last = controls[controls.length - 1];
+      if (!first) { event.preventDefault(); activeDialog?.focus(); return; }
+      if (event.shiftKey && (document.activeElement === first || !activeDialog.contains(document.activeElement))) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !activeDialog.contains(document.activeElement))) {
+        event.preventDefault(); first.focus();
+      }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => {
+      document.removeEventListener("keydown", keydown);
+      document.body.style.overflow = previousOverflow;
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [open, drawerRef]);
+  useEffect(() => {
+    if (!open) return;
+    if (confirmationOpen) {
+      drawerFocus.current = document.activeElement;
+      document.querySelector('[aria-labelledby="unsaved-dialog-title"] button')?.focus();
+    } else if (drawerFocus.current?.isConnected) {
+      drawerFocus.current.focus(); drawerFocus.current = null;
+    }
+  }, [open, confirmationOpen]);
+}
 
 export function UnsavedChangesDialog({
   open,

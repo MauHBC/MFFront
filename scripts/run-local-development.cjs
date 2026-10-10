@@ -13,12 +13,24 @@ const LOCAL_STACK_SLOT_KEY = 'MOTRIA_LOCAL_STACK_SLOT';
 const PERSISTED_LOCAL_STACK_SLOT_FILE = '.env.local';
 const PERSISTED_LOCAL_STACK_SLOT = 'persistent-validation';
 const LOCAL_STACK_PROFILES = Object.freeze({
+  'whatsapp-preserved': Object.freeze({
+    NODE_ENV: 'development', HOST: '127.0.0.1', PORT: '3060', HTTPS: 'false',
+    REACT_APP_API_BASE_URL: 'http://127.0.0.1:3066/api',
+  }),
+  'whatsapp-pilot': Object.freeze({
+    NODE_ENV: 'development',
+    HOST: '127.0.0.1',
+    PORT: '3050',
+    HTTPS: 'false',
+    REACT_APP_API_BASE_URL: 'http://127.0.0.1:3056/api',
+  }),
   'reports-preview': Object.freeze({
     NODE_ENV: 'development',
     HOST: '127.0.0.1',
     PORT: '3040',
     HTTPS: 'false',
     REACT_APP_API_BASE_URL: 'http://127.0.0.1:3046/api',
+
   }),
   'financeiro-estorno': Object.freeze({
     NODE_ENV: 'development',

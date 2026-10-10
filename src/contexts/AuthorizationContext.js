@@ -22,7 +22,7 @@ const AuthorizationContext = createContext({
   reload: () => {},
 });
 const TEAM_POWER = "access_profiles.manage";
-const SUPPORTED_AUTHORIZATION_CATALOG_VERSIONS = Object.freeze([7, 8]);
+const SUPPORTED_AUTHORIZATION_CATALOG_VERSIONS = Object.freeze([7, 8, 9]);
 const CAPABILITY_MINIMUM_CATALOG_VERSION = Object.freeze({
   "schedule.package.share": 8,
 });
@@ -36,6 +36,7 @@ const MODULE_KEYS = Object.freeze([
   "finance",
   "team",
   "settings",
+  "whatsapp",
 ]);
 const OWN_SCOPE_UNAVAILABILITY_REASON = "active_professional_link_required";
 
@@ -52,14 +53,17 @@ export function isValidAuthorizationContext(context) {
   if (!SUPPORTED_AUTHORIZATION_CATALOG_VERSIONS.includes(context?.catalog_version)) return false;
   if (!["authorized", "no_permissions"].includes(context?.authorization_state)) return false;
   if (typeof context?.is_administrator !== "boolean") return false;
-  if (!Array.isArray(context?.modules) || context.modules.length !== MODULE_KEYS.length) return false;
+  const expectedKeys = context.catalog_version >= 9 ? MODULE_KEYS : MODULE_KEYS.filter((key) => key !== "whatsapp");
+  if (context.catalog_version === 9 && context.availability_catalog_version !== 1) return false;
+  if (!Array.isArray(context?.modules) || context.modules.length !== expectedKeys.length) return false;
   const moduleKeys = new Set();
   const validModules = context.modules.every((module) => {
-    if (!MODULE_KEYS.includes(module?.module_key) || moduleKeys.has(module.module_key)) return false;
+    if (!expectedKeys.includes(module?.module_key) || moduleKeys.has(module.module_key)) return false;
     moduleKeys.add(module.module_key);
     return Object.prototype.hasOwnProperty.call(ACCESS_LEVELS, module.access_level)
       && (module.scope_level === null || ["own", "clinic"].includes(module.scope_level))
-      && typeof module.can_export === "boolean";
+      && typeof module.can_export === "boolean"
+      && (context.catalog_version < 9 || typeof module.available === "boolean");
   });
   return validModules
     && hasValidOwnScopeContract(context)
@@ -76,6 +80,8 @@ export function contextCanAccessModule(context, moduleKey, minimumAccessLevel = 
   if (!MODULE_KEYS.includes(moduleKey)
     || !Object.prototype.hasOwnProperty.call(ACCESS_LEVELS, minimumAccessLevel)) return false;
   const permission = context.modules.find((module) => module.module_key === moduleKey);
+  if ((context.catalog_version === 9 && permission?.available !== true)
+    || (moduleKey === "whatsapp" && context.catalog_version < 9)) return false;
   if (permission?.scope_level === "own"
     && context.authorization_source === "membership"
     && context.own_scope.available !== true) return false;

@@ -245,6 +245,13 @@ test('npm run dev exposes a non-starting validation contract', () => {
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout, /Ambiente local do Frontend validado/);
 });
+test('preserved WhatsApp has its own closed slot without replacing the previous preview', () => {
+  const result = buildChildEnvironment(repositoryRoot, { MOTRIA_LOCAL_STACK_SLOT: 'whatsapp-preserved' });
+  assert.equal(result.PORT, '3060');
+  assert.equal(result.REACT_APP_API_BASE_URL, 'http://127.0.0.1:3066/api');
+  assert.equal(buildChildEnvironment(repositoryRoot, { MOTRIA_LOCAL_STACK_SLOT: 'whatsapp-pilot' }).PORT, '3050');
+});
+
 
 test('keeps clinical export preview bound to its exclusive local endpoints', () => {
   const repository = makeTemporaryRepository();
@@ -262,16 +269,16 @@ test('keeps clinical export preview bound to its exclusive local endpoints', () 
 });
 
 test('clinical preview serves SPA routes without masking API or missing assets', () => {
-  for (const pathname of ['/', '/login', '/pacientes/1', '/pacientes/1/avaliacoes/2?x=1']) {
+  ['/', '/login', '/pacientes/1', '/pacientes/1/avaliacoes/2?x=1'].forEach((pathname) => {
     const req = { method: 'GET', url: pathname, headers: {} }; let called = false;
     setupProxy.clinicalPreviewFallback(req, {}, () => { called = true; });
     assert.equal(req.headers.accept, 'text/html'); assert.equal(called, true);
-  }
-  for (const pathname of ['/missing.js', '/static/missing', '/unknown']) {
+  });
+  ['/missing.js', '/static/missing', '/unknown'].forEach((pathname) => {
     const req = { method: 'GET', url: pathname, headers: { accept: 'text/html' } };
     setupProxy.clinicalPreviewFallback(req, {}, () => {});
     assert.equal(req.headers.accept, 'application/octet-stream');
-  }
+  });
   const req = { method: 'GET', url: '/api/missing', headers: { accept: 'application/json' } };
   setupProxy.clinicalPreviewFallback(req, {}, () => {});
   assert.equal(req.headers.accept, 'application/json');

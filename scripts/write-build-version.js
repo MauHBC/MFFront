@@ -4,6 +4,11 @@ const path = require("path");
 
 const TARGETS = new Set(["public", "build"]);
 const target = process.argv[2] || "public";
+const simulationPreview = process.env.REACT_APP_WHATSAPP_SIMULATION_PREVIEW === "true";
+if (simulationPreview && process.env.BUILD_PATH !== "build-whatsapp-preview") {
+  throw new Error("Simulation tools require the isolated local preview build path");
+}
+const outputTarget = target === "build" && simulationPreview ? "build-whatsapp-preview" : target;
 
 if (!TARGETS.has(target)) {
   throw new Error(`Invalid app version target: ${target}`);
@@ -27,6 +32,7 @@ const version = process.env.npm_package_version || "0.0.0";
 const buildId = `${version}-${commit}-${generatedAt}`;
 
 const payload = {
+  simulationOnly: simulationPreview,
   buildId,
   version,
   commit,
@@ -37,7 +43,7 @@ if (target === "build") {
   const manifestPath = path.resolve(
     __dirname,
     "..",
-    "build",
+    outputTarget,
     "asset-manifest.json",
   );
 
@@ -53,7 +59,7 @@ if (target === "build") {
 const targetPath = path.resolve(
   __dirname,
   "..",
-  target,
+  outputTarget,
   "app-version.json",
 );
 

@@ -1,5 +1,6 @@
 const { createProxyMiddleware } = require("http-proxy-middleware");
 const { proxyTargetForEnvironment } = require("../scripts/run-local-development.cjs");
+const { localPreviewRouting } = require("../scripts/lib/local-preview-routing.cjs");
 
 function clinicalPreviewFallback(req, res, next) {
   const pathname = req.url.split('?')[0];
@@ -12,7 +13,10 @@ function clinicalPreviewFallback(req, res, next) {
   next();
 }
 function setupProxy(app) {
+  app.use(localPreviewRouting());
+
   if (process.env.MOTRIA_LOCAL_STACK_SLOT === 'clinical-export') app.use(clinicalPreviewFallback);
+
   app.use(
     "/api",
     createProxyMiddleware({

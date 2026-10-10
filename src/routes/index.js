@@ -3,6 +3,7 @@ import { Redirect, Switch, useLocation } from "react-router-dom";
 import Reports from "../pages/Reports";
 
 import MyRoute from "./MyRoute";
+import { useAuthorization } from "../contexts/AuthorizationContext";
 
 // Páginas públicas (acesso aberto)
 import HomePage from "../pages/Home";
@@ -40,6 +41,16 @@ import Equipe from "../pages/Equipe";
 import SettingsDocuments from "../pages/SettingsDocuments";
 import { PendingCenterProvider } from "../components/PendingCenter";
 import { usePublicClinicContext } from "../contexts/PublicClinicContext";
+import { isLocalWhatsAppSimulation } from "../config/whatsappSimulation";
+
+function WhatsAppAgenda() {
+  const authorization = useAuthorization();
+  return authorization.canAccessModule("schedule") ? <Agendamentos /> : <Redirect to="/semAcesso/" />;
+}
+
+const localWhatsAppTools = isLocalWhatsAppSimulation();
+const WhatsAppScenarioTools = localWhatsAppTools
+  ? require("../pages/Agendamentos/WhatsAppScenarioTools").default : null;
 
 function getPatientsPageTitle(pathname) {
   if (pathname === "/pacientes/novo") return "Novo paciente";
@@ -99,7 +110,9 @@ export default function Routes() {
     "/dashboard",
     "/agendamentos",
     "/agendamentos/eventos",
+    "/whatsapp",
   ].includes(location.pathname)
+    || (localWhatsAppTools && location.pathname === "/whatsapp-cenarios")
     || usesPatientsAppShell
     || usesPlansAppShell
     || usesFinancialAppShell
@@ -136,7 +149,9 @@ export default function Routes() {
         <MyRoute exact path="/pacientes/:id" component={PatientDetails} isClosed requiredModule="patients" />
         <MyRoute exact path="/pacientes/:id/avaliacoes/nova" component={PatientEvaluationNew} isClosed requiredModule="clinical_records" minimumAccessLevel="edit" requiredCapability="clinical_records.write" />
         <MyRoute exact path="/pacientes/:id/avaliacoes/:evaluationId" component={PatientEvaluationDetails} isClosed requiredModule="clinical_records" requiredCapability="clinical_records.read" />
+        <MyRoute exact path="/whatsapp" component={WhatsAppAgenda} isClosed requiredModule="whatsapp" />
         <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed requiredModule="schedule" />
+        {localWhatsAppTools && <MyRoute exact path="/whatsapp-cenarios" component={WhatsAppScenarioTools} isClosed requiredModule="whatsapp" minimumAccessLevel="manage" />}
         <MyRoute exact path="/agendamentos/eventos" component={SchedulingEvents} isClosed requiredModule="schedule" minimumAccessLevel="manage" requiredCapability="schedule.configure" />
         <MyRoute exact path="/painel" component={Painel} isClosed requiredModule="dashboard" />
         <MyRoute exact path="/dashboard" component={Painel} isClosed requiredModule="dashboard" />

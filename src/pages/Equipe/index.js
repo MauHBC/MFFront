@@ -46,6 +46,7 @@ import ProfessionalInactivationDrawer from "./ProfessionalInactivationDrawer";
 import TeamAuditHistory from "./TeamAuditHistory";
 
 const MODULE_LABELS = {
+  whatsapp: "WhatsApp",
   dashboard: "Painel",
   schedule: "Agenda",
   patients: "Pacientes",

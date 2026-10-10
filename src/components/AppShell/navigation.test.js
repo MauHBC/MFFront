@@ -29,6 +29,7 @@ describe("AppShell navigation", () => {
   it("oculta Painel mesmo com acesso e mantém Agenda primeiro", () => {
     expect(getVisibleNavigationItems(fullAccess).map(({ key }) => key))
       .toEqual(["schedule", "reports", "patients", "team", "plans", "financial"]);
+
     expect(getVisibleNavigationItems({ ...fullAccess, canAccessModule: (key) => key !== "schedule" })
       .map(({ key }) => key)).toEqual(["reports", "patients", "team", "plans", "financial"]);
   });
@@ -164,3 +165,8 @@ describe("AppShell navigation", () => {
     } finally { mockDashboardVisible = false; }
   });
 });
+
+ test("WhatsApp permanece na Agenda, sem entrada separada no menu principal", () => {
+ expect(getVisibleNavigationItems({canAccessModule: key => key === "schedule"}).some(item => item.key === "whatsapp")).toBe(false);
+ expect(getVisibleNavigationItems({canAccessModule: key => ["whatsapp", "schedule"].includes(key)}).some(item => item.key === "whatsapp")).toBe(false);
+ });

@@ -24,10 +24,12 @@ import {
   listSpecialSchedulingEvents,
   previewSchedulingOccurrences,
 } from "../../services/scheduling";
-import { AppDrawer, DrawerBackdrop, UnsavedChangesDialog } from "../../components/AppDrawer";
+import { DrawerBackdrop, UnsavedChangesDialog } from "../../components/AppDrawer";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import AppShell from "../../components/AppShell";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
+import WhatsAppReminders from "./WhatsAppReminders";
+import { AgendaDrawerShell, DrawerActions, IconButton } from "./agendaDrawerComponents";
 import { SessionStatusButton } from "../../components/AppSessionStatus";
 import { PackagePill } from "../../components/AppStatus";
 import PatientSearchField from "../../components/PatientSearchField";
@@ -6694,6 +6696,7 @@ export default function Agendamentos() {
             </p>
           </div>
           <ToolbarActions>
+            <WhatsAppReminders sessions={filteredSessions} selectedDate={markerToCivilDate(selectedDate)} getPatientName={getSessionPatientName} autoOpen={routeLocation.pathname === "/whatsapp"} />
             <PrimaryButton
               type="button"
               $topAction
@@ -7421,26 +7424,15 @@ export default function Agendamentos() {
           </AgendaContentBody>
         </AgendaContentArea>
 
-        <AppDrawer $open={isDrawerOpen}>
-          <DrawerHeader $compact={isInitialOriginFlow}>
-            <div>
-              <h2>
-                {drawerTitle}
-              </h2>
-              {drawerSubtitle && (
+        <AgendaDrawerShell open={isDrawerOpen} compact={isInitialOriginFlow} title={drawerTitle} onClose={closeDrawer}
+          subtitle={drawerSubtitle && (
                 <DrawerSubtitle
                   $prominent={drawerMode === "group"}
                   $billingSummary={Boolean(editingId && drawerSubtitle)}
                 >
                   {drawerSubtitle}
                 </DrawerSubtitle>
-              )}
-            </div>
-            <IconButton type="button" onClick={closeDrawer}>
-              <FaTimes />
-            </IconButton>
-          </DrawerHeader>
-          <DrawerBody $compact={isInitialOriginFlow}>
+              )}>
             <Loading isLoading={isSaving && !isInitialOriginFlow} />
             {drawerMode === "group" && (
               <GroupPanel>
@@ -8389,8 +8381,7 @@ export default function Agendamentos() {
                 </DrawerActions>}
               </Form>
             )}
-          </DrawerBody>
-        </AppDrawer>
+        </AgendaDrawerShell>
         {isDrawerOpen && <DrawerBackdrop onClick={requestDrawerDiscard} />}
         <UnsavedChangesDialog
           open={Boolean(discardDrawerClose)}
@@ -10781,20 +10772,6 @@ const MonthServiceMore = styled.span`
   font-weight: 600;
 `;
 
-const DrawerHeader = styled.div`
-  padding: ${(props) => (props.$compact ? "16px 20px" : "22px 20px")};
-  border-bottom: 1px solid rgba(106, 121, 92, 0.15);
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  h2 {
-    margin: 0 0 6px;
-  }
-  span {
-    color: #6a795c;
-    font-size: 0.9rem;
-  }
-`;
 
 const DrawerSubtitle = styled.span`
   display: block;
@@ -10812,18 +10789,7 @@ const DrawerSubtitle = styled.span`
   line-height: 1.3;
 `;
 
-const DrawerBody = styled.div`
-  padding: ${(props) => (props.$compact ? "16px 20px 20px" : "28px 20px 20px")};
-  overflow-y: auto;
-  flex: 1;
-`;
 
-const DrawerActions = styled.div`
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 16px;
-`;
 
 const GroupPanel = styled.div`
   display: flex;
@@ -12998,12 +12964,6 @@ const SecondaryButton = styled.button`
   }
 `;
 
-const IconButton = styled.button`
-  border: none;
-  background: transparent;
-  color: #6a795c;
-  font-size: 1.1rem;
-`;
 
 const EmptyState = styled.div`
   padding: 32px 16px;
