@@ -227,3 +227,10 @@ também exige development; sua string não deve permanecer no bundle otimizado.
 Regressão de rotas 9/9 PASS após esse ajuste. Build inicial e07ffac PASS;
 o build do novo commit é conferido novamente para ausência da rota/código
 de cenários. Isso não muda os componentes clínicos aprovados.
+
+Build final 1c6aa5549467ec77b84e7e51ca92841be7176208 PASS. Bundle
+main.f9a69c33.js, SHA-256 a5b7c33321cd141fa61cbddd4f08c803058cb43a9f39d9136ad8bc393dc8d8b7.
+Ausentes rota, título e chamada de API do simulador nos JS de produção.
+Assets/commit identificados em build/app-version.json. Build não foi servido:
+retomada da prévia e publicação de drafts dependem das aprovações operacionais
+registradas no checkpoint canônico Backend. Sem nova revisão visual requerida.
