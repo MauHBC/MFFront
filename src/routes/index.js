@@ -47,7 +47,10 @@ function WhatsAppAgenda() {
   return authorization.canAccessModule("schedule") ? <Agendamentos /> : <Redirect to="/semAcesso/" />;
 }
 
-const WhatsAppScenarioTools = process.env.NODE_ENV === "development"
+const localWhatsAppTools = process.env.NODE_ENV === "development"
+  || (process.env.REACT_APP_WHATSAPP_SIMULATION_PREVIEW === "true"
+    && ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname));
+const WhatsAppScenarioTools = localWhatsAppTools
   ? require("../pages/Agendamentos/WhatsAppScenarioTools").default : null;
 
 function getPatientsPageTitle(pathname) {
@@ -110,7 +113,7 @@ export default function Routes() {
     "/agendamentos/eventos",
     "/whatsapp",
   ].includes(location.pathname)
-    || (process.env.NODE_ENV === "development" && location.pathname === "/whatsapp-cenarios")
+    || (localWhatsAppTools && location.pathname === "/whatsapp-cenarios")
     || usesPatientsAppShell
     || usesPlansAppShell
     || usesFinancialAppShell
@@ -149,7 +152,7 @@ export default function Routes() {
         <MyRoute exact path="/pacientes/:id/avaliacoes/:evaluationId" component={PatientEvaluationDetails} isClosed requiredModule="clinical_records" requiredCapability="clinical_records.read" />
         <MyRoute exact path="/whatsapp" component={WhatsAppAgenda} isClosed requiredModule="whatsapp" />
         <MyRoute exact path="/agendamentos" component={Agendamentos} isClosed requiredModule="schedule" />
-        {process.env.NODE_ENV === "development" && <MyRoute exact path="/whatsapp-cenarios" component={WhatsAppScenarioTools} isClosed requiredModule="whatsapp" minimumAccessLevel="manage" />}
+        {localWhatsAppTools && <MyRoute exact path="/whatsapp-cenarios" component={WhatsAppScenarioTools} isClosed requiredModule="whatsapp" minimumAccessLevel="manage" />}
         <MyRoute exact path="/agendamentos/eventos" component={SchedulingEvents} isClosed requiredModule="schedule" minimumAccessLevel="manage" requiredCapability="schedule.configure" />
         <MyRoute exact path="/painel" component={Painel} isClosed requiredModule="dashboard" />
         <MyRoute exact path="/dashboard" component={Painel} isClosed requiredModule="dashboard" />

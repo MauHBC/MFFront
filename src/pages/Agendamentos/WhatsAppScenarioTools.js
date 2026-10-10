@@ -13,16 +13,21 @@ export default function WhatsAppScenarioTools() {
   const [items, setItems] = useState([]);
   const [result, setResult] = useState('');
   const [busy, setBusy] = useState(false);
+  const [simulation, setSimulation] = useState(false);
   const load = async () => {
     const requestedContext = context;
     const { data } = await api.get('/whatsapp/reminders');
     if (activeContext.current === requestedContext) setItems(Array.isArray(data) ? data : []);
   };
   useEffect(() => {
-    setItems([]); setResult(''); setBusy(false);
-    if (authorization.isAdministrator) load().catch(() => {});
+    setItems([]); setResult(''); setBusy(false); setSimulation(false);
+    if (authorization.isAdministrator) api.get('/whatsapp/settings').then(({ data }) => {
+      if (activeContext.current !== context || data.simulation !== true) return;
+      setSimulation(true); load().catch(() => {});
+    }).catch(() => {});
   }, [authorization.isAdministrator, context]); // eslint-disable-line react-hooks/exhaustive-deps
   const command = async (body) => {
+    if (!simulation) return;
     const requestedContext = context;
     setBusy(true); setResult('');
     try {
@@ -37,7 +42,7 @@ export default function WhatsAppScenarioTools() {
     <main style={{ padding: 32, maxWidth: 1000, margin: 'auto' }}>
       <Link to="/agendamentos">Voltar à Agenda</Link>
       <h1>Cenários WhatsApp</h1>
-      {!authorization.isAdministrator ? <p>Acesso restrito ao administrador.</p> : <>
+      {!authorization.isAdministrator || !simulation ? <p>Disponível somente na simulação local autorizada.</p> : <>
         <p>Configure o resultado da próxima tentativa antes de confirmar um novo envio na Agenda.</p>
         <button type="button" disabled={busy} onClick={() => command({ action: 'next_outcome', outcome: 'accepted' })}>Próxima tentativa: enviada</button>{' '}
         <button type="button" disabled={busy} onClick={() => command({ action: 'next_outcome', outcome: 'failed' })}>Próxima tentativa: falha</button>{' '}

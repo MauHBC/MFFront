@@ -1,5 +1,16 @@
 # WhatsApp integrado à Agenda — prévia local
 
+Retomada Modelo 10/10: ferramentas existentes de cenários são reutilizadas no build
+local `build-whatsapp-preview`, com `REACT_APP_WHATSAPP_SIMULATION_PREVIEW=true` e
+`BUILD_PATH=build-whatsapp-preview`. O gerador de versão recusa a flag em outro destino.
+O bundle normal permanece separado. A rota exige host loopback, gerenciamento WhatsApp,
+administrador e configuração simulada retornada pelo servidor. O backend mantém a
+negação em produção. Não há alteração do desenho da Agenda; o painel mantém revisão,
+consentimento e aviso de simulação. A rota auxiliar é `/whatsapp-cenarios`.
+Referências reaproveitadas: `WhatsAppReminders`, `WhatsAppScenarioTools`, `AppShell`,
+`MyRoute` e tokens existentes. Gates e revisão técnica da prévia combinada pendentes;
+aprovação visual cabe exclusivamente ao Maurício.
+
 DOCUMENTATION_IMPACT: UPDATE_REQUIRED. O painel `WhatsAppReminders` usa a API autenticada,
 seleção de atendimentos visíveis na Agenda, revisão de mensagem/destinatário e confirmação
 explícita antes de enfileirar. Permissão de leitura acompanha; gerenciamento respeita
