@@ -89,4 +89,3 @@ Qualificação nova: 41 testes focados passaram e a suite global passou com
 encoding, contratos e build passaram. Backend qualificou 21 cenários reais
 MariaDB/HTTP, assinatura direta/editor e PDF históricos; recursos removidos.
 CI dos novos heads, re-revisão independente e validação visual permanecem gates.
-
