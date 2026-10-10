@@ -2318,6 +2318,24 @@ A aprovação visual final pertence ao usuário.
 
 ### Exportação de prontuário
 
+As telas `PatientEvaluationNew` e `PatientEvaluationDetails` oferecem `Voltar`
+antes do cabeçalho, usando `ClinicalRecordButton`, extraído do mesmo botão de
+`Voltar aos casos` em `PatientDetails`. O destino é a página da mesma paciente;
+aba e caso continuam armazenados por clínica/paciente. O hook
+`useClinicalRecordNavigationGuard` protege navegação e unload quando há respostas
+não salvas ou adendo em edição, registra dirty/saving na guarda de troca de clínica
+e bloqueia a saída durante salvamento. A confirmação reutiliza
+`UnsavedChangesDialog` de `AppDrawer`, já usado em Agenda, Equipe, Financeiro e
+Planos; continuar editando e Escape preservam o conteúdo. Na criação, o
+redirecionamento após sucesso libera a guarda antes de navegar. O retorno
+contextual sinaliza foco no título da paciente, aplicado uma vez após carregar
+o perfil. O histórico intercepta somente tokens de confirmação registrados pela
+guarda clínica; outras confirmações mantêm o comportamento nativo. O callback
+do próprio histórico preserva PUSH, REPLACE e POP; a saída é revalidada contra
+saving antes de confirmar. Fechar/recarregar o navegador continua protegido por
+`beforeunload`. Essa proteção não torna o fluxo de múltiplas requisições de
+avaliação/formulário atomicamente persistido.
+
 `PatientDetails/ClinicalExportButton` oferece exportação individual no cartão
 por `Evaluation.id` e consolidada no nível paciente. O consolidado consulta o
 Backend sem enviar o filtro de caso da tela ou reutilizar apenas a lista

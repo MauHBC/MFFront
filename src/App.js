@@ -19,6 +19,7 @@ import { ClinicTransitionGuardProvider } from "./contexts/ClinicTransitionGuardC
 import { PublicClinicProvider, usePublicClinicContext } from "./contexts/PublicClinicContext";
 import productIdentity from "./config/productIdentity";
 import TenantLoading from "./components/TenantLoading";
+import ClinicalRecordNavigationConfirmation from "./components/ClinicalRecordNavigationConfirmation";
 import useAppVersionUpdate from "./hooks/useAppVersionUpdate";
 import EntryBoundary, { useEntryPolicy } from "./routes/EntryBoundary";
 import { isPatientInvitePath } from "./utils/patientInvite";
@@ -96,6 +97,7 @@ function AuthenticatedApplication() {
                 <CommercialBoundary><Routes /></CommercialBoundary>
               </InitialRenderGate>
             </CommercialProvider>
+            <ClinicalRecordNavigationConfirmation />
             <AppVersionReloader />
             <ToastContainer autoClose={2000} className="toats-container" />
           </AuthorizationProvider>
