@@ -45,6 +45,7 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
+    "test:structured-evaluation:client": "node scripts/test-structured-evaluation-save.cjs",
     "sbom": "npm sbom --package-lock-only --sbom-format=cyclonedx",
     "dev": "node scripts/run-local-development.cjs",
     "start": "node scripts/run-local-development.cjs",

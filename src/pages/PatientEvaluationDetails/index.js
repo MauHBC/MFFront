@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHistory, useParams } from "react-router-dom";
 import styled from "styled-components";
 import { toast } from "react-toastify";
@@ -8,11 +8,12 @@ import { ClinicalRecordButton } from "../../components/ClinicalRecordButton";
 import useClinicalRecordNavigationGuard from "../../hooks/useClinicalRecordNavigationGuard";
 import {
   addSignedClinicalAddendum,
-  finalizeClinicalRecord,
   getClinicalSigningIdentity,
 } from "../../services/clinicalRecords";
 import DataLoadingState from "../../components/DataLoadingState";
 import ClinicalSignatureConfirmModal from "../../components/ClinicalSignatureConfirmModal";
+import StructuredEvaluationTableInput from "../../components/StructuredEvaluationTableInput";
+import { structuredMultiSelectionForEditor } from "../../services/structuredEvaluationOptions";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { LinkGhostButton, PrimaryButton } from "../../components/AppButton";
 import {
@@ -22,11 +23,17 @@ import {
   ModuleSubtitle,
 } from "../../components/AppModuleShell";
 import {
-  getClinicalRecordSaveErrorMessage,
   getSavedClinicalRecordVersion,
-  saveClinicalRecordFlow,
 } from "../../services/clinicalRecordSaveFlow";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
+import {
+  createStructuredEvaluationSaveAttempt,
+  createStructuredEvaluationSaveKey,
+  normalizeStructuredEvaluationAnswers,
+  structuredEvaluationSaveMessage,
+  structuredEvaluationPendingKey,
+  clearStructuredEvaluationPendingKey,
+} from "../../services/structuredEvaluationSave";
 
 const formatDate = (value) => {
   if (!value) return "--/--/----";
@@ -144,7 +151,7 @@ const resolveYesNo = (value) => {
 };
 
 const needsSingleInputLabel = (blockType) =>
-  ["text", "textarea", "date", "yesno", "single_select"].includes(blockType);
+  ["text", "textarea", "date", "yesno", "single_select", "number"].includes(blockType);
 
 const buildInputId = (block) => `field-${block.id}`;
 
@@ -173,7 +180,7 @@ const optionLabelById = (block, id) => {
   const raw = block?.config?.options;
   if (!Array.isArray(raw)) return null;
   const match = raw.find(
-    (opt) => String(opt?.id) === String(id) || String(opt?.value) === String(id),
+    (opt) => opt?.id != null && String(opt.id) === String(id),
   );
   return match?.label ? String(match.label) : null;
 };
@@ -223,7 +230,7 @@ const formatTable = (block, raw) => {
   return lines.filter(Boolean).join("\n");
 };
 
-const formatAnswer = (block, answers) => {
+const formatAnswer = (block, answers, encoding) => {
   if (!block || !Array.isArray(answers) || answers.length === 0) return "";
   const first = answers[0] || {};
 
@@ -252,25 +259,14 @@ const formatAnswer = (block, answers) => {
   }
 
   if (block.type === "multi_select") {
-    const optionIds = answers
-      .map((answer) => answer.option_id)
-      .filter((value) => value !== undefined && value !== null);
-    if (optionIds.length) {
-      return optionIds
-        .map((id) => optionLabelById(block, id) || String(id))
-        .join(", ");
+    try {
+      return structuredMultiSelectionForEditor(block, answers, encoding)
+        .map((id) => optionLabelById(block, id)).join(", ");
+    } catch {
+      // Keep the saved codes visible; never substitute an inferred option.
+      return Array.isArray(first.value_json) ? first.value_json.map(String).join(", ")
+        : "Seleção salva não interpretada";
     }
-    if (Array.isArray(first.value_json)) {
-      return first.value_json
-        .map(
-          (value) =>
-            optionLabelById(block, value) ||
-            optionLabelByValue(block, value) ||
-            String(value),
-        )
-        .join(", ");
-    }
-    return "";
   }
 
   if (block.type === "matrix") {
@@ -280,6 +276,9 @@ const formatAnswer = (block, answers) => {
   if (block.type === "table") {
     return formatTable(block, first.value_json);
   }
+  if (block.type === "number") {
+    return first.value_number == null ? "" : String(first.value_number);
+  }
 
   if (first.value_json !== undefined && first.value_json !== null) {
     return JSON.stringify(first.value_json);
@@ -288,7 +287,7 @@ const formatAnswer = (block, answers) => {
   return pickText(first.value_text);
 };
 
-const buildSections = (definition, answers) => {
+const buildSections = (definition, answers, encoding) => {
   if (!definition?.sections || !Array.isArray(answers)) return [];
 
   const sectionMap = {};
@@ -325,7 +324,7 @@ const buildSections = (definition, answers) => {
   Object.entries(answersByQuestion).forEach(([questionId, items]) => {
     const meta = blockMap[questionId];
     if (!meta) return;
-    const value = formatAnswer(meta.block, items);
+    const value = formatAnswer(meta.block, items, encoding);
     if (!value) return;
     sectionMap[meta.sectionId].items.push({
       label: meta.block.label,
@@ -371,7 +370,7 @@ const orderedDefinitionSections = (definition) => {
   return [...definition.sections].sort((a, b) => (a.order || 0) - (b.order || 0));
 };
 
-const resolveAnswerValue = (block, answers) => {
+const resolveAnswerValue = (block, answers, encoding) => {
   if (!block || !Array.isArray(answers) || answers.length === 0) return "";
   const first = answers[0] || {};
 
@@ -396,23 +395,17 @@ const resolveAnswerValue = (block, answers) => {
   }
 
   if (block.type === "multi_select") {
-    if (Array.isArray(first.value_json)) {
-      return first.value_json.map((value) => String(value));
-    }
-    return answers
-      .map((answer) => answer.option_id)
-      .filter((value) => value !== undefined && value !== null)
-      .map((value) => String(value));
+    return structuredMultiSelectionForEditor(block, answers, encoding);
   }
 
   if (block.type === "matrix" || block.type === "table") {
     return first.value_json || (block.type === "table" ? [] : {});
   }
 
-  return first.value_json ?? first.value_text ?? "";
+  return first.value_json ?? first.value_text ?? first.value_number ?? "";
 };
 
-const buildEditableAnswers = (definition, rawAnswers) => {
+const buildEditableAnswers = (definition, rawAnswers, encoding) => {
   const answersByQuestion = rawAnswers.reduce((acc, answer) => {
     const questionId = answer.form_question_id;
     if (!questionId) return acc;
@@ -426,7 +419,7 @@ const buildEditableAnswers = (definition, rawAnswers) => {
     section.blocks.forEach((block) => {
       const questionId = block?.config?.questionId;
       if (!questionId) return;
-      acc[block.id] = resolveAnswerValue(block, answersByQuestion[String(questionId)] || []);
+      acc[block.id] = resolveAnswerValue(block, answersByQuestion[String(questionId)] || [], encoding);
     });
     return acc;
   }, {});
@@ -457,6 +450,11 @@ const buildAnswersPayload = (definition, answers) => {
           payloads.push({ form_question_id: questionId, option_id: value });
           break;
         case "multi_select":
+          payloads.push({ form_question_id: questionId, value_json: value.map(Number) });
+          break;
+        case "number":
+          payloads.push({ form_question_id: questionId, value_number: Number(value) });
+          break;
         case "matrix":
         case "table":
           payloads.push({ form_question_id: questionId, value_json: value });
@@ -483,6 +481,10 @@ export default function PatientEvaluationDetails() {
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const saveAttempt = useRef(null);
+  const saving = useRef(false);
+  const [saveError, setSaveError] = useState("");
+  const [answerEncodingError, setAnswerEncodingError] = useState("");
   const [templateTitle, setTemplateTitle] = useState("Avaliacao");
   const [summaryText, setSummaryText] = useState("");
   const [planText, setPlanText] = useState("");
@@ -490,6 +492,7 @@ export default function PatientEvaluationDetails() {
   const [definition, setDefinition] = useState(null);
   const [formInstanceId, setFormInstanceId] = useState(null);
   const [rawAnswers, setRawAnswers] = useState([]);
+  const [answerEncoding, setAnswerEncoding] = useState(null);
   const [answers, setAnswers] = useState({});
   const [draftAnswers, setDraftAnswers] = useState({});
   const [selectedClinicalCaseId, setSelectedClinicalCaseId] = useState("");
@@ -561,6 +564,8 @@ export default function PatientEvaluationDetails() {
         setDefinition(null);
         setFormInstanceId(null);
         setRawAnswers([]);
+        setAnswerEncoding(null);
+        setAnswerEncodingError("");
         setAnswers({});
         setDraftAnswers({});
         setSections([]);
@@ -568,6 +573,7 @@ export default function PatientEvaluationDetails() {
       }
 
       const instance = instances[0];
+      setAnswerEncoding(instance.structured_answer_encoding ?? null);
       const templateId = instance.form_template_id;
       const loadedFormInstanceId = instance.id;
 
@@ -575,6 +581,8 @@ export default function PatientEvaluationDetails() {
         setDefinition(null);
         setFormInstanceId(null);
         setRawAnswers([]);
+        setAnswerEncoding(null);
+        setAnswerEncodingError("");
         setAnswers({});
         setDraftAnswers({});
         setSections([]);
@@ -604,17 +612,33 @@ export default function PatientEvaluationDetails() {
       setRawAnswers(loadedAnswers);
 
       if (loadedDefinition?.sections) {
-        const editableAnswers = buildEditableAnswers(loadedDefinition, loadedAnswers);
-        setAnswers(editableAnswers);
-        setDraftAnswers(editableAnswers);
+        try {
+          const editableAnswers = buildEditableAnswers(loadedDefinition, loadedAnswers, instance.structured_answer_encoding);
+          setAnswers(editableAnswers);
+          setDraftAnswers(editableAnswers);
+          setAnswerEncodingError("");
+        } catch (error) {
+          if (error.code !== "STRUCTURED_EVALUATION_OPTIONS_UNRESOLVED") throw error;
+          setAnswerEncodingError(error.message);
+          setAnswers({});
+          setDraftAnswers({});
+        }
         setActiveSectionId((prev) => (
           prev || orderedDefinitionSections(loadedDefinition)[0]?.id || null
         ));
-        setSections(buildSections(loadedDefinition, loadedAnswers));
+        setSections(buildSections(loadedDefinition, loadedAnswers, instance.structured_answer_encoding));
       } else {
+        setAnswerEncodingError("");
         setAnswers({});
         setDraftAnswers({});
         setSections(buildFallbackSections(loadedAnswers));
+      }
+      // Consume only the creation command confirmed by this fully loaded record.
+      // The persisted draft remains available in the patient's timeline.
+      const pendingKey = structuredEvaluationPendingKey(patientId);
+      if (Number(evalData.patient_id) === Number(patientId)
+        && pendingKey && pendingKey === evalData.structured_save_key) {
+        clearStructuredEvaluationPendingKey(patientId);
       }
     } catch (error) {
       const message =
@@ -624,7 +648,7 @@ export default function PatientEvaluationDetails() {
     } finally {
       setIsLoading(false);
     }
-  }, [evaluationId]);
+  }, [evaluationId, patientId]);
 
   useEffect(() => {
     loadData();
@@ -679,14 +703,17 @@ export default function PatientEvaluationDetails() {
   }, []);
 
   const startEditing = useCallback(() => {
+    if (isLoading || answerEncodingError) return;
     if (!canWriteClinicalRecords) return;
     if (clinicalState !== "draft") return;
     setDraftAnswers(answers);
     setIsEditing(true);
-  }, [answers, canWriteClinicalRecords, clinicalState]);
+  }, [answers, canWriteClinicalRecords, clinicalState, isLoading, answerEncodingError]);
 
   const cancelEditing = useCallback(() => {
     const discard = () => {
+      saveAttempt.current = null;
+      setSaveError("");
       setDraftAnswers(answers);
       setIsEditing(false);
     };
@@ -695,6 +722,7 @@ export default function PatientEvaluationDetails() {
   }, [answers, confirmDiscard, hasUnsavedAnswers]);
 
   const requestSignature = useCallback(() => {
+    if (isLoading || answerEncodingError) return;
     if (!canSaveAndFinalizeClinicalRecords) return;
     if (!signingIdentity?.eligible_to_sign) {
       toast.error("Verifique sua identidade profissional antes de assinar.");
@@ -702,44 +730,42 @@ export default function PatientEvaluationDetails() {
     }
     setSignatureError("");
     setSignatureConfirmOpen(true);
-  }, [canSaveAndFinalizeClinicalRecords, signingIdentity]);
+  }, [canSaveAndFinalizeClinicalRecords, signingIdentity, isLoading, answerEncodingError]);
 
   const handleSave = useCallback(async (shouldSign = false) => {
+    if (isLoading || answerEncodingError) return;
     if (!canWriteClinicalRecords || (shouldSign && !canSaveAndFinalizeClinicalRecords)) return;
-    if (isSaving) return;
+    if (saving.current) return;
     if (!definition || !formInstanceId) return;
+    saving.current = true;
     setIsSaving(true);
+    setSaveError("");
     if (shouldSign) setSignatureError("");
     try {
       const summary = resolveSummary(definition, draftAnswers);
-      const result = await saveClinicalRecordFlow({
-        shouldSign,
-        saveDraft: async () => {
-          const evaluationResponse = await axios.put(`/evaluations/${evaluationId}`, {
+      const payload = {
+        evaluation: {
+            patient_id: Number(patientId),
             clinical_case_id: selectedClinicalCaseId ? Number(selectedClinicalCaseId) : null,
             summary_text: summary.summary_text,
             plan_text: summary.plan_text,
-            version: recordVersion,
-          });
-          const saved = evaluationResponse.data;
-          setRecordVersion(getSavedClinicalRecordVersion(saved));
-
-          await Promise.all(rawAnswers.map((answer) => axios.delete(`/form-answers/${answer.id}`)));
-          const payloads = buildAnswersPayload(definition, draftAnswers);
-          await Promise.all(
-            payloads.map((payload) =>
-              axios.post("/form-answers", {
-                ...payload,
-                form_instance_id: formInstanceId,
-              }),
-            ),
-          );
-          return saved;
         },
-        finalizeDraft: ({ version }) => (
-          finalizeClinicalRecord("evaluation", evaluationId, version)
-        ),
+        forms: [{
+          form_template_id: Number(definition.templateId),
+          form_instance_id: Number(formInstanceId),
+          answers: normalizeStructuredEvaluationAnswers(buildAnswersPayload(definition, draftAnswers)),
+        }],
+      };
+      const previous = saveAttempt.current;
+      if (!previous || (previous.getSavedRecord() && !previous.hasSameContent(payload))) {
+        saveAttempt.current = createStructuredEvaluationSaveAttempt({
+          key: createStructuredEvaluationSaveKey(), recordId: Number(evaluationId),
+        });
+      }
+      const result = await saveAttempt.current.save({
+        ...payload, version: recordVersion, shouldSign,
       });
+      setRecordVersion(getSavedClinicalRecordVersion(result.finalized || result.saved));
       if (shouldSign) {
         if (result.finalized?.version) {
           setRecordVersion(getSavedClinicalRecordVersion(result.finalized));
@@ -751,15 +777,19 @@ export default function PatientEvaluationDetails() {
         toast.success("Rascunho salvo.");
       }
       setIsEditing(false);
+      saveAttempt.current = null;
       await loadData();
     } catch (error) {
-      const message = getClinicalRecordSaveErrorMessage(
-        error,
-        "Não foi possível salvar o registro.",
-      );
+      const message = structuredEvaluationSaveMessage(error);
+      setSaveError(message);
+      if (error.savedRecord) {
+        setRecordVersion(getSavedClinicalRecordVersion(error.savedRecord));
+        setAnswers(draftAnswers);
+      }
       if (shouldSign) setSignatureError(message);
       else toast.error(message);
     } finally {
+      saving.current = false;
       setIsSaving(false);
     }
   }, [
@@ -768,12 +798,13 @@ export default function PatientEvaluationDetails() {
     definition,
     draftAnswers,
     evaluationId,
+    patientId,
     formInstanceId,
-    isSaving,
     loadData,
-    rawAnswers,
     recordVersion,
     selectedClinicalCaseId,
+    isLoading,
+    answerEncodingError,
   ]);
 
   const saveAddendum = useCallback(async () => {
@@ -815,19 +846,21 @@ export default function PatientEvaluationDetails() {
   const renderReadOnlyBlock = useCallback((block) => {
     const value = formatAnswer(block, rawAnswers.filter(
       (answer) => String(answer.form_question_id) === String(block.config?.questionId),
-    ));
+    ), answerEncoding);
     return <ReadOnlyValue>{value || "-"}</ReadOnlyValue>;
-  }, [rawAnswers]);
+  }, [rawAnswers, answerEncoding]);
 
   const renderEditableBlock = useCallback((block, fieldId) => {
     const value = draftAnswers[block.id];
     const options = Array.isArray(block.config?.options) ? block.config.options : [];
 
-    if (block.type === "text") {
+    if (block.type === "text" || block.type === "number") {
       return (
         <FieldInput
           id={fieldId}
-          value={value || ""}
+          type={block.type === "number" ? "number" : "text"}
+          step={block.type === "number" ? "any" : undefined}
+          value={value ?? ""}
           onChange={(event) => handleFieldChange(block, event.target.value)}
         />
       );
@@ -964,6 +997,9 @@ export default function PatientEvaluationDetails() {
       );
     }
 
+    if (block.type === "table") {
+      return <StructuredEvaluationTableInput block={block} value={value} onChange={(next) => handleFieldChange(block, next)} />;
+    }
     if (block.type === "info") {
       return <InfoBox>{block.config?.text || block.helpText}</InfoBox>;
     }
@@ -1036,11 +1072,11 @@ export default function PatientEvaluationDetails() {
               )}
               {!isEditing && clinicalState === "draft" && canWriteClinicalRecords && (
                 <>
-                  <SubmitButton type="button" onClick={startEditing}>Editar rascunho</SubmitButton>
+                  <SubmitButton type="button" onClick={startEditing} disabled={isLoading || Boolean(answerEncodingError)}>Editar rascunho</SubmitButton>
                   {canSaveAndFinalizeClinicalRecords && <SubmitButton
                     type="button"
                     onClick={requestSignature}
-                    disabled={!signingIdentity?.eligible_to_sign}
+                    disabled={isLoading || Boolean(answerEncodingError) || !signingIdentity?.eligible_to_sign}
                   >
                     Salvar e assinar
                   </SubmitButton>}
@@ -1120,6 +1156,8 @@ export default function PatientEvaluationDetails() {
             <DataLoadingState text="Carregando avaliação..." />
           </SectionCard>
         )}
+        {saveError && <SectionCard role="alert"><p>{saveError}</p></SectionCard>}
+        {answerEncodingError && <SectionCard role="alert"><p>{answerEncodingError}</p></SectionCard>}
 
         {!isLoading && isQuickEvolution && (
           <SummaryGrid>
@@ -1165,6 +1203,7 @@ export default function PatientEvaluationDetails() {
               <SectionPanel>
                 <SectionTitle>{activeSection.title}</SectionTitle>
                 <SectionCard>
+                  <EditorFields disabled={isSaving}>
                   <SectionGrid>
                     {activeSection.blocks.map((block) => {
                       const fieldId = buildInputId(block);
@@ -1192,6 +1231,7 @@ export default function PatientEvaluationDetails() {
                       );
                     })}
                   </SectionGrid>
+                  </EditorFields>
                 </SectionCard>
               </SectionPanel>
             )}
@@ -1281,6 +1321,14 @@ const AddendumEditor = styled.div`
     justify-content: flex-end;
     gap: 10px;
   }
+`;
+
+const EditorFields = styled.fieldset`
+  display: contents;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
 `;
 
 const Header = styled(ModuleHeader)`
@@ -1522,6 +1570,9 @@ const FieldLabel = styled.label`
 
 const fieldStyles = `
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   min-height: 44px;
   border-radius: 10px;
   border: 1px solid rgba(106, 121, 92, 0.2);

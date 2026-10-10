@@ -1,5 +1,6 @@
 import PropTypes from 'prop-types';
 import React, { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import styled from "styled-components";
 import { GhostButton, PrimaryButton } from "../../components/AppButton";
 import { colors, fontSizes, radii, spacing } from "../../styles/tokens";
@@ -59,6 +60,7 @@ export default function ClinicalExportButton({ patientId = null, recordId = null
   const generation = useRef(0);
   const trigger = useRef(null);
   const panel = useRef(null);
+  const restoreFocus = useRef(false);
   const titleId = useId();
   const route = recordId ? `/evaluations/${recordId}/export` : `/patients/${patientId}/clinical-export`;
   const valid = mode === "all" || Boolean(start && end && end >= start);
@@ -86,8 +88,11 @@ export default function ClinicalExportButton({ patientId = null, recordId = null
       .finally(() => { if (current === generation.current) setBusy(false); });
     return () => { generation.current += 1; };
   }, [open, route, mode, start, end, retry, valid]);
-  useEffect(() => { if (open) panel.current?.focus(); }, [open]);
-  const close = () => { generation.current += 1; setOpen(false); setBusy(false); trigger.current?.focus(); };
+  useEffect(() => {
+    if (open) { restoreFocus.current = true; panel.current?.focus(); }
+    else if (restoreFocus.current) { restoreFocus.current = false; trigger.current?.focus(); }
+  }, [open]);
+  const close = () => { generation.current += 1; setOpen(false); setBusy(false); };
   const download = async () => {
     const {current} = generation;
     setBusy(true); setError("");
@@ -111,7 +116,8 @@ export default function ClinicalExportButton({ patientId = null, recordId = null
     <ButtonComponent ref={trigger} type="button" onClick={() => { setMode("all"); setOpen(true); }} disabled={open}>
       {recordId ? "Exportar PDF" : "Exportar prontuário"}
     </ButtonComponent>
-    {open && <Backdrop><Panel ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={handleKeys}>
+    {/* The timeline card transforms on hover; fixed overlays must live outside it. */}
+    {open && createPortal(<Backdrop onClick={(event) => { if (event.target === event.currentTarget && !busy) close(); }}><Panel ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={handleKeys}>
       <h2 id={titleId}>{recordId ? "Exportar registro" : "Exportar prontuário"}</h2>
       {!recordId && <Controls>
         <Choices><legend>Registros</legend><div>
@@ -135,7 +141,7 @@ export default function ClinicalExportButton({ patientId = null, recordId = null
         {error && !manifest && <Action type="button" onClick={() => setRetry((value) => value + 1)}>Tentar novamente</Action>}
         <PrimaryButton type="button" disabled={busy || !valid || !manifest || Boolean(empty)} onClick={download}>Baixar PDF</PrimaryButton>
       </Footer>
-    </Panel></Backdrop>}
+    </Panel></Backdrop>, document.body)}
   </>;
 }
 ClinicalExportButton.propTypes = { buttonComponent: PropTypes.elementType, patientId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]), recordId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]) };

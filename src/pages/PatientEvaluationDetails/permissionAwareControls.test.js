@@ -18,7 +18,6 @@ import axios from "../../services/axios";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   addSignedClinicalAddendum,
-  finalizeClinicalRecord,
   getClinicalSigningIdentity,
 } from "../../services/clinicalRecords";
 
@@ -29,11 +28,10 @@ jest.mock("../../services/axios", () => ({
 jest.mock("../../contexts/AuthorizationContext", () => ({ useAuthorization: jest.fn() }));
 jest.mock("../../services/clinicalRecords", () => ({
   addSignedClinicalAddendum: jest.fn(),
-  finalizeClinicalRecord: jest.fn(),
   getClinicalSigningIdentity: jest.fn(),
 }));
 jest.mock("react-toastify", () => ({
-  toast: { error: jest.fn(), success: jest.fn() },
+  toast: { error: jest.fn(), success: jest.fn(), info: jest.fn() },
 }));
 
 const definition = {
@@ -98,8 +96,7 @@ function configureEvaluation({ clinicalState, eligible = true }) {
   });
   axios.put.mockResolvedValue(response({ id: 31, version: 3, clinical_state: "draft" }));
   axios.delete.mockResolvedValue({ status: 204 });
-  axios.post.mockResolvedValue(response({ id: 100 }));
-  finalizeClinicalRecord.mockResolvedValue({ id: 31, version: 3, clinical_state: "finalized" });
+  axios.post.mockResolvedValue({ data: { id: 31, version: 4, clinical_state: "finalized" } });
   addSignedClinicalAddendum.mockResolvedValue({ id: 90 });
 }
 
@@ -237,11 +234,47 @@ describe("PatientEvaluationDetails permission characterization", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Salvar e assinar?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar e assinar" }));
-    await waitFor(() => expect(finalizeClinicalRecord).toHaveBeenCalledWith(
-      "evaluation",
-      "31",
-      3,
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/clinical-records/evaluation/31/finalize",
+      { version: 3 },
+      { headers: { "Idempotency-Key": expect.stringMatching(/^sign-/) } },
     ));
+  });
+  test("signature timeout keeps a confirmed draft and retries signature without another update", async () => {
+    authorize({ clinicalLevel: "edit", capabilities: ["clinical_records.read", "clinical_records.write", "clinical_records.finalize"] });
+    configureEvaluation({ clinicalState: "draft" });
+    axios.post.mockRejectedValueOnce(new Error("Synthetic timeout"));
+    renderDetails();
+    await waitForEvaluation();
+    fireEvent.click(screen.getByRole("button", { name: "Editar rascunho" }));
+    fireEvent.change(screen.getByLabelText("Queixa"), { target: { value: "Fixture sintética" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar e assinar" }));
+    let dialog = await screen.findByRole("dialog", { name: "Salvar e assinar?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar e assinar" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Salvar e assinar" })).toBeEnabled());
+    expect(screen.getByLabelText("Queixa")).toHaveValue("Fixture sintética");
+    expect(axios.put).toHaveBeenCalledTimes(1);
+    expect(axios.put.mock.calls[0][0]).toBe("/evaluations/31/structured");
+    expect(axios.put.mock.calls[0][1].version).toBe(2);
+    dialog = screen.getByRole("dialog", { name: "Salvar e assinar?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar e assinar" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(2));
+    expect(axios.post.mock.calls[1]).toEqual(axios.post.mock.calls[0]);
+    expect(axios.put).toHaveBeenCalledTimes(1);
+  });
+  test("stale version leaves the current edit visible and sends no signature", async () => {
+    authorize({ clinicalLevel: "edit", capabilities: ["clinical_records.read", "clinical_records.write"] });
+    configureEvaluation({ clinicalState: "draft" });
+    axios.put.mockRejectedValueOnce({ response: { status: 409, data: { code: "CLINICAL_VERSION_CONFLICT" } } });
+    renderDetails();
+    await waitForEvaluation();
+    fireEvent.click(screen.getByRole("button", { name: "Editar rascunho" }));
+    fireEvent.change(screen.getByLabelText("Queixa"), { target: { value: "Alteração sintética" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar rascunho" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("outra sessão");
+    expect(screen.getByLabelText("Queixa")).toHaveValue("Alteração sintética");
+    expect(axios.post).not.toHaveBeenCalled();
   });
 });
 
@@ -267,5 +300,97 @@ describe("details standard discard dialog", () => {
     expect(screen.getByRole("button", { name: "Editar rascunho" })).toBeInTheDocument();
     expect(axios.put).not.toHaveBeenCalled();
     expect(axios.post).not.toHaveBeenCalled();
+  });
+});
+
+describe("confirmed structured creation recovery", () => {
+  beforeEach(() => { jest.clearAllMocks(); sessionStorage.clear(); authorize(); configureEvaluation({ clinicalState: "draft" }); });
+  it.each(["draft", "finalized"])("consumes the matching creation key after fully loading a %s record", async (clinicalState) => {
+    configureEvaluation({ clinicalState });
+    sessionStorage.setItem("motria:structured-evaluation:new:101", "fictional-pending-01");
+    const get = axios.get.getMockImplementation();
+    axios.get.mockImplementation(async (url) => {
+      const result = await get(url);
+      return url === "/evaluations/31" ? { data: { ...result.data, structured_save_key: "fictional-pending-01" } } : result;
+    });
+    renderDetails();
+    await waitForEvaluation();
+    await waitFor(() => expect(sessionStorage.getItem("motria:structured-evaluation:new:101")).toBeNull());
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+  it("preserves a different pending creation", async () => {
+    sessionStorage.setItem("motria:structured-evaluation:new:101", "fictional-other-key");
+    renderDetails();
+    await waitForEvaluation();
+    expect(sessionStorage.getItem("motria:structured-evaluation:new:101")).toBe("fictional-other-key");
+  });
+});
+
+describe("historical multiple selection semantics", () => {
+  const options = [{ id: 12, value: "A", label: "Opcao textual ficticia" }, { id: 22, value: "12", label: "Opcao numerica ficticia" }];
+  const multiDefinition = { templateId: 9, sections: [{ id: "selection", title: "Selecao ficticia", blocks: [{ id: "selection", type: "multi_select", label: "Selecao", config: { questionId: 91, options } }] }] };
+  const configureSelection = (values, initialEncoding = null, selectedOptions = options, initialState = "draft", type = "multi_select") => {
+    let clinicalState = initialState; let version = 2; let encoding = initialEncoding; let saved = values;
+    configureEvaluation({ clinicalState });
+    const get = axios.get.getMockImplementation();
+    axios.get.mockImplementation(async (url) => {
+      if (url === "/form-instances?evaluation_id=31") return response([{ id: 81, form_template_id: 9, structured_answer_encoding: encoding }]);
+      if (url === "/form-templates/9/definition") return response({ ...multiDefinition, sections: [{ ...multiDefinition.sections[0], blocks: [{ ...multiDefinition.sections[0].blocks[0], type, config: { questionId: 91, options: selectedOptions } }] }] });
+      if (url === "/form-answers?form_instance_id=81") return response([{ form_question_id: 91, ...(type === "single_select" ? { option_id: saved[0] } : { value_json: saved }) }]);
+      const result = await get(url);
+      return url === "/evaluations/31" ? { data: { ...result.data, clinical_state: clinicalState, version } } : result;
+    });
+    axios.put.mockImplementation(async (url, payload) => {
+      saved = payload.forms[0].answers[0].value_json; encoding = "option_ids_v1"; version = 3;
+      return { data: { id: 31, clinical_state: clinicalState, version } };
+    });
+    axios.post.mockImplementation(async () => { clinicalState = "finalized"; version = 4; return { data: { id: 31, clinical_state: clinicalState, version } }; });
+  };
+  beforeEach(() => {
+    jest.clearAllMocks(); sessionStorage.clear();
+    authorize({ clinicalLevel: "manage", capabilities: ["clinical_records.read", "clinical_records.write", "clinical_records.finalize"] });
+  });
+  const misleading = { id: 12, value: "22", label: "Opcao enganosa ficticia" };
+  const correct = { id: 22, value: "A", label: "Opcao correta ficticia" };
+  const labelCases = ["draft", "finalized"].flatMap((state) => (
+    [[misleading, correct], [correct, misleading]].flatMap((ordered) => [
+      [state, ordered, null, ["A"], "multi_select"],
+      [state, ordered, "option_ids_v1", [22], "multi_select"],
+      [state, ordered, null, [22], "single_select"],
+    ])
+  ));
+  it.each(labelCases)("labels explicit/resolved IDs strictly (%s/%j/%s/%j/%s)", async (state, ordered, encoding, values, type) => {
+    configureSelection(values, encoding, ordered, state, type); renderDetails(); await waitForEvaluation();
+    expect(screen.getByText(correct.label)).toBeInTheDocument();
+    expect(screen.queryByText(misleading.label)).not.toBeInTheDocument();
+    expect(axios.put).not.toHaveBeenCalled(); expect(axios.post).not.toHaveBeenCalled();
+  });
+  it.each([
+    [null, ["12"], 22, "Opcao numerica ficticia"],
+    [null, ["A"], 12, "Opcao textual ficticia"],
+    ["option_ids_v1", [12], 12, "Opcao textual ficticia"],
+  ])("preserves the selected meaning through reading, editing, saving and signing (%s/%j)", async (encoding, values, id, label) => {
+    configureSelection(values, encoding); renderDetails(); await waitForEvaluation();
+    expect(screen.getByText(label)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Editar rascunho" }));
+    expect(screen.getByLabelText(label)).toBeChecked();
+    expect(screen.getByLabelText(options.find((option) => option.id !== id).label)).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar e assinar" }));
+    const dialog = await screen.findByRole("dialog", { name: "Salvar e assinar?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar e assinar" }));
+    await screen.findByRole("button", { name: "Adicionar adendo" });
+    expect(axios.put.mock.calls[0][1].forms[0].answers).toEqual([{ form_question_id: 91, value_json: [id] }]);
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(label)).toBeInTheDocument();
+  });
+  it.each([
+    [["unknown"], options],
+    [["A"], [...options, { id: 32, value: "A", label: "Codigo ambiguo ficticio" }]],
+  ])("blocks unknown or ambiguous historical codes without writes (%j)", async (values, selectedOptions) => {
+    configureSelection(values, null, selectedOptions); renderDetails(); await waitForEvaluation();
+    expect(screen.getByRole("alert")).toHaveTextContent("Não foi possível interpretar");
+    expect(screen.getByRole("button", { name: "Editar rascunho" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Salvar e assinar" })).toBeDisabled();
+    expect(axios.put).not.toHaveBeenCalled(); expect(axios.post).not.toHaveBeenCalled();
   });
 });

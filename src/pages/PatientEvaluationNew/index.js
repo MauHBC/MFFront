@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHistory, useLocation, useParams } from "react-router-dom";
 import styled from "styled-components";
 import { toast } from "react-toastify";
@@ -8,15 +8,17 @@ import { ClinicalRecordButton } from "../../components/ClinicalRecordButton";
 import useClinicalRecordNavigationGuard from "../../hooks/useClinicalRecordNavigationGuard";
 import DataLoadingState from "../../components/DataLoadingState";
 import ClinicalSignatureConfirmModal from "../../components/ClinicalSignatureConfirmModal";
+import StructuredEvaluationTableInput from "../../components/StructuredEvaluationTableInput";
 import { listPatientClinicalCases } from "../../services/patientClinicalCases";
+import { getClinicalSigningIdentity } from "../../services/clinicalRecords";
 import {
-  finalizeClinicalRecord,
-  getClinicalSigningIdentity,
-} from "../../services/clinicalRecords";
-import {
-  getClinicalRecordSaveErrorMessage,
-  saveClinicalRecordFlow,
-} from "../../services/clinicalRecordSaveFlow";
+  createStructuredEvaluationSaveAttempt,
+  createStructuredEvaluationSaveKey,
+  normalizeStructuredEvaluationAnswers,
+  structuredEvaluationSaveMessage,
+  structuredEvaluationPendingKey,
+  clearStructuredEvaluationPendingKey,
+} from "../../services/structuredEvaluationSave";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { LinkGhostButton, PrimaryButton } from "../../components/AppButton";
 import {
@@ -119,7 +121,7 @@ const resolveYesNo = (value) => {
 };
 
 const needsSingleInputLabel = (blockType) =>
-  ["text", "textarea", "date", "yesno", "single_select"].includes(blockType);
+  ["text", "textarea", "date", "yesno", "single_select", "number"].includes(blockType);
 
 const buildInputId = (block) => `field-${block.id}`;
 
@@ -162,6 +164,10 @@ export default function PatientEvaluationNew() {
     : null;
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const saveAttempt = useRef(null);
+  const saving = useRef(false);
+  const [saveError, setSaveError] = useState("");
+  const [recoveredDraft, setRecoveredDraft] = useState(null);
   const [templates, setTemplates] = useState([]);
   const [clinicalCases, setClinicalCases] = useState([]);
   const [selectedClinicalCaseId, setSelectedClinicalCaseId] = useState("");
@@ -174,6 +180,22 @@ export default function PatientEvaluationNew() {
   const [signingIdentity, setSigningIdentity] = useState(null);
   const [signatureConfirmOpen, setSignatureConfirmOpen] = useState(false);
   const [signatureError, setSignatureError] = useState("");
+
+  const recoverPendingDraft = useCallback(async () => {
+    const key = structuredEvaluationPendingKey(patientId);
+    if (!key) return;
+    try {
+      const response = await axios.get(`/evaluations?patient_id=${patientId}`);
+      const found = (Array.isArray(response.data) ? response.data : []).find((record) => (
+        record.structured_save_key === key && !["deleted", "invalidated"].includes(record.clinical_state)
+      ));
+      if (found) {
+        setRecoveredDraft(found);
+        setSaveError("Encontramos o registro desta tentativa. Abra-o para conferir e continuar.");
+      }
+    } catch { /* The same opaque key remains available for a later retry. */ }
+  }, [patientId]);
+  useEffect(() => { recoverPendingDraft(); }, [recoverPendingDraft]);
 
   useEffect(() => {
     let active = true;
@@ -318,13 +340,14 @@ export default function PatientEvaluationNew() {
   const renderBlockInput = (block, baseId) => {
     const fieldId = baseId || buildInputId(block);
     const labelId = `${fieldId}-label`;
-    if (block.type === "text") {
+    if (block.type === "text" || block.type === "number") {
       return (
         <input
           id={fieldId}
           aria-labelledby={labelId}
-          type="text"
-          value={answers[block.id] || ""}
+          type={block.type === "number" ? "number" : "text"}
+          step={block.type === "number" ? "any" : undefined}
+          value={answers[block.id] ?? ""}
           onChange={(event) => handleChange(block, event.target.value)}
         />
       );
@@ -485,6 +508,9 @@ export default function PatientEvaluationNew() {
       );
     }
 
+    if (block.type === "table") {
+      return <StructuredEvaluationTableInput block={block} value={answers[block.id]} onChange={(value) => handleChange(block, value)} />;
+    }
     if (block.type === "info") {
       return <InfoBox>{block.config?.text || block.helpText}</InfoBox>;
     }
@@ -543,6 +569,9 @@ export default function PatientEvaluationNew() {
               value_date: value,
             });
             break;
+          case "number":
+            payloads.push({ form_question_id: questionId, value_number: Number(value) });
+            break;
           case "yesno":
             payloads.push({
               form_question_id: questionId,
@@ -558,10 +587,11 @@ export default function PatientEvaluationNew() {
           case "multi_select":
             payloads.push({
               form_question_id: questionId,
-              value_json: value,
+              value_json: value.map(Number),
             });
             break;
           case "matrix":
+          case "table":
             payloads.push({
               form_question_id: questionId,
               value_json: value,
@@ -576,7 +606,7 @@ export default function PatientEvaluationNew() {
   }, [answers, definition, orderedSections]);
 
   const saveEvaluation = useCallback(async (shouldSign) => {
-      if (isSaving) return;
+      if (saving.current || (recoveredDraft && (!shouldSign || !saveAttempt.current?.getSavedRecord()))) return;
       if (!selectedTemplate?.id) {
         toast.error("Selecione um formulario.");
         return;
@@ -589,44 +619,30 @@ export default function PatientEvaluationNew() {
         }
       }
 
+      saving.current = true;
       setIsSaving(true);
+      setSaveError("");
       if (shouldSign) setSignatureError("");
       try {
         const summary = resolveSummary(definition, answers);
-        await saveClinicalRecordFlow({
+        if (!saveAttempt.current) saveAttempt.current = createStructuredEvaluationSaveAttempt({
+          key: structuredEvaluationPendingKey(patientId, true) || createStructuredEvaluationSaveKey(),
+        });
+        await saveAttempt.current.save({
           shouldSign,
-          saveDraft: async () => {
-            const evaluationResponse = await axios.post("/evaluations", {
+          evaluation: {
               patient_id: Number(patientId),
               clinical_case_id: selectedClinicalCaseId
                 ? Number(selectedClinicalCaseId)
                 : null,
               evaluation_phase: requestedPhase,
-              status: "done",
               summary_text: summary.summary_text,
               plan_text: summary.plan_text,
-            });
-            const saved = evaluationResponse.data;
-            const instanceResponse = await axios.post("/form-instances", {
-              evaluation_id: saved.id,
-              form_template_id: definition.templateId,
-            });
-            const instanceId = instanceResponse.data?.id;
-
-            const answerPayloads = buildAnswersPayload();
-            await Promise.all(
-              answerPayloads.map((payload) =>
-                axios.post("/form-answers", {
-                  ...payload,
-                  form_instance_id: instanceId,
-                }),
-              ),
-            );
-            return saved;
           },
-          finalizeDraft: ({ recordId, version }) => (
-            finalizeClinicalRecord("evaluation", recordId, version)
-          ),
+          forms: [{
+            form_template_id: Number(definition.templateId),
+            answers: normalizeStructuredEvaluationAnswers(buildAnswersPayload()),
+          }],
         });
         if (shouldSign) {
           setSignatureConfirmOpen(false);
@@ -636,15 +652,19 @@ export default function PatientEvaluationNew() {
           toast.success("Rascunho salvo.");
         }
         markSaved();
+        clearStructuredEvaluationPendingKey(patientId);
         history.push(`/pacientes/${patientId}`, { clinicalReturnFocus: true });
       } catch (error) {
-        const message = getClinicalRecordSaveErrorMessage(
-          error,
-          "Não foi possível salvar o formulário.",
-        );
+        const message = structuredEvaluationSaveMessage(error);
+        setSaveError(message);
+        if (error.savedRecord) {
+          setRecoveredDraft(error.savedRecord);
+          markSaved();
+        }
         if (shouldSign) setSignatureError(message);
         else toast.error(message);
       } finally {
+        saving.current = false;
         setIsSaving(false);
       }
     }, [
@@ -652,7 +672,7 @@ export default function PatientEvaluationNew() {
       buildAnswersPayload,
 	    definition,
 	    history,
-      isSaving,
+      recoveredDraft,
       markSaved,
 	    patientId,
 	    requestedPhase,
@@ -720,6 +740,21 @@ export default function PatientEvaluationNew() {
           </div>
         </Header>
 
+        {saveError && (
+          <SectionCard role="alert">
+            <p>{saveError}</p>
+            {recoveredDraft ? (
+              <LinkGhostButton to={`/pacientes/${patientId}/avaliacoes/${recoveredDraft.id}`}>
+                Abrir registro salvo
+              </LinkGhostButton>
+            ) : (
+              <ClinicalRecordButton type="button" onClick={recoverPendingDraft} disabled={isSaving}>
+                Conferir tentativa salva
+              </ClinicalRecordButton>
+            )}
+          </SectionCard>
+        )}
+
         {selectedTemplate && definition && (
           <HeaderActions>
             {selectedClinicalCaseId && (
@@ -742,7 +777,7 @@ export default function PatientEvaluationNew() {
                 form={evaluationFormId}
                 name="saveAction"
                 value="draft"
-                disabled={isSaving}
+                disabled={isSaving || Boolean(recoveredDraft)}
               >
 	                {isSaving ? <ButtonSpinner /> : "Salvar rascunho"}
               </SubmitButton>
@@ -751,7 +786,7 @@ export default function PatientEvaluationNew() {
                 form={evaluationFormId}
                 name="saveAction"
                 value="sign"
-                disabled={isSaving || !signingIdentity?.eligible_to_sign}
+                disabled={isSaving || Boolean(recoveredDraft) || !signingIdentity?.eligible_to_sign}
               >
 	                {isSaving ? <ButtonSpinner /> : "Salvar e assinar"}
               </SubmitButton>
@@ -793,6 +828,7 @@ export default function PatientEvaluationNew() {
 
         {!isLoading && selectedTemplate && definition && (
           <Form id={evaluationFormId} onSubmit={handleSubmit}>
+            <EditorFields disabled={isSaving || Boolean(recoveredDraft)}>
             {orderedSections.length === 0 && (
               <SectionCard>
                 <EmptyState>Este formulário não possui seções.</EmptyState>
@@ -859,6 +895,7 @@ export default function PatientEvaluationNew() {
               </EvaluationLayout>
             )}
 
+            </EditorFields>
           </Form>
         )}
       </PageContent>
@@ -875,6 +912,14 @@ export default function PatientEvaluationNew() {
     </PageWrapper>
   );
 }
+
+const EditorFields = styled.fieldset`
+  display: contents;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+`;
 
 const Header = styled(ModuleHeader)`
   display: flex;

@@ -21,6 +21,9 @@ recriadas aqui.
   [team-read-only-module.md](team-read-only-module.md) e [planos.md](planos.md),
   registram o comportamento vigente da interface e os contratos do Backend
   consumidos por aquele módulo.
+- [structured-evaluations.md](structured-evaluations.md) registra o candidato
+  do salvamento agregado, retry, rascunho e composição dos campos da avaliação;
+  autoridade de negócio permanece no Backend.
 - [regras-negocio.md](regras-negocio.md) registra a fronteira de autoridade com
   o MFBackend e ajuda a localizar regras operacionais. Não deve copiar essas
   regras para o Frontend.
