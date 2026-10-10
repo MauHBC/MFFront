@@ -34,7 +34,8 @@ describe("metadados visuais do prontuário", () => {
     expect(patientDetails).not.toContain("Assinado eletronicamente por:");
     expect(evaluationDetails).not.toContain("Assinado eletronicamente por:");
     expect(patientDetails).toContain("formatClinicalRecordMeta(evaluation)");
-    expect(patientDetails).toContain("evaluation.clinical_signature");
+    expect(patientDetails).toContain("evaluation.clinical_revisions");
+    expect(patientDetails).not.toContain("LegacySignatureNotice");
   });
 
   test("casos clínicos exibem o metadado persistido de criação", () => {
@@ -43,6 +44,7 @@ describe("metadados visuais do prontuário", () => {
 
   test("registros legados permanecem neutros e não viram rascunhos", () => {
     expect(patientDetails).toContain('let recordStatus = "legacy"');
-    expect(patientDetails).toContain('(recordStatus === "legacy" || (isFinalized && !signature))');
+    expect(patientDetails).toContain('let recordStatusLabel = "Não assinado"');
+    expect(patientDetails).not.toContain("Registro antigo sem assinatura eletrônica retroativa");
   });
 });

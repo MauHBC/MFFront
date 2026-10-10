@@ -12,6 +12,14 @@ jest.mock("../../config/features", () => ({
 }));
 
 describe("AppShell navigation", () => {
+  it("oculta Relatórios quando nenhum relatório próprio é permitido", () => {
+    expect(getVisibleNavigationItems({ canAccessModule: (key) => key === "none" })
+      .some(({ key }) => key === "reports")).toBe(false);
+    expect(getVisibleNavigationItems({ canAccessModule: (key) => key === "finance" })
+      .some(({ key }) => key === "reports")).toBe(true);
+    expect(getVisibleNavigationItems({ canAccessModule: (key) => key === "patients" })
+      .some(({ key }) => key === "reports")).toBe(true);
+  });
   const fullAccess = {
     canAccessModule: () => true,
     hasCapability: () => true,
@@ -20,9 +28,9 @@ describe("AppShell navigation", () => {
   };
   it("oculta Painel mesmo com acesso e mantém Agenda primeiro", () => {
     expect(getVisibleNavigationItems(fullAccess).map(({ key }) => key))
-      .toEqual(["schedule", "patients", "team", "plans", "financial"]);
+      .toEqual(["schedule", "reports", "patients", "team", "plans", "financial"]);
     expect(getVisibleNavigationItems({ ...fullAccess, canAccessModule: (key) => key !== "schedule" })
-      .map(({ key }) => key)).toEqual(["patients", "team", "plans", "financial"]);
+      .map(({ key }) => key)).toEqual(["reports", "patients", "team", "plans", "financial"]);
   });
   it("remove o módulo quando ele ou todos os seus submenus estão indisponíveis", () => {
     const hiddenParent = {
@@ -129,7 +137,7 @@ describe("AppShell navigation", () => {
       canViewTeam: false,
       isAdministrator: false,
     });
-    expect(items.map(({ key }) => key)).toEqual(["schedule"]);
+    expect(items.map(({ key }) => key)).toEqual(["schedule", "reports"]);
     expect(items[0].children.map(({ key }) => key)).toEqual(["schedule-calendar"]);
   });
 
