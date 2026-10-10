@@ -37,15 +37,6 @@ describe("integração visual da assinatura clínica", () => {
     expect(patientDetails).not.toContain("}, [addendumModal, quickEvolutionModal]);");
   });
 
-  test("avaliação existente armazena a versão do PUT antes de persistir respostas", () => {
-    expect(evaluationDetails).toMatch(
-      /const saved = evaluationResponse\.data;[\s\S]*?setRecordVersion\(getSavedClinicalRecordVersion\(saved\)\);[\s\S]*?Promise\.all/,
-    );
-    expect(evaluationDetails).toMatch(
-      /finalizeClinicalRecord\("evaluation", evaluationId, version\)/,
-    );
-  });
-
   test("nova avaliação só executa o salvamento depois da confirmação", () => {
     expect(evaluationNew).toMatch(
       /setSignatureConfirmOpen\(true\);[\s\S]*?return;/,

@@ -1,0 +1,55 @@
+# Avaliações estruturadas: candidato de integridade
+
+DOCUMENTATION_IMPACT: UPDATE_REQUIRED. Código candidato; publicação não realizada.
+
+New e Details mantêm o AppLayout, AppModuleShell, AppButton,
+ClinicalSignatureConfirmModal e useClinicalRecordNavigationGuard existentes.
+Salvar envia Evaluation e todas as respostas do formulário numa requisição
+agregada. Assinar usa depois o lifecycle existente, com chave estável.
+Conclusão só aparece após resposta válida de assinatura. Falha de assinatura
+conserva o rascunho confirmado; falha de save conserva os campos no editor.
+
+Uma ref compartilha a tentativa entre cliques; fieldset desabilita campos
+durante a requisição. Timeout repete o mesmo payload/chave. Alterar um payload
+de resultado desconhecido exige conferir a tentativa anterior. A edição envia
+versão e IDs das instâncias; conflito não elimina os campos atuais.
+Na criação, sessionStorage guarda somente a chave opaca por paciente, nunca
+campos clínicos. Após reload, a API autorizada permite localizar o registro
+daquela tentativa e abri-lo. Sem confirmação de persistência, não há conteúdo
+clínico recuperável após fechar a aba; o guard de beforeunload alerta o usuário.
+
+## Referências e decisões de interface
+
+| Elemento | Referência inspecionada | Decisão e motivo | Consumidores |
+| --- | --- | --- | --- |
+| Cabeçalho, cards e campos | New/Details; AppLayout; AppModuleShell | Reusar estrutura atual | New/Details |
+| Ações e erros | AppButton; SectionCard existente | Estender com erro persistente e link para o registro salvo | New/Details |
+| Confirmação e retorno | ClinicalSignatureConfirmModal; ClinicalRecordNavigationConfirmation; guard | Reusar confirmação, Escape e descarte | New/Details |
+| Campos bloqueados | AppForm não fornece bloqueio de um conjunto inteiro | Fieldset local sem decoração, mantendo layout e semântica nativa | New/Details |
+| Número | Campos existentes das duas telas | Estender type/value; preservar zero | New/Details |
+| Resposta tabular | AppTable, AppForm.Field, AppButton.GhostButton; renderers New/Details | Compor editor sem CSS próprio: antes New não renderizava table e Details mostrava somente leitura | New/Details |
+
+O editor tabular reutiliza as primitivas existentes; não cria painel ou regra
+clínica. Colunas são texto conforme a definição publicada. Quantidade mínima,
+máxima e completude continuam validadas pelo Backend; não se infere condição
+da descrição da pergunta. A comparação desktop/mobile exige bundle servido.
+
+## Verificação
+
+Contrato leve: `npm run test:structured-evaluation:client`. React: testes de
+New/navigation e Details/permissionAwareControls, além da suíte global.
+Checkpoint 2026-10-10: lint global, mojibake e contrato cliente passaram;
+React focado passou 23 testes. Suíte global final passou 140/140 suites,
+1540 testes e 3 skipped (469.889 s), antes do ajuste CSS mobile. Builds passaram;
+bundle servido desktop 1440/mobile 390x844 revisado com dados fictícios: Voltar,
+resposta perdida/retry sem duplicação, draft recuperado, assinatura inteira e
+recusa clara de incompleto. Details recebeu border-box/min/max-width já usado
+em New; 23 focados passaram depois. Medição mobile final: clientWidth e
+scrollWidth 375/375 com scrollbar. CI completo no commit exato ainda pendente.
+Commits/PRs draft em preparação; sem merge ou deploy.
+Autoridade de negócio: MFBackend `docs/regras-negocio/prontuario.md` e
+`docs/fluxos/structured-evaluation-integrity-candidate.md`.
+
+Preservar PDF, relatórios, guards e registros legacy/finalized. A revisão visual
+final pertence ao usuário. Integração do hotfix de hover precede a qualificação
+do commit final. Nenhum deploy é autorizado por este documento.

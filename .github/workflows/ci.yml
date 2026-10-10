@@ -35,6 +35,8 @@ jobs:
           npm --version
       - name: Install locked dependencies
         run: npm ci
+      - name: Check structured evaluation save and retry contracts
+        run: npm run test:structured-evaluation:client
       - name: Check lint
         run: npm run lint
       - name: Check text encoding

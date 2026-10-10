@@ -18,7 +18,6 @@ import axios from "../../services/axios";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
 import {
   addSignedClinicalAddendum,
-  finalizeClinicalRecord,
   getClinicalSigningIdentity,
 } from "../../services/clinicalRecords";
 
@@ -29,11 +28,10 @@ jest.mock("../../services/axios", () => ({
 jest.mock("../../contexts/AuthorizationContext", () => ({ useAuthorization: jest.fn() }));
 jest.mock("../../services/clinicalRecords", () => ({
   addSignedClinicalAddendum: jest.fn(),
-  finalizeClinicalRecord: jest.fn(),
   getClinicalSigningIdentity: jest.fn(),
 }));
 jest.mock("react-toastify", () => ({
-  toast: { error: jest.fn(), success: jest.fn() },
+  toast: { error: jest.fn(), success: jest.fn(), info: jest.fn() },
 }));
 
 const definition = {
@@ -98,8 +96,7 @@ function configureEvaluation({ clinicalState, eligible = true }) {
   });
   axios.put.mockResolvedValue(response({ id: 31, version: 3, clinical_state: "draft" }));
   axios.delete.mockResolvedValue({ status: 204 });
-  axios.post.mockResolvedValue(response({ id: 100 }));
-  finalizeClinicalRecord.mockResolvedValue({ id: 31, version: 3, clinical_state: "finalized" });
+  axios.post.mockResolvedValue({ data: { id: 31, version: 4, clinical_state: "finalized" } });
   addSignedClinicalAddendum.mockResolvedValue({ id: 90 });
 }
 
@@ -237,11 +234,47 @@ describe("PatientEvaluationDetails permission characterization", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Salvar e assinar?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar e assinar" }));
-    await waitFor(() => expect(finalizeClinicalRecord).toHaveBeenCalledWith(
-      "evaluation",
-      "31",
-      3,
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      "/clinical-records/evaluation/31/finalize",
+      { version: 3 },
+      { headers: { "Idempotency-Key": expect.stringMatching(/^sign-/) } },
     ));
+  });
+  test("signature timeout keeps a confirmed draft and retries signature without another update", async () => {
+    authorize({ clinicalLevel: "edit", capabilities: ["clinical_records.read", "clinical_records.write", "clinical_records.finalize"] });
+    configureEvaluation({ clinicalState: "draft" });
+    axios.post.mockRejectedValueOnce(new Error("Synthetic timeout"));
+    renderDetails();
+    await waitForEvaluation();
+    fireEvent.click(screen.getByRole("button", { name: "Editar rascunho" }));
+    fireEvent.change(screen.getByLabelText("Queixa"), { target: { value: "Fixture sintética" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar e assinar" }));
+    let dialog = await screen.findByRole("dialog", { name: "Salvar e assinar?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar e assinar" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Salvar e assinar" })).toBeEnabled());
+    expect(screen.getByLabelText("Queixa")).toHaveValue("Fixture sintética");
+    expect(axios.put).toHaveBeenCalledTimes(1);
+    expect(axios.put.mock.calls[0][0]).toBe("/evaluations/31/structured");
+    expect(axios.put.mock.calls[0][1].version).toBe(2);
+    dialog = screen.getByRole("dialog", { name: "Salvar e assinar?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar e assinar" }));
+    await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(2));
+    expect(axios.post.mock.calls[1]).toEqual(axios.post.mock.calls[0]);
+    expect(axios.put).toHaveBeenCalledTimes(1);
+  });
+  test("stale version leaves the current edit visible and sends no signature", async () => {
+    authorize({ clinicalLevel: "edit", capabilities: ["clinical_records.read", "clinical_records.write"] });
+    configureEvaluation({ clinicalState: "draft" });
+    axios.put.mockRejectedValueOnce({ response: { status: 409, data: { code: "CLINICAL_VERSION_CONFLICT" } } });
+    renderDetails();
+    await waitForEvaluation();
+    fireEvent.click(screen.getByRole("button", { name: "Editar rascunho" }));
+    fireEvent.change(screen.getByLabelText("Queixa"), { target: { value: "Alteração sintética" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar rascunho" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("outra sessão");
+    expect(screen.getByLabelText("Queixa")).toHaveValue("Alteração sintética");
+    expect(axios.post).not.toHaveBeenCalled();
   });
 });
 

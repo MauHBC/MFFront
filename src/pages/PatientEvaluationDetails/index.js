@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHistory, useParams } from "react-router-dom";
 import styled from "styled-components";
 import { toast } from "react-toastify";
@@ -8,11 +8,11 @@ import { ClinicalRecordButton } from "../../components/ClinicalRecordButton";
 import useClinicalRecordNavigationGuard from "../../hooks/useClinicalRecordNavigationGuard";
 import {
   addSignedClinicalAddendum,
-  finalizeClinicalRecord,
   getClinicalSigningIdentity,
 } from "../../services/clinicalRecords";
 import DataLoadingState from "../../components/DataLoadingState";
 import ClinicalSignatureConfirmModal from "../../components/ClinicalSignatureConfirmModal";
+import StructuredEvaluationTableInput from "../../components/StructuredEvaluationTableInput";
 import { PageWrapper, PageContent } from "../../components/AppLayout";
 import { LinkGhostButton, PrimaryButton } from "../../components/AppButton";
 import {
@@ -22,11 +22,15 @@ import {
   ModuleSubtitle,
 } from "../../components/AppModuleShell";
 import {
-  getClinicalRecordSaveErrorMessage,
   getSavedClinicalRecordVersion,
-  saveClinicalRecordFlow,
 } from "../../services/clinicalRecordSaveFlow";
 import { useAuthorization } from "../../contexts/AuthorizationContext";
+import {
+  createStructuredEvaluationSaveAttempt,
+  createStructuredEvaluationSaveKey,
+  normalizeStructuredEvaluationAnswers,
+  structuredEvaluationSaveMessage,
+} from "../../services/structuredEvaluationSave";
 
 const formatDate = (value) => {
   if (!value) return "--/--/----";
@@ -144,7 +148,7 @@ const resolveYesNo = (value) => {
 };
 
 const needsSingleInputLabel = (blockType) =>
-  ["text", "textarea", "date", "yesno", "single_select"].includes(blockType);
+  ["text", "textarea", "date", "yesno", "single_select", "number"].includes(blockType);
 
 const buildInputId = (block) => `field-${block.id}`;
 
@@ -280,6 +284,9 @@ const formatAnswer = (block, answers) => {
   if (block.type === "table") {
     return formatTable(block, first.value_json);
   }
+  if (block.type === "number") {
+    return first.value_number == null ? "" : String(first.value_number);
+  }
 
   if (first.value_json !== undefined && first.value_json !== null) {
     return JSON.stringify(first.value_json);
@@ -409,7 +416,7 @@ const resolveAnswerValue = (block, answers) => {
     return first.value_json || (block.type === "table" ? [] : {});
   }
 
-  return first.value_json ?? first.value_text ?? "";
+  return first.value_json ?? first.value_text ?? first.value_number ?? "";
 };
 
 const buildEditableAnswers = (definition, rawAnswers) => {
@@ -457,6 +464,11 @@ const buildAnswersPayload = (definition, answers) => {
           payloads.push({ form_question_id: questionId, option_id: value });
           break;
         case "multi_select":
+          payloads.push({ form_question_id: questionId, value_json: value.map(Number) });
+          break;
+        case "number":
+          payloads.push({ form_question_id: questionId, value_number: Number(value) });
+          break;
         case "matrix":
         case "table":
           payloads.push({ form_question_id: questionId, value_json: value });
@@ -483,6 +495,9 @@ export default function PatientEvaluationDetails() {
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const saveAttempt = useRef(null);
+  const saving = useRef(false);
+  const [saveError, setSaveError] = useState("");
   const [templateTitle, setTemplateTitle] = useState("Avaliacao");
   const [summaryText, setSummaryText] = useState("");
   const [planText, setPlanText] = useState("");
@@ -687,6 +702,8 @@ export default function PatientEvaluationDetails() {
 
   const cancelEditing = useCallback(() => {
     const discard = () => {
+      saveAttempt.current = null;
+      setSaveError("");
       setDraftAnswers(answers);
       setIsEditing(false);
     };
@@ -706,40 +723,37 @@ export default function PatientEvaluationDetails() {
 
   const handleSave = useCallback(async (shouldSign = false) => {
     if (!canWriteClinicalRecords || (shouldSign && !canSaveAndFinalizeClinicalRecords)) return;
-    if (isSaving) return;
+    if (saving.current) return;
     if (!definition || !formInstanceId) return;
+    saving.current = true;
     setIsSaving(true);
+    setSaveError("");
     if (shouldSign) setSignatureError("");
     try {
       const summary = resolveSummary(definition, draftAnswers);
-      const result = await saveClinicalRecordFlow({
-        shouldSign,
-        saveDraft: async () => {
-          const evaluationResponse = await axios.put(`/evaluations/${evaluationId}`, {
+      const payload = {
+        evaluation: {
+            patient_id: Number(patientId),
             clinical_case_id: selectedClinicalCaseId ? Number(selectedClinicalCaseId) : null,
             summary_text: summary.summary_text,
             plan_text: summary.plan_text,
-            version: recordVersion,
-          });
-          const saved = evaluationResponse.data;
-          setRecordVersion(getSavedClinicalRecordVersion(saved));
-
-          await Promise.all(rawAnswers.map((answer) => axios.delete(`/form-answers/${answer.id}`)));
-          const payloads = buildAnswersPayload(definition, draftAnswers);
-          await Promise.all(
-            payloads.map((payload) =>
-              axios.post("/form-answers", {
-                ...payload,
-                form_instance_id: formInstanceId,
-              }),
-            ),
-          );
-          return saved;
         },
-        finalizeDraft: ({ version }) => (
-          finalizeClinicalRecord("evaluation", evaluationId, version)
-        ),
+        forms: [{
+          form_template_id: Number(definition.templateId),
+          form_instance_id: Number(formInstanceId),
+          answers: normalizeStructuredEvaluationAnswers(buildAnswersPayload(definition, draftAnswers)),
+        }],
+      };
+      const previous = saveAttempt.current;
+      if (!previous || (previous.getSavedRecord() && !previous.hasSameContent(payload))) {
+        saveAttempt.current = createStructuredEvaluationSaveAttempt({
+          key: createStructuredEvaluationSaveKey(), recordId: Number(evaluationId),
+        });
+      }
+      const result = await saveAttempt.current.save({
+        ...payload, version: recordVersion, shouldSign,
       });
+      setRecordVersion(getSavedClinicalRecordVersion(result.finalized || result.saved));
       if (shouldSign) {
         if (result.finalized?.version) {
           setRecordVersion(getSavedClinicalRecordVersion(result.finalized));
@@ -751,15 +765,19 @@ export default function PatientEvaluationDetails() {
         toast.success("Rascunho salvo.");
       }
       setIsEditing(false);
+      saveAttempt.current = null;
       await loadData();
     } catch (error) {
-      const message = getClinicalRecordSaveErrorMessage(
-        error,
-        "Não foi possível salvar o registro.",
-      );
+      const message = structuredEvaluationSaveMessage(error);
+      setSaveError(message);
+      if (error.savedRecord) {
+        setRecordVersion(getSavedClinicalRecordVersion(error.savedRecord));
+        setAnswers(draftAnswers);
+      }
       if (shouldSign) setSignatureError(message);
       else toast.error(message);
     } finally {
+      saving.current = false;
       setIsSaving(false);
     }
   }, [
@@ -768,10 +786,9 @@ export default function PatientEvaluationDetails() {
     definition,
     draftAnswers,
     evaluationId,
+    patientId,
     formInstanceId,
-    isSaving,
     loadData,
-    rawAnswers,
     recordVersion,
     selectedClinicalCaseId,
   ]);
@@ -823,11 +840,12 @@ export default function PatientEvaluationDetails() {
     const value = draftAnswers[block.id];
     const options = Array.isArray(block.config?.options) ? block.config.options : [];
 
-    if (block.type === "text") {
+    if (block.type === "text" || block.type === "number") {
       return (
         <FieldInput
           id={fieldId}
-          value={value || ""}
+          type={block.type === "number" ? "number" : "text"}
+          value={value ?? ""}
           onChange={(event) => handleFieldChange(block, event.target.value)}
         />
       );
@@ -964,6 +982,9 @@ export default function PatientEvaluationDetails() {
       );
     }
 
+    if (block.type === "table") {
+      return <StructuredEvaluationTableInput block={block} value={value} onChange={(next) => handleFieldChange(block, next)} />;
+    }
     if (block.type === "info") {
       return <InfoBox>{block.config?.text || block.helpText}</InfoBox>;
     }
@@ -1120,6 +1141,7 @@ export default function PatientEvaluationDetails() {
             <DataLoadingState text="Carregando avaliação..." />
           </SectionCard>
         )}
+        {saveError && <SectionCard role="alert"><p>{saveError}</p></SectionCard>}
 
         {!isLoading && isQuickEvolution && (
           <SummaryGrid>
@@ -1165,6 +1187,7 @@ export default function PatientEvaluationDetails() {
               <SectionPanel>
                 <SectionTitle>{activeSection.title}</SectionTitle>
                 <SectionCard>
+                  <EditorFields disabled={isSaving}>
                   <SectionGrid>
                     {activeSection.blocks.map((block) => {
                       const fieldId = buildInputId(block);
@@ -1192,6 +1215,7 @@ export default function PatientEvaluationDetails() {
                       );
                     })}
                   </SectionGrid>
+                  </EditorFields>
                 </SectionCard>
               </SectionPanel>
             )}
@@ -1281,6 +1305,14 @@ const AddendumEditor = styled.div`
     justify-content: flex-end;
     gap: 10px;
   }
+`;
+
+const EditorFields = styled.fieldset`
+  display: contents;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
 `;
 
 const Header = styled(ModuleHeader)`
@@ -1522,6 +1554,9 @@ const FieldLabel = styled.label`
 
 const fieldStyles = `
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   min-height: 44px;
   border-radius: 10px;
   border: 1px solid rgba(106, 121, 92, 0.2);
