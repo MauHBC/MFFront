@@ -508,7 +508,7 @@ export default function PatientEvaluationDetails() {
   const [addendum, setAddendum] = useState(null);
   const [isSavingAddendum, setIsSavingAddendum] = useState(false);
   const hasUnsavedAnswers = isEditing && JSON.stringify(draftAnswers) !== JSON.stringify(answers);
-  useClinicalRecordNavigationGuard({
+  const { confirmDiscard } = useClinicalRecordNavigationGuard({
     dirty: hasUnsavedAnswers || Boolean(addendum?.reason || addendum?.content),
     saving: isSaving || isSavingAddendum,
   });
@@ -686,12 +686,13 @@ export default function PatientEvaluationDetails() {
   }, [answers, canWriteClinicalRecords, clinicalState]);
 
   const cancelEditing = useCallback(() => {
-    // Same native discard confirmation as leaving the record and switching clinics.
-    // eslint-disable-next-line no-alert
-    if (hasUnsavedAnswers && !window.confirm("Há alterações não salvas. Deseja descartá-las?")) return;
-    setDraftAnswers(answers);
-    setIsEditing(false);
-  }, [answers, hasUnsavedAnswers]);
+    const discard = () => {
+      setDraftAnswers(answers);
+      setIsEditing(false);
+    };
+    if (hasUnsavedAnswers) confirmDiscard(discard);
+    else discard();
+  }, [answers, confirmDiscard, hasUnsavedAnswers]);
 
   const requestSignature = useCallback(() => {
     if (!canSaveAndFinalizeClinicalRecords) return;

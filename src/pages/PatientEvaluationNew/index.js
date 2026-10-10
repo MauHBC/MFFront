@@ -169,7 +169,7 @@ export default function PatientEvaluationNew() {
   const [definition, setDefinition] = useState(null);
   const [activeSectionId, setActiveSectionId] = useState(null);
   const [answers, setAnswers] = useState({});
-  const markSaved = useClinicalRecordNavigationGuard({ dirty: Object.keys(answers).length > 0, saving: isSaving });
+  const { markSaved } = useClinicalRecordNavigationGuard({ dirty: Object.keys(answers).length > 0, saving: isSaving });
   const [loadError, setLoadError] = useState("");
   const [signingIdentity, setSigningIdentity] = useState(null);
   const [signatureConfirmOpen, setSignatureConfirmOpen] = useState(false);

@@ -4,6 +4,8 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { Route, Router } from "react-router-dom";
 import { createMemoryHistory } from "history";
 import PatientEvaluationNew from ".";
+import ClinicalRecordNavigationConfirmation from "../../components/ClinicalRecordNavigationConfirmation";
+import { getClinicalRecordUserConfirmation } from "../../services/clinicalRecordNavigationConfirmation";
 import axios from "../../services/axios";
 import { listPatientClinicalCases } from "../../services/patientClinicalCases";
 import { getClinicalSigningIdentity } from "../../services/clinicalRecords";
@@ -20,8 +22,8 @@ const definition = {
   }] }],
 };
 const renderPage = () => {
-  const history = createMemoryHistory({ initialEntries: ["/pacientes/101", "/pacientes/101/avaliacoes/nova?case=11"], initialIndex: 1 });
-  render(<Router history={history}><Route path="/pacientes/:id/avaliacoes/nova"><PatientEvaluationNew /></Route></Router>);
+  const history = createMemoryHistory({ initialEntries: ["/pacientes/101", "/pacientes/101/avaliacoes/nova?case=11"], initialIndex: 1, getUserConfirmation: getClinicalRecordUserConfirmation });
+  render(<Router history={history}><Route path="/pacientes/:id/avaliacoes/nova"><PatientEvaluationNew /></Route><ClinicalRecordNavigationConfirmation /></Router>);
   return history;
 };
 const edit = async () => {
@@ -42,7 +44,7 @@ describe("new evaluation contextual return", () => {
       ? [{ id: 9, code: "simple", title: "Registro simples", is_active: true }] : definition }));
     axios.post.mockRejectedValue(new Error("Synthetic failure"));
   });
-  afterEach(() => { confirm.mockRestore(); });
+  afterEach(() => { expect(confirm).not.toHaveBeenCalled(); confirm.mockRestore(); });
   it("offers return before a template is selected", async () => {
     const history = renderPage();
     await screen.findByRole("button", { name: "Registro simples" });
@@ -57,8 +59,9 @@ describe("new evaluation contextual return", () => {
     fireEvent.click(screen.getByRole("button", { name: "Voltar", exact: true }));
     expect(history.location.pathname).toBe("/pacientes/101/avaliacoes/nova");
     expect(field).toHaveValue("Conteúdo exclusivamente sintético");
-    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "Continuar editando" }));
     fireEvent.click(screen.getByRole("button", { name: "Voltar", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Descartar alterações" }));
     expect(history.location.pathname).toBe("/pacientes/101");
   });
   it("protects browser Back", async () => {
@@ -76,6 +79,6 @@ describe("new evaluation contextual return", () => {
     fireEvent.click(screen.getByRole("button", { name: "Voltar", exact: true }));
     expect(history.location.pathname).toBe("/pacientes/101/avaliacoes/nova");
     expect(field).toHaveValue("Conteúdo exclusivamente sintético");
-    expect(confirm).toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Alterações não salvas" })).toBeInTheDocument();
   });
 });

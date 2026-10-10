@@ -1,5 +1,6 @@
 import { createBrowserHistory } from "history";
+import { getClinicalRecordUserConfirmation } from "./clinicalRecordNavigationConfirmation";
 
-const history = createBrowserHistory();
+const history = createBrowserHistory({ getUserConfirmation: getClinicalRecordUserConfirmation });
 
 export default history;
