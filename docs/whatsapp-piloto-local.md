@@ -221,3 +221,9 @@ com a autorização disponível. Não recriar/reseed/resetar a fixture, trocar
 senha ou gerar novas chaves; a retomada deve usar o contexto DPAPI existente.
 Build de produção e conferência da versão/bundle servido são gates separados;
 prévia não foi declarada acessível nesta etapa.
+
+Complemento do gate de produção: o agrupamento da rota técnica em AppShell
+também exige development; sua string não deve permanecer no bundle otimizado.
+Regressão de rotas 9/9 PASS após esse ajuste. Build inicial e07ffac PASS;
+o build do novo commit é conferido novamente para ausência da rota/código
+de cenários. Isso não muda os componentes clínicos aprovados.

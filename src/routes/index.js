@@ -109,8 +109,8 @@ export default function Routes() {
     "/agendamentos",
     "/agendamentos/eventos",
     "/whatsapp",
-    "/whatsapp-cenarios",
   ].includes(location.pathname)
+    || (process.env.NODE_ENV === "development" && location.pathname === "/whatsapp-cenarios")
     || usesPatientsAppShell
     || usesPlansAppShell
     || usesFinancialAppShell
