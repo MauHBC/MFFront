@@ -46,7 +46,7 @@ As quatro imagens Library não foram inspecionadas: o helper de materialização
 falhou no Windows por ausência de os.setxattr; nenhum download foi apresentado
 como artefato qualificado. Usou-se a tela autenticada real conforme a alternativa autorizada.
 
-Gates da correção: 57/57 testes focados em cinco suítes (drawer, histórico, flag,
+Gates da correção: 58/58 testes focados em cinco suítes (drawer, histórico, flag,
 menu e integração App Shell). Incluem quatro envios, múltiplos atendimentos,
 repetição de clique/reabertura, HTTP atrasado, dia, atualização por poll, erro,
 contato, permissões e descarte. Lint focado, mojibake e diffcheck PASS; aviso de Browserslist preexistente.
